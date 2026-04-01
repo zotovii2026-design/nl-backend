@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: nl-backend-app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/nl_table
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: nl-backend-postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=nl_table
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: nl-backend-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  celery-worker:
+    build: .
+    container_name: nl-backend-celery-worker
+    command: celery -A tasks.celery_app worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/nl_table
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
+  celery-beat:
+    build: .
+    container_name: nl-backend-celery-beat
+    command: celery -A tasks.celery_app beat --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/nl_table
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
