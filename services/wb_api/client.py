@@ -6,9 +6,13 @@ from core.config import settings
 class WBApiClient:
     """Клиент для WB API"""
 
+    # Базовые URL для разных категорий API
+    MARKETPLACE_URL = "https://marketplace-api.wildberries.ru"
+    CONTENT_URL = "https://content-api.wildberries.ru"
+    STATISTICS_URL = "https://statistics-api.wildberries.ru"
+
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.base_url = settings.WB_API_BASE_URL
         self.client = httpx.AsyncClient(
             headers={
                 "Authorization": f"Bearer {api_key}",
@@ -27,7 +31,7 @@ class WBApiClient:
     async def get_products(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """Получение списка товаров"""
         response = await self.client.get(
-            f"{self.base_url}/api/v2/products",
+            f"{self.CONTENT_URL}/api/v2/products",
             params={"limit": limit, "offset": offset}
         )
         response.raise_for_status()
@@ -36,12 +40,12 @@ class WBApiClient:
     async def get_product_detail(self, nm_id: int) -> Dict[str, Any]:
         """Получение деталей товара по nm_id"""
         response = await self.client.get(
-            f"{self.base_url}/api/v2/products/{nm_id}"
+            f"{self.CONTENT_URL}/api/v2/products/{nm_id}"
         )
         response.raise_for_status()
         return response.json().get("data", {})
 
-    async def get_sales(self, 
+    async def get_sales(self,
                      date_from: Optional[str] = None,
                      date_to: Optional[str] = None,
                      limit: int = 100) -> List[Dict[str, Any]]:
@@ -53,7 +57,7 @@ class WBApiClient:
             params["dateTo"] = date_to
 
         response = await self.client.get(
-            f"{self.base_url}/api/v1/sales",
+            f"{self.STATISTICS_URL}/api/v1/sales",
             params=params
         )
         response.raise_for_status()
@@ -71,7 +75,7 @@ class WBApiClient:
             params["dateTo"] = date_to
 
         response = await self.client.get(
-            f"{self.base_url}/api/v2/orders",
+            f"{self.MARKETPLACE_URL}/api/v2/orders",
             params=params
         )
         response.raise_for_status()
@@ -96,10 +100,10 @@ class WBApiClient:
         return response.json().get("data", {})
 
     async def test_connection(self) -> bool:
-        """Проверка подключения к WB API"""
+        """Проверка подключения к WB API (использует ping endpoint)"""
         try:
             response = await self.client.get(
-                f"{self.base_url}/api/v2/info"
+                f"{self.MARKETPLACE_URL}/ping"
             )
             return response.status_code == 200
         except Exception:
