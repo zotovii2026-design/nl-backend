@@ -14,7 +14,8 @@ class WBApiClient:
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             },
-            timeout=30.0
+            timeout=30.0,
+            default_encoding="utf-8"
         )
 
     async def __aenter__(self):
