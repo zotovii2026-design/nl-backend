@@ -30,11 +30,53 @@ nl-backend/
 | Спринт | Статус | Описание |
 |--------|--------|----------|
 | Спринт 1 | ✅ | Инфраструктура и БД |
-| Спринт 2 | 🚧 | Авторизация (JWT, регистрация, логин) |
-| Спринт 3 | 🚧 | Организации и роли |
-| Спринт 4 | 🚧 | WB API клиент + шифрование |
+| Спринт 2 | ✅ | Авторизация (JWT, регистрация, логин) |
+| Спринт 3 | ✅ | Организации и роли |
+| Спринт 4 | ✅ | WB API клиент + шифрование ключей |
 | Спринт 5 | 🚧 | Синхронизация данных |
 | Спринт 6 | 🚧 | Дашборд |
+
+---
+
+## Спринт 4 — WB API клиент и шифрование
+
+### Что создано:
+
+1. **WB API клиент** (`services/wb_api/client.py`)
+   - HTTP клиент для WB API (httpx)
+   - Методы: get_products, get_sales, get_orders, get_reports
+   - Проверка подключения (test_connection)
+
+2. **Управление WB ключами** (`api/v1/wb_keys.py`, `services/wb_api/keys.py`)
+   - POST `/api/v1/organizations/{org_id}/wb-keys` — добавление (с шифрованием)
+   - GET `/api/v1/organizations/{org_id}/wb-keys` — список (без значений)
+   - DELETE `/api/v1/organizations/{org_id}/wb-keys/{key_id}` — удаление
+   - Шифрование/дешифрование через Fernet
+
+3. **Тестирование** (`tests/test_wb_api.py`)
+   - Тесты шифрования/дешифрования
+   - Тесты API endpoints
+   - Тесты WB API клиента
+
+4. **Миграция БД**
+   - `002_add_wb_api_keys_table.py` — таблица wb_api_keys
+
+### Пример запроса:
+
+```bash
+# Добавление WB API ключа
+curl -X POST http://localhost:8000/api/v1/organizations/{org_id}/wb-keys \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Основной ключ","api_key":"wb_api_key_here"}'
+```
+
+### Запуск тестов:
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/test_wb_api.py -v
+```
 
 ## Запуск
 

@@ -24,8 +24,8 @@ ENV/
 *.sqlite
 
 # Alembic
-alembic/versions/*.py
-!alembic/versions/.gitkeep
+# Не игнорируем миграции - они должны быть в репозитории
+
 
 # Logs
 *.log

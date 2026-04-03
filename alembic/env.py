@@ -13,7 +13,7 @@ from core.database import Base
 
 # Импорт всех моделей для autogenerate
 from models.user import User
-from models.organization import Organization, Membership, Invitation
+from models.organization import Organization, Membership, Invitation, WbApiKey
 
 config = context.config
 
