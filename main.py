@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from core.database import get_db
 from core.config import settings
-from api.v1 import auth, organizations, wb_keys, sync
+from api.v1 import auth, organizations, wb_keys, sync, demo
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -26,6 +26,7 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(organizations.router, prefix="/api/v1")
 app.include_router(wb_keys.router, prefix="/api/v1")
 app.include_router(sync.router, prefix="/api/v1")
+app.include_router(demo.router, prefix="/api/v1")
 
 
 @app.get("/")
