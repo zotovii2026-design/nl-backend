@@ -33,8 +33,68 @@ nl-backend/
 | Спринт 2 | ✅ | Авторизация (JWT, регистрация, логин) |
 | Спринт 3 | ✅ | Организации и роли |
 | Спринт 4 | ✅ | WB API клиент + шифрование ключей |
-| Спринт 5 | 🚧 | Синхронизация данных |
+| Спринт 5 | ✅ | Синхронизация данных (Celery + Beat) |
 | Спринт 6 | 🚧 | Дашборд |
+
+---
+
+## Спринт 5 — Синхронизация данных (Celery + Beat)
+
+### Что создано:
+
+1. **Celery задачи** (`tasks/celery_app_new.py`)
+   - `sync_wb_products` — синхронизация товаров (каждые 30 минут)
+   - `sync_wb_sales` — синхронизация продаж (каждый час)
+   - `sync_wb_orders` — синхронизация заказов (каждые 2 часа)
+   - `sync_organization_data` — полная синхронизация организации
+   - `cleanup_old_sync_logs` — очистка старых логов
+
+2. **Модель логов синхронизации** (`models/sync.py`)
+   - SyncLog: task_name, status, synced_count, error_message
+   - Время выполнения и длительность
+
+3. **API для управления синхронизацией** (`api/v1/sync.py`)
+   - `POST /api/v1/organizations/{org_id}/sync/products` — товары
+   - `POST /api/v1/organizations/{org_id}/sync/sales` — продажи
+   - `POST /api/v1/organizations/{org_id}/sync/orders` — заказы
+   - `POST /api/v1/organizations/{org_id}/sync/full` — полная
+   - `GET /api/v1/organizations/{org_id}/sync/status/{task_id}` — статус
+   - `GET /api/v1/organizations/{org_id}/sync/logs` — логи
+
+4. **Миграции БД**
+   - `003_add_sync_logs_table.py` — таблица sync_logs
+   - `004_add_sync_model.py` — регистрация модели
+
+5. **Тестирование** (`tests/test_sync_tasks.py`)
+   - Тесты всех Celery задач
+   - Тесты API endpoints
+
+### Расписание (Celery Beat):
+
+| Задача | Расписание | Описание |
+|--------|------------|-----------|
+| sync_wb_products | Каждые 30 минут | Товары |
+| sync_wb_sales | Каждый час | Продажи |
+| sync_wb_orders | Каждые 2 часа | Заказы |
+
+### Пример запроса:
+
+```bash
+# Запуск полной синхронизации
+curl -X POST http://localhost:8000/api/v1/organizations/{org_id}/sync/full \
+  -H "Authorization: Bearer <access_token>"
+
+# Проверка статуса задачи
+curl http://localhost:8000/api/v1/organizations/{org_id}/sync/status/{task_id} \
+  -H "Authorization: Bearer <access_token>"
+```
+
+### Запуск тестов:
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/test_sync_tasks.py -v
+```
 
 ---
 

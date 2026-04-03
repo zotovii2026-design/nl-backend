@@ -39,7 +39,7 @@ services:
   celery-worker:
     build: .
     container_name: nl-backend-celery-worker
-    command: celery -A tasks.celery_app worker --loglevel=info
+    command: celery -A tasks.celery_app_new worker --loglevel=info
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/nl_table
       - REDIS_URL=redis://redis:6379/0
@@ -53,7 +53,7 @@ services:
   celery-beat:
     build: .
     container_name: nl-backend-celery-beat
-    command: celery -A tasks.celery_app beat --loglevel=info
+    command: celery -A tasks.celery_app_new beat --loglevel=info
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/nl_table
       - REDIS_URL=redis://redis:6379/0
