@@ -16,7 +16,8 @@ class WBApiClient:
         self.client = httpx.AsyncClient(
             headers={
                 "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "User-Agent": "NL-Table/1.0"
             },
             timeout=30.0,
             default_encoding="utf-8"
