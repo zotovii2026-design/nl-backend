@@ -6,8 +6,10 @@ from core.config import settings
 class WBApiClient:
     """Клиент для WB API"""
 
-    # Правильный WB API URL для поставщиков
-    WB_API_URL = "https://api-seller.wildberries.ru"
+    # Правильные WB API URL для разных категорий данных
+    CONTENT_URL = "https://content-api.wildberries.ru"
+    MARKETPLACE_URL = "https://marketplace-api.wildberries.ru"
+    STATISTICS_URL = "https://statistics-api.wildberries.ru"
 
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -30,7 +32,7 @@ class WBApiClient:
     async def get_products(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """Получение списка товаров"""
         response = await self.client.get(
-            f"{self.WB_API_URL}/api/v2/goods",
+            f"{self.CONTENT_URL}/api/v2/goods",
             params={"limit": limit, "offset": offset}
         )
         response.raise_for_status()
@@ -40,7 +42,7 @@ class WBApiClient:
     async def get_product_detail(self, nm_id: int) -> Dict[str, Any]:
         """Получение деталей товара по nm_id"""
         response = await self.client.get(
-            f"{self.WB_API_URL}/api/v2/goods/{nm_id}"
+            f"{self.CONTENT_URL}/api/v2/goods/{nm_id}"
         )
         response.raise_for_status()
         result = response.json()
@@ -58,7 +60,7 @@ class WBApiClient:
             params["dateTo"] = date_to
 
         response = await self.client.get(
-            f"{self.WB_API_URL}/api/v1/sales",
+            f"{self.STATISTICS_URL}/api/v1/sales",
             params=params
         )
         response.raise_for_status()
@@ -77,7 +79,7 @@ class WBApiClient:
             params["dateTo"] = date_to
 
         response = await self.client.get(
-            f"{self.WB_API_URL}/api/v2/orders",
+            f"{self.MARKETPLACE_URL}/api/v2/orders",
             params=params
         )
         response.raise_for_status()
@@ -106,7 +108,7 @@ class WBApiClient:
         """Проверка подключения к WB API"""
         try:
             response = await self.client.get(
-                f"{self.WB_API_URL}/api/v2/goods",
+                f"{self.CONTENT_URL}/api/v2/goods",
                 params={"limit": 1}
             )
             return response.status_code == 200
