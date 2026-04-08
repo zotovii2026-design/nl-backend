@@ -6,10 +6,8 @@ from core.config import settings
 class WBApiClient:
     """Клиент для WB API"""
 
-    # Базовые URL для разных категорий API
-    MARKETPLACE_URL = "https://marketplace-api.wildberries.ru"
-    CONTENT_URL = "https://content-api.wildberries.ru"
-    STATISTICS_URL = "https://statistics-api.wildberries.ru"
+    # Правильный WB API URL для поставщиков
+    WB_API_URL = "https://suppliers-api.wildberries.ru"
 
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -32,19 +30,21 @@ class WBApiClient:
     async def get_products(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """Получение списка товаров"""
         response = await self.client.get(
-            f"{self.CONTENT_URL}/api/v2/products",
+            f"{self.WB_API_URL}/api/v2/goods",
             params={"limit": limit, "offset": offset}
         )
         response.raise_for_status()
-        return response.json().get("data", {}).get("cards", [])
+        result = response.json()
+        return result.get("data", {}).get("cards", result.get("cards", result))
 
     async def get_product_detail(self, nm_id: int) -> Dict[str, Any]:
         """Получение деталей товара по nm_id"""
         response = await self.client.get(
-            f"{self.CONTENT_URL}/api/v2/products/{nm_id}"
+            f"{self.WB_API_URL}/api/v2/goods/{nm_id}"
         )
         response.raise_for_status()
-        return response.json().get("data", {})
+        result = response.json()
+        return result.get("data", result)
 
     async def get_sales(self,
                      date_from: Optional[str] = None,
@@ -58,11 +58,12 @@ class WBApiClient:
             params["dateTo"] = date_to
 
         response = await self.client.get(
-            f"{self.STATISTICS_URL}/api/v1/sales",
+            f"{self.WB_API_URL}/api/v1/sales",
             params=params
         )
         response.raise_for_status()
-        return response.json().get("data", {}).get("cards", [])
+        result = response.json()
+        return result.get("data", {}).get("cards", result.get("cards", result))
 
     async def get_orders(self,
                      date_from: Optional[str] = None,
@@ -76,11 +77,12 @@ class WBApiClient:
             params["dateTo"] = date_to
 
         response = await self.client.get(
-            f"{self.MARKETPLACE_URL}/api/v2/orders",
+            f"{self.WB_API_URL}/api/v2/orders",
             params=params
         )
         response.raise_for_status()
-        return response.json().get("data", {}).get("orders", [])
+        result = response.json()
+        return result.get("data", {}).get("orders", result.get("orders", result))
 
     async def get_reports(self, 
                        report_type: str = "sales",
@@ -101,10 +103,11 @@ class WBApiClient:
         return response.json().get("data", {})
 
     async def test_connection(self) -> bool:
-        """Проверка подключения к WB API (использует ping endpoint)"""
+        """Проверка подключения к WB API"""
         try:
             response = await self.client.get(
-                f"{self.MARKETPLACE_URL}/ping"
+                f"{self.WB_API_URL}/api/v2/goods",
+                params={"limit": 1}
             )
             return response.status_code == 200
         except Exception:
