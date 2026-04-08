@@ -7,7 +7,7 @@ class WBApiClient:
     """Клиент для WB API"""
 
     # Правильный WB API URL для поставщиков
-    WB_API_URL = "https://suppliers-api.wildberries.ru"
+    WB_API_URL = "https://api-seller.wildberries.ru"
 
     def __init__(self, api_key: str):
         self.api_key = api_key
