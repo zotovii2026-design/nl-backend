@@ -3,11 +3,8 @@ from services.wb_api.client import WBApiClient
 
 router = APIRouter(prefix="/demo", tags=["Demo"])
 
-# WB API ключ для тестирования (Base token - acc=1)
-DEMO_WB_API_KEY = "eyJhbGciOiJFUzI1NiIsImtpZCI6IjIwMjYwMzAydjEiLCJ0eXAiOiJKV1QifQ.eyJhY2MiOjEsImVudCI6MSwiZXhwIjoxNzkxNDQ3MTA0LCJpZCI6IjAxOWQ2ZWI4LWU1MmEtN2FjMC04YjgxLTdiYWZjYzM2YTlhZSIsImlpZCI6MjczNDYyMTcsIm9pZCI6NDIzNDM2MCwicyI6MTA3Mzc1Nzk1MCwic2lkIjoiN2RmOTdhZTQtYjk5YS00Zjk5LTliZWUtYTQyMDhhNjllZGM0IiwidCI6ZmFsc2UsInVpZCI6MjczNDYyMTd9.9w987aRUsq9UPQJziV6PCyRNCwvQ_1JfBeG4LXnoS_j4PZ9zHM6F1bwz4gB2zcLEQ1lwQDu19pVzeIixdQpYHQ"
-
-# WB API URL (устаревший, для совместимости)
-DEMO_WB_API_URL = "https://suppliers-api.wildberries.ru"
+# WB API ключ для тестирования (Personal token - acc=3)
+DEMO_WB_API_KEY = "eyJhbGciOiJFUzI1NiIsImtpZCI6IjIwMjYwMzAydjEiLCJ0eXAiOiJKV1QifQ.eyJhY2MiOjMsImVudCI6MSwiZXhwIjoxNzkxNDg4ODcyLCJmb3IiOiJzZWxmIiwiaWQiOiIwMTlkNzEzNi0zOWIxLTdjNDQtYWY2MS04NTYzZGQxOWI5YTYiLCJpaWQiOjczNDYyMTcsIm9pZCI6NDIzNDM2MCwicyI6MTA3MzU3OTUwLCJzaWQiOiI3ZGY5N2FlNC1iOTlhLTRmOTktOWJlZS1hNDIwOGE2OWVkYzQiLCJ0IjpmYWxzZSwidWlkIjoyNzM0NjIxN30.GMKX6eFgol-sccf2gsHzxL6KOcuDw-TstnS2_htPjWMV4YG4wEerW3oglay9NULuqN3n0M43lZcr5w4i7HDqHg"
 
 @router.get("/products")
 async def get_demo_products():
@@ -61,7 +58,7 @@ async def get_demo_orders():
 async def get_demo_info():
     """Информация о подключении (demo endpoint)"""
     return {
-        "api_url": DEMO_WB_API_URL,
+        "api_url": "https://content-api.wildberries.ru",
         "api_key_prefix": DEMO_WB_API_KEY[:50] + "...",
         "message": "This is a demo endpoint using a hardcoded WB API key"
     }
