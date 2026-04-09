@@ -30,23 +30,25 @@ class WBApiClient:
         await self.client.aclose()
 
     async def get_products(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
-        """Получение списка товаров"""
+        """Получение списка товаров (карточек)"""
         response = await self.client.get(
-            f"{self.CONTENT_URL}/api/v2/goods",
+            f"{self.CONTENT_URL}/api/v2/cards/goods/list",
             params={"limit": limit, "offset": offset}
         )
         response.raise_for_status()
         result = response.json()
-        return result.get("data", {}).get("cards", result.get("cards", result))
+        return result.get("cards", result.get("data", result))
 
     async def get_product_detail(self, nm_id: int) -> Dict[str, Any]:
         """Получение деталей товара по nm_id"""
         response = await self.client.get(
-            f"{self.CONTENT_URL}/api/v2/goods/{nm_id}"
+            f"{self.CONTENT_URL}/api/v2/cards/goods/list",
+            params={"nmIDs": [nm_id], "limit": 1}
         )
         response.raise_for_status()
         result = response.json()
-        return result.get("data", result)
+        cards = result.get("cards", result.get("data", result))
+        return cards[0] if cards and len(cards) > 0 else {}
 
     async def get_sales(self,
                      date_from: Optional[str] = None,
