@@ -145,11 +145,96 @@ async def sync_sales(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Запустить синхронизацию продаж (TODO)"""
-    return {
-        "status": "todo",
-        "message": "Синхронизация продаж ещё не реализована"
-    }
+    """Запустить минимальную синхронизацию агрегированных продаж WB"""
+    log_id = None
+
+    try:
+        result = await db.execute(select(WbApiKey).where(WbApiKey.id == api_key_id))
+        api_key_record = result.scalar_one_or_none()
+        if not api_key_record:
+            raise Exception(f"API key {api_key_id} not found")
+
+        decrypted_key = decrypt_data(api_key_record.api_key)
+
+        log = SyncLog(
+            organization_id=str(api_key_record.organization_id),
+            task_name="wb.sync_sales",
+            status="running",
+            started_at=datetime.utcnow()
+        )
+        db.add(log)
+        await db.commit()
+        await db.refresh(log)
+        log_id = log.id
+
+        from datetime import timedelta
+        from models.wb_data import WbSale
+        date_to = datetime.utcnow().date()
+        date_from = date_to - timedelta(days=max(days - 1, 0))
+
+        client = await get_wb_client(decrypted_key)
+        products = await client.get_sales_funnel_products(
+            date_from=date_from.isoformat(),
+            date_to=date_to.isoformat()
+        )
+
+        synced_count = 0
+        for item in products:
+            product = item.get("product", {})
+            statistic = item.get("statistic", {})
+            selected = statistic.get("selected", {})
+            nm_id = product.get("nmId")
+            sale_id = f"analytics:{date_from.isoformat()}:{date_to.isoformat()}:{nm_id}"
+
+            existing = await db.execute(select(WbSale).where(WbSale.sale_id == sale_id))
+            if existing.scalar_one_or_none():
+                continue
+
+            row = WbSale(
+                sale_id=sale_id,
+                organization_id=str(api_key_record.organization_id),
+                date_from=datetime.fromisoformat(date_from.isoformat()),
+                date_to=datetime.fromisoformat(date_to.isoformat()),
+                income=float(selected.get("orderSum", 0) or 0),
+                penalty=float(selected.get("cancelSum", 0) or 0),
+                reward=float(selected.get("buyoutSum", 0) or 0),
+                quantity=int(selected.get("orderCount", 0) or 0),
+                total_price=float(selected.get("orderSum", 0) or 0),
+                price_with_disc=float(selected.get("avgPrice", 0) or 0),
+                nm_id=nm_id,
+                subject=product.get("subjectName", ""),
+                brand=product.get("brandName", ""),
+                g_number=product.get("vendorCode", ""),
+                supplier_oper_name="analytics_sales_funnel",
+                synced_at=datetime.utcnow()
+            )
+            db.add(row)
+            synced_count += 1
+
+        await db.commit()
+
+        log.status = "success"
+        log.finished_at = datetime.utcnow()
+        log.synced_count = synced_count
+        log.error_message = None
+        await db.commit()
+
+        return {
+            "status": "success",
+            "sales_count": synced_count,
+            "date_from": date_from.isoformat(),
+            "date_to": date_to.isoformat()
+        }
+
+    except Exception as e:
+        if log_id:
+            log = await db.get(SyncLog, log_id)
+            if log:
+                log.status = "error"
+                log.finished_at = datetime.utcnow()
+                log.error_message = str(e)
+                await db.commit()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/logs")

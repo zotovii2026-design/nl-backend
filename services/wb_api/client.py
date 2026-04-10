@@ -164,6 +164,28 @@ class WBApiClient:
         result = response.json()
         return result.get("data", {}).get("cards", result.get("cards", result))
 
+    async def get_sales_funnel_products(self,
+                     date_from: str,
+                     date_to: str,
+                     timezone: str = "Europe/Moscow") -> List[Dict[str, Any]]:
+        """Получение агрегированной аналитики продаж по товарам"""
+        payload = {
+            "selectedPeriod": {"start": date_from, "end": date_to},
+            "timezone": timezone,
+            "brandNames": [],
+            "objectIDs": [],
+            "tagIDs": [],
+            "nmIDs": [],
+            "page": 1
+        }
+        response = await self.client.post(
+            "https://seller-analytics-api.wildberries.ru/api/analytics/v3/sales-funnel/products",
+            json=payload
+        )
+        response.raise_for_status()
+        result = response.json()
+        return result.get("data", {}).get("products", [])
+
     async def get_orders(self,
                      date_from: Optional[str] = None,
                      date_to: Optional[str] = None,
