@@ -68,7 +68,7 @@ class WBApiClient:
             payload["settings"]["cursor"]["nmID"] = cursor_nm_id
         
         response = await self.client.post(
-            f"{self.CONTENT_URL}content/v2/get/cards/list",
+            f"{self.CONTENT_URL}/content/v2/get/cards/list",
             json=payload
         )
         response.raise_for_status()
@@ -205,7 +205,7 @@ class WBApiClient:
         """Проверка подключения к WB API"""
         try:
             response = await self.client.get(
-                f"{self.CONTENT_URL}content/v2/object/parent/all"
+                f"{self.CONTENT_URL}/content/v2/object/parent/all"
             )
             return response.status_code == 200
         except Exception:

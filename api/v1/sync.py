@@ -6,8 +6,12 @@ from datetime import datetime
 
 from core.database import get_db
 from models.user import User
-from models.wb_data import SyncLog
+from models.wb_data import WbProduct, SyncLog
 from core.dependencies import get_current_user
+from sqlalchemy import select
+from services.wb_api.client import get_wb_client
+from core.security import decrypt_data
+from models.organization import WbApiKey
 
 router = APIRouter(prefix="/sync", tags=["Synchronization"])
 
@@ -18,16 +22,120 @@ async def sync_products(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Запустить синхронизацию товаров"""
-    from tasks.wb_sync import sync_products_task
+    """Запустить синхронизацию товаров (синхронно)"""
+    log_id = None
     
-    result = sync_products_task.delay(str(api_key_id), str(current_user.id))
+    try:
+        # Получаем API ключ из БД
+        result = await db.execute(
+            select(WbApiKey).where(WbApiKey.id == api_key_id)
+        )
+        api_key_record = result.scalar_one_or_none()
+        
+        if not api_key_record:
+            raise Exception(f"API key {api_key_id} not found")
+        
+        # Расшифровываем ключ
+        decrypted_key = decrypt_data(api_key_record.api_key)
+        
+        # Создаём лог синхронизации
+        log = SyncLog(
+            organization_id=str(api_key_record.organization_id),
+            task_name="wb.sync_products",
+            status="running",
+            started_at=datetime.utcnow()
+        )
+        db.add(log)
+        await db.commit()
+        await db.refresh(log)
+        log_id = log.id
+        
+        # Получаем карточки из WB API
+        client = await get_wb_client(decrypted_key)
+        cards = await client.get_all_cards()
+        # client.close() removed
+        
+        # Сохраняем карточки в БД
+        synced_count = 0
+        for card in cards:
+            # Проверяем, существует ли карточка
+            result = await db.execute(
+                select(WbProduct).where(
+                    WbProduct.nm_id == card.get("nmID"),
+                    WbProduct.organization_id == str(api_key_record.organization_id)
+                )
+            )
+            existing_product = result.scalar_one_or_none()
+            
+            # Получаем цену из размеров
+            price = 0
+            if card.get("sizes") and len(card["sizes"]) > 0:
+                price = card["sizes"][0].get("price", 0) or 0
+            
+            # Получаем главное фото
+            photo_url = ""
+            if card.get("photos") and len(card["photos"]) > 0:
+                photo_url = card["photos"][0].get("big", "")
+            
+            if existing_product:
+                # Обновляем существующую карточку
+                existing_product.name = card.get("title", "")
+                existing_product.vendor_code = card.get("vendorCode", "")
+                existing_product.brand = card.get("brand", "")
+                existing_product.subject = card.get("subjectName", "")
+                existing_product.description = card.get("description", "")
+                existing_product.price = float(price)
+                existing_product.photo_url = photo_url
+                existing_product.need_kiz = card.get("needKiz", False)
+                existing_product.kiz_marked = card.get("kizMarked", False)
+                existing_product.synced_at = datetime.utcnow()
+            else:
+                # Создаём новую карточку
+                product = WbProduct(
+                    nm_id=card.get("nmID", 0),
+                    vendor_code=card.get("vendorCode", ""),
+                    name=card.get("title", ""),
+                    brand=card.get("brand", ""),
+                    subject=card.get("subjectName", ""),
+                    description=card.get("description", ""),
+                    price=float(price),
+                    photo_url=photo_url,
+                    organization_id=str(api_key_record.organization_id),
+                    need_kiz=card.get("needKiz", False),
+                    kiz_marked=card.get("kizMarked", False),
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                    synced_at=datetime.utcnow()
+                )
+                db.add(product)
+                synced_count += 1
+        
+        await db.commit()
+        
+        # Обновляем лог синхронизации
+        log.status = "success"
+        log.finished_at = datetime.utcnow()
+        log.synced_count = len(cards)
+        log.error_message = None
+        await db.commit()
+        
+        return {
+            "status": "success",
+            "cards_count": len(cards),
+            "synced_count": synced_count
+        }
     
-    return {
-        "status": "started",
-        "task_id": result.id,
-        "message": "Синхронизация товаров запущена"
-    }
+    except Exception as e:
+        # Логируем ошибку
+        if log_id:
+            log = await db.get(SyncLog, log_id)
+            if log:
+                log.status = "error"
+                log.finished_at = datetime.utcnow()
+                log.error_message = str(e)
+                await db.commit()
+        
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/sales")
@@ -37,15 +145,10 @@ async def sync_sales(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Запустить синхронизацию продаж"""
-    from tasks.wb_sync import sync_sales_task
-    
-    result = sync_sales_task.delay(str(api_key_id), str(current_user.id), days)
-    
+    """Запустить синхронизацию продаж (TODO)"""
     return {
-        "status": "started",
-        "task_id": result.id,
-        "message": "Синхронизация продаж запущена"
+        "status": "todo",
+        "message": "Синхронизация продаж ещё не реализована"
     }
 
 
