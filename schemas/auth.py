@@ -29,7 +29,7 @@ class UserResponse(BaseModel):
     is_active: bool
     is_superuser: bool
     created_at: datetime
-    updated_at: datetime
+    updated_at: datetime | None
     last_login: datetime | None
 
     class Config:

@@ -44,3 +44,5 @@ secrets/
 *.key
 *.pem
 wb-api-key.txt
+
+celerybeat-schedule

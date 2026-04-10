@@ -6,6 +6,9 @@ services:
     container_name: nl-backend-app
     ports:
       - "8000:8000"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/nl_table
       - REDIS_URL=redis://redis:6379/0
@@ -34,12 +37,18 @@ services:
     container_name: nl-backend-redis
     ports:
       - "6379:6379"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     restart: unless-stopped
 
   celery-worker:
     build: .
     container_name: nl-backend-celery-worker
     command: celery -A tasks.celery_app_new worker --loglevel=info
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/nl_table
       - REDIS_URL=redis://redis:6379/0
@@ -54,6 +63,9 @@ services:
     build: .
     container_name: nl-backend-celery-beat
     command: celery -A tasks.celery_app_new beat --loglevel=info
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/nl_table
       - REDIS_URL=redis://redis:6379/0

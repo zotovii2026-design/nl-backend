@@ -66,8 +66,8 @@ async def _sync_products_task(api_key_id: str, organization_id: str):
             break
         
         # Получаем карточки из WB API
-        async with get_wb_client(decrypted_key) as client:
-            cards = await client.get_all_cards()
+        client = await get_wb_client(decrypted_key)
+        cards = await client.get_all_cards()
         
         # Сохраняем карточки в БД
         async for db in get_db():

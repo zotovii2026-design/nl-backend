@@ -22,7 +22,7 @@ class OrganizationResponse(BaseModel):
     subscription_tier: SubscriptionTier
     subscription_status: str
     created_at: datetime
-    updated_at: datetime
+    updated_at: datetime | None
 
     class Config:
         from_attributes = True
@@ -67,7 +67,7 @@ class WbApiKeyResponse(BaseModel):
     organization_id: UUID
     name: str
     created_at: datetime
-    updated_at: datetime
+    updated_at: datetime | None
 
     class Config:
         from_attributes = True

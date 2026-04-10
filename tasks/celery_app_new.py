@@ -10,7 +10,7 @@ celery_app = Celery(
     "nl_backend_sync",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
-    include=["tasks.sync_tasks"]
+    include=["tasks.sync_tasks", "tasks.wb_sync"]
 )
 
 # Настройки Celery
