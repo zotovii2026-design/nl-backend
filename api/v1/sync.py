@@ -1,146 +1,85 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from core.database import get_db
-from core.dependencies import get_current_user
-from core.role_deps import require_organization_role
-from models.user import User
-from models.organization import Role
+from uuid import UUID
+from typing import Optional
+from datetime import datetime
 
-router = APIRouter(prefix="/organizations/{org_id}/sync", tags=["Sync"])
+from core.database import get_db
+from models.user import User
+from models.wb_data import SyncLog
+from core.dependencies import get_current_user
+
+router = APIRouter(prefix="/sync", tags=["Synchronization"])
 
 
 @router.post("/products")
-async def trigger_products_sync(
-    org_id: str,
+async def sync_products(
+    api_key_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Запуск синхронизации товаров вручную (admin+)"""
-    from tasks.celery_app_new import sync_wb_products
+    """Запустить синхронизацию товаров"""
+    from tasks.wb_sync import sync_products_task
     
-    # Проверка прав
-    await require_organization_role(org_id, Role.ADMIN, current_user, db)
-    
-    # Запуск задачи
-    task = sync_wb_products.delay(organization_id=org_id)
+    result = sync_products_task.delay(str(api_key_id), str(current_user.id))
     
     return {
-        "message": "Products sync started",
-        "task_id": task.id,
-        "status": "pending"
+        "status": "started",
+        "task_id": result.id,
+        "message": "Синхронизация товаров запущена"
     }
 
 
 @router.post("/sales")
-async def trigger_sales_sync(
-    org_id: str,
-    date_from: str = None,
+async def sync_sales(
+    api_key_id: UUID,
+    days: int = 7,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Запуск синхронизации продаж вручную (admin+)"""
-    from tasks.celery_app_new import sync_wb_sales
+    """Запустить синхронизацию продаж"""
+    from tasks.wb_sync import sync_sales_task
     
-    # Проверка прав
-    await require_organization_role(org_id, Role.ADMIN, current_user, db)
-    
-    # Запуск задачи
-    task = sync_wb_sales.delay(organization_id=org_id, date_from=date_from)
+    result = sync_sales_task.delay(str(api_key_id), str(current_user.id), days)
     
     return {
-        "message": "Sales sync started",
-        "task_id": task.id,
-        "status": "pending",
-        "date_from": date_from
-    }
-
-
-@router.post("/orders")
-async def trigger_orders_sync(
-    org_id: str,
-    date_from: str = None,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Запуск синхронизации заказов вручную (admin+)"""
-    from tasks.celery_app_new import sync_wb_orders
-    
-    # Проверка прав
-    await require_organization_role(org_id, Role.ADMIN, current_user, db)
-    
-    # Запуск задачи
-    task = sync_wb_orders.delay(organization_id=org_id, date_from=date_from)
-    
-    return {
-        "message": "Orders sync started",
-        "task_id": task.id,
-        "status": "pending",
-        "date_from": date_from
-    }
-
-
-@router.post("/full")
-async def trigger_full_sync(
-    org_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Запуск полной синхронизации (товары + продажи + заказы) (admin+)"""
-    from tasks.celery_app_new import sync_organization_data
-    
-    # Проверка прав
-    await require_organization_role(org_id, Role.ADMIN, current_user, db)
-    
-    # Запуск задачи
-    task = sync_organization_data.delay(organization_id=org_id)
-    
-    return {
-        "message": "Full sync started",
-        "task_id": task.id,
-        "status": "pending"
-    }
-
-
-@router.get("/status/{task_id}")
-async def get_sync_status(
-    org_id: str,
-    task_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Получение статуса задачи синхронизации (viewer+)"""
-    from celery.result import AsyncResult
-    
-    # Проверка прав
-    await require_organization_role(org_id, Role.VIEWER, current_user, db)
-    
-    # Получение статуса задачи
-    result = AsyncResult(task_id)
-    
-    return {
-        "task_id": task_id,
-        "status": result.status,
-        "result": result.result if result.ready() else None,
-        "failed": result.failed(),
-        "info": result.info
+        "status": "started",
+        "task_id": result.id,
+        "message": "Синхронизация продаж запущена"
     }
 
 
 @router.get("/logs")
-async def list_sync_logs(
-    org_id: str,
+async def get_sync_logs(
     limit: int = 50,
+    offset: int = 0,
+    sync_type: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получение логов синхронизации организации (viewer+)"""
-    # Проверка прав
-    await require_organization_role(org_id, Role.VIEWER, current_user, db)
+    """Получить логи синхронизации"""
+    from sqlalchemy import select, desc
     
-    # TODO: Реализовать запрос логов из БД
+    query = select(SyncLog).order_by(desc(SyncLog.started_at))
+    
+    if sync_type:
+        query = query.where(SyncLog.sync_type == sync_type)
+    
+    result = await db.execute(query.offset(offset).limit(limit))
+    logs = result.scalars().all()
     
     return {
-        "organization_id": org_id,
-        "logs": [],
-        "limit": limit
+        "logs": [
+            {
+                "id": str(log.id),
+                "task_name": log.task_name,
+                "status": log.status,
+                "synced_count": log.synced_count,
+                "error_message": log.error_message,
+                "started_at": log.started_at.isoformat() if log.started_at else None,
+                "finished_at": log.finished_at.isoformat() if log.finished_at else None,
+                "duration_seconds": log.duration_seconds
+            }
+            for log in logs
+        ]
     }

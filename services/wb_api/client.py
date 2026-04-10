@@ -29,26 +29,121 @@ class WBApiClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.client.aclose()
 
-    async def get_products(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
-        """Получение списка товаров (карточек)"""
-        response = await self.client.get(
-            f"{self.CONTENT_URL}/api/v2/cards/goods/list",
-            params={"limit": limit, "offset": offset}
+    async def get_cards(
+        self,
+        limit: int = 100,
+        search: str = None,
+        cursor_updated_at: str = None,
+        cursor_nm_id: int = None
+    ) -> Dict[str, Any]:
+        """
+        Получение списка карточек товаров
+        
+        КЛЮЧЕВОЙ ПАРАМЕТР: withPhoto: -1 — показывает все карточки
+        
+        Использует правильный endpoint POST /content/v2/get/cards/list
+        
+        Args:
+            limit: лимит карточек за запрос (макс 100)
+            search: поиск по названию/артикулу
+            cursor_updated_at: курсор updatedAt для пагинации
+            cursor_nm_id: курсор nmID для пагинации
+        
+        Returns:
+            Dict с карточками и курсором для пагинации
+        """
+        payload = {
+            "settings": {
+                "cursor": {"limit": limit},
+                "filter": {"withPhoto": -1}
+            }
+        }
+        
+        if search:
+            payload["settings"]["filter"]["textSearch"] = search
+        
+        # Добавляем курсор для пагинации
+        if cursor_updated_at or cursor_nm_id:
+            payload["settings"]["cursor"]["updatedAt"] = cursor_updated_at
+            payload["settings"]["cursor"]["nmID"] = cursor_nm_id
+        
+        response = await self.client.post(
+            f"{self.CONTENT_URL}content/v2/get/cards/list",
+            json=payload
         )
         response.raise_for_status()
         result = response.json()
-        return result.get("cards", result.get("data", result))
+        return {
+            "cards": result.get("cards", []),
+            "cursor": result.get("cursor", {})
+        }
+
+    async def get_all_cards(self, limit: int = 100, search: str = None) -> List[Dict[str, Any]]:
+        """
+        Получение всех карточек с автоматической пагинацией
+        
+        Args:
+            limit: лимит карточек за запрос
+            search: фильтр поиска
+        
+        Returns:
+            List всех карточек
+        """
+        all_cards = []
+        cursor_updated_at = None
+        cursor_nm_id = None
+        
+        while True:
+            result = await self.get_cards(
+                limit=limit,
+                search=search,
+                cursor_updated_at=cursor_updated_at,
+                cursor_nm_id=cursor_nm_id
+            )
+            
+            cards = result.get("cards", [])
+            cursor = result.get("cursor", {})
+            
+            if not cards:
+                break
+            
+            all_cards.extend(cards)
+            
+            # Обновляем курсор для следующей страницы
+            cursor_updated_at = cursor.get("updatedAt")
+            cursor_nm_id = cursor.get("nmID")
+            
+            # Если курсор говорит, что нет следующей страницы — выходим
+            if not cursor.get("next", False):
+                break
+        
+        return all_cards
+
+    async def get_card_by_nm_id(self, nm_id: int) -> Optional[Dict[str, Any]]:
+        """Получение карточки по nm_id"""
+        cards = await self.get_all_cards()
+        for card in cards:
+            if card.get("nmID") == nm_id:
+                return card
+        return None
+
+    async def get_card_by_vendor_code(self, vendor_code: str) -> Optional[Dict[str, Any]]:
+        """Получение карточки по артикулу продавца"""
+        cards = await self.get_all_cards(search=vendor_code)
+        for card in cards:
+            if card.get("vendorCode") == vendor_code:
+                return card
+        return None
+
+    async def get_products(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """Получение списка товаров (карточек) - устаревший метод, используйте get_cards"""
+        result = await self.get_cards(limit=limit)
+        return result.get("cards", [])
 
     async def get_product_detail(self, nm_id: int) -> Dict[str, Any]:
         """Получение деталей товара по nm_id"""
-        response = await self.client.get(
-            f"{self.CONTENT_URL}/api/v2/cards/goods/list",
-            params={"nmIDs": [nm_id], "limit": 1}
-        )
-        response.raise_for_status()
-        result = response.json()
-        cards = result.get("cards", result.get("data", result))
-        return cards[0] if cards and len(cards) > 0 else {}
+        card = await self.get_card_by_nm_id(nm_id)
+        return card if card else {}
 
     async def get_sales(self,
                      date_from: Optional[str] = None,
@@ -62,7 +157,7 @@ class WBApiClient:
             params["dateTo"] = date_to
 
         response = await self.client.get(
-            f"{self.STATISTICS_URL}/api/v1/sales",
+            f"{self.STATISTICS_URL}api/v1/sales",
             params=params
         )
         response.raise_for_status()
@@ -81,7 +176,7 @@ class WBApiClient:
             params["dateTo"] = date_to
 
         response = await self.client.get(
-            f"{self.MARKETPLACE_URL}/api/v2/orders",
+            f"{self.MARKETPLACE_URL}api/v2/orders",
             params=params
         )
         response.raise_for_status()
@@ -100,7 +195,7 @@ class WBApiClient:
             params["dateTo"] = date_to
 
         response = await self.client.get(
-            f"{self.base_url}/api/v1/analytics/reports",
+            f"{self.base_url}api/v1/analytics/reports",
             params=params
         )
         response.raise_for_status()
@@ -110,8 +205,7 @@ class WBApiClient:
         """Проверка подключения к WB API"""
         try:
             response = await self.client.get(
-                f"{self.CONTENT_URL}/api/v2/goods",
-                params={"limit": 1}
+                f"{self.CONTENT_URL}content/v2/object/parent/all"
             )
             return response.status_code == 200
         except Exception:

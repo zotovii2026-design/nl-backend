@@ -13,7 +13,23 @@ from core.database import Base
 
 # Импорт всех моделей для autogenerate
 from models.user import User
-from models.organization import Organization, Membership, Invitation, WbApiKey
+from models.organization import (
+    Organization, 
+    Membership, 
+    Invitation, 
+    WbApiKey,
+    SubscriptionTier,
+    SubscriptionStatus,
+    Role,
+    InvitationStatus
+)
+from models.sync import SyncLog
+from models.wb_data import (
+    WbProduct,
+    WbSale,
+    WbOrder,
+    OrderStatus
+)
 
 config = context.config
 

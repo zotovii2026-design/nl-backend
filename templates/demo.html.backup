@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NL Table — Демо</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { color: white; text-align: center; margin-bottom: 30px; font-size: 2.5em; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .stat-label { color: #666; font-size: 0.9em; margin-bottom: 10px; text-transform: uppercase; }
+        .stat-value { color: #667eea; font-size: 2em; font-weight: bold; }
+        .section { background: white; border-radius: 15px; padding: 25px; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .section h2 { color: #667eea; margin-bottom: 20px; }
+        .table-controls { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+        .search-box { flex: 1; min-width: 200px; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+        .date-filter { padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+        .btn { padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
+        .btn:hover { background: #5568d3; }
+        .data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .data-table th { background: #f8f9fa; padding: 12px; text-align: left; font-weight: 600; color: #333; border-bottom: 2px solid #667eea; cursor: pointer; }
+        .data-table th:hover { background: #e9ecef; }
+        .data-table td { padding: 10px 12px; border-bottom: 1px solid #eee; color: #333; }
+        .data-table tr:hover { background: #f8f9fa; }
+        .product-image { width: 50px; height: 50px; object-fit: cover; border-radius: 5px; }
+        .loading { text-align: center; padding: 40px; color: #999; }
+        .error { background: #fee; color: #c33; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
+        .pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; }
+        .pagination span { color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 NL Table — Демо Дашборд</h1>
+        <div class="stats" id="stats"><div class="loading">Загрузка...</div></div>
+        <div class="section">
+            <h2>📦 Товары</h2>
+            <div class="table-controls">
+                <input type="text" id="product-search" class="search-box" placeholder="Поиск по названию/артикулу...">
+                <select id="product-category-filter" class="date-filter">
+                    <option value="">Все категории</option>
+                    <option value="Одежда">Одежда</option>
+                    <option value="Обувь">Обувь</option>
+                    <option value="Верхняя одежда">Верхняя одежда</option>
+                    <option value="Аксессуары">Аксессуары</option>
+                </select>
+                <select id="product-sort" class="date-filter">
+                    <option value="name">По названию (А-Я)</option>
+                    <option value="price-desc">Цена (убыванию)</option>
+                    <option value="price-asc">Цена (возрастанию)</option>
+                    <option value="stock-desc">Остаток (убыванию)</option>
+                </select>
+            </div>
+            <table class="data-table" id="products-table">
+                <thead>
+                    <tr>
+                        <th onclick="sortProducts('name')">Фото</th>
+                        <th onclick="sortProducts('name')">Артикул поставщика</th>
+                        <th onclick="sortProducts('nm_id')">Артикул WB</th>
+                        <th onclick="sortProducts('name')">Название</th>
+                        <th onclick="sortProducts('brand')">Бренд</th>
+                        <th onclick="sortProducts('subject')">Категория</th>
+                        <th onclick="sortProducts('price')">Цена</th>
+                        <th onclick="sortProducts('stock')">Остаток</th>
+                    </tr>
+                </thead>
+                <tbody><tr><td colspan="9" class="loading">Загрузка товаров...</td></tr></tbody>
+            </table>
+            <div class="pagination" id="products-pagination" style="display: none;">
+                <span id="products-count">Всего: 0</span>
+                <button class="btn" onclick="prevProductsPage()">← Назад</button>
+                <button class="btn" onclick="nextProductsPage()">Вперёд →</button>
+            </div>
+        </div>
+        <div class="section">
+            <h2>💰 Продажи</h2>
+            <div class="table-controls">
+                <input type="text" id="sales-search" class="search-box" placeholder="Поиск по артикулу/заказу...">
+                <input type="date" id="sales-date-from" class="date-filter" placeholder="С даты">
+                <input type="date" id="sales-date-to" class="date-filter" placeholder="По дату">
+            </div>
+            <table class="data-table" id="sales-table">
+                <thead>
+                    <tr>
+                        <th onclick="sortSales('date_to')">Дата</th>
+                        <th onclick="sortSales('g_number')">Заказ</th>
+                        <th onclick="sortSales('nm_id')">Артикул WB</th>
+                        <th onclick="sortSales('brand')">Бренд</th>
+                        <th onclick="sortSales('quantity')">Кол-во</th>
+                        <th onclick="sortSales('income')">Доход</th>
+                        <th onclick="sortSales('region_name')">Регион</th>
+                        <th onclick="sortSales('warehouse_name')">Склад</th>
+                    </tr>
+                </thead>
+                <tbody><tr><td colspan="9" class="loading">Загрузка продаж...</td></tr></tbody>
+            </table>
+            <div class="pagination" id="sales-pagination" style="display: none;">
+                <span id="sales-count">Всего: 0</span>
+                <button class="btn" onclick="prevSalesPage()">← Назад</button>
+                <button class="btn" onclick="nextSalesPage()">Вперёд →</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        const API_BASE = '/api/v1/demo';
+        let products = [], sales = [], productsPage = 0, salesPage = 0, pageSize = 10, productsSort = 'name', productsSortDesc = false, salesSort = 'date_to', salesSortDesc = true;
+        const imgs = ['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=400&h=400&fit=crop','https://images.unsplash.com/photo-1542272604-787c3835535d?w=400&h=400&fit=crop','https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&h=400&fit=crop','https://images.unsplash.com/photo-1551028719-00167b16eac5?w=400&h=400&fit=crop','https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=400&h=400&fit=crop'];
+        async function fetchStats() {
+            try { const r = await fetch(API_BASE + '/stats?days=7'), d = await r.json(); document.getElementById('stats').innerHTML = '<div class="stat-card"><div class="stat-label">Продаж</div><div class="stat-value">' + d.total_sales + '</div></div><div class="stat-card"><div class="stat-label">Доход</div><div class="stat-value">' + d.total_income.toFixed(0) + ' ₽</div></div><div class="stat-card"><div class="stat-label">Средний чек</div><div class="stat-value">' + d.avg_order_value.toFixed(0) + ' ₽</div></div><div class="stat-card"><div class="stat-label">Товаров</div><div class="stat-value">' + products.length + '</div></div>'; } catch(e) {}
+        }
+        async function fetchProducts() {
+            try { const r = await fetch(API_BASE + '/products'), all = await r.json(); const s = document.getElementById('product-search').value.toLowerCase(), c = document.getElementById('product-category-filter').value; let f = all.filter(p => (p.name.toLowerCase().includes(s) || p.vendor_code.toLowerCase().includes(s) || p.nm_id.toString().includes(s)) && (!c || p.subject === c)); f.sort((a, b) => { let va = a[productsSort], vb = b[productsSort]; if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase(); } return va < vb ? (productsSortDesc ? 1 : -1) : va > vb ? (productsSortDesc ? -1 : 1) : 0; }); const start = productsPage * pageSize, end = start + pageSize; const p = f.slice(start, end); document.querySelector('#products-table tbody').innerHTML = p.map((x, i) => '<tr><td><img src="' + imgs[i % imgs.length] + '" class="product-image"></td><td>' + (x.vendor_code || '-') + '</td><td>' + x.nm_id + '</td><td>' + x.name + '</td><td>' + (x.brand || '-') + '</td><td>' + (x.subject || '-') + '</td><td>' + x.price.toFixed(0) + ' ₽</td><td>' + (x.stock || 0) + '</td></tr>').join(''); document.getElementById('products-count').textContent = 'Всего: ' + f.length + ' (стр. ' + (productsPage + 1) + ' из ' + Math.ceil(f.length / pageSize) + ')'; document.getElementById('products-pagination').style.display = 'flex'; } catch(e) {}
+        }
+        async function fetchSales() {
+            try { const r = await fetch(API_BASE + '/sales'), all = await r.json(); const s = document.getElementById('sales-search').value.toLowerCase(), df = document.getElementById('sales-date-from').value, dt = document.getElementById('sales-date-to').value; let f = all.filter(x => (x.g_number?.toLowerCase().includes(s) || x.nm_id?.toString().includes(s) || x.brand?.toLowerCase().includes(s)) && (!df || new Date(x.date_to) >= new Date(df)) && (!dt || new Date(x.date_to) <= new Date(dt))); f.sort((a, b) => { let va = a[salesSort], vb = b[salesSort]; return va < vb ? (salesSortDesc ? 1 : -1) : va > vb ? (salesSortDesc ? -1 : 1) : 0; }); const start = salesPage * pageSize, end = start + pageSize; const p = f.slice(start, end); document.querySelector('#sales-table tbody').innerHTML = p.map(x => '<tr><td>' + new Date(x.date_to).toLocaleDateString('ru-RU') + '</td><td>' + (x.g_number || '-') + '</td><td>' + (x.nm_id || '-') + '</td><td>' + (x.brand || '-') + '</td><td>' + (x.quantity || 0) + '</td><td>' + (x.income?.toFixed(0) || 0) + ' ₽</td><td>' + (x.region_name || '-') + '</td><td>' + (x.warehouse_name || '-') + '</td></tr>').join(''); document.getElementById('sales-count').textContent = 'Всего: ' + f.length + ' (стр. ' + (salesPage + 1) + ' из ' + Math.ceil(f.length / pageSize) + ')'; document.getElementById('sales-pagination').style.display = 'flex'; } catch(e) {}
+        }
+        function sortProducts(field) { if (productsSort === field) { productsSortDesc = !productsSortDesc; } else { productsSort = field; productsSortDesc = false; } fetchProducts(); }
+        function sortSales(field) { if (salesSort === field) { salesSortDesc = !salesSortDesc; } else { salesSort = field; salesSortDesc = true; } fetchSales(); }
+        function prevProductsPage() { if (productsPage > 0) { productsPage--; fetchProducts(); } }
+        function nextProductsPage() { productsPage++; fetchProducts(); }
+        function prevSalesPage() { if (salesPage > 0) { salesPage--; fetchSales(); } }
+        function nextSalesPage() { salesPage++; fetchSales(); }
+        document.getElementById('product-search').addEventListener('input', fetchProducts);
+        document.getElementById('product-category-filter').addEventListener('change', fetchProducts);
+        document.getElementById('product-sort').addEventListener('change', fetchProducts);
+        document.getElementById('sales-search').addEventListener('input', fetchSales);
+        document.getElementById('sales-date-from').addEventListener('change', fetchSales);
+        document.getElementById('sales-date-to').addEventListener('change', fetchSales);
+        fetchStats(); fetchProducts(); fetchSales();
+    </script>
+</body>
+</html>

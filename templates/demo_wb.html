@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NL Table — WB API Demo</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { color: white; text-align: center; margin-bottom: 30px; font-size: 2.5em; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .stat-label { color: #666; font-size: 0.9em; margin-bottom: 10px; text-transform: uppercase; }
+        .stat-value { color: #667eea; font-size: 2em; font-weight: bold; }
+        .section { background: white; border-radius: 15px; padding: 25px; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .section h2 { color: #667eea; margin-bottom: 20px; }
+        .table-controls { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+        .search-box { flex: 1; min-width: 200px; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+        .date-filter { padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+        .btn { padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
+        .btn:hover { background: #5568d3; }
+        .data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .data-table th { background: #f8f9fa; padding: 12px; text-align: left; font-weight: 600; color: #333; border-bottom: 2px solid #667eea; cursor: pointer; }
+        .data-table th:hover { background: #e9ecef; }
+        .data-table td { padding: 10px 12px; border-bottom: 1px solid #eee; color: #333; }
+        .data-table tr:hover { background: #f8f9fa; }
+        .product-image { width: 50px; height: 50px; object-fit: cover; border-radius: 5px; }
+        .loading { text-align: center; padding: 40px; color: #999; }
+        .error { background: #fee; color: #c33; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
+        .pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; }
+        .pagination span { color: #666; font-size: 14px; }
+        .kiz-badge { padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+        .kiz-required { background: #ffe5e5; color: #c33; }
+        .kiz-ok { background: #e5ffe5; color: #3a3; }
+        .kiz-not-needed { background: #e5f5ff; color: #36a; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 NL Table — WB API Demo</h1>
+        <div class="stats" id="stats"><div class="loading">Загрузка...</div></div>
+        <div class="section">
+            <h2>📦 Товары (из WB API)</h2>
+            <div class="table-controls">
+                <input type="text" id="product-search" class="search-box" placeholder="Поиск по названию/артикулу...">
+                <button class="btn" onclick="loadProducts()">🔍 Найти</button>
+                <button class="btn" onclick="resetSearch()">🔄 Сбросить</button>
+            </div>
+            <table class="data-table" id="products-table">
+                <thead>
+                    <tr>
+                        <th>Фото</th>
+                        <th>Артикул WB</th>
+                        <th>Артикул продавца</th>
+                        <th>Название</th>
+                        <th>Бренд</th>
+                        <th>Категория</th>
+                        <th>Цена</th>
+                        <th>Киз</th>
+                    </tr>
+                </thead>
+                <tbody><tr><td colspan="8" class="loading">Загрузка товаров из WB API...</td></tr></tbody>
+            </table>
+        </div>
+        <div class="section">
+            <h2>💰 Продажи (симуляция для демо)</h2>
+            <div class="table-controls">
+                <input type="text" id="sales-search" class="search-box" placeholder="Поиск по артикулу/заказу...">
+                <button class="btn" onclick="loadSales()">🔍 Найти</button>
+            </div>
+            <table class="data-table" id="sales-table">
+                <thead>
+                    <tr>
+                        <th>Дата</th>
+                        <th>Заказ</th>
+                        <th>Артикул WB</th>
+                        <th>Бренд</th>
+                        <th>Кол-во</th>
+                        <th>Доход</th>
+                        <th>Регион</th>
+                    </tr>
+                </thead>
+                <tbody><tr><td colspan="7" class="loading">Загрузка продаж...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // API Base URL
+        const API_BASE = '/api/v1/demo_wb';
+
+        // Products data
+        let products = [];
+        let sales = [];
+
+        // Load products from WB API
+        async function loadProducts(search = null) {
+            const tbody = document.getElementById('products-table').querySelector('tbody');
+            tbody.innerHTML = '<tr><td colspan="8" class="loading">Загрузка товаров из WB API...</td></tr>';
+
+            try {
+                const url = search ? API_BASE + '/products?search=' + encodeURIComponent(search) : API_BASE + '/products';
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Ошибка загрузки');
+                products = await response.json();
+                renderProducts();
+                loadStats();
+            } catch (error) {
+                tbody.innerHTML = '<tr><td colspan="8" class="error">Ошибка загрузки товаров: ' + error.message + '</td></tr>';
+            }
+        }
+
+        // Render products table
+        function renderProducts() {
+            const tbody = document.getElementById('products-table').querySelector('tbody');
+            tbody.innerHTML = '';
+
+            if (products.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="loading">Товары не найдены</td></tr>';
+                return;
+            }
+
+            products.forEach(product => {
+                const photo = product.photos && product.photos.length > 0 ? product.photos[0] : 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50"%3E%3Crect width="50" height="50" fill="%23ddd"/%3E%3Ctext x="25" y="30" text-anchor="middle" fill="%23999" font-size="12"%3E📷%3C/text%3E%3C/svg%3E';
+
+                // KIZ badge
+                let kizBadge = '';
+                if (product.need_kiz) {
+                    kizBadge = product.kiz_marked ? '<span class="kiz-badge kiz-ok">✓ OK</span>' : '<span class="kiz-badge kiz-required">⚠️ Требуется</span>';
+                } else {
+                    kizBadge = '<span class="kiz-badge kiz-not-needed">Не нужен</span>';
+                }
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td><img src="' + photo + '" alt="Фото" class="product-image"></td>' +
+                    '<td>' + product.nm_id + '</td>' +
+                    '<td><strong>' + product.vendor_code + '</strong></td>' +
+                    '<td>' + product.title + '</td>' +
+                    '<td>' + product.brand + '</td>' +
+                    '<td>' + product.subject_name + '</td>' +
+                    '<td>' + (product.price ? product.price.toLocaleString() + ' ₽' : '—') + '</td>' +
+                    '<td>' + kizBadge + '</td>';
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Load sales (simulated for demo)
+        async function loadSales() {
+            const tbody = document.getElementById('sales-table').querySelector('tbody');
+            tbody.innerHTML = '<tr><td colspan="7" class="loading">Загрузка продаж...</td></tr>';
+
+            try {
+                const response = await fetch(API_BASE + '/sales');
+                if (!response.ok) throw new Error('Ошибка загрузки');
+                sales = await response.json();
+                renderSales();
+            } catch (error) {
+                tbody.innerHTML = '<tr><td colspan="7" class="error">Ошибка загрузки продаж: ' + error.message + '</td></tr>';
+            }
+        }
+
+        // Render sales table
+        function renderSales() {
+            const tbody = document.getElementById('sales-table').querySelector('tbody');
+            tbody.innerHTML = '';
+
+            if (sales.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="loading">Продажи не найдены</td></tr>';
+                return;
+            }
+
+            sales.forEach(function(sale) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + new Date(sale.date_to).toLocaleDateString('ru-RU') + '</td>' +
+                    '<td>' + sale.sale_id + '</td>' +
+                    '<td>' + sale.nm_id + '</td>' +
+                    '<td>' + sale.brand + '</td>' +
+                    '<td>' + sale.quantity + '</td>' +
+                    '<td>' + sale.income.toLocaleString() + ' ₽</td>' +
+                    '<td>' + sale.region_name + '</td>';
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Load statistics
+        async function loadStats() {
+            const statsDiv = document.getElementById('stats');
+            try {
+                const response = await fetch(API_BASE + '/stats');
+                if (!response.ok) throw new Error('Ошибка загрузки');
+                const stats = await response.json();
+
+                statsDiv.innerHTML = '<div class="stat-card"><div class="stat-label">Продаж</div><div class="stat-value">' + stats.total_sales + '</div></div>' +
+                    '<div class="stat-card"><div class="stat-label">Доход</div><div class="stat-value">' + stats.total_income.toLocaleString() + ' ₽</div></div>' +
+                    '<div class="stat-card"><div class="stat-label">Средний чек</div><div class="stat-value">' + stats.avg_order_value.toLocaleString() + ' ₽</div></div>' +
+                    '<div class="stat-card"><div class="stat-label">Товаров</div><div class="stat-value">' + products.length + '</div></div>';
+            } catch (error) {
+                statsDiv.innerHTML = '<div class="error">Ошибка загрузки статистики: ' + error.message + '</div>';
+            }
+        }
+
+        // Reset search
+        function resetSearch() {
+            document.getElementById('product-search').value = '';
+            loadProducts();
+        }
+
+        // Search on Enter
+        document.getElementById('product-search').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') loadProducts(this.value);
+        });
+
+        // Initial load
+        loadProducts();
+        loadSales();
+    </script>
+</body>
+</html>
