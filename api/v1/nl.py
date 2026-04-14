@@ -45,6 +45,7 @@ class RefItem(BaseModel):
     nm_id: int
     vendor_code: Optional[str] = None
     product_name: Optional[str] = None
+    target_date: Optional[str] = None  # YYYY-MM-DD
     cost_price: Optional[float] = None
     purchase_price: Optional[float] = None
     packaging_cost: Optional[float] = None
@@ -121,14 +122,19 @@ async def nl_me(token: str = Query(""), db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/api/v1/nl/reference")
-async def get_reference(org_id: str, db: AsyncSession = Depends(get_db)):
-    """Справочный лист"""
-    result = await db.execute(select(ReferenceSheet).where(ReferenceSheet.organization_id == org_id))
+async def get_reference(org_id: str, target_date: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Справочный лист на дату"""
+    from datetime import datetime as dt
+    q = select(ReferenceSheet).where(ReferenceSheet.organization_id == org_id)
+    if target_date:
+        q = q.where(ReferenceSheet.target_date == dt.strptime(target_date, "%Y-%m-%d").date())
+    result = await db.execute(q)
     items = result.scalars().all()
     return [{
         "nm_id": i.nm_id,
         "vendor_code": i.vendor_code,
         "product_name": i.product_name,
+        "target_date": str(i.target_date),
         "cost_price": float(i.cost_price) if i.cost_price else None,
         "purchase_price": float(i.purchase_price) if i.purchase_price else None,
         "packaging_cost": float(i.packaging_cost) if i.packaging_cost else None,
@@ -141,14 +147,17 @@ async def get_reference(org_id: str, db: AsyncSession = Depends(get_db)):
 @router.post("/api/v1/nl/reference")
 async def save_reference(item: RefItem, org_id: str, db: AsyncSession = Depends(get_db)):
     """Сохранить строку справочного листа"""
+    from datetime import datetime as dt_mod
+    t_date = dt_mod.strptime(item.target_date, "%Y-%m-%d").date() if item.target_date else date.today()
     ins = pg_insert(ReferenceSheet).values(
         organization_id=org_id, nm_id=item.nm_id, vendor_code=item.vendor_code,
-        product_name=item.product_name, cost_price=item.cost_price,
+        product_name=item.product_name, target_date=t_date,
+        cost_price=item.cost_price,
         purchase_price=item.purchase_price, packaging_cost=item.packaging_cost,
         logistics_cost=item.logistics_cost, other_costs=item.other_costs, notes=item.notes,
     )
     stmt = ins.on_conflict_do_update(
-        constraint="reference_sheet_organization_id_nm_id_key",
+        constraint="reference_sheet_org_nm_date_key",
         set_={
             "vendor_code": ins.excluded.vendor_code, "product_name": ins.excluded.product_name,
             "cost_price": ins.excluded.cost_price, "purchase_price": ins.excluded.purchase_price,
@@ -163,14 +172,18 @@ async def save_reference(item: RefItem, org_id: str, db: AsyncSession = Depends(
 
 
 @router.get("/api/v1/nl/products")
-async def get_products(org_id: str, db: AsyncSession = Depends(get_db)):
-    """Список уникальных карточек из ТС"""
-    result = await db.execute(
-        select(TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name, TechStatus.photo_main)
-        .where(TechStatus.organization_id == org_id, TechStatus.nm_id.isnot(None))
-        .distinct()
-    )
-    return [{"nm_id": r[0], "vendor_code": r[1], "product_name": r[2], "photo_main": r[3]} for r in result.all()]
+async def get_products(org_id: str, target_date: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Список уникальных карточек из ТС на дату"""
+    from datetime import datetime as dt_mod
+    q = select(
+        TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name,
+        TechStatus.photo_main, TechStatus.barcode, TechStatus.sku
+    ).where(TechStatus.organization_id == org_id, TechStatus.nm_id.isnot(None))
+    if target_date:
+        q = q.where(TechStatus.target_date == dt_mod.strptime(target_date, "%Y-%m-%d").date())
+    q = q.distinct()
+    result = await db.execute(q)
+    return [{"nm_id": r[0], "vendor_code": r[1], "product_name": r[2], "photo_main": r[3], "barcode": r[4], "sku": r[5]} for r in result.all()]
 
 
 
@@ -261,6 +274,20 @@ async def nl_delete_wb_key(key_id: str, org_id: str, db: AsyncSession = Depends(
     await db.delete(key)
     await db.commit()
     return {"status": "ok"}
+
+
+
+@router.get("/api/v1/nl/dates")
+async def get_available_dates(org_id: str, db: AsyncSession = Depends(get_db)):
+    """Доступные даты в ТС"""
+    result = await db.execute(
+        select(TechStatus.target_date)
+        .where(TechStatus.organization_id == org_id)
+        .distinct()
+        .order_by(TechStatus.target_date.desc())
+        .limit(30)
+    )
+    return [str(r[0]) for r in result.all()]
 
 # ─── FRONTEND ──────────────────────────────────────────────
 
@@ -519,12 +546,21 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 </div>
 <div class="content">
 <div id="tab-reference" class="tab-content active">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<div style="display:flex;align-items:center;gap:6px">
+<label style="font-size:.85em;color:#666">📅 Дата:</label>
+<select id="ref-date" onchange="loadRefData()" style="border:1px solid #e0e0e0;border-radius:4px;padding:6px 10px;font-size:.9em;cursor:pointer"></select>
+</div>
+<button class="btn" onclick="loadRefData()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+<button class="btn btn-outline" onclick="saveAllRows()" style="padding:6px 14px;font-size:.85em">💾 Сохранить всё</button>
+<div style="margin-left:auto;color:#999;font-size:.8em" id="ref-stats"></div>
+</div>
 <table id="ref-table">
 <thead><tr>
-<th>Фото</th><th>Арт WB</th><th>Арт пост.</th><th>Название</th>
-<th>Себестоимость</th><th>Закуп. цена</th><th>Упаковка</th><th>Логистика</th><th>Прочее</th><th>Заметки</th><th></th>
+<th>Фото</th><th>Арт WB</th><th>Арт пост.</th><th>Название</th><th>ШК</th><th>SKU</th>
+<th>Себестоимость ₽</th><th>Закуп. цена</th><th>Упаковка</th><th>Логистика</th><th>Прочее</th><th>Заметки</th><th></th>
 </tr></thead>
-<tbody id="ref-body"><tr><td colspan="11" class="empty">Загрузка...</td></tr></tbody>
+<tbody id="ref-body"><tr><td colspan="13" class="empty">Загрузка...</td></tr></tbody>
 </table>
 </div>
 <div id="tab-control" class="tab-content">
@@ -573,9 +609,10 @@ function showLogin() {
     document.getElementById('auth-login').style.display = '';
 }
 
-function showApp() {
+async function showApp() {
     document.getElementById('auth-section').style.display = 'none';
     document.getElementById('app-section').style.display = '';
+    await loadDates();
     loadRefData();
 }
 
@@ -641,10 +678,28 @@ function switchTab(name, el) {
     document.getElementById('tab-' + name).classList.add('active');
 }
 
+async function loadDates() {
+    const res = await fetch('/api/v1/nl/dates?org_id=' + ORG_ID);
+    const dates = await res.json();
+    const sel = document.getElementById('ref-date');
+    sel.innerHTML = '';
+    if (!dates.length) { sel.innerHTML = '<option>Нет данных</option>'; return; }
+    dates.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d;
+        const dt = new Date(d + 'T00:00:00');
+        opt.textContent = dt.toLocaleDateString('ru-RU', {day:'numeric', month:'short', year:'numeric'});
+        sel.appendChild(opt);
+    });
+    return dates[0];
+}
+
 async function loadRefData() {
+    const dateVal = document.getElementById('ref-date').value;
+    const target_date = dateVal && dateVal !== 'Нет данных' ? '&target_date=' + dateVal : '';
     const [prodRes, refRes] = await Promise.all([
-        fetch('/api/v1/nl/products?org_id=' + ORG_ID),
-        fetch('/api/v1/nl/reference?org_id=' + ORG_ID)
+        fetch('/api/v1/nl/products?org_id=' + ORG_ID + target_date),
+        fetch('/api/v1/nl/reference?org_id=' + ORG_ID + target_date)
     ]);
     const products = await prodRes.json();
     const refData = await refRes.json();
@@ -652,35 +707,44 @@ async function loadRefData() {
     refData.forEach(r => refMap[r.nm_id] = r);
     const tbody = document.getElementById('ref-body');
     tbody.innerHTML = '';
-    if (!products.length) { tbody.innerHTML = '<tr><td colspan="11" class="empty">Нет товаров. Подключите WB API ключ.</td></tr>'; return; }
+    document.getElementById('ref-stats').textContent = products.length + ' товаров';
+    if (!products.length) { tbody.innerHTML = '<tr><td colspan="13" class="empty">Нет товаров на эту дату. Подключите WB API ключ и дождитесь синхронизации.</td></tr>'; return; }
     products.forEach(p => {
         const ref = refMap[p.nm_id] || {};
         const thumb = (p.photo_main || '').replace('/big/', '/c246x328/');
-        const img = thumb ? `<img class="photo" src="${thumb}" loading="lazy">` : '📦';
+        const img = thumb ? '<img class="photo" src="' + thumb + '" loading="lazy">' : '📦';
         const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>${img}</td>
-            <td><b>${p.nm_id}</b></td>
-            <td>${p.vendor_code||''}</td>
-            <td>${(p.product_name||'').substring(0,30)}</td>
-            <td><input type="number" data-field="cost_price" value="${ref.cost_price||''}" step="0.01"></td>
-            <td><input type="number" data-field="purchase_price" value="${ref.purchase_price||''}" step="0.01"></td>
-            <td><input type="number" data-field="packaging_cost" value="${ref.packaging_cost||''}" step="0.01"></td>
-            <td><input type="number" data-field="logistics_cost" value="${ref.logistics_cost||''}" step="0.01"></td>
-            <td><input type="number" data-field="other_costs" value="${ref.other_costs||''}" step="0.01"></td>
-            <td><input type="text" data-field="notes" value="${esc(ref.notes)}" style="width:120px"></td>
-            <td><button class="save-btn" data-nm="${p.nm_id}" data-vc="${p.vendor_code || ''}" onclick="saveRowBtn(this)">💾</button></td>
-        `;
+        tr.innerHTML =
+            '<td>' + img + '</td>' +
+            '<td><b>' + p.nm_id + '</b></td>' +
+            '<td>' + (p.vendor_code||'') + '</td>' +
+            '<td>' + (p.product_name||'').substring(0,30) + '</td>' +
+            '<td style="font-size:.78em;color:#666">' + (p.barcode||'—') + '</td>' +
+            '<td style="font-size:.78em;color:#666">' + (p.sku||'—') + '</td>' +
+            '<td><input type="number" data-field="cost_price" value="' + (ref.cost_price||'') + '" step="0.01" style="width:80px;font-weight:600;background:' + (ref.cost_price ? '#f0fff0' : '#fff8f0') + '"></td>' +
+            '<td><input type="number" data-field="purchase_price" value="' + (ref.purchase_price||'') + '" step="0.01" style="width:75px"></td>' +
+            '<td><input type="number" data-field="packaging_cost" value="' + (ref.packaging_cost||'') + '" step="0.01" style="width:70px"></td>' +
+            '<td><input type="number" data-field="logistics_cost" value="' + (ref.logistics_cost||'') + '" step="0.01" style="width:70px"></td>' +
+            '<td><input type="number" data-field="other_costs" value="' + (ref.other_costs||'') + '" step="0.01" style="width:65px"></td>' +
+            '<td><input type="text" data-field="notes" value="' + esc(ref.notes) + '" style="width:100px"></td>' +
+            '<td><button class="save-btn" data-nm="' + p.nm_id + '" data-vc="' + (p.vendor_code || '') + '" data-pn="' + (p.product_name || '').replace(/"/g, '&quot;') + '" onclick="saveRowBtn(this)">💾</button></td>';
         tbody.appendChild(tr);
     });
+}
+
+async function saveAllRows() {
+    const btns = document.querySelectorAll('#ref-body .save-btn');
+    for (const btn of btns) { await saveRowBtn(btn); }
 }
 
 async function saveRowBtn(btn) {
     const nmId = parseInt(btn.dataset.nm);
     const vc = btn.dataset.vc || '';
+    const pn = btn.dataset.pn || '';
+    const dateVal = document.getElementById('ref-date').value;
     const row = btn.closest('tr');
     const inputs = row.querySelectorAll('input');
-    const data = {nm_id: nmId, vendor_code: vc};
+    const data = {nm_id: nmId, vendor_code: vc, product_name: pn, target_date: dateVal};
     inputs.forEach(inp => {
         const f = inp.dataset.field;
         if (f) data[f] = inp.type === 'number' ? (parseFloat(inp.value)||null) : inp.value;

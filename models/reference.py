@@ -1,5 +1,5 @@
 """Модель справочного листа — данные пользователя"""
-from sqlalchemy import Column, String, DateTime, Integer, Numeric, func, ForeignKey, Text
+from sqlalchemy import Column, String, DateTime, Integer, Numeric, Date, func, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from core.database import Base
 import uuid
@@ -11,6 +11,7 @@ class ReferenceSheet(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    target_date = Column(Date, nullable=False, default=func.current_date())
 
     nm_id = Column(Integer, nullable=False)  # Арт WB
     vendor_code = Column(String(100))  # Арт поставщика
