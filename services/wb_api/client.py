@@ -234,7 +234,22 @@ class WBApiClient:
             return False
 
 
+    async def get_stocks_api(self, date_from: str = None) -> list:
+        """Получение остатков со складов через statistics API"""
+        params = {}
+        if date_from:
+            params["dateFrom"] = date_from
+        response = await self.client.get(
+            f"{self.STATISTICS_URL}/api/v1/supplier/stocks",
+            params=params
+        )
+        response.raise_for_status()
+        result = response.json()
+        return result if isinstance(result, list) else result.get("data", result)
+
+
 async def get_wb_client(api_key: str) -> WBApiClient:
     """Фабрика для создания клиента с расшифрованным ключом"""
     # TODO: Добавить логику расшифровки ключа
     return WBApiClient(api_key)
+

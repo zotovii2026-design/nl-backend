@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from datetime import date, datetime, timedelta
-import time
+
 from typing import List
 
 from celery import shared_task
@@ -147,23 +147,15 @@ async def fetch_orders(client: WBApiClient, org_id: str, target_date: date):
 
 
 async def fetch_stocks(client: WBApiClient, org_id: str, target_date: date):
-    """Остатки по складам — через карточки (sizes + stocks)"""
+    """Остатки со складов через statistics API"""
     try:
-        cards = await client.get_all_cards()
-        stocks_data = []
-        for card in cards:
-            nm_id = card.get("nmID")
-            for size in card.get("sizes", []):
-                for stock in size.get("stocks", []):
-                    stocks_data.append({
-                        "nmId": nm_id,
-                        "techSizeName": size.get("techSizeName", ""),
-                        "barcode": size.get("skus", [""])[0] if size.get("skus") else "",
-                        "warehouse": stock.get("wh", ""),
-                        "qty": stock.get("qty", 0),
-                    })
-        await save_raw(org_id, "stocks", target_date, stocks_data, count=len(stocks_data))
-        return stocks_data
+        date_str = target_date.isoformat()
+        stocks = await client.get_stocks_api(date_from=date_str)
+        if isinstance(stocks, list):
+            await save_raw(org_id, "stocks", target_date, stocks, count=len(stocks))
+        else:
+            await save_raw(org_id, "stocks", target_date, {"response": stocks})
+        return stocks
     except Exception as e:
         await save_raw(org_id, "stocks", target_date, None, status="error", error=str(e))
         logger.error(f"stocks error: {e}")
@@ -231,6 +223,37 @@ async def aggregate_to_tech_status(org_id: str, target_date: date):
         cards_draft = stats.raw_response.get("draft") if stats and stats.raw_response and stats.status == "ok" else None
         cards_active = stats.raw_response.get("active") if stats and stats.raw_response and stats.status == "ok" else None
 
+        # Получаем stocks данные для остатков/склада
+        stocks_raw = data.get("stocks")
+        stock_by_nm = {}
+        if stocks_raw and stocks_raw.raw_response and stocks_raw.status == "ok":
+            stocks_list = stocks_raw.raw_response if isinstance(stocks_raw.raw_response, list) else []
+            for s in stocks_list:
+                nm = s.get("nmId") or s.get("nm_id")
+                if nm and nm not in stock_by_nm:
+                    stock_by_nm[nm] = {
+                        "warehouse": s.get("warehouseName") or s.get("lastChangeDate", ""),
+                        "qty": s.get("quantity") or s.get("quantityFull", 0),
+                    }
+
+        # Считаем orders/sales по nm_id
+        orders_raw = data.get("orders")
+        sales_raw = data.get("sales")
+        order_counts = {}
+        sale_counts = {}
+        if orders_raw and orders_raw.raw_response and orders_raw.status == "ok":
+            orders_list = orders_raw.raw_response if isinstance(orders_raw.raw_response, list) else []
+            for o in orders_list:
+                nm = o.get("nmId") or o.get("nm_id")
+                if nm:
+                    order_counts[nm] = order_counts.get(nm, 0) + 1
+        if sales_raw and sales_raw.raw_response and sales_raw.status == "ok":
+            sales_list = sales_raw.raw_response if isinstance(sales_raw.raw_response, list) else []
+            for s in sales_list:
+                nm = s.get("nmId") or s.get("nm_id")
+                if nm:
+                    sale_counts[nm] = sale_counts.get(nm, 0) + 1
+
         # Определяем row_status
         today = date.today()
         age = (today - target_date).days
@@ -295,6 +318,10 @@ async def aggregate_to_tech_status(org_id: str, target_date: date):
                         photo_count=photo_count,
                         has_video=has_video,
                         description_chars=desc_chars,
+                        orders_count=order_counts.get(nm_id, 0),
+                        buyouts_count=sale_counts.get(nm_id, 0),
+                        warehouse_name=stock_by_nm.get(nm_id, {}).get("warehouse", None),
+                        stock_qty=stock_by_nm.get(nm_id, {}).get("qty", None),
                         row_status=row_status,
                         cell_statuses=cell_statuses,
                         last_sync_at=datetime.utcnow(),
@@ -313,6 +340,10 @@ async def aggregate_to_tech_status(org_id: str, target_date: date):
                             "photo_count": ins.excluded.photo_count,
                             "has_video": ins.excluded.has_video,
                             "description_chars": ins.excluded.description_chars,
+                            "orders_count": ins.excluded.orders_count,
+                            "buyouts_count": ins.excluded.buyouts_count,
+                            "warehouse_name": ins.excluded.warehouse_name,
+                            "stock_qty": ins.excluded.stock_qty,
                             "row_status": ins.excluded.row_status,
                             "cell_statuses": ins.excluded.cell_statuses,
                             "last_sync_at": ins.excluded.last_sync_at,
@@ -432,14 +463,14 @@ async def _daily_sync(organization_id: str = None):
                 logger.info(f"Syncing {org_id} for {target_date}")
 
                 # Собираем все методы (products/tariffs/adverts за все дни, sales/orders только за сегодня)
-                await fetch_products_stats(client, org_id, target_date); time.sleep(1)
-                await fetch_products(client, org_id, target_date); time.sleep(1)
+                await fetch_products_stats(client, org_id, target_date); await asyncio.sleep(1)
+                await fetch_products(client, org_id, target_date); await asyncio.sleep(1)
                 # Sales/orders — rate limited, только за последние 3 дня
                 if (date.today() - target_date).days <= 3:
-                    await fetch_sales(client, org_id, target_date); time.sleep(3)
-                    await fetch_orders(client, org_id, target_date); time.sleep(3)
-                await fetch_stocks(client, org_id, target_date); time.sleep(1)
-                await fetch_tariffs(client, org_id, target_date); time.sleep(1)
+                    await fetch_sales(client, org_id, target_date); await asyncio.sleep(3)
+                    await fetch_orders(client, org_id, target_date); await asyncio.sleep(3)
+                await fetch_stocks(client, org_id, target_date); await asyncio.sleep(1)
+                await fetch_tariffs(client, org_id, target_date); await asyncio.sleep(1)
                 await fetch_adverts(client, org_id, target_date)
 
                 # Агрегируем в ТС
