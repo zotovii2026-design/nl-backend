@@ -341,7 +341,7 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 <div class="field"><label>Email</label><input type="email" id="login-email"></div>
 <div class="field"><label>Пароль</label><input type="password" id="login-password"></div>
 <button class="btn" onclick="doLogin()" style="width:100%">Войти</button>
-<div class="toggle" onclick="toggleAuth()">Нет аккаунта? Зарегистрироваться</div>
+<div class="toggle" onclick="showRegister()">Нет аккаунта? Зарегистрироваться</div>
 </div>
 
 <div id="auth-register" style="display:none">
@@ -352,7 +352,7 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 <div class="field"><label>Пароль</label><input type="password" id="reg-password"></div>
 <div class="field"><label>Название организации</label><input type="text" id="reg-org" value="Моя организация"></div>
 <button class="btn" onclick="doRegister()" style="width:100%">Зарегистрироваться</button>
-<div class="toggle" onclick="toggleAuth()">Уже есть аккаунт? Войти</div>
+<div class="toggle" onclick="showLogin()">Уже есть аккаунт? Войти</div>
 </div>
 </div>
 </div>
@@ -420,11 +420,13 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 let TOKEN = localStorage.getItem('nl_token');
 let ORG_ID = localStorage.getItem('nl_org_id');
 
-function toggleAuth() {
-    const l = document.getElementById('auth-login');
-    const r = document.getElementById('auth-register');
-    l.style.display = l.style.display === 'none' ? '' : 'none';
-    r.style.display = r.style.display === 'none' ? '' : 'none';
+function showRegister() {
+    document.getElementById('auth-login').style.display = 'none';
+    document.getElementById('auth-register').style.display = '';
+}
+function showLogin() {
+    document.getElementById('auth-register').style.display = 'none';
+    document.getElementById('auth-login').style.display = '';
 }
 
 function showApp() {
