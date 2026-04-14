@@ -457,6 +457,8 @@ async function doLogin() {
         localStorage.setItem('nl_org_id', ORG_ID);
         document.getElementById('user-email').textContent = email;
         showApp();
+        loadOrgs();
+        loadWbKeys();
     } catch(e) { err.textContent = e.message; err.style.display = ''; }
 }
 
@@ -477,6 +479,8 @@ async function doRegister() {
         localStorage.setItem('nl_org_id', ORG_ID);
         document.getElementById('user-email').textContent = email;
         showApp();
+        loadOrgs();
+        loadWbKeys();
     } catch(e) { err.textContent = e.message; err.style.display = ''; }
 }
 
@@ -631,14 +635,6 @@ async function deleteWbKey(id) {
     loadOrgs();
 }
 
-// Override showApp to also load orgs and keys
-const _origShowApp = showApp;
-showApp = function() {
-    _origShowApp();
-    loadOrgs();
-    loadWbKeys();
-};
-
 // Auto-login
 if (TOKEN && ORG_ID) {
     fetch('/api/v1/nl/me?token=' + TOKEN).then(r => {
@@ -646,6 +642,8 @@ if (TOKEN && ORG_ID) {
     }).then(d => {
         document.getElementById('user-email').textContent = d.email;
         showApp();
+        loadOrgs();
+        loadWbKeys();
     }).catch(() => showAuth());
 }
 </script>
