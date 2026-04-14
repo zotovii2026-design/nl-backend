@@ -436,8 +436,10 @@ function showApp() {
 }
 
 function showAuth() {
-    document.getElementById('auth-section').style.display = '';
     document.getElementById('app-section').style.display = 'none';
+    document.getElementById('auth-section').style.display = '';
+    document.getElementById('auth-login').style.display = '';
+    document.getElementById('auth-register').style.display = 'none';
     TOKEN = null; ORG_ID = null;
     localStorage.removeItem('nl_token');
     localStorage.removeItem('nl_org_id');
@@ -638,16 +640,22 @@ async function deleteWbKey(id) {
 }
 
 // Auto-login
-if (TOKEN && ORG_ID) {
-    fetch('/api/v1/nl/me?token=' + TOKEN).then(r => {
-        if (r.ok) return r.json(); throw '';
-    }).then(d => {
-        document.getElementById('user-email').textContent = d.email;
-        showApp();
-        loadOrgs();
-        loadWbKeys();
-    }).catch(() => showAuth());
-}
+try {
+    if (TOKEN && ORG_ID) {
+        fetch('/api/v1/nl/me?token=' + TOKEN).then(r => {
+            if (r.ok) return r.json(); throw '';
+        }).then(d => {
+            document.getElementById('user-email').textContent = d.email;
+            showApp();
+            loadOrgs();
+            loadWbKeys();
+        }).catch(() => {
+            TOKEN = null; ORG_ID = null;
+            localStorage.removeItem('nl_token');
+            localStorage.removeItem('nl_org_id');
+        });
+    }
+} catch(e) { console.error('Auto-login error:', e); }
 </script>
 </body>
 </html>
