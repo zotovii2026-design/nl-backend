@@ -157,7 +157,7 @@ class WBApiClient:
             params["dateTo"] = date_to
 
         response = await self.client.get(
-            f"{self.STATISTICS_URL}api/v1/sales",
+            f"{self.STATISTICS_URL}/api/v1/sales",
             params=params
         )
         response.raise_for_status()
@@ -198,7 +198,7 @@ class WBApiClient:
             params["dateTo"] = date_to
 
         response = await self.client.get(
-            f"{self.MARKETPLACE_URL}api/v2/orders",
+            f"{self.MARKETPLACE_URL}/api/v2/orders",
             params=params
         )
         response.raise_for_status()

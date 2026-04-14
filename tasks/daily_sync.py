@@ -67,7 +67,7 @@ async def save_raw(org_id: str, method: str, target_date: date, response, status
         )
         # ON CONFLICT — обновляем если запись за этот метод+дата уже есть
         stmt = stmt.on_conflict_do_update(
-            constraint="uq_raw_api_org_method_date",
+            constraint="raw_api_data_organization_id_api_method_target_date_key",
             set_={
                 "raw_response": stmt.excluded.raw_response,
                 "status": stmt.excluded.status,
@@ -278,7 +278,8 @@ async def aggregate_to_tech_status(org_id: str, target_date: date):
                     # TODO: доработать подсчёт из sales/orders когда будет реальный формат
 
                     # Upsert в tech_status
-                    stmt = insert(TechStatus).values(
+                    ins = insert(TechStatus)
+                    stmt = ins.values(
                         organization_id=org_id,
                         target_date=target_date,
                         cards_total=cards_total,
@@ -298,41 +299,42 @@ async def aggregate_to_tech_status(org_id: str, target_date: date):
                         last_sync_at=datetime.utcnow(),
                         is_final=is_final,
                     ).on_conflict_do_update(
-                        constraint="uq_tech_status_org_date_nm",
+                        constraint="tech_status_organization_id_target_date_nm_id_key",
                         set_={
-                            "cards_total": stmt.excluded.cards_total,
-                            "cards_archive": stmt.excluded.cards_archive,
-                            "cards_draft": stmt.excluded.cards_draft,
-                            "cards_active": stmt.excluded.cards_active,
-                            "vendor_code": stmt.excluded.vendor_code,
-                            "barcode": stmt.excluded.barcode,
-                            "product_name": stmt.excluded.product_name,
-                            "photo_main": stmt.excluded.photo_main,
-                            "photo_count": stmt.excluded.photo_count,
-                            "has_video": stmt.excluded.has_video,
-                            "description_chars": stmt.excluded.description_chars,
-                            "row_status": stmt.excluded.row_status,
-                            "cell_statuses": stmt.excluded.cell_statuses,
-                            "last_sync_at": stmt.excluded.last_sync_at,
-                            "is_final": stmt.excluded.is_final,
+                            "cards_total": ins.excluded.cards_total,
+                            "cards_archive": ins.excluded.cards_archive,
+                            "cards_draft": ins.excluded.cards_draft,
+                            "cards_active": ins.excluded.cards_active,
+                            "vendor_code": ins.excluded.vendor_code,
+                            "barcode": ins.excluded.barcode,
+                            "product_name": ins.excluded.product_name,
+                            "photo_main": ins.excluded.photo_main,
+                            "photo_count": ins.excluded.photo_count,
+                            "has_video": ins.excluded.has_video,
+                            "description_chars": ins.excluded.description_chars,
+                            "row_status": ins.excluded.row_status,
+                            "cell_statuses": ins.excluded.cell_statuses,
+                            "last_sync_at": ins.excluded.last_sync_at,
+                            "is_final": ins.excluded.is_final,
                         }
                     )
                     await db.execute(stmt)
 
                     # Сохраняем штрихкод в справочник
                     if barcode:
-                        bc_stmt = insert(RawBarcode).values(
+                        bc_ins = insert(RawBarcode)
+                        bc_stmt = bc_ins.values(
                             organization_id=org_id,
                             nm_id=nm_id,
                             vendor_code=vendor_code,
                             barcode=barcode,
                             size_name=size_name,
                         ).on_conflict_do_update(
-                            constraint="uq_raw_barcode_org",
+                            constraint="raw_barcodes_organization_id_barcode_key",
                             set_={
-                                "nm_id": stmt.excluded.nm_id,
-                                "vendor_code": stmt.excluded.vendor_code,
-                                "size_name": stmt.excluded.size_name,
+                                "nm_id": bc_ins.excluded.nm_id,
+                                "vendor_code": bc_ins.excluded.vendor_code,
+                                "size_name": bc_ins.excluded.size_name,
                                 "updated_at": datetime.utcnow(),
                             }
                         )
