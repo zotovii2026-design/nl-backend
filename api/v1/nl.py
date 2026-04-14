@@ -341,7 +341,7 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 <div class="field"><label>Email</label><input type="email" id="login-email"></div>
 <div class="field"><label>Пароль</label><input type="password" id="login-password"></div>
 <button class="btn" onclick="doLogin()" style="width:100%">Войти</button>
-<div class="toggle" onclick="showRegister()">Нет аккаунта? Зарегистрироваться</div>
+<a href="#" class="toggle" onclick="showRegister();return false">Нет аккаунта? Зарегистрироваться</a>
 </div>
 
 <div id="auth-register" style="display:none">
@@ -352,7 +352,7 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 <div class="field"><label>Пароль</label><input type="password" id="reg-password"></div>
 <div class="field"><label>Название организации</label><input type="text" id="reg-org" value="Моя организация"></div>
 <button class="btn" onclick="doRegister()" style="width:100%">Зарегистрироваться</button>
-<div class="toggle" onclick="showLogin()">Уже есть аккаунт? Войти</div>
+<a href="#" class="toggle" onclick="showLogin();return false">Уже есть аккаунт? Войти</a>
 </div>
 </div>
 </div>
