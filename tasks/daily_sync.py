@@ -2,6 +2,7 @@
 import asyncio
 import logging
 from datetime import date, datetime, timedelta
+import time
 from typing import List
 
 from celery import shared_task
@@ -430,13 +431,15 @@ async def _daily_sync(organization_id: str = None):
             for target_date in dates_to_sync:
                 logger.info(f"Syncing {org_id} for {target_date}")
 
-                # Собираем все методы
-                await fetch_products_stats(client, org_id, target_date)
-                await fetch_products(client, org_id, target_date)
-                await fetch_sales(client, org_id, target_date)
-                await fetch_orders(client, org_id, target_date)
-                await fetch_stocks(client, org_id, target_date)
-                await fetch_tariffs(client, org_id, target_date)
+                # Собираем все методы (products/tariffs/adverts за все дни, sales/orders только за сегодня)
+                await fetch_products_stats(client, org_id, target_date); time.sleep(1)
+                await fetch_products(client, org_id, target_date); time.sleep(1)
+                # Sales/orders — rate limited, только за последние 3 дня
+                if (date.today() - target_date).days <= 3:
+                    await fetch_sales(client, org_id, target_date); time.sleep(3)
+                    await fetch_orders(client, org_id, target_date); time.sleep(3)
+                await fetch_stocks(client, org_id, target_date); time.sleep(1)
+                await fetch_tariffs(client, org_id, target_date); time.sleep(1)
                 await fetch_adverts(client, org_id, target_date)
 
                 # Агрегируем в ТС

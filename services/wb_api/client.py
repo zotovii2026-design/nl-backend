@@ -157,12 +157,12 @@ class WBApiClient:
             params["dateTo"] = date_to
 
         response = await self.client.get(
-            f"{self.STATISTICS_URL}/api/v1/sales",
+            f"{self.STATISTICS_URL}/api/v1/supplier/sales",
             params=params
         )
         response.raise_for_status()
         result = response.json()
-        return result.get("data", {}).get("cards", result.get("cards", result))
+        return result if isinstance(result, list) else result.get("data", result)
 
     async def get_sales_funnel_products(self,
                      date_from: str,
@@ -198,12 +198,12 @@ class WBApiClient:
             params["dateTo"] = date_to
 
         response = await self.client.get(
-            f"{self.MARKETPLACE_URL}/api/v2/orders",
+            f"{self.STATISTICS_URL}/api/v1/supplier/orders",
             params=params
         )
         response.raise_for_status()
         result = response.json()
-        return result.get("data", {}).get("orders", result.get("orders", result))
+        return result if isinstance(result, list) else result.get("data", result)
 
     async def get_reports(self, 
                        report_type: str = "sales",
