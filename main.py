@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from core.database import get_db
 from core.config import settings
-from api.v1 import auth, organizations, wb_keys, sync, demo, demo_wb
+from api.v1 import auth, organizations, wb_keys, sync, demo, demo_wb, admin_tech
 
 # Импортируем Celery для регистрации задач
 from core.celery import celery_app
@@ -32,6 +32,7 @@ app.include_router(wb_keys.router, prefix="/api/v1")
 app.include_router(sync.router, prefix="/api/v1")
 app.include_router(demo.router, prefix="/api/v1/demo")
 app.include_router(demo_wb.router, prefix="/api/v1/demo_wb")
+app.include_router(admin_tech.router)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -39,6 +40,11 @@ async def root():
     """Demo dashboard page"""
     with open("templates/demo.html", "r", encoding="utf-8") as f:
         return f.read()
+
+
+@app.get("/demo", response_class=HTMLResponse)
+async def demo_page():
+    return FileResponse("templates/demo_full.html")
 
 
 @app.get("/wb-demo", response_class=HTMLResponse)

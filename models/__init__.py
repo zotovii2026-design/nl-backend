@@ -18,6 +18,13 @@ from models.wb_data import (
     WbOrder,
     OrderStatus
 )
+from models.raw_data import (
+    RawApiData,
+    RawBarcode,
+    WarehouseRef,
+    TechStatus,
+    RawSyncStatus
+)
 
 __all__ = [
     "User",
@@ -34,4 +41,9 @@ __all__ = [
     "WbSale",
     "WbOrder",
     "OrderStatus",
+    "RawApiData",
+    "RawBarcode",
+    "WarehouseRef",
+    "TechStatus",
+    "RawSyncStatus",
 ]

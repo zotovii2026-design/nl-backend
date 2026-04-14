@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NL Table — Демонстрация</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+        .header { background: #1e293b; padding: 20px 30px; border-bottom: 2px solid #3b82f6; }
+        .header h1 { font-size: 24px; color: #3b82f6; }
+        .header p { color: #94a3b8; margin-top: 4px; }
+        .container { max-width: 900px; margin: 20px auto; padding: 0 20px; }
+        .card { background: #1e293b; border-radius: 12px; padding: 24px; margin-bottom: 20px; border: 1px solid #334155; }
+        .card h2 { font-size: 18px; color: #60a5fa; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .card h2 .badge { font-size: 11px; background: #22c55e; color: #fff; padding: 2px 8px; border-radius: 10px; }
+        .card h2 .badge.pending { background: #eab308; }
+        label { display: block; color: #94a3b8; font-size: 13px; margin-bottom: 4px; margin-top: 12px; }
+        input, select { width: 100%; padding: 10px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; font-size: 14px; }
+        input:focus { outline: none; border-color: #3b82f6; }
+        .btn { display: inline-block; padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; margin-top: 16px; transition: all .2s; }
+        .btn-blue { background: #3b82f6; color: #fff; }
+        .btn-blue:hover { background: #2563eb; }
+        .btn-blue:disabled { background: #1e40af; opacity: .5; cursor: not-allowed; }
+        .btn-green { background: #22c55e; color: #fff; }
+        .btn-green:hover { background: #16a34a; }
+        .btn-purple { background: #8b5cf6; color: #fff; }
+        .btn-purple:hover { background: #7c3aed; }
+        .btn-orange { background: #f97316; color: #fff; }
+        .btn-orange:hover { background: #ea580c; }
+        .steps { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+        .step { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; background: #334155; color: #94a3b8; }
+        .step.active { background: #3b82f6; color: #fff; }
+        .step.done { background: #22c55e; color: #fff; }
+        .response { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px; margin-top: 12px; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; color: #a5f3fc; }
+        .response.error { color: #fca5a5; }
+        .token-box { background: #0f172a; border: 1px solid #3b82f6; border-radius: 8px; padding: 8px 12px; font-family: monospace; font-size: 11px; color: #60a5fa; word-break: break-all; margin-top: 8px; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 12px; }
+        .stat { background: #0f172a; border-radius: 8px; padding: 12px; text-align: center; }
+        .stat .num { font-size: 24px; font-weight: 700; color: #3b82f6; }
+        .stat .lbl { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+        th { text-align: left; padding: 8px; background: #0f172a; color: #94a3b8; font-weight: 600; }
+        td { padding: 8px; border-top: 1px solid #334155; }
+        img { border-radius: 6px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>NL Table — Демонстрация</h1>
+        <p>Пошаговая демонстрация работы с Wildberries API</p>
+    </div>
+    <div class="container">
+        <div class="steps">
+            <div class="step" id="s1">1. Регистрация</div>
+            <div class="step" id="s2">2. Логин</div>
+            <div class="step" id="s3">3. Организация</div>
+            <div class="step" id="s4">4. WB API Ключ</div>
+            <div class="step" id="s5">5. Sync товаров</div>
+            <div class="step" id="s6">6. Sync продаж</div>
+            <div class="step" id="s7">7. Результаты</div>
+        </div>
+
+        <!-- Step 1: Register -->
+        <div class="card" id="card-register">
+            <h2>1. Регистрация <span class="badge pending" id="badge-register">ожидает</span></h2>
+            <label>Email</label>
+            <input type="email" id="reg-email" value="demo@nl-table.com" placeholder="email">
+            <label>Пароль</label>
+            <input type="password" id="reg-password" value="Demo12345" placeholder="пароль">
+            <label>Имя</label>
+            <input type="text" id="reg-name" value="Demo User" placeholder="полное имя">
+            <button class="btn btn-blue" onclick="doRegister()">Зарегистрироваться</button>
+            <div id="resp-register" class="response hidden"></div>
+        </div>
+
+        <!-- Step 2: Login -->
+        <div class="card hidden" id="card-login">
+            <h2>2. Логин <span class="badge pending" id="badge-login">ожидает</span></h2>
+            <label>Email</label>
+            <input type="email" id="login-email" value="demo@nl-table.com">
+            <label>Пароль</label>
+            <input type="password" id="login-password" value="Demo12345">
+            <button class="btn btn-blue" onclick="doLogin()">Войти</button>
+            <div id="resp-login" class="response hidden"></div>
+        </div>
+
+        <!-- Step 3: Organization -->
+        <div class="card hidden" id="card-org">
+            <h2>3. Создать организацию <span class="badge pending" id="badge-org">ожидает</span></h2>
+            <label>Название</label>
+            <input type="text" id="org-name" value="Моя организация">
+            <label>Описание</label>
+            <input type="text" id="org-desc" value="Демо организация для тестов">
+            <button class="btn btn-green" onclick="doCreateOrg()">Создать</button>
+            <div id="resp-org" class="response hidden"></div>
+        </div>
+
+        <!-- Step 4: WB API Key -->
+        <div class="card hidden" id="card-wbkey">
+            <h2>4. Добавить WB API ключ <span class="badge pending" id="badge-wbkey">ожидает</span></h2>
+            <label>Название ключа</label>
+            <input type="text" id="wbkey-name" value="Мой WB ключ">
+            <label>WB API Token</label>
+            <input type="text" id="wbkey-token" placeholder="Вставьте ваш WB API токен">
+            <button class="btn btn-purple" onclick="doAddWbKey()">Добавить</button>
+            <div id="resp-wbkey" class="response hidden"></div>
+        </div>
+
+        <!-- Step 5: Sync Products -->
+        <div class="card hidden" id="card-sync-products">
+            <h2>5. Синхронизация товаров <span class="badge pending" id="badge-sync-products">ожидает</span></h2>
+            <p style="color:#94a3b8;margin-bottom:12px">Забрать карточки товаров из WB API и сохранить в базу</p>
+            <button class="btn btn-blue" onclick="doSyncProducts()">Синхронизировать товары</button>
+            <div id="resp-sync-products" class="response hidden"></div>
+        </div>
+
+        <!-- Step 6: Sync Sales -->
+        <div class="card hidden" id="card-sync-sales">
+            <h2>6. Синхронизация продаж <span class="badge pending" id="badge-sync-sales">ожидает</span></h2>
+            <p style="color:#94a3b8;margin-bottom:12px">Забрать аналитику продаж из WB API за последние 7 дней</p>
+            <button class="btn btn-orange" onclick="doSyncSales()">Синхронизировать продажи</button>
+            <div id="resp-sync-sales" class="response hidden"></div>
+        </div>
+
+        <!-- Step 7: Results -->
+        <div class="card hidden" id="card-results">
+            <h2>7. Результаты <span class="badge pending" id="badge-results">загрузка</span></h2>
+            <div id="results-content"></div>
+        </div>
+    </div>
+
+<script>
+const API = '';
+let token = '';
+let orgId = '';
+let wbKeyId = '';
+
+function show(id) { document.getElementById(id).classList.remove('hidden'); }
+function setStep(n, status) {
+    const el = document.getElementById('s' + n);
+    el.className = 'step ' + (status === 'done' ? 'done' : 'active');
+}
+function setBadge(id, text, cls) {
+    const el = document.getElementById('badge-' + id);
+    el.textContent = text;
+    el.className = 'badge ' + (cls || '');
+}
+function showResp(id, data, isError) {
+    const el = document.getElementById('resp-' + id);
+    el.classList.remove('hidden');
+    el.className = 'response' + (isError ? ' error' : '');
+    el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+}
+
+async function api(method, path, body) {
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (token) opts.headers['Authorization'] = 'Bearer ' + token;
+    if (body) opts.body = JSON.stringify(body);
+    const r = await fetch(API + path, opts);
+    const j = await r.json();
+    if (!r.ok) throw j;
+    return j;
+}
+
+async function doRegister() {
+    try {
+        const r = await api('POST', '/api/v1/auth/register', {
+            email: document.getElementById('reg-email').value,
+            password: document.getElementById('reg-password').value,
+            full_name: document.getElementById('reg-name').value
+        });
+        showResp('register', r);
+        setBadge('register', 'готово', '');
+        setStep(1, 'done');
+        show('card-login');
+        setStep(2, 'active');
+    } catch(e) {
+        if (e.detail === 'Email already registered') {
+            showResp('register', 'Пользователь уже зарегистрирован — переходим к логину');
+            setBadge('register', 'уже есть', '');
+            setStep(1, 'done');
+            show('card-login');
+            setStep(2, 'active');
+        } else {
+            showResp('register', e, true);
+        }
+    }
+}
+
+async function doLogin() {
+    try {
+        const r = await api('POST', '/api/v1/auth/login', {
+            email: document.getElementById('login-email').value,
+            password: document.getElementById('login-password').value
+        });
+        token = r.access_token;
+        showResp('login', { access_token: token.substring(0,40) + '...', token_type: r.token_type });
+        setBadge('login', 'готово', '');
+        setStep(2, 'done');
+        show('card-org');
+        setStep(3, 'active');
+    } catch(e) { showResp('login', e, true); }
+}
+
+async function doCreateOrg() {
+    try {
+        const r = await api('POST', '/api/v1/organizations', {
+            name: document.getElementById('org-name').value,
+            description: document.getElementById('org-desc').value
+        });
+        orgId = r.id;
+        showResp('org', r);
+        setBadge('org', 'готово', '');
+        setStep(3, 'done');
+        show('card-wbkey');
+        setStep(4, 'active');
+    } catch(e) { showResp('org', e, true); }
+}
+
+async function doAddWbKey() {
+    try {
+        const r = await api('POST', '/api/v1/organizations/' + orgId + '/wb-keys', {
+            name: document.getElementById('wbkey-name').value,
+            api_key: document.getElementById('wbkey-token').value
+        });
+        wbKeyId = r.id;
+        showResp('wbkey', r);
+        setBadge('wbkey', 'готово', '');
+        setStep(4, 'done');
+        show('card-sync-products');
+        setStep(5, 'active');
+    } catch(e) { showResp('wbkey', e, true); }
+}
+
+async function doSyncProducts() {
+    try {
+        const r = await api('POST', '/api/v1/sync/products?api_key_id=' + wbKeyId);
+        showResp('sync-products', r);
+        setBadge('sync-products', r.cards_count + ' товаров', '');
+        setStep(5, 'done');
+        show('card-sync-sales');
+        setStep(6, 'active');
+    } catch(e) { showResp('sync-products', e, true); }
+}
+
+async function doSyncSales() {
+    try {
+        const r = await api('POST', '/api/v1/sync/sales?api_key_id=' + wbKeyId + '&days=7');
+        showResp('sync-sales', r);
+        setBadge('sync-sales', r.sales_count + ' записей', '');
+        setStep(6, 'done');
+        show('card-results');
+        setStep(7, 'active');
+        loadResults();
+    } catch(e) { showResp('sync-sales', e, true); }
+}
+
+async function loadResults() {
+    try {
+        const [products, sales, logs] = await Promise.all([
+            api('GET', '/api/v1/demo_wb/products'),
+            fetch(API + '/api/v1/sync/logs', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()),
+            fetch(API + '/api/v1/demo_wb/stats').then(r => r.json())
+        ]);
+        let html = '<div class="stats">';
+        html += '<div class="stat"><div class="num">' + products.length + '</div><div class="lbl">Товаров</div></div>';
+        html += '<div class="stat"><div class="num">' + (logs.logs ? logs.logs.length : 0) + '</div><div class="lbl">Sync логов</div></div>';
+        html += '</div>';
+        html += '<h3 style="margin-top:20px;color:#60a5fa">Товары из WB</h3>';
+        html += '<table><tr><th>Фото</th><th>Артикул WB</th><th>Артикул</th><th>Название</th><th>Категория</th></tr>';
+        products.forEach(p => {
+            html += '<tr><td>' + (p.photo_url ? '<img src="' + p.photo_url + '" width="50" height="50">' : '-') + '</td>';
+            html += '<td>' + p.nm_id + '</td><td>' + p.vendor_code + '</td><td>' + p.name + '</td><td>' + p.subject + '</td></tr>';
+        });
+        html += '</table>';
+        document.getElementById('results-content').innerHTML = html;
+        setBadge('results', 'готово', '');
+        setStep(7, 'done');
+    } catch(e) {
+        document.getElementById('results-content').innerHTML = '<p style="color:#fca5a5">Ошибка загрузки: ' + JSON.stringify(e) + '</p>';
+    }
+}
+</script>
+</body>
+</html>
