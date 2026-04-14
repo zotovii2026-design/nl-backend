@@ -173,6 +173,95 @@ async def get_products(org_id: str, db: AsyncSession = Depends(get_db)):
     return [{"nm_id": r[0], "vendor_code": r[1], "product_name": r[2], "photo_main": r[3]} for r in result.all()]
 
 
+
+
+@router.get("/api/v1/nl/organizations")
+async def nl_organizations(token: str = Query(""), db: AsyncSession = Depends(get_db)):
+    """Список организаций пользователя"""
+    from models.organization import Membership, Organization, WbApiKey
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(401, "Не авторизован")
+    user_id = payload.get("sub")
+    result = await db.execute(
+        select(Membership, Organization)
+        .join(Organization, Membership.organization_id == Organization.id)
+        .where(Membership.user_id == user_id)
+    )
+    rows = result.all()
+    orgs = []
+    for m, o in rows:
+        # Count WB keys
+        keys_result = await db.execute(
+            select(WbApiKey).where(WbApiKey.organization_id == o.id)
+        )
+        keys = keys_result.scalars().all()
+        orgs.append({
+            "id": str(o.id),
+            "name": o.name,
+            "wb_keys_count": len(keys),
+            "role": m.role.value if hasattr(m.role, "value") else str(m.role),
+        })
+    return orgs
+
+
+@router.post("/api/v1/nl/organizations")
+async def nl_create_org(data: dict, token: str = Query(""), db: AsyncSession = Depends(get_db)):
+    """Создать новую организацию"""
+    from models.organization import Organization, Membership, Role, SubscriptionTier, SubscriptionStatus
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(401, "Не авторизован")
+    user_id = payload.get("sub")
+    org = Organization(name=data.get("name", "Новый магазин"), subscription_tier=SubscriptionTier.TRIAL, subscription_status=SubscriptionStatus.ACTIVE)
+    db.add(org)
+    await db.flush()
+    membership = Membership(user_id=user_id, organization_id=org.id, role=Role.OWNER)
+    db.add(membership)
+    await db.commit()
+    return {"id": str(org.id), "name": org.name}
+
+
+@router.get("/api/v1/nl/wb-keys")
+async def nl_wb_keys(org_id: str, db: AsyncSession = Depends(get_db)):
+    """Список WB API ключей организации"""
+    from models.organization import WbApiKey
+    result = await db.execute(
+        select(WbApiKey).where(WbApiKey.organization_id == org_id)
+    )
+    keys = result.scalars().all()
+    return [{"id": str(k.id), "name": k.name, "created_at": str(k.created_at)} for k in keys]
+
+
+@router.post("/api/v1/nl/wb-keys")
+async def nl_add_wb_key(data: dict, org_id: str, db: AsyncSession = Depends(get_db)):
+    """Добавить WB API ключ"""
+    from models.organization import WbApiKey
+    name = data.get("name", "WB Key")
+    api_key = data.get("api_key", "")
+    if not api_key:
+        raise HTTPException(400, "API ключ обязателен")
+    encrypted = encrypt_data(api_key)
+    key = WbApiKey(organization_id=org_id, name=name, api_key=encrypted)
+    db.add(key)
+    await db.commit()
+    return {"status": "ok", "id": str(key.id)}
+
+
+@router.delete("/api/v1/nl/wb-keys/{key_id}")
+async def nl_delete_wb_key(key_id: str, org_id: str, db: AsyncSession = Depends(get_db)):
+    """Удалить WB API ключ"""
+    from models.organization import WbApiKey
+    result = await db.execute(
+        select(WbApiKey).where(WbApiKey.id == key_id, WbApiKey.organization_id == org_id)
+    )
+    key = result.scalar_one_or_none()
+    if not key:
+        raise HTTPException(404, "Ключ не найден")
+    await db.delete(key)
+    await db.commit()
+    return {"status": "ok"}
+
 # ─── FRONTEND ──────────────────────────────────────────────
 
 @router.get("/nl", response_class=HTMLResponse)
@@ -193,6 +282,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .header .logo{font-size:1.4em}
 .header .logout{margin-left:auto;color:#999;cursor:pointer;font-size:0.85em}
 .header .logout:hover{color:#e74c3c}
+.org-switcher{display:flex;align-items:center;gap:4px}
+.org-switcher select{border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em;background:#fff;cursor:pointer}
+.btn-sm{background:#6c5ce7;color:#fff;border:none;width:24px;height:24px;border-radius:50%;cursor:pointer;font-size:1em;display:flex;align-items:center;justify-content:center}
+.btn-sm:hover{background:#5a4bd1}
+.wb-key-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:#fff;border-radius:6px;margin-bottom:6px;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.wb-key-item .name{font-weight:500}
+.wb-key-item .date{color:#999;font-size:.8em}
+.wb-key-item .del{margin-left:auto;color:#e74c3c;cursor:pointer;font-size:.8em}
 .user-info{color:#666;font-size:0.85em}
 
 .tabs{display:flex;background:#fff;border-bottom:2px solid #e0e0e0;padding:0 20px}
@@ -264,13 +361,17 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 <div id="app-section" style="display:none">
 <div class="header">
 <span class="logo">📊</span>
-<h1>НЛ — Аналитика</h1>
+<div class="org-switcher">
+<select id="org-select" onchange="switchOrg()"></select>
+<button class="btn-sm" onclick="showNewOrgDialog()">+</button>
+</div>
 <span class="user-info" id="user-email"></span>
 <span class="logout" onclick="doLogout()">Выйти</span>
 </div>
 <div class="tabs">
 <div class="tab active" onclick="switchTab('reference',this)">📋 Справочный лист</div>
 <div class="tab" onclick="switchTab('control',this)">📈 Оперативный контроль</div>
+<div class="tab" onclick="switchTab('settings',this)">⚙️ Настройки</div>
 </div>
 <div class="content">
 <div id="tab-reference" class="tab-content active">
@@ -285,6 +386,33 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 <div id="tab-control" class="tab-content">
 <div class="empty">📈 Оперативный контроль — в разработке</div>
 </div>
+
+<div id="tab-settings" class="tab-content">
+<h3 style="margin-bottom:12px;color:#6c5ce7">🔑 WB API ключи</h3>
+<div id="wb-keys-list"></div>
+<div style="margin-top:16px;padding:16px;background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+<h4 style="margin-bottom:10px">Добавить ключ</h4>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<input type="text" id="wb-key-name" placeholder="Название" style="width:150px">
+<input type="text" id="wb-key-value" placeholder="API ключ WB" style="flex:1;min-width:200px">
+<button class="btn" onclick="addWbKey()">Добавить</button>
+</div>
+<p style="color:#999;font-size:.8em;margin-top:8px">Получить ключ: Кабинет WB → Настройки → Доступ к API</p>
+</div>
+</div>
+
+<!-- New org dialog -->
+<div id="new-org-dialog" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:100;display:none;align-items:center;justify-content:center">
+<div style="background:#fff;padding:24px;border-radius:12px;width:360px;box-shadow:0 4px 20px rgba(0,0,0,.15)">
+<h3 style="color:#6c5ce7;margin-bottom:12px">Новый магазин</h3>
+<input type="text" id="new-org-name" placeholder="Название магазина" style="width:100%;margin-bottom:12px">
+<div style="display:flex;gap:8px">
+<button class="btn" onclick="createNewOrg()" style="flex:1">Создать</button>
+<button class="btn btn-outline" onclick="hideNewOrgDialog()" style="flex:1">Отмена</button>
+</div>
+</div>
+</div>
+
 </div>
 </div>
 
@@ -409,6 +537,107 @@ async function saveRow(btn, nmId, vc, name) {
     });
     if (res.ok) { btn.textContent='✅'; btn.classList.add('saved'); setTimeout(()=>{btn.textContent='💾';btn.classList.remove('saved');},1500); }
 }
+
+// Org & WB key management
+async function loadOrgs() {
+    const res = await fetch('/api/v1/nl/organizations?token=' + TOKEN);
+    if (!res.ok) return;
+    const orgs = await res.json();
+    const sel = document.getElementById('org-select');
+    sel.innerHTML = '';
+    orgs.forEach(o => {
+        const opt = document.createElement('option');
+        opt.value = o.id;
+        opt.textContent = o.name + (o.wb_keys_count ? ' (' + o.wb_keys_count + '🔑)' : '');
+        if (o.id === ORG_ID) opt.selected = true;
+        sel.appendChild(opt);
+    });
+    if (!ORG_ID && orgs.length) {
+        ORG_ID = orgs[0].id;
+        localStorage.setItem('nl_org_id', ORG_ID);
+        sel.value = ORG_ID;
+    }
+}
+
+function switchOrg() {
+    ORG_ID = document.getElementById('org-select').value;
+    localStorage.setItem('nl_org_id', ORG_ID);
+    loadRefData();
+    loadWbKeys();
+}
+
+function showNewOrgDialog() {
+    const d = document.getElementById('new-org-dialog');
+    d.style.display = 'flex';
+}
+function hideNewOrgDialog() {
+    document.getElementById('new-org-dialog').style.display = 'none';
+}
+
+async function createNewOrg() {
+    const name = document.getElementById('new-org-name').value || 'Новый магазин';
+    const res = await fetch('/api/v1/nl/organizations?token=' + TOKEN, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name})
+    });
+    if (res.ok) {
+        const data = await res.json();
+        ORG_ID = data.id;
+        localStorage.setItem('nl_org_id', ORG_ID);
+        hideNewOrgDialog();
+        loadOrgs();
+        loadRefData();
+        loadWbKeys();
+    }
+}
+
+async function loadWbKeys() {
+    if (!ORG_ID) return;
+    const res = await fetch('/api/v1/nl/wb-keys?org_id=' + ORG_ID);
+    const keys = await res.json();
+    const el = document.getElementById('wb-keys-list');
+    if (!keys.length) {
+        el.innerHTML = '<div style="color:#999;font-size:.9em;padding:8px">Ключи не добавлены</div>';
+        return;
+    }
+    el.innerHTML = keys.map(k =>
+        '<div class="wb-key-item"><span class="name">🔑 ' + k.name + '</span><span class="date">' + (k.created_at||'').substring(0,10) + '</span><span class="del" onclick="deleteWbKey('' + k.id + '')">✕</span></div>'
+    ).join('');
+}
+
+async function addWbKey() {
+    const name = document.getElementById('wb-key-name').value || 'WB Key';
+    const api_key = document.getElementById('wb-key-value').value;
+    if (!api_key) return;
+    const res = await fetch('/api/v1/nl/wb-keys?org_id=' + ORG_ID, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, api_key})
+    });
+    if (res.ok) {
+        document.getElementById('wb-key-name').value = '';
+        document.getElementById('wb-key-value').value = '';
+        loadWbKeys();
+        loadOrgs(); // update key count
+    } else {
+        const err = await res.json();
+        alert(err.detail || 'Ошибка');
+    }
+}
+
+async function deleteWbKey(id) {
+    if (!confirm('Удалить ключ?')) return;
+    await fetch('/api/v1/nl/wb-keys/' + id + '?org_id=' + ORG_ID, {method: 'DELETE'});
+    loadWbKeys();
+    loadOrgs();
+}
+
+// Override showApp to also load orgs and keys
+const _origShowApp = showApp;
+showApp = function() {
+    _origShowApp();
+    loadOrgs();
+    loadWbKeys();
+};
 
 // Auto-login
 if (TOKEN && ORG_ID) {
