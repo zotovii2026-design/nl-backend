@@ -264,7 +264,80 @@ async def nl_delete_wb_key(key_id: str, org_id: str, db: AsyncSession = Depends(
 
 # ─── FRONTEND ──────────────────────────────────────────────
 
-@router.get("/nl", response_class=HTMLResponse)
+
+
+@router.get("/nl/register", response_class=HTMLResponse)
+async def nl_register_page():
+    html = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>НЛ — Регистрация</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f7fa;color:#1a1a2e}
+.auth-container{max-width:400px;margin:80px auto;background:#fff;padding:32px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+h2{color:#6c5ce7;margin-bottom:8px;font-size:1.3em}
+p{color:#999;font-size:.85em;margin-bottom:20px}
+.field{margin-bottom:14px}
+label{display:block;font-size:.8em;color:#666;margin-bottom:4px}
+input{width:100%;border:1px solid #e0e0e0;border-radius:4px;padding:8px;font-size:.9em}
+input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,231,.15)}
+.btn{background:#6c5ce7;color:#fff;border:none;padding:10px;width:100%;border-radius:6px;cursor:pointer;font-size:.95em;font-weight:500}
+.btn:hover{background:#5a4bd1}
+.link{text-align:center;margin-top:16px;font-size:.85em}
+.link a{color:#6c5ce7;text-decoration:none}
+.link a:hover{text-decoration:underline}
+.error{color:#e74c3c;font-size:.85em;margin-bottom:10px;display:none}
+</style>
+</head>
+<body>
+<div class="auth-container">
+<h2>📝 Регистрация</h2>
+<p>Создайте аккаунт для доступа к аналитике</p>
+<div id="err" class="error"></div>
+<div class="field"><label>Email</label><input type="email" id="email"></div>
+<div class="field"><label>Пароль</label><input type="password" id="password"></div>
+<div class="field"><label>Название магазина</label><input type="text" id="org" value="Мой магазин"></div>
+<button class="btn" id="submitBtn">Зарегистрироваться</button>
+<div class="link"><a href="/nl/v2">Уже есть аккаунт? Войти</a></div>
+</div>
+<script>
+document.getElementById('submitBtn').addEventListener('click', async function() {
+    var email = document.getElementById('email').value;
+    var password = document.getElementById('password').value;
+    var org_name = document.getElementById('org').value;
+    var err = document.getElementById('err');
+    err.style.display = 'none';
+    try {
+        var res = await fetch('/api/v1/nl/register', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({email: email, password: password, org_name: org_name})
+        });
+        if (!res.ok) {
+            var d = await res.json();
+            throw new Error(d.detail || 'Ошибка');
+        }
+        var data = await res.json();
+        localStorage.setItem('nl_token', data.access_token);
+        localStorage.setItem('nl_org_id', data.org_id);
+        window.location.href = '/nl/v2';
+    } catch(e) {
+        err.textContent = e.message;
+        err.style.display = 'block';
+    }
+});
+</script>
+</body>
+</html>"""
+    from fastapi.responses import HTMLResponse
+    resp = HTMLResponse(html)
+    resp.headers["Cache-Control"] = "no-cache, no-store"
+    return resp
+
+@router.get("/nl/v2", response_class=HTMLResponse)
 async def nl_page():
     """НЛ — главная страница"""
     html = """<!DOCTYPE html>
@@ -341,7 +414,7 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 <div class="field"><label>Email</label><input type="email" id="login-email"></div>
 <div class="field"><label>Пароль</label><input type="password" id="login-password"></div>
 <button class="btn" onclick="doLogin()" style="width:100%">Войти</button>
-<a href="#" class="toggle" onclick="showRegister();return false">Нет аккаунта? Зарегистрироваться</a>
+<div style="text-align:center;margin-top:16px;font-size:.85em"><a href="/nl/register" style="color:#6c5ce7;text-decoration:none">Нет аккаунта? Зарегистрироваться</a></div>
 </div>
 
 <div id="auth-register" style="display:none">
