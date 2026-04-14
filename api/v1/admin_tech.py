@@ -207,7 +207,7 @@ tr:hover {{ background: #161b22; }}
 
         # Фото — миниатюра (заменяем /big/ на /small/)
         photo_url = row.photo_main or ""
-        thumb_url = photo_url.replace("/big/", "/small/") if photo_url else ""
+        thumb_url = photo_url.replace("/big/", "/c246x328/") if photo_url else ""
         img_html = f'<img class="card-img" src="{thumb_url}" loading="lazy">' if thumb_url else '<div class="card-img-placeholder">📦</div>'
 
         # Штрихкоды с размерами
