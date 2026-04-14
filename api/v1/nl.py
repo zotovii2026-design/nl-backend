@@ -657,7 +657,6 @@ async function loadRefData() {
         const ref = refMap[p.nm_id] || {};
         const thumb = (p.photo_main || '').replace('/big/', '/c246x328/');
         const img = thumb ? `<img class="photo" src="${thumb}" loading="lazy">` : '📦';
-        const esc = s => (s||'').replace(/'/g, "\\\\'");
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>${img}</td>
@@ -670,16 +669,18 @@ async function loadRefData() {
             <td><input type="number" data-field="logistics_cost" value="${ref.logistics_cost||''}" step="0.01"></td>
             <td><input type="number" data-field="other_costs" value="${ref.other_costs||''}" step="0.01"></td>
             <td><input type="text" data-field="notes" value="${esc(ref.notes)}" style="width:120px"></td>
-            <td><button class="save-btn" onclick="saveRow(this,${p.nm_id},'${esc(p.vendor_code)}','${esc(p.product_name)}')">💾</button></td>
+            <td><button class="save-btn" data-nm="${p.nm_id}" data-vc="${p.vendor_code || ''}" onclick="saveRowBtn(this)">💾</button></td>
         `;
         tbody.appendChild(tr);
     });
 }
 
-async function saveRow(btn, nmId, vc, name) {
+async function saveRowBtn(btn) {
+    const nmId = parseInt(btn.dataset.nm);
+    const vc = btn.dataset.vc || '';
     const row = btn.closest('tr');
     const inputs = row.querySelectorAll('input');
-    const data = {nm_id: nmId, vendor_code: vc, product_name: name};
+    const data = {nm_id: nmId, vendor_code: vc};
     inputs.forEach(inp => {
         const f = inp.dataset.field;
         if (f) data[f] = inp.type === 'number' ? (parseFloat(inp.value)||null) : inp.value;
@@ -753,7 +754,7 @@ async function loadWbKeys() {
         return;
     }
     el.innerHTML = keys.map(k =>
-        '<div class="wb-key-item"><span class="name">🔑 ' + k.name + '</span><span class="date">' + (k.created_at||'').substring(0,10) + '</span><span class="del" onclick="deleteWbKey('' + k.id + '')">✕</span></div>'
+        '<div class="wb-key-item"><span class="name">🔑 ' + k.name + '</span><span class="date">' + (k.created_at||'').substring(0,10) + '</span><span class="del" data-keyid="' + k.id + '" onclick="deleteWbKeyBtn(this)">✕</span></div>'
     ).join('');
 }
 
@@ -776,6 +777,7 @@ async function addWbKey() {
     }
 }
 
+async function deleteWbKeyBtn(btn) { await deleteWbKey(btn.dataset.keyid); }
 async function deleteWbKey(id) {
     if (!confirm('Удалить ключ?')) return;
     await fetch('/api/v1/nl/wb-keys/' + id + '?org_id=' + ORG_ID, {method: 'DELETE'});
