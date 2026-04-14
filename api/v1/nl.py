@@ -289,6 +289,204 @@ async def get_available_dates(org_id: str, db: AsyncSession = Depends(get_db)):
     )
     return [str(r[0]) for r in result.all()]
 
+
+@router.get("/api/v1/nl/control")
+async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Оперативный контроль — метрики на дату"""
+    from sqlalchemy import func, case, and_
+    from datetime import datetime as dt_mod
+    import decimal
+
+    d = dt_mod.strptime(target_date, "%Y-%m-%d").date() if target_date else date.today()
+
+    # Основные метрики за день
+    result = await db.execute(
+        select(
+            func.count(TechStatus.id).label("total_products"),
+            func.sum(TechStatus.stock_qty).label("total_stock"),
+            func.sum(TechStatus.orders_count).label("total_orders"),
+            func.sum(TechStatus.buyouts_count).label("total_buyouts"),
+            func.sum(TechStatus.returns_count).label("total_returns"),
+            func.sum(TechStatus.impressions).label("total_impressions"),
+            func.sum(TechStatus.clicks).label("total_clicks"),
+            func.sum(TechStatus.ad_cost).label("total_ad_cost"),
+            func.avg(TechStatus.rating).label("avg_rating"),
+        ).where(TechStatus.organization_id == org_id, TechStatus.target_date == d)
+    )
+    row = result.one()
+
+    # Товары с нулевым остатком
+    zero_stock = await db.execute(
+        select(func.count(TechStatus.id)).where(
+            TechStatus.organization_id == org_id, TechStatus.target_date == d,
+            TechStatus.stock_qty <= 0
+        )
+    )
+
+    # Товары с низким остатком (<=5)
+    low_stock = await db.execute(
+        select(func.count(TechStatus.id)).where(
+            TechStatus.organization_id == org_id, TechStatus.target_date == d,
+            TechStatus.stock_qty > 0, TechStatus.stock_qty <= 5
+        )
+    )
+
+    # Товары по рейтингу (< 4)
+    low_rating = await db.execute(
+        select(func.count(TechStatus.id)).where(
+            TechStatus.organization_id == org_id, TechStatus.target_date == d,
+            TechStatus.rating < 4.0
+        )
+    )
+
+    # Детализация по товарам
+    products_detail = await db.execute(
+        select(
+            TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name,
+            TechStatus.photo_main, TechStatus.stock_qty, TechStatus.orders_count,
+            TechStatus.buyouts_count, TechStatus.returns_count, TechStatus.rating,
+            TechStatus.impressions, TechStatus.clicks, TechStatus.ad_cost,
+            TechStatus.price, TechStatus.price_discount, TechStatus.tariff,
+        ).where(TechStatus.organization_id == org_id, TechStatus.target_date == d)
+        .order_by(TechStatus.orders_count.desc().nullslast())
+    )
+
+    def safe_float(v):
+        return float(v) if v is not None and not isinstance(v, decimal.Decimal) else (float(v) if isinstance(v, decimal.Decimal) else None)
+    def safe_int(v):
+        return int(v) if v is not None else None
+
+    total_clicks = safe_int(row.total_clicks) or 0
+    total_impressions = safe_int(row.total_impressions) or 0
+
+    return {
+        "date": str(d),
+        "summary": {
+            "total_products": safe_int(row.total_products) or 0,
+            "total_stock": safe_int(row.total_stock) or 0,
+            "total_orders": safe_int(row.total_orders) or 0,
+            "total_buyouts": safe_int(row.total_buyouts) or 0,
+            "total_returns": safe_int(row.total_returns) or 0,
+            "total_impressions": total_impressions,
+            "total_clicks": total_clicks,
+            "ctr": round(total_clicks / total_impressions * 100, 2) if total_impressions > 0 else 0,
+            "total_ad_cost": safe_float(row.total_ad_cost) or 0,
+            "avg_rating": round(float(row.avg_rating), 2) if row.avg_rating else None,
+            "zero_stock_count": safe_int(zero_stock.scalar()) or 0,
+            "low_stock_count": safe_int(low_stock.scalar()) or 0,
+            "low_rating_count": safe_int(low_rating.scalar()) or 0,
+        },
+        "products": [{
+            "nm_id": r[0],
+            "vendor_code": r[1],
+            "product_name": r[2],
+            "photo_main": r[3],
+            "stock_qty": safe_int(r[4]),
+            "orders_count": safe_int(r[5]),
+            "buyouts_count": safe_int(r[6]),
+            "returns_count": safe_int(r[7]),
+            "rating": safe_float(r[8]),
+            "impressions": safe_int(r[9]),
+            "clicks": safe_int(r[10]),
+            "ad_cost": safe_float(r[11]),
+            "price": safe_float(r[12]),
+            "price_discount": safe_float(r[13]),
+            "tariff": safe_float(r[14]),
+        } for r in products_detail.all()]
+    }
+
+
+@router.post("/api/v1/nl/reference/import")
+async def import_reference_excel(org_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Импорт себестоимости из Excel/CSV файла"""
+    from fastapi import UploadFile, File
+    import io
+    import csv
+
+    content_type = request.headers.get("content-type", "")
+
+    # Читаем тело
+    body = await request.body()
+
+    try:
+        # Попробуем openpyxl для .xlsx
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(body), read_only=True)
+            ws = wb.active
+            rows = list(ws.iter_rows(min_row=2, values_only=True))  # skip header
+        except Exception:
+            # Fallback: CSV
+            text = body.decode("utf-8-sig")
+            reader = csv.reader(io.StringIO(text), delimiter=";", quotechar='"')
+            rows = list(reader)[1:]  # skip header
+
+        imported = 0
+        for row in rows:
+            if not row or not row[0]:
+                continue
+            try:
+                nm_id = int(row[0])
+            except (ValueError, TypeError):
+                continue
+
+            def parse_float(v, idx):
+                try:
+                    val = row[idx] if idx < len(row) else None
+                    if val is None or val == '' or val == '-':
+                        return None
+                    return float(str(val).replace(",", ".").replace(" ", "").replace("₽", ""))
+                except (ValueError, TypeError, IndexError):
+                    return None
+
+            def parse_str(v, idx):
+                try:
+                    return str(row[idx]).strip() if idx < len(row) and row[idx] else None
+                except (IndexError, TypeError):
+                    return None
+
+            vendor_code = parse_str(row, 1)
+            product_name = parse_str(row, 2)
+            target_date_str = parse_str(row, 3)
+            cost_price = parse_float(row, 4)
+            purchase_price = parse_float(row, 5)
+            packaging_cost = parse_float(row, 6)
+            logistics_cost = parse_float(row, 7)
+            other_costs = parse_float(row, 8)
+            notes = parse_str(row, 9)
+
+            from datetime import datetime as dt_mod
+            t_date = dt_mod.strptime(target_date_str, "%Y-%m-%d").date() if target_date_str else date.today()
+
+            ins = pg_insert(ReferenceSheet).values(
+                organization_id=org_id, nm_id=nm_id, vendor_code=vendor_code,
+                product_name=product_name, target_date=t_date,
+                cost_price=cost_price, purchase_price=purchase_price,
+                packaging_cost=packaging_cost, logistics_cost=logistics_cost,
+                other_costs=other_costs, notes=notes,
+            )
+            stmt = ins.on_conflict_do_update(
+                constraint="reference_sheet_org_nm_date_key",
+                set_={
+                    "vendor_code": ins.excluded.vendor_code,
+                    "product_name": ins.excluded.product_name,
+                    "cost_price": ins.excluded.cost_price,
+                    "purchase_price": ins.excluded.purchase_price,
+                    "packaging_cost": ins.excluded.packaging_cost,
+                    "logistics_cost": ins.excluded.logistics_cost,
+                    "other_costs": ins.excluded.other_costs,
+                    "notes": ins.excluded.notes,
+                    "updated_at": date.today(),
+                }
+            )
+            await db.execute(stmt)
+            imported += 1
+
+        await db.commit()
+        return {"status": "ok", "imported": imported}
+    except Exception as e:
+        raise HTTPException(400, f"Ошибка импорта: {str(e)}")
+
 # ─── FRONTEND ──────────────────────────────────────────────
 
 
@@ -553,6 +751,8 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 </div>
 <button class="btn" onclick="loadRefData()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
 <button class="btn btn-outline" onclick="saveAllRows()" style="padding:6px 14px;font-size:.85em">💾 Сохранить всё</button>
+<label class="btn btn-outline" style="padding:6px 14px;font-size:.85em;cursor:pointer">📤 Импорт Excel<input type="file" id="excel-import" accept=".xlsx,.csv" style="display:none" onchange="importExcel(this)"></label>
+<button class="btn btn-outline" onclick="exportExcel()" style="padding:6px 14px;font-size:.85em">📥 Экспорт шаблона</button>
 <div style="margin-left:auto;color:#999;font-size:.8em" id="ref-stats"></div>
 </div>
 <table id="ref-table">
@@ -564,7 +764,21 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 </table>
 </div>
 <div id="tab-control" class="tab-content">
-<div class="empty">📈 Оперативный контроль — в разработке</div>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<div style="display:flex;align-items:center;gap:6px">
+<label style="font-size:.85em;color:#666">📅 Дата:</label>
+<select id="ctrl-date" onchange="loadControl()" style="border:1px solid #e0e0e0;border-radius:4px;padding:6px 10px;font-size:.9em;cursor:pointer"></select>
+</div>
+<button class="btn" onclick="loadControl()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+</div>
+<div id="ctrl-alerts" style="margin-bottom:16px"></div>
+<div id="ctrl-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px"></div>
+<table id="ctrl-table" style="width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+<thead><tr>
+<th>Фото</th><th>Арт WB</th><th>Название</th><th>Остаток</th><th>Заказы</th><th>Выкупы</th><th>Возвраты</th><th>Рейтинг</th><th>Показы</th><th>Клики</th><th>CTR</th><th>Реклама ₽</th><th>Цена</th><th>Скидка</th><th>Комиссия</th>
+</tr></thead>
+<tbody id="ctrl-body"><tr><td colspan="15" class="empty">Выберите дату</td></tr></tbody>
+</table>
 </div>
 
 <div id="tab-settings" class="tab-content">
@@ -597,6 +811,8 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 </div>
 
 <script>
+function esc(s) { return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
 let TOKEN = localStorage.getItem('nl_token');
 let ORG_ID = localStorage.getItem('nl_org_id');
 
@@ -847,6 +1063,135 @@ async function deleteWbKey(id) {
     await fetch('/api/v1/nl/wb-keys/' + id + '?org_id=' + ORG_ID, {method: 'DELETE'});
     loadWbKeys();
     loadOrgs();
+}
+
+
+
+// ─── OPERATIONAL CONTROL ──────────────────────────────────
+
+async function loadControl() {
+    const dateVal = document.getElementById('ctrl-date').value;
+    if (!dateVal || dateVal === 'Нет данных') return;
+    const res = await fetch('/api/v1/nl/control?org_id=' + ORG_ID + '&target_date=' + dateVal);
+    const data = await res.json();
+    const s = data.summary;
+
+    // Alerts
+    const alerts = document.getElementById('ctrl-alerts');
+    let alertHtml = '';
+    if (s.zero_stock_count > 0) alertHtml += '<div style="background:#fff3f3;border:1px solid #ffcdd2;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#c62828">🔴 Нет в наличии: ' + s.zero_stock_count + ' товаров</div>';
+    if (s.low_stock_count > 0) alertHtml += '<div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#e65100">🟡 Низкий остаток (≤5): ' + s.low_stock_count + ' товаров</div>';
+    if (s.low_rating_count > 0) alertHtml += '<div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:8px 12px;margin-bottom:6px;color:#e65100">⚠️ Низкий рейтинг (<4): ' + s.low_rating_count + ' товаров</div>';
+    alerts.innerHTML = alertHtml;
+
+    // Cards
+    const cards = document.getElementById('ctrl-cards');
+    const metrics = [
+        {label: '📦 Товаров', value: s.total_products, color: '#6c5ce7'},
+        {label: '🏪 Остаток', value: s.total_stock, color: s.total_stock > 0 ? '#00b894' : '#e74c3c'},
+        {label: '📋 Заказы', value: s.total_orders, color: '#0984e3'},
+        {label: '✅ Выкупы', value: s.total_buyouts, color: '#00b894'},
+        {label: '↩️ Возвраты', value: s.total_returns, color: '#d63031'},
+        {label: '👁 Показы', value: s.total_impressions, color: '#636e72'},
+        {label: '👆 Клики', value: s.total_clicks, color: '#0984e3'},
+        {label: '📊 CTR', value: s.ctr + '%', color: s.ctr > 5 ? '#00b894' : s.ctr > 2 ? '#fdcb6e' : '#e74c3c'},
+        {label: '💰 Реклама ₽', value: s.total_ad_cost ? s.total_ad_cost.toFixed(0) : '0', color: '#e17055'},
+        {label: '⭐ Ср. рейтинг', value: s.avg_rating || '—', color: '#fdcb6e'},
+    ];
+    cards.innerHTML = metrics.map(m => '<div style="background:#fff;border-radius:8px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center"><div style="font-size:.75em;color:#999;margin-bottom:4px">' + m.label + '</div><div style="font-size:1.3em;font-weight:700;color:' + m.color + '">' + m.value + '</div></div>').join('');
+
+    // Products table
+    const tbody = document.getElementById('ctrl-body');
+    if (!data.products.length) { tbody.innerHTML = '<tr><td colspan="15" class="empty">Нет данных</td></tr>'; return; }
+    tbody.innerHTML = data.products.map(p => {
+        const thumb = (p.photo_main || '').replace('/big/', '/c246x328/');
+        const img = thumb ? '<img class="photo" src="' + thumb + '" loading="lazy">' : '📦';
+        const ctr = p.impressions > 0 ? (p.clicks / p.impressions * 100).toFixed(1) + '%' : '—';
+        const stockColor = p.stock_qty <= 0 ? '#e74c3c' : p.stock_qty <= 5 ? '#e17055' : '#00b894';
+        return '<tr>' +
+            '<td>' + img + '</td>' +
+            '<td><b>' + p.nm_id + '</b></td>' +
+            '<td>' + (p.product_name || '').substring(0, 25) + '</td>' +
+            '<td style="color:' + stockColor + ';font-weight:600">' + (p.stock_qty ?? '—') + '</td>' +
+            '<td>' + (p.orders_count ?? '—') + '</td>' +
+            '<td>' + (p.buyouts_count ?? '—') + '</td>' +
+            '<td>' + (p.returns_count ?? '—') + '</td>' +
+            '<td>' + (p.rating ? p.rating.toFixed(1) : '—') + '</td>' +
+            '<td>' + (p.impressions ?? '—') + '</td>' +
+            '<td>' + (p.clicks ?? '—') + '</td>' +
+            '<td>' + ctr + '</td>' +
+            '<td>' + (p.ad_cost ? p.ad_cost.toFixed(0) : '—') + '</td>' +
+            '<td>' + (p.price ? p.price.toFixed(0) : '—') + '</td>' +
+            '<td>' + (p.price_discount ? p.price_discount.toFixed(0) : '—') + '</td>' +
+            '<td>' + (p.tariff ? p.tariff.toFixed(0) + '%' : '—') + '</td>' +
+            '</tr>';
+    }).join('');
+}
+
+// Sync ctrl dates with ref dates
+function syncCtrlDates() {
+    const refSel = document.getElementById('ref-date');
+    const ctrlSel = document.getElementById('ctrl-date');
+    ctrlSel.innerHTML = refSel.innerHTML;
+    ctrlSel.value = refSel.value;
+}
+
+// Override loadDates to also sync
+const origLoadDates = loadDates;
+loadDates = async function() {
+    const result = await origLoadDates();
+    syncCtrlDates();
+    return result;
+};
+
+// ─── EXCEL IMPORT/EXPORT ──────────────────────────────────
+
+async function importExcel(input) {
+    if (!input.files.length) return;
+    const file = input.files[0];
+    const dateVal = document.getElementById('ref-date').value;
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/v1/nl/reference/import?org_id=' + ORG_ID, {
+        method: 'POST',
+        body: file,
+        headers: {'X-Filename': file.name, 'X-Target-Date': dateVal}
+    });
+    if (res.ok) {
+        const data = await res.json();
+        alert('Импортировано: ' + data.imported + ' строк');
+        loadRefData();
+    } else {
+        const err = await res.json();
+        alert('Ошибка: ' + err.detail);
+    }
+    input.value = '';
+}
+
+function exportExcel() {
+    // Генерируем CSV шаблон с текущими товарами
+    const rows = document.querySelectorAll('#ref-body tr');
+    let csv = 'Арт WB;Арт поставщика;Название;Дата;Себестоимость;Закупочная;Упаковка;Логистика;Прочее;Заметки\n';
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length < 3) return;
+        const nmId = cells[1].textContent.trim();
+        const vc = cells[2].textContent.trim();
+        const name = cells[3].textContent.trim();
+        const dateVal = document.getElementById('ref-date').value;
+        const inputs = row.querySelectorAll('input');
+        let costs = [];
+        inputs.forEach(inp => {
+            if (inp.dataset.field === 'notes') costs.push(inp.value);
+            else if (inp.type === 'number') costs.push(inp.value);
+        });
+        if (nmId) csv += nmId + ';' + vc + ';' + name + ';' + dateVal + ';' + costs.join(';') + '\n';
+    });
+    const blob = new Blob(['\ufeff' + csv], {type: 'text/csv;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'reference_template.csv'; a.click();
+    URL.revokeObjectURL(url);
 }
 
 // Auto-login
