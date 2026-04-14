@@ -272,7 +272,7 @@ async def nl_page():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>НЛ — Аналитика</title>
+<title>НЛ — Аналитика v3</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f7fa;color:#1a1a2e}
@@ -652,4 +652,7 @@ if (TOKEN && ORG_ID) {
 </body>
 </html>
 """
-    return HTMLResponse(html)
+    response = HTMLResponse(html)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return response
