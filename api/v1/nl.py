@@ -1175,7 +1175,7 @@ async function importExcel(input) {
 function exportExcel() {
     // Генерируем CSV шаблон с текущими товарами
     const rows = document.querySelectorAll('#ref-body tr');
-    let csv = 'Арт WB;Арт поставщика;Название;Дата;Себестоимость;Закупочная;Упаковка;Логистика;Прочее;Заметки\n';
+    let csv = 'Арт WB;Арт поставщика;Название;Дата;Себестоимость;Закупочная;Упаковка;Логистика;Прочее;Заметки\\n';
     rows.forEach(row => {
         const cells = row.querySelectorAll('td');
         if (cells.length < 3) return;
@@ -1189,7 +1189,7 @@ function exportExcel() {
             if (inp.dataset.field === 'notes') costs.push(inp.value);
             else if (inp.type === 'number') costs.push(inp.value);
         });
-        if (nmId) csv += nmId + ';' + vc + ';' + name + ';' + dateVal + ';' + costs.join(';') + '\n';
+        if (nmId) csv += nmId + ';' + vc + ';' + name + ';' + dateVal + ';' + costs.join(';') + '\\n';
     });
     const blob = new Blob(['\ufeff' + csv], {type: 'text/csv;charset=utf-8'});
     const url = URL.createObjectURL(blob);
