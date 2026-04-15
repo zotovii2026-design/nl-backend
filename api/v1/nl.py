@@ -828,8 +828,9 @@ function showLogin() {
 async function showApp() {
     document.getElementById('auth-section').style.display = 'none';
     document.getElementById('app-section').style.display = '';
-    await loadDates();
-    loadRefData();
+    try {
+        if (ORG_ID) { await loadDates(); loadRefData(); }
+    } catch(e) { console.error('loadDates error:', e); }
 }
 
 function showAuth() {
@@ -895,7 +896,9 @@ function switchTab(name, el) {
 }
 
 async function loadDates() {
+    if (!ORG_ID) return [];
     const res = await fetch('/api/v1/nl/dates?org_id=' + ORG_ID);
+    if (!res.ok) return [];
     const dates = await res.json();
     const sel = document.getElementById('ref-date');
     sel.innerHTML = '';
@@ -911,6 +914,7 @@ async function loadDates() {
 }
 
 async function loadRefData() {
+    if (!ORG_ID) { document.getElementById('ref-body').innerHTML = '<tr><td colspan="13" class="empty">Нет данных. Добавьте WB API ключ в настройках.</td></tr>'; return; }
     const dateVal = document.getElementById('ref-date').value;
     const target_date = dateVal && dateVal !== 'Нет данных' ? '&target_date=' + dateVal : '';
     const [prodRes, refRes] = await Promise.all([
