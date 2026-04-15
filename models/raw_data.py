@@ -43,7 +43,7 @@ class RawApiData(Base):
     organization = relationship("Organization")
 
     __table_args__ = (
-        UniqueConstraint("organization_id", "api_method", "target_date", name="uq_raw_api_org_method_date"),
+        UniqueConstraint("organization_id", "api_method", "target_date", name="raw_api_data_organization_id_api_method_target_date_key"),
     )
 
 
@@ -65,7 +65,7 @@ class RawBarcode(Base):
     organization = relationship("Organization")
 
     __table_args__ = (
-        UniqueConstraint("organization_id", "barcode", name="uq_raw_barcode_org"),
+        UniqueConstraint("organization_id", "barcode", name="raw_barcodes_organization_id_barcode_key"),
     )
 
 
@@ -145,5 +145,5 @@ class TechStatus(Base):
     organization = relationship("Organization")
 
     __table_args__ = (
-        UniqueConstraint("organization_id", "target_date", "nm_id", name="uq_tech_status_org_date_nm"),
+        UniqueConstraint("organization_id", "target_date", "nm_id", name="tech_status_organization_id_target_date_nm_id_key"),
     )

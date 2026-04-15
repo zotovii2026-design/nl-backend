@@ -26,14 +26,10 @@ API_METHODS = [
     "orders",           # Заказы
     "tariffs",          # Тарифы складов
     "adverts",          # Реклама
-    "warehouses",       # Справочник складов
 ]
 
 # Окно перезаписи (дней)
 REWRITE_WINDOW = 15
-
-# Паузы между запросами (секунд) — для rate-limited методов
-RATE_LIMIT_PAUSE = 5
 
 
 def run_async(coro):
@@ -70,6 +66,7 @@ async def save_raw(org_id: str, method: str, target_date: date, response, status
             records_count=count,
             fetched_at=datetime.utcnow(),
         )
+        # ON CONFLICT — обновляем если запись за этот метод+дата уже есть
         stmt = stmt.on_conflict_do_update(
             constraint="raw_api_data_organization_id_api_method_target_date_key",
             set_={
@@ -87,7 +84,7 @@ async def save_raw(org_id: str, method: str, target_date: date, response, status
 # ─── СБОРЩИКИ ПО МЕТОДАМ ──────────────────────────────────
 
 async def fetch_products_stats(client: WBApiClient, org_id: str, target_date: date):
-    """Суммарные метрики карточек"""
+    """Суммарные метрики карточек — считаем из get_all_cards"""
     try:
         cards = await client.get_all_cards()
         total = len(cards)
@@ -166,8 +163,9 @@ async def fetch_stocks(client: WBApiClient, org_id: str, target_date: date):
 
 
 async def fetch_tariffs(client: WBApiClient, org_id: str, target_date: date):
-    """Тарифы складов"""
+    """Тарифы складов —wb bietet отдельный API"""
     try:
+        # WB API: GET /api/v2/tariffs/box?date=YYYY-MM-DD
         resp = await client.client.get(
             "https://common-api.wildberries.ru/api/v1/tariffs/box",
             params={"date": target_date.isoformat()}
@@ -198,42 +196,6 @@ async def fetch_adverts(client: WBApiClient, org_id: str, target_date: date):
         return None
 
 
-async def fetch_warehouses(client: WBApiClient, org_id: str):
-    """Справочник складов WB — автозаполнение"""
-    try:
-        resp = await client.client.get(
-            "https://marketplace-api.wildberries.ru/api/v3/warehouses"
-        )
-        resp.raise_for_status()
-        warehouses = resp.json()
-        if not isinstance(warehouses, list):
-            logger.warning(f"Unexpected warehouses response: {type(warehouses)}")
-            return warehouses
-
-        async with async_session() as db:
-            for wh in warehouses:
-                wh_id = wh.get("id") or wh.get("warehouseId")
-                wh_name = wh.get("name") or wh.get("warehouseName", "")
-                if wh_id:
-                    ins = insert(WarehouseRef)
-                    stmt = ins.values(
-                        organization_id=org_id,
-                        wb_warehouse_id=wh_id,
-                        name=wh_name,
-                    ).on_conflict_do_update(
-                        constraint="warehouse_refs_wb_warehouse_id_key",
-                        set_={"name": ins.excluded.name}
-                    )
-                    await db.execute(stmt)
-            await db.commit()
-
-        logger.info(f"Synced {len(warehouses)} warehouses for org {org_id}")
-        return warehouses
-    except Exception as e:
-        logger.error(f"warehouses error: {e}")
-        return None
-
-
 # ─── АГРЕГАЦИЯ В ТС ────────────────────────────────────────
 
 async def aggregate_to_tech_status(org_id: str, target_date: date):
@@ -261,7 +223,7 @@ async def aggregate_to_tech_status(org_id: str, target_date: date):
         cards_draft = stats.raw_response.get("draft") if stats and stats.raw_response and stats.status == "ok" else None
         cards_active = stats.raw_response.get("active") if stats and stats.raw_response and stats.status == "ok" else None
 
-        # Остатки
+        # Получаем stocks данные для остатков/склада
         stocks_raw = data.get("stocks")
         stock_by_nm = {}
         if stocks_raw and stocks_raw.raw_response and stocks_raw.status == "ok":
@@ -274,7 +236,7 @@ async def aggregate_to_tech_status(org_id: str, target_date: date):
                         "qty": s.get("quantity") or s.get("quantityFull", 0),
                     }
 
-        # Заказы/продажи по nm_id
+        # Считаем orders/sales по nm_id
         orders_raw = data.get("orders")
         sales_raw = data.get("sales")
         order_counts = {}
@@ -292,7 +254,7 @@ async def aggregate_to_tech_status(org_id: str, target_date: date):
                 if nm:
                     sale_counts[nm] = sale_counts.get(nm, 0) + 1
 
-        # row_status
+        # Определяем row_status
         today = date.today()
         age = (today - target_date).days
         has_errors = any(r.status == "error" for r in raw_rows)
@@ -306,7 +268,7 @@ async def aggregate_to_tech_status(org_id: str, target_date: date):
 
         is_final = "yes" if age >= REWRITE_WINDOW else "no"
 
-        # Если есть products — строки по карточкам
+        # Если есть products — создаём строки по карточкам
         products_raw = data.get("products")
         if products_raw and products_raw.raw_response and products_raw.status == "ok":
             cards = products_raw.raw_response if isinstance(products_raw.raw_response, list) else []
@@ -323,6 +285,7 @@ async def aggregate_to_tech_status(org_id: str, target_date: date):
                 desc = card.get("description", "") or ""
                 desc_chars = len(desc)
 
+                # Получаем размеры/штрихкоды
                 sizes = card.get("sizes", [])
 
                 for size_info in sizes:
@@ -331,6 +294,14 @@ async def aggregate_to_tech_status(org_id: str, target_date: date):
                         barcode = size_info["skus"][0]
                     size_name = size_info.get("techSizeName", "")
 
+                    # Ищем продажи/заказы для этой карточки
+                    orders_count = 0
+                    buyouts_count = 0
+                    returns_count = 0
+
+                    # TODO: доработать подсчёт из sales/orders когда будет реальный формат
+
+                    # Upsert в tech_status
                     ins = insert(TechStatus)
                     stmt = ins.values(
                         organization_id=org_id,
@@ -381,7 +352,7 @@ async def aggregate_to_tech_status(org_id: str, target_date: date):
                     )
                     await db.execute(stmt)
 
-                    # Штрихкод в справочник
+                    # Сохраняем штрихкод в справочник
                     if barcode:
                         bc_ins = insert(RawBarcode)
                         bc_stmt = bc_ins.values(
@@ -403,6 +374,7 @@ async def aggregate_to_tech_status(org_id: str, target_date: date):
 
             await db.commit()
         else:
+            # Нет products — создаём сводную строку без карточек
             stmt = insert(TechStatus).values(
                 organization_id=org_id,
                 target_date=target_date,
@@ -432,6 +404,7 @@ async def mark_final_rows(org_id: str):
             .where(TechStatus.is_final == "no")
             .values(is_final="yes", row_status="closed")
         )
+        # То же для raw_api_data
         await db.execute(
             RawApiData.__table__.update()
             .where(RawApiData.organization_id == org_id)
@@ -446,12 +419,16 @@ async def mark_final_rows(org_id: str):
 
 @shared_task(name="wb.daily_sync")
 def daily_sync_task(organization_id: str = None):
-    """Ежедневный сбор данных WB API для всех организаций (или одной)"""
+    """
+    Ежедневный сбор данных WB API для всех организаций (или одной)
+    Собирает за последние 15 дней, агрегирует в ТС
+    """
     return run_async(_daily_sync(organization_id))
 
 
 async def _daily_sync(organization_id: str = None):
     async with async_session() as db:
+        # Получаем организации с API ключами
         if organization_id:
             result = await db.execute(
                 select(WbApiKey.organization_id).where(
@@ -478,39 +455,29 @@ async def _daily_sync(organization_id: str = None):
         if not api_keys:
             continue
 
+        # Используем первый ключ (можно ротировать)
         api_key = api_keys[0]
 
         async with WBApiClient(api_key) as client:
-            # Сначала — справочник складов (один раз за синк)
-            await fetch_warehouses(client, org_id)
-            await asyncio.sleep(RATE_LIMIT_PAUSE)
-
             for target_date in dates_to_sync:
                 logger.info(f"Syncing {org_id} for {target_date}")
 
-                # Продуктовые методы (быстрые)
-                await fetch_products_stats(client, org_id, target_date)
-                await asyncio.sleep(1)
-                await fetch_products(client, org_id, target_date)
-                await asyncio.sleep(1)
-
-                # Sales/orders — за ВСЕ 15 дней с rate-limit паузой
-                await fetch_sales(client, org_id, target_date)
-                await asyncio.sleep(RATE_LIMIT_PAUSE)
-                await fetch_orders(client, org_id, target_date)
-                await asyncio.sleep(RATE_LIMIT_PAUSE)
-
-                # Остатки, тарифы, реклама
-                await fetch_stocks(client, org_id, target_date)
-                await asyncio.sleep(1)
-                await fetch_tariffs(client, org_id, target_date)
-                await asyncio.sleep(1)
+                # Собираем все методы (products/tariffs/adverts за все дни, sales/orders только за сегодня)
+                await fetch_products_stats(client, org_id, target_date); await asyncio.sleep(1)
+                await fetch_products(client, org_id, target_date); await asyncio.sleep(1)
+                # Sales/orders — rate limited, только за последние 3 дня
+                if (date.today() - target_date).days <= 3:
+                    await fetch_sales(client, org_id, target_date); await asyncio.sleep(3)
+                    await fetch_orders(client, org_id, target_date); await asyncio.sleep(3)
+                await fetch_stocks(client, org_id, target_date); await asyncio.sleep(1)
+                await fetch_tariffs(client, org_id, target_date); await asyncio.sleep(1)
                 await fetch_adverts(client, org_id, target_date)
 
-                # Агрегация
+                # Агрегируем в ТС
                 await aggregate_to_tech_status(org_id, target_date)
                 org_result["synced"] += 1
 
+        # Отмечаем старые строки финальными
         await mark_final_rows(org_id)
         results[org_id] = org_result
 
