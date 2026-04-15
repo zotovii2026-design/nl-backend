@@ -6,7 +6,9 @@ from core.config import settings
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
-    future=True
+    future=True,
+    pool_pre_ping=True,
+    pool_recycle=300,
 )
 
 # Создание фабрики сессий

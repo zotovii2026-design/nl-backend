@@ -21,11 +21,15 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    shm_size: 128m
     container_name: nl-backend-postgres
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=nl_table
+      - POSTGRES_SHARED_BUFFERS=128MB
+      - POSTGRES_WORK_MEM=4MB
+      - POSTGRES_MAX_CONNECTIONS=50
     ports:
       - "5432:5432"
     volumes:
