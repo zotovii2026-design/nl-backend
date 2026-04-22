@@ -1548,15 +1548,24 @@ async function showApp() {
     document.getElementById('auth-section').style.display = 'none';
     document.getElementById('app-section').style.display = '';
     try {
-        if (ORG_ID) { await loadDates(); loadStats(); }
-    } catch(e) { console.error('loadDates error:', e); }
+        if (ORG_ID) {
+            await loadDates();
+            loadStats();
+            loadOpiu();
+            loadAnalytics();
+            loadRnp();
+            loadCostPrices();
+            loadWarehouses();
+            loadOpEx();
+        }
+    } catch(e) { console.error('init error:', e); }
 }
 
 async function loadStats() {
     if (!ORG_ID) return;
     const sel = document.getElementById('stats-date') || document.getElementById('ref-date');
-    const dateVal = sel ? sel.value : '';
-    if (!dateVal || dateVal === 'Нет данных') return;
+    let dateVal = sel ? sel.value : '';
+    if (!dateVal || dateVal === 'Нет данных') dateVal = new Date().toISOString().split('T')[0];
     try {
         const res = await fetch('/api/v1/nl/control?org_id=' + ORG_ID + '&target_date=' + dateVal);
         if (!res.ok) return;
@@ -1666,15 +1675,21 @@ async function loadDates() {
     const res = await fetch('/api/v1/nl/dates?org_id=' + ORG_ID);
     if (!res.ok) return [];
     const dates = await res.json();
-    const sel = document.getElementById('ref-date');
-    sel.innerHTML = '';
-    if (!dates.length) { sel.innerHTML = '<option>Нет данных</option>'; return; }
-    dates.forEach(d => {
-        const opt = document.createElement('option');
-        opt.value = d;
-        const dt = new Date(d + 'T00:00:00');
-        opt.textContent = dt.toLocaleDateString('ru-RU', {day:'numeric', month:'short', year:'numeric'});
-        sel.appendChild(opt);
+    // Fill both date selectors
+    ['ref-date', 'stats-date', 'analytics-date', 'wh-date', 'opiu-period'].forEach(id => {
+        const sel = document.getElementById(id);
+        if (!sel || sel.tagName !== 'SELECT') return;
+        // Keep period selects
+        if (id === 'opiu-period') return;
+        sel.innerHTML = '';
+        if (!dates.length) { sel.innerHTML = '<option>Нет данных</option>'; return; }
+        dates.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d;
+            const dt = new Date(d + 'T00:00:00');
+            opt.textContent = dt.toLocaleDateString('ru-RU', {day:'numeric', month:'short', year:'numeric'});
+            sel.appendChild(opt);
+        });
     });
     return dates[0];
 }
@@ -2119,6 +2134,7 @@ async function loadControl() {
 function syncCtrlDates() {
     const refSel = document.getElementById('ref-date');
     const ctrlSel = document.getElementById('ctrl-date');
+    if (!refSel || !ctrlSel) return;
     ctrlSel.innerHTML = refSel.innerHTML;
     ctrlSel.value = refSel.value;
 }
