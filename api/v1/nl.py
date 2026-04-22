@@ -695,7 +695,19 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 .auth-container label{display:block;font-size:.8em;color:#666;margin-bottom:4px}
 .auth-container .toggle{color:#6c5ce7;cursor:pointer;font-size:.85em;text-align:center;margin-top:16px}
 .auth-container .toggle:hover{text-decoration:underline}
-/.auth-error{color:#e74c3c;font-size:.85em;margin-bottom:10px}
+//.auth-error{color:#e74c3c;font-size:.85em;margin-bottom:10px}
+.metric-card{background:#fff;border-radius:8px;padding:12px 14px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.metric-card .mc-label{font-size:.75em;color:#999;text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px}
+.metric-card .mc-value{font-size:1.15em;font-weight:600;color:#1a1a2e}
+.metric-card .mc-delta{font-size:.75em;margin-top:2px}
+.metric-card .mc-delta.pos{color:#00b894}
+.metric-card .mc-delta.neg{color:#e74c3c}
+.metric-card .mc-sub{font-size:.75em;color:#999;margin-top:2px}
+.metric-card.expense{border-left:3px solid #e17055}
+.metric-card.expense .mc-value{color:#d63031}
+.alert-card{background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:10px 14px;margin-bottom:8px;font-size:.85em;display:flex;align-items:center;gap:8px}
+.alert-card.red{background:#ffeaea;border-color:#e74c3c}
+.alert-card.yellow{background:#fff8e1;border-color:#f39c12}
 
 /* Sidebar layout */
 .app-layout{display:flex;min-height:100vh}
@@ -789,23 +801,65 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 </div>
 <div class="page-content">
 <div id="page-stats" class="page-section active">
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-<div style="display:flex;align-items:center;gap:6px">
-<label style="font-size:.85em;color:#666">📅 Дата:</label>
-<select id="ref-date" onchange="loadRefData()" style="border:1px solid #e0e0e0;border-radius:4px;padding:6px 10px;font-size:.9em;cursor:pointer"></select>
+<!-- Фильтр по дате -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+<select id="stats-date" onchange="loadStats()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;cursor:pointer"></select>
+<button class="btn" onclick="loadStats()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
 </div>
-<button class="btn" onclick="loadRefData()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
-<button class="btn btn-outline" onclick="saveAllRows()" style="padding:6px 14px;font-size:.85em">💾 Сохранить всё</button>
-<label class="btn btn-outline" style="padding:6px 14px;font-size:.85em;cursor:pointer">📤 Импорт Excel<input type="file" id="excel-import" accept=".xlsx,.csv" style="display:none" onchange="importExcel(this)"></label>
-<button class="btn btn-outline" onclick="exportExcel()" style="padding:6px 14px;font-size:.85em">📥 Экспорт шаблона</button>
-<div style="margin-left:auto;color:#999;font-size:.8em" id="ref-stats"></div>
+
+<!-- Прибыль -->
+<div style="margin-bottom:24px">
+<div style="font-size:.85em;color:#999;margin-bottom:8px">ПРИБЫЛЬ</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
+<div class="metric-card" id="mc-profit"><div class="mc-label">Прибыль</div><div class="mc-value" id="v-profit">—</div><div class="mc-delta" id="d-profit"></div></div>
+<div class="metric-card" id="mc-realization"><div class="mc-label">Реализация</div><div class="mc-value" id="v-realization">—</div><div class="mc-delta" id="d-realization"></div></div>
+<div class="metric-card"><div class="mc-label">Продажи</div><div class="mc-value" id="v-sales">—</div><div class="mc-delta" id="d-sales"></div></div>
+<div class="metric-card"><div class="mc-label">К выплате</div><div class="mc-value" id="v-topay">—</div><div class="mc-delta" id="d-topay"></div></div>
+<div class="metric-card"><div class="mc-label">Продано штук</div><div class="mc-value" id="v-sold">—</div><div class="mc-delta" id="d-sold"></div></div>
+<div class="metric-card"><div class="mc-label">Отмен штук</div><div class="mc-value" id="v-cancelled">—</div><div class="mc-delta" id="d-cancelled"></div></div>
+<div class="metric-card"><div class="mc-label">Возвратов штук</div><div class="mc-value" id="v-returned">—</div><div class="mc-delta" id="d-returned"></div></div>
+<div class="metric-card"><div class="mc-label">% возвратов</div><div class="mc-value" id="v-retpercent">—</div><div class="mc-delta" id="d-retpercent"></div></div>
+<div class="metric-card"><div class="mc-label">ROI</div><div class="mc-value" id="v-roi">—</div><div class="mc-delta" id="d-roi"></div></div>
+<div class="metric-card"><div class="mc-label">Рентабельность</div><div class="mc-value" id="v-rent">—</div><div class="mc-delta" id="d-rent"></div></div>
+<div class="metric-card"><div class="mc-label">Процент выкупов</div><div class="mc-value" id="v-buyout">—</div><div class="mc-delta" id="d-buyout"></div></div>
+<div class="metric-card"><div class="mc-label">Прибыль/ед.</div><div class="mc-value" id="v-profitunit">—</div><div class="mc-delta" id="d-profitunit"></div></div>
 </div>
-<table id="ref-table">
-<thead><tr>
-<th>Фото</th><th>Арт WB</th><th>Арт пост.</th><th>Название</th><th>ШК</th><th>SKU</th>
-<th>Себестоимость ₽</th><th>Закуп. цена</th><th>Упаковка</th><th>Логистика</th><th>Прочее</th><th>Заметки</th><th></th>
-</tr></thead>
-<tbody id="ref-body"><tr><td colspan="13" class="empty">Загрузка...</td></tr></tbody>
+</div>
+
+<!-- Расходы -->
+<div style="margin-bottom:24px">
+<div style="font-size:.85em;color:#999;margin-bottom:8px">РАСХОДЫ</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
+<div class="metric-card expense"><div class="mc-label">Налог</div><div class="mc-value" id="v-tax">—</div></div>
+<div class="metric-card expense"><div class="mc-label">Себестоимость</div><div class="mc-value" id="v-costprice">—</div></div>
+<div class="metric-card expense"><div class="mc-label">Комиссия ВБ</div><div class="mc-value" id="v-commission">—</div></div>
+<div class="metric-card expense"><div class="mc-label">Реклама (ДРР)</div><div class="mc-value" id="v-ads">—</div></div>
+<div class="metric-card expense"><div class="mc-label">Логистика</div><div class="mc-value" id="v-logistics">—</div></div>
+<div class="metric-card expense"><div class="mc-label">Штрафы</div><div class="mc-value" id="v-fines">—</div></div>
+<div class="metric-card expense"><div class="mc-label">Хранение</div><div class="mc-value" id="v-storage">—</div></div>
+<div class="metric-card expense"><div class="mc-label">Платная приемка</div><div class="mc-value" id="v-reception">—</div></div>
+<div class="metric-card expense"><div class="mc-label">Прочие удержания</div><div class="mc-value" id="v-other">—</div></div>
+</div>
+</div>
+
+<!-- Остатки -->
+<div style="margin-bottom:24px">
+<div style="font-size:.85em;color:#999;margin-bottom:8px">ОСТАТКИ</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+<div class="metric-card"><div class="mc-label">Остатки всего</div><div class="mc-value" id="v-stock-total">—</div><div class="mc-sub" id="v-stock-sub"></div></div>
+<div class="metric-card"><div class="mc-label">На складах WB</div><div class="mc-value" id="v-stock-wb">—</div><div class="mc-sub" id="v-stock-wb-sub"></div></div>
+<div class="metric-card"><div class="mc-label">На моих складах</div><div class="mc-value" id="v-stock-my">—</div><div class="mc-sub" id="v-stock-my-sub"></div></div>
+</div>
+</div>
+
+<!-- Алерты -->
+<div id="stats-alerts" style="margin-bottom:20px"></div>
+
+<!-- Таблица товаров -->
+<div style="font-size:.85em;color:#999;margin-bottom:8px">ТОВАРЫ</div>
+<table>
+<thead><tr><th>Фото</th><th>Арт WB</th><th>Название</th><th>Остаток</th><th>Заказы</th><th>Выкупы</th><th>Возвраты</th><th>Рейтинг</th><th>Показы</th><th>Клики</th><th>CTR</th><th>Реклама ₽</th><th>Цена</th></tr></thead>
+<tbody id="stats-products"><tr><td colspan="13" class="empty">Выберите дату</td></tr></tbody>
 </table>
 </div>
 <div id="page-analytics" class="page-section">
@@ -876,8 +930,49 @@ async function showApp() {
     document.getElementById('auth-section').style.display = 'none';
     document.getElementById('app-section').style.display = '';
     try {
-        if (ORG_ID) { await loadDates(); loadRefData(); }
+        if (ORG_ID) { await loadDates(); loadStats(); }
     } catch(e) { console.error('loadDates error:', e); }
+}
+
+async function loadStats() {
+    if (!ORG_ID) return;
+    const sel = document.getElementById('stats-date') || document.getElementById('ref-date');
+    const dateVal = sel ? sel.value : '';
+    if (!dateVal || dateVal === 'Нет данных') return;
+    try {
+        const res = await fetch('/api/v1/nl/control?org_id=' + ORG_ID + '&target_date=' + dateVal);
+        if (!res.ok) return;
+        const data = await res.json();
+        const s = data.summary || {};
+        // Заполняем карточки
+        const fmt = (v, suffix) => { if (v == null) return '—'; return Number(v).toLocaleString('ru-RU', {maximumFractionDigits:2}) + (suffix || ''); };
+        document.getElementById('v-profit').textContent = fmt(s.total_buyouts, ' ₽');
+        document.getElementById('v-sold').textContent = fmt(s.total_orders);
+        document.getElementById('v-returned').textContent = fmt(s.total_returns);
+        document.getElementById('v-stock-total').textContent = fmt(s.total_stock, ' шт');
+        document.getElementById('v-ads').textContent = fmt(s.total_ad_cost, ' ₽');
+        document.getElementById('v-buyout').textContent = s.total_orders ? (s.total_buyouts / s.total_orders * 100).toFixed(1) + '%' : '—';
+        // Алерты
+        let alerts = '';
+        if (s.zero_stock_count > 0) alerts += '<div class="alert-card red">🔴 Нет в наличии: ' + s.zero_stock_count + ' товаров</div>';
+        if (s.low_stock_count > 0) alerts += '<div class="alert-card yellow">🟡 Низкий остаток (≤5): ' + s.low_stock_count + ' товаров</div>';
+        document.getElementById('stats-alerts').innerHTML = alerts;
+        // Таблица товаров
+        const tbody = document.getElementById('stats-products');
+        const prods = data.products || [];
+        if (!prods.length) { tbody.innerHTML = '<tr><td colspan="13" class="empty">Нет данных</td></tr>'; return; }
+        tbody.innerHTML = prods.map(p => {
+            const thumb = (p.photo_main || '').replace('/big/', '/c246x328/');
+            const ctr = p.impressions > 0 ? (p.clicks / p.impressions * 100).toFixed(1) + '%' : '—';
+            return '<tr><td>' + (thumb ? '<img src="' + thumb + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
+            '<td>' + (p.nm_id || '') + '</td><td>' + esc(p.product_name) + '</td>' +
+            '<td>' + (p.stock_qty ?? '—') + '</td><td>' + (p.orders_count ?? '—') + '</td>' +
+            '<td>' + (p.buyouts_count ?? '—') + '</td><td>' + (p.returns_count ?? '—') + '</td>' +
+            '<td>' + (p.rating ?? '—') + '</td><td>' + (p.impressions ?? '—') + '</td>' +
+            '<td>' + (p.clicks ?? '—') + '</td><td>' + ctr + '</td>' +
+            '<td>' + fmt(p.ad_cost) + '</td><td>' + fmt(p.price) + '</td></tr>';
+        }).join('');
+    } catch(e) { console.error('loadStats error:', e); }
 }
 
 function showAuth() {
