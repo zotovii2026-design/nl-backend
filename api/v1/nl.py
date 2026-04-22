@@ -732,6 +732,67 @@ async def add_operating_expense(data: dict, org_id: str, db: AsyncSession = Depe
     return {"ok": True}
 
 
+@router.get("/api/v1/nl/rnp")
+async def get_rnp(org_id: str, days: str = "10", search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """РНП — Рука на пульсе: агрегация за N дней"""
+    from sqlalchemy import func
+    import decimal
+    n_days = int(days) if days.isdigit() else 10
+    start = date.today() - timedelta(days=n_days)
+
+    query = select(
+        TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name,
+        func.sum(TechStatus.orders_count).label("orders"),
+        func.sum(TechStatus.buyouts_count).label("buyouts"),
+        func.sum(TechStatus.returns_count).label("returns"),
+        func.sum(TechStatus.stock_qty).label("stock"),
+        func.sum(TechStatus.ad_cost).label("ad_cost"),
+        func.avg(TechStatus.price_discount).label("avg_price"),
+        func.avg(TechStatus.tariff).label("avg_tariff"),
+    ).where(
+        TechStatus.organization_id == org_id,
+        TechStatus.target_date >= start
+    ).group_by(TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name)
+
+    if search:
+        query = query.where(
+            (TechStatus.vendor_code.ilike(f"%{search}%")) |
+            (TechStatus.product_name.ilike(f"%{search}%"))
+        )
+
+    result = await db.execute(query.order_by(func.sum(TechStatus.orders_count).desc().nullslast()))
+
+    def sf(v): return float(v) if v and not isinstance(v, decimal.Decimal) else (float(v) if isinstance(v, decimal.Decimal) else 0)
+    def si(v): return int(v) if v else 0
+
+    products = []
+    for r in result.all():
+        orders = si(r[3])
+        buyouts = si(r[4])
+        returns = si(r[5])
+        stock = si(r[6])
+        ad_cost = sf(r[7])
+        avg_price = sf(r[8])
+        avg_tariff = sf(r[9])
+        revenue = avg_price * buyouts
+        commission = revenue * (avg_tariff / 100) if revenue and avg_tariff else 0
+        expenses = commission + ad_cost
+        margin = revenue - expenses
+        products.append({
+            "nm_id": r[0], "vendor_code": r[1], "product_name": r[2],
+            "orders": orders, "buyouts": buyouts, "returns": returns,
+            "buyout_pct": round(buyouts/orders*100,1) if orders else 0,
+            "revenue": round(revenue,2), "expenses": round(expenses,2),
+            "margin": round(margin,2),
+            "margin_per_unit": round(margin/buyouts,2) if buyouts else 0,
+            "profitability": round(margin/revenue*100,1) if revenue else 0,
+            "stock": stock,
+            "turnover": round(buyouts / stock * n_days, 1) if stock else 0,
+        })
+
+    return {"days": n_days, "count": len(products), "products": products}
+
+
 @router.get("/api/v1/nl/opiu")
 async def get_opiu(org_id: str, period: str = "4", db: AsyncSession = Depends(get_db)):
     """ОПиУ — отчёт о прибылях и убытках по неделям"""
@@ -1122,7 +1183,25 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 
 
 <div id="page-rnp" class="page-section">
-<div style="text-align:center;padding:60px;color:#999"><div style="font-size:2em;margin-bottom:12px">🎯</div><h3>Рука на пульсе</h3><p>План vs факт по юнит-экономике</p><p style="font-size:.85em;margin-top:8px">Раздел в разработке</p></div>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<select id="rnp-days" onchange="loadRnp()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<option value="7">7 дней</option><option value="10" selected>10 дней</option><option value="14">14 дней</option><option value="30">30 дней</option>
+</select>
+<button class="btn" onclick="loadRnp()" style="padding:6px 14px;font-size:.85em">🔄</button>
+<input type="text" id="rnp-search" placeholder="🔍 Поиск" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:200px" oninput="loadRnp()">
+</div>
+<div style="overflow-x:auto">
+<table id="rnp-table" style="font-size:.82em">
+<thead><tr>
+<th>Арт продавца</th><th>Арт WB</th><th>Товар</th>
+<th>Продажи шт</th><th>Выкупы шт</th><th>Возвраты шт</th><th>% выкупа</th>
+<th>Выручка</th><th>Расходы</th><th>Маржа</th><th>Маржа/ед</th><th>Рентабельность</th>
+<th>Остаток</th><th>Оборачиваемость</th>
+</tr></thead>
+<tbody id="rnp-body"><tr><td colspan="14" class="empty">Нажмите обновить</td></tr></tbody>
+</table>
+</div>
+<div style="margin-top:12px;font-size:.85em;color:#999" id="rnp-count"></div>
 </div>
 
 <div id="page-opiu" class="page-section">
@@ -1602,6 +1681,30 @@ async function loadOpEx() {
             '</td><td>' + (i.amount||0) + '</td><td>' + (i.vat||0) + '%</td><td>—</td><td style="color:#e74c3c;cursor:pointer">🗑</td></tr>'
         ).join('');
     } catch(e) { console.error('loadOpEx', e); }
+}
+
+async function loadRnp() {
+    if (!ORG_ID) return;
+    const days = document.getElementById('rnp-days')?.value || '10';
+    const search = document.getElementById('rnp-search')?.value || '';
+    try {
+        const res = await fetch('/api/v1/nl/rnp?org_id=' + ORG_ID + '&days=' + days + (search ? '&search=' + encodeURIComponent(search) : ''));
+        if (!res.ok) { document.getElementById('rnp-body').innerHTML = '<tr><td colspan="14" class="empty">Ошибка</td></tr>'; return; }
+        const data = await res.json();
+        const prods = data.products || [];
+        document.getElementById('rnp-count').textContent = prods.length + ' товаров за ' + data.days + ' дней';
+        if (!prods.length) { document.getElementById('rnp-body').innerHTML = '<tr><td colspan="14" class="empty">Нет данных</td></tr>'; return; }
+        const fmt = (v,s) => { if (v==null) return '—'; return Number(v).toLocaleString('ru-RU',{maximumFractionDigits:2})+(s||''); };
+        document.getElementById('rnp-body').innerHTML = prods.map(p =>
+            '<tr>' +
+            '<td>' + esc(p.vendor_code||'') + '</td><td>' + (p.nm_id||'') + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.product_name||'') + '</td>' +
+            '<td>' + p.orders + '</td><td>' + p.buyouts + '</td><td>' + p.returns + '</td><td>' + p.buyout_pct + '%</td>' +
+            '<td>' + fmt(p.revenue) + '</td><td>' + fmt(p.expenses) + '</td>' +
+            '<td style="color:' + (p.margin>=0?'#00b894':'#e74c3c') + '">' + fmt(p.margin) + '</td>' +
+            '<td>' + fmt(p.margin_per_unit) + '</td><td>' + p.profitability + '%</td>' +
+            '<td>' + p.stock + '</td><td>' + p.turnover + '</td></tr>'
+        ).join('');
+    } catch(e) { console.error('loadRnp', e); }
 }
 
 async function loadRefData() {
