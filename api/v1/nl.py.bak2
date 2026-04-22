@@ -695,29 +695,7 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 .auth-container label{display:block;font-size:.8em;color:#666;margin-bottom:4px}
 .auth-container .toggle{color:#6c5ce7;cursor:pointer;font-size:.85em;text-align:center;margin-top:16px}
 .auth-container .toggle:hover{text-decoration:underline}
-/.auth-error{color:#e74c3c;font-size:.85em;margin-bottom:10px}
-
-/* Sidebar layout */
-.app-layout{display:flex;min-height:100vh}
-.sidebar{width:220px;background:#1a1a2e;color:#fff;padding:0;flex-shrink:0;position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:50}
-.sidebar .logo{padding:16px 20px;font-size:1.1em;font-weight:700;color:#fff;border-bottom:1px solid rgba(255,255,255,.1)}
-.sidebar .nav-group{padding:8px 0}
-.sidebar .nav-label{padding:6px 20px;font-size:.7em;text-transform:uppercase;color:rgba(255,255,255,.4);letter-spacing:1px}
-.sidebar .nav-item{display:flex;align-items:center;gap:10px;padding:8px 20px;color:rgba(255,255,255,.7);cursor:pointer;font-size:.85em;transition:all .15s;text-decoration:none;border-left:3px solid transparent}
-.sidebar .nav-item:hover{background:rgba(255,255,255,.08);color:#fff}
-.sidebar .nav-item.active{background:rgba(108,92,231,.2);color:#fff;border-left-color:#6c5ce7}
-.sidebar .nav-item .icon{width:20px;text-align:center}
-.sidebar .user-block{position:absolute;bottom:0;left:0;right:0;padding:12px 20px;border-top:1px solid rgba(255,255,255,.1);font-size:.8em;color:rgba(255,255,255,.5)}
-.sidebar .user-block .logout-btn{color:#e74c3c;cursor:pointer;display:block;margin-top:6px}
-.sidebar .user-block .logout-btn:hover{color:#ff6b6b}
-.main-area{margin-left:220px;flex:1;min-height:100vh;background:#f5f7fa}
-.top-bar{background:#fff;border-bottom:1px solid #e0e0e0;padding:10px 24px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
-.top-bar .page-title{font-size:1.1em;font-weight:600;color:#1a1a2e}
-.top-bar .filters{display:flex;align-items:center;gap:10px;margin-left:auto}
-.top-bar select,.top-bar input{border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em}
-.page-content{padding:20px 24px}
-.page-section{display:none}
-.page-section.active{display:block}
+.auth-error{color:#e74c3c;font-size:.85em;margin-bottom:10px}
 </style>
 </head>
 <body>
@@ -750,45 +728,22 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 
 <!-- Main app -->
 <div id="app-section" style="display:none">
-<div class="app-layout">
-<aside class="sidebar">
-<div class="logo">📊 НЛ Аналитика</div>
-<div class="nav-group">
-<div class="nav-label">Финансы</div>
-<a class="nav-item active" onclick="navTo('stats',this)"><span class="icon">📊</span>Основные показатели</a>
-<a class="nav-item" onclick="navTo('rnp',this)"><span class="icon">🎯</span>РНП</a>
-<a class="nav-item" onclick="navTo('opiu',this)"><span class="icon">📑</span>ОПиУ</a>
-<a class="nav-item" onclick="navTo('analytics',this)"><span class="icon">📈</span>Аналитика по товарам</a>
-<a class="nav-item" onclick="navTo('costprice',this)"><span class="icon">💰</span>Себестоимость</a>
-<a class="nav-item" onclick="navTo('warehouses',this)"><span class="icon">📦</span>Склады</a>
-<a class="nav-item" onclick="navTo('opexpenses',this)"><span class="icon">📝</span>Опер. расходы</a>
+<div class="header">
+<span class="logo">📊</span>
+<div class="org-switcher">
+<select id="org-select" onchange="switchOrg()"></select>
+<button class="btn-sm" onclick="showNewOrgDialog()">+</button>
 </div>
-<div class="nav-group">
-<div class="nav-label">Остальное</div>
-<a class="nav-item" onclick="navTo('connectors',this)"><span class="icon">🔌</span>Подключения</a>
-<a class="nav-item" onclick="navTo('subscription',this)"><span class="icon">💳</span>Подписка</a>
-<a class="nav-item" onclick="navTo('settings',this)"><span class="icon">⚙️</span>Настройки</a>
-<a class="nav-item" onclick="navTo('help',this)"><span class="icon">❓</span>Помощь</a>
+<span class="user-info" id="user-email"></span>
+<span class="logout" onclick="doLogout()">Выйти</span>
 </div>
-<div class="user-block">
-<div id="user-email"></div>
-<div style="margin-top:4px">
-<select id="org-select" onchange="switchOrg()" style="width:100%;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:4px;padding:4px;font-size:.85em"></select>
+<div class="tabs">
+<div class="tab active" onclick="switchTab('reference',this)">📋 Справочный лист</div>
+<div class="tab" onclick="switchTab('control',this)">📈 Оперативный контроль</div>
+<div class="tab" onclick="switchTab('settings',this)">⚙️ Настройки</div>
 </div>
-<span class="logout-btn" onclick="doLogout()">Выйти</span>
-</div>
-</aside>
-<div class="main-area">
-<div class="top-bar">
-<span class="page-title" id="page-title">Основные показатели</span>
-<div class="filters">
-<select id="filter-store" style="min-width:120px"><option>Все магазины</option></select>
-<select id="filter-period"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option></select>
-<input type="text" id="filter-article" placeholder="Артикул" style="width:120px">
-</div>
-</div>
-<div class="page-content">
-<div id="page-stats" class="page-section active">
+<div class="content">
+<div id="tab-reference" class="tab-content active">
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
 <div style="display:flex;align-items:center;gap:6px">
 <label style="font-size:.85em;color:#666">📅 Дата:</label>
@@ -808,7 +763,7 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 <tbody id="ref-body"><tr><td colspan="13" class="empty">Загрузка...</td></tr></tbody>
 </table>
 </div>
-<div id="page-analytics" class="page-section">
+<div id="tab-control" class="tab-content">
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
 <div style="display:flex;align-items:center;gap:6px">
 <label style="font-size:.85em;color:#666">📅 Дата:</label>
@@ -826,7 +781,7 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 </table>
 </div>
 
-<div id="page-settings" class="page-section">
+<div id="tab-settings" class="tab-content">
 <h3 style="margin-bottom:12px;color:#6c5ce7">🔑 WB API ключи</h3>
 <div id="wb-keys-list"></div>
 <div style="margin-top:16px;padding:16px;background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
@@ -837,8 +792,6 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 <button class="btn" onclick="addWbKey()">Добавить</button>
 </div>
 <p style="color:#999;font-size:.8em;margin-top:8px">Получить ключ: Кабинет WB → Настройки → Доступ к API</p>
-</div>
-</div>
 </div>
 </div>
 
@@ -935,17 +888,11 @@ async function doRegister() {
 
 function doLogout() { showAuth(); }
 
-function switchTab(name, el) { navTo(name, el); }
-
-function navTo(name, el) {
-    document.querySelectorAll('.nav-item').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.page-section').forEach(t => t.classList.remove('active'));
-    if (el) el.classList.add('active');
-    const page = document.getElementById('page-' + name);
-    if (page) page.classList.add('active');
-    // Update title
-    const titles = {stats:'Основные показатели',rnp:'Рука на пульсе',opiu:'ОПиУ',analytics:'Аналитика по товарам',costprice:'Себестоимость',warehouses:'Склады',opexpenses:'Операционные расходы',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
-    document.getElementById('page-title').textContent = titles[name] || name;
+function switchTab(name, el) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
 }
 
 async function loadDates() {
