@@ -1,4 +1,5 @@
 import uuid
+import json
 """Сборщик данных WB API — сохраняет сырые данные и заполняет ТС"""
 import asyncio
 import logging
@@ -740,6 +741,72 @@ async def parse_raw_to_tech_status(org_id: str = None):
         logger.info(f"Parsed {total_parsed} tech_status records for {len(org_ids)} orgs")
         return {"parsed": total_parsed}
 
+
+
+async def fetch_and_apply_tariffs(org_id: str):
+    """Получить тарифы складов и обновить tech_status"""
+    import httpx
+    from core.database import async_session
+    from sqlalchemy import text
+    
+    api_keys = await get_api_keys(org_id)
+    if not api_keys:
+        return {"error": "no api keys"}
+    
+    async with httpx.AsyncClient(timeout=30) as c:
+        h = {"Authorization": api_keys[0]}
+        
+        # Try box tariffs first, then pallet
+        for endpoint in ["box", "pallet"]:
+            r = await c.get(f"https://common-api.wildberries.ru/api/v1/tariffs/{endpoint}", headers=h, params={"date": date.today().isoformat()})
+            if r.status_code == 200:
+                data = r.json()
+                whs = data.get("response", {}).get("data", {}).get("warehouseList", [])
+                if whs:
+                    break
+        else:
+            return {"error": "tariffs 429", "status": r.status_code}
+        
+        # Map warehouse name → delivery tariff
+        wh_map = {}
+        for w in whs:
+            name = w.get("warehouseName", "")
+            if endpoint == "box":
+                base = w.get("boxDeliveryBase", "-")
+                storage = w.get("boxStorageBase", "-")
+            else:
+                base = w.get("palletDelivery", "-")
+                storage = w.get("palletStorage", "-")
+            
+            if base and base != "-":
+                try:
+                    wh_map[name] = {"delivery": float(base.replace(",", ".")), "storage": float(storage.replace(",", ".")) if storage != "-" else 0}
+                except:
+                    pass
+        
+        logger.info(f"Got {len(wh_map)} warehouse tariffs from {endpoint}")
+        
+        # Update tech_status for today
+        async with async_session() as db:
+            result = await db.execute(text("""
+                UPDATE tech_status t SET
+                    tariff = CASE 
+                        WHEN t.warehouse_name LIKE '%' || w.warehouse_name || '%' THEN w.tariff
+                        ELSE t.tariff
+                    END,
+                    updated_at = NOW()
+                FROM (VALUES :wh_list) AS w(warehouse_name, tariff)
+                WHERE t.organization_id = :org AND t.target_date = CURRENT_DATE AND t.tariff IS NULL
+            """), {"org": org_id, "wh_list": json.dumps([(k, v["delivery"]) for k, v in wh_map.items()])})
+            await db.commit()
+        
+        return {"warehouses": len(wh_map), "endpoint": endpoint}
+
+
+@shared_task(name="wb.fetch_tariffs")
+def fetch_tariffs_task(organization_id: str = None):
+    """Celery task: получить тарифы"""
+    return run_async(fetch_and_apply_tariffs(organization_id))
 
 
 @shared_task(name="wb.parse_raw")
