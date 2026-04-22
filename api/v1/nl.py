@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 from core.database import get_db
 from core.security import verify_password, get_password_hash, create_access_token, decode_token, encrypt_data, decrypt_data
@@ -310,6 +310,8 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
             func.sum(TechStatus.impressions).label("total_impressions"),
             func.sum(TechStatus.clicks).label("total_clicks"),
             func.sum(TechStatus.ad_cost).label("total_ad_cost"),
+            func.sum(TechStatus.price_discount * TechStatus.buyouts_count).label("total_revenue"),
+            func.sum(TechStatus.price_discount * TechStatus.buyouts_count).label("total_revenue_gross"),
             func.avg(TechStatus.rating).label("avg_rating"),
         ).where(TechStatus.organization_id == org_id, TechStatus.target_date == d)
     )
@@ -371,6 +373,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
             "total_clicks": total_clicks,
             "ctr": round(total_clicks / total_impressions * 100, 2) if total_impressions > 0 else 0,
             "total_ad_cost": safe_float(row.total_ad_cost) or 0,
+            "total_revenue": safe_float(row.total_revenue) or 0,
             "avg_rating": round(float(row.avg_rating), 2) if row.avg_rating else None,
             "zero_stock_count": safe_int(zero_stock.scalar()) or 0,
             "low_stock_count": safe_int(low_stock.scalar()) or 0,
@@ -1554,7 +1557,7 @@ async function showApp() {
             loadOpiu();
             loadAnalytics();
             loadRnp();
-            loadCostPrices();
+            
             loadWarehouses();
             loadOpEx();
         }
@@ -1573,12 +1576,24 @@ async function loadStats() {
         const s = data.summary || {};
         // Заполняем карточки
         const fmt = (v, suffix) => { if (v == null) return '—'; return Number(v).toLocaleString('ru-RU', {maximumFractionDigits:2}) + (suffix || ''); };
-        document.getElementById('v-profit').textContent = fmt(s.total_buyouts, ' ₽');
+        // Карточки прибыли
+        const revenue = s.total_revenue || 0;
+        const adCost = s.total_ad_cost || 0;
+        const profit = revenue - adCost;
+        document.getElementById('v-profit').textContent = fmt(profit, ' ₽');
+        document.getElementById('v-profit').style.color = profit >= 0 ? '#00b894' : '#e74c3c';
         document.getElementById('v-sold').textContent = fmt(s.total_orders);
         document.getElementById('v-returned').textContent = fmt(s.total_returns);
         document.getElementById('v-stock-total').textContent = fmt(s.total_stock, ' шт');
-        document.getElementById('v-ads').textContent = fmt(s.total_ad_cost, ' ₽');
+        document.getElementById('v-ads').textContent = fmt(adCost, ' ₽');
         document.getElementById('v-buyout').textContent = s.total_orders ? (s.total_buyouts / s.total_orders * 100).toFixed(1) + '%' : '—';
+        // Доп. карточки
+        const el1 = document.getElementById('v-revenue');
+        if (el1) el1.textContent = fmt(revenue, ' ₽');
+        const el2 = document.getElementById('v-buyouts-count');
+        if (el2) el2.textContent = fmt(s.total_buyouts);
+        const el3 = document.getElementById('v-profitunit');
+        if (el3) el3.textContent = s.total_buyouts ? fmt(profit / s.total_buyouts, ' ₽') : '—';
         // Алерты
         let alerts = '';
         if (s.zero_stock_count > 0) alerts += '<div class="alert-card red">🔴 Нет в наличии: ' + s.zero_stock_count + ' товаров</div>';
@@ -1589,7 +1604,7 @@ async function loadStats() {
         const prods = data.products || [];
         if (!prods.length) { tbody.innerHTML = '<tr><td colspan="13" class="empty">Нет данных</td></tr>'; return; }
         tbody.innerHTML = prods.map(p => {
-            const thumb = (p.photo_main || '').replace('/big/', '/c246x328/');
+            const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/');
             const ctr = p.impressions > 0 ? (p.clicks / p.impressions * 100).toFixed(1) + '%' : '—';
             return '<tr><td>' + (thumb ? '<img src="' + thumb + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
             '<td>' + (p.nm_id || '') + '</td><td>' + esc(p.product_name) + '</td>' +
@@ -1710,7 +1725,7 @@ async function loadAnalytics() {
         const fmt = (v, s) => { if (v == null) return '—'; return Number(v).toLocaleString('ru-RU', {maximumFractionDigits:2}) + (s || ''); };
         const size = parseInt(document.getElementById('analytics-pagesize')?.value || '25');
         document.getElementById('analytics-body').innerHTML = prods.slice(0, size).map(p => {
-            const thumb = (p.photo_main || '').replace('/big/', '/c246x328/');
+            const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/');
             return '<tr>' +
             '<td>' + (thumb ? '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
             '<td>' + esc(p.vendor_code || '') + '</td>' +
@@ -1844,6 +1859,22 @@ async function loadOpiu() {
 }
 async function exportOpiu() { alert('В разработке'); }
 
+async function loadCostPrices() {
+    if (!ORG_ID) return;
+    try {
+        const res = await fetch('/api/v1/nl/cost-prices?org_id=' + ORG_ID);
+        if (!res.ok) return;
+        const items = await res.json();
+        const el = document.getElementById('cost-count');
+        if (el) el.textContent = items.length + ' записей';
+        const tbody = document.getElementById('cost-body');
+        if (!items.length && tbody) { tbody.innerHTML = '<tr><td colspan="7" class="empty">Нет данных. Загрузите Excel.</td></tr>'; return; }
+        if (tbody) tbody.innerHTML = items.map(i =>
+            '<tr><td>' + (i.nm_id||'') + '</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">' + esc(i.product_name||'') + '</td><td>' + (i.barcode||'') + '</td><td>' + esc(i.vendor_code||'') + '</td><td>' + (i.size_name||'') + '</td><td>' + (i.cost_price||'—') + '</td><td>' + (i.vat||'') + '</td></tr>'
+        ).join('');
+    } catch(e) { console.error('loadCostPrices', e); }
+}
+
 async function loadWarehouses() {
     if (!ORG_ID) return;
     const sel = document.getElementById('wh-date') || document.getElementById('ref-date');
@@ -1929,7 +1960,7 @@ async function loadRefData() {
     if (!products.length) { tbody.innerHTML = '<tr><td colspan="13" class="empty">Нет товаров на эту дату. Подключите WB API ключ и дождитесь синхронизации.</td></tr>'; return; }
     products.forEach(p => {
         const ref = refMap[p.nm_id] || {};
-        const thumb = (p.photo_main || '').replace('/big/', '/c246x328/');
+        const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/');
         const img = thumb ? '<img class="photo" src="' + thumb + '" loading="lazy">' : '📦';
         const tr = document.createElement('tr');
         tr.innerHTML =
@@ -2106,7 +2137,7 @@ async function loadControl() {
     const tbody = document.getElementById('ctrl-body');
     if (!data.products.length) { tbody.innerHTML = '<tr><td colspan="15" class="empty">Нет данных</td></tr>'; return; }
     tbody.innerHTML = data.products.map(p => {
-        const thumb = (p.photo_main || '').replace('/big/', '/c246x328/');
+        const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/');
         const img = thumb ? '<img class="photo" src="' + thumb + '" loading="lazy">' : '📦';
         const ctr = p.impressions > 0 ? (p.clicks / p.impressions * 100).toFixed(1) + '%' : '—';
         const stockColor = p.stock_qty <= 0 ? '#e74c3c' : p.stock_qty <= 5 ? '#e17055' : '#00b894';
