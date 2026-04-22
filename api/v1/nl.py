@@ -703,6 +703,35 @@ async def get_analytics(org_id: str, target_date: Optional[str] = None, search: 
     return {"date": str(d), "count": len(products), "products": products}
 
 
+@router.get("/api/v1/nl/warehouses")
+async def get_warehouse_stock(org_id: str, target_date: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Остатки на складах WB"""
+    from datetime import datetime as dt_mod
+    d = dt_mod.strptime(target_date, "%Y-%m-%d").date() if target_date else date.today()
+    result = await db.execute(
+        select(TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name,
+               TechStatus.warehouse_name, TechStatus.stock_qty, TechStatus.barcode)
+        .where(TechStatus.organization_id == org_id, TechStatus.target_date == d)
+        .order_by(TechStatus.stock_qty.desc().nullslast())
+    )
+    return [{"nm_id": r[0], "vendor_code": r[1], "product_name": r[2],
+             "warehouse": r[3], "qty": int(r[4]) if r[4] else 0, "barcode": r[5]} for r in result.all()]
+
+
+@router.get("/api/v1/nl/operating-expenses")
+async def get_operating_expenses(org_id: str, db: AsyncSession = Depends(get_db)):
+    """Операционные расходы"""
+    # TODO: добавить модель OperatingExpense
+    return []
+
+
+@router.post("/api/v1/nl/operating-expenses")
+async def add_operating_expense(data: dict, org_id: str, db: AsyncSession = Depends(get_db)):
+    """Добавить операционный расход"""
+    # TODO: сохранить в БД
+    return {"ok": True}
+
+
 @router.get("/api/v1/nl/opiu")
 async def get_opiu(org_id: str, period: str = "4", db: AsyncSession = Depends(get_db)):
     """ОПиУ — отчёт о прибылях и убытках по неделям"""
@@ -1122,11 +1151,40 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 </div>
 
 <div id="page-warehouses" class="page-section">
-<div style="text-align:center;padding:60px;color:#999"><div style="font-size:2em;margin-bottom:12px">📦</div><h3>Склады</h3><p>Остатки на складах WB</p><p style="font-size:.85em;margin-top:8px">Раздел в разработке</p></div>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<select id="wh-date" onchange="loadWarehouses()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"></select>
+<button class="btn" onclick="loadWarehouses()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+<label style="font-size:.85em;display:flex;align-items:center;gap:6px"><input type="checkbox" id="wh-sizes" onchange="loadWarehouses()"> Размеры</label>
+</div>
+<div style="overflow-x:auto">
+<table><thead><tr><th>Арт WB</th><th>Арт продавца</th><th>Товар</th><th>Склад</th><th>Кол-во, шт</th><th>Общая себестоимость</th></tr></thead>
+<tbody id="wh-body"><tr><td colspan="6" class="empty">Выберите дату</td></tr></tbody></table>
+</div>
+<div style="margin-top:12px;font-size:.85em;color:#999" id="wh-count"></div>
 </div>
 
 <div id="page-opexpenses" class="page-section">
-<div style="text-align:center;padding:60px;color:#999"><div style="font-size:2em;margin-bottom:12px">📝</div><h3>Операционные расходы</h3><p>Управление расходами</p><p style="font-size:.85em;margin-top:8px">Раздел в разработке</p></div>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<button class="btn" onclick="showOpExDialog()" style="padding:6px 14px;font-size:.85em">➕ Добавить</button>
+<div style="font-size:.85em;color:#999;margin-left:auto" id="opex-count"></div>
+</div>
+<table><thead><tr><th>Дата</th><th>Статья расходов</th><th>Описание</th><th>Сумма ₽</th><th>НДС</th><th>Магазин</th><th></th></tr></thead>
+<tbody id="opex-body"><tr><td colspan="7" class="empty">Нет записей</td></tr></tbody></table>
+
+<div id="opex-dialog" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:100;align-items:center;justify-content:center">
+<div style="background:#fff;padding:24px;border-radius:12px;width:400px;box-shadow:0 4px 20px rgba(0,0,0,.15)">
+<h3 style="color:#6c5ce7;margin-bottom:16px">➕ Операционный расход</h3>
+<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">Дата</label><input type="date" id="opex-date" style="width:100%"></div>
+<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">Статья</label><select id="opex-category" style="width:100%"><option>Аренда</option><option>Зарплата</option><option>Маркетинг</option><option>Логистика</option><option>Упаковка</option><option>Прочее</option></select></div>
+<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">Описание</label><input type="text" id="opex-desc" style="width:100%"></div>
+<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">Сумма ₽</label><input type="number" id="opex-amount" style="width:100%"></div>
+<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">НДС %</label><input type="number" id="opex-vat" placeholder="0" style="width:100%"></div>
+<div style="display:flex;gap:8px;margin-top:16px">
+<button class="btn" onclick="saveOpEx()" style="flex:1">Сохранить</button>
+<button class="btn btn-outline" onclick="hideOpExDialog()" style="flex:1">Отмена</button>
+</div>
+</div>
+</div>
 </div>
 
 <div id="page-connectors" class="page-section">
@@ -1502,6 +1560,49 @@ async function loadOpiu() {
     } catch(e) { console.error('loadOpiu', e); }
 }
 async function exportOpiu() { alert('В разработке'); }
+
+async function loadWarehouses() {
+    if (!ORG_ID) return;
+    const sel = document.getElementById('wh-date') || document.getElementById('ref-date');
+    const d = sel?.value;
+    if (!d || d === 'Нет данных') return;
+    try {
+        const res = await fetch('/api/v1/nl/warehouses?org_id=' + ORG_ID + '&target_date=' + d);
+        if (!res.ok) return;
+        const items = await res.json();
+        document.getElementById('wh-count').textContent = items.length + ' записей';
+        if (!items.length) { document.getElementById('wh-body').innerHTML = '<tr><td colspan="6" class="empty">Нет данных</td></tr>'; return; }
+        document.getElementById('wh-body').innerHTML = items.map(i =>
+            '<tr><td>' + (i.nm_id||'') + '</td><td>' + esc(i.vendor_code||'') + '</td><td>' + esc(i.product_name||'') +
+            '</td><td>' + (i.warehouse||'—') + '</td><td>' + (i.qty||0) + '</td><td>—</td></tr>'
+        ).join('');
+    } catch(e) { console.error('loadWarehouses', e); }
+}
+
+function showOpExDialog() { document.getElementById('opex-dialog').style.display = 'flex'; document.getElementById('opex-date').value = new Date().toISOString().split('T')[0]; }
+function hideOpExDialog() { document.getElementById('opex-dialog').style.display = 'none'; }
+async function saveOpEx() {
+    const data = {date: document.getElementById('opex-date').value, category: document.getElementById('opex-category').value, description: document.getElementById('opex-desc').value, amount: parseFloat(document.getElementById('opex-amount').value), vat: parseFloat(document.getElementById('opex-vat').value||'0')};
+    if (!data.date || !data.amount) { alert('Заполните дату и сумму'); return; }
+    try {
+        await fetch('/api/v1/nl/operating-expenses?org_id=' + ORG_ID, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+        hideOpExDialog(); loadOpEx();
+    } catch(e) { alert('Ошибка: ' + e.message); }
+}
+async function loadOpEx() {
+    if (!ORG_ID) return;
+    try {
+        const res = await fetch('/api/v1/nl/operating-expenses?org_id=' + ORG_ID);
+        if (!res.ok) return;
+        const items = await res.json();
+        document.getElementById('opex-count').textContent = items.length + ' записей';
+        if (!items.length) { document.getElementById('opex-body').innerHTML = '<tr><td colspan="7" class="empty">Нет записей. Нажмите добавить.</td></tr>'; return; }
+        document.getElementById('opex-body').innerHTML = items.map(i =>
+            '<tr><td>' + (i.date||'') + '</td><td>' + esc(i.category||'') + '</td><td>' + esc(i.description||'') +
+            '</td><td>' + (i.amount||0) + '</td><td>' + (i.vat||0) + '%</td><td>—</td><td style="color:#e74c3c;cursor:pointer">🗑</td></tr>'
+        ).join('');
+    } catch(e) { console.error('loadOpEx', e); }
+}
 
 async function loadRefData() {
     if (!ORG_ID) { document.getElementById('ref-body').innerHTML = '<tr><td colspan="13" class="empty">Нет данных. Добавьте WB API ключ в настройках.</td></tr>'; return; }
