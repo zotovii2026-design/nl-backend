@@ -34,7 +34,7 @@ API_METHODS = [
 REWRITE_WINDOW = 15
 
 # Паузы между запросами (секунд) — для rate-limited методов
-RATE_LIMIT_PAUSE = 12
+RATE_LIMIT_PAUSE = 25
 
 
 def run_async(coro):
@@ -510,9 +510,9 @@ async def _daily_sync(organization_id: str = None):
 
                 # Продуктовые методы (быстрые)
                 await fetch_products_stats(client, org_id, target_date)
-                await asyncio.sleep(1)
+                await asyncio.sleep(3)
                 await fetch_products(client, org_id, target_date)
-                await asyncio.sleep(1)
+                await asyncio.sleep(3)
 
                 # Sales/orders — за ВСЕ 15 дней с rate-limit паузой
                 await fetch_sales(client, org_id, target_date)
@@ -522,9 +522,9 @@ async def _daily_sync(organization_id: str = None):
 
                 # Остатки, тарифы, реклама
                 await fetch_stocks(client, org_id, target_date)
-                await asyncio.sleep(1)
+                await asyncio.sleep(3)
                 await fetch_tariffs(client, org_id, target_date)
-                await asyncio.sleep(1)
+                await asyncio.sleep(3)
                 await fetch_adverts(client, org_id, target_date)
 
                 # Агрегация

@@ -1198,7 +1198,7 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 <div class="field"><label>Email</label><input type="email" id="login-email"></div>
 <div class="field"><label>Пароль</label><input type="password" id="login-password"></div>
 <button class="btn" onclick="doLogin()" style="width:100%">Войти</button>
-<div style="text-align:center;margin-top:16px;font-size:.85em"><a href="/nl/register" style="color:#6c5ce7;text-decoration:none">Нет аккаунта? Зарегистрироваться</a></div>
+<div style="text-align:center;margin-top:16px;font-size:.85em"><a href="#" onclick="showRegister();return false" style="color:#6c5ce7;text-decoration:none">Нет аккаунта? Зарегистрироваться</a></div>
 </div>
 
 <div id="auth-register" style="display:none">
