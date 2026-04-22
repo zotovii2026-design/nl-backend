@@ -1410,15 +1410,22 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 
 <div id="page-costprice" class="page-section">
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-<button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить</button>
-<input type="file" id="cost-file-input" accept=".xlsx,.csv" style="display:none">
-<button class="btn btn-outline" style="padding:6px 14px;font-size:.85em">📥 Шаблон</button>
-<span style="font-size:.85em;color:#999" id="cost-count"></span>
+<button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить Excel</button>
+<input type="file" id="cost-file-input" accept=".xlsx,.csv" style="display:none" onchange="uploadCostExcel(this)">
+<button class="btn btn-outline" onclick="exportCostTemplate()" style="padding:6px 14px;font-size:.85em">📥 Скачать шаблон</button>
+<input type="text" id="cost-search" placeholder="🔍 Поиск" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:200px" oninput="loadCostPrices()">
+<span style="font-size:.85em;color:#999;margin-left:auto" id="cost-count"></span>
+<button class="btn" onclick="saveAllCostPrices()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить всё</button>
 </div>
 <div style="overflow-x:auto">
-<table><thead><tr><th>Арт WB</th><th>Товар</th><th>Баркод</th><th>Код продавца</th><th>Размер</th><th>Себестоимость</th><th>НДС</th></tr></thead>
-<tbody id="cost-body"><tr><td colspan="7" class="empty">Нет данных</td></tr></tbody></table>
+<table style="font-size:.82em"><thead><tr>
+<th>Фото</th><th>Арт WB</th><th>Арт продавца</th><th>Товар</th><th>Баркод</th>
+<th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th>
+<th>Себестоимость ₽</th><th>НДС %</th><th>Дата начала</th>
+</tr></thead>
+<tbody id="cost-body"><tr><td colspan="12" class="empty">Загрузка...</td></tr></tbody></table>
 </div>
+<div style="margin-top:12px;display:flex;gap:16px;font-size:.85em" id="cost-summary"></div>
 </div>
 
 <div id="page-warehouses" class="page-section">
@@ -1683,6 +1690,13 @@ function navTo(name, el) {
     // Update title
     const titles = {stats:'Основные показатели',rnp:'Рука на пульсе',opiu:'ОПиУ',analytics:'Аналитика по товарам',costprice:'Себестоимость',warehouses:'Склады',opexpenses:'Операционные расходы',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
     document.getElementById('page-title').textContent = titles[name] || name;
+    // Load data for the section
+    if (name === 'costprice') loadCostPrices();
+    if (name === 'rnp') loadRnp();
+    if (name === 'opiu') loadOpiu();
+    if (name === 'analytics') loadAnalytics();
+    if (name === 'warehouses') loadWarehouses();
+    if (name === 'opexpenses') loadOpEx();
 }
 
 async function loadDates() {
@@ -1861,19 +1875,126 @@ async function exportOpiu() { alert('В разработке'); }
 
 async function loadCostPrices() {
     if (!ORG_ID) return;
+    const search = document.getElementById('cost-search')?.value || '';
     try {
-        const res = await fetch('/api/v1/nl/cost-prices?org_id=' + ORG_ID);
-        if (!res.ok) return;
-        const items = await res.json();
-        const el = document.getElementById('cost-count');
-        if (el) el.textContent = items.length + ' записей';
+        // Load products from latest tech_status date
+        const datesRes = await fetch('/api/v1/nl/dates?org_id=' + ORG_ID);
+        const dates = datesRes.ok ? await datesRes.json() : [];
+        if (!dates.length) { document.getElementById('cost-body').innerHTML = '<tr><td colspan="12" class="empty">Нет данных</td></tr>'; return; }
+        
+        const prodsRes = await fetch('/api/v1/nl/control?org_id=' + ORG_ID + '&target_date=' + dates[0]);
+        if (!prodsRes.ok) return;
+        const prodsData = await prodsRes.json();
+        let products = prodsData.products || [];
+        
+        // Load existing cost prices
+        const costRes = await fetch('/api/v1/nl/cost-prices?org_id=' + ORG_ID);
+        const costMap = {};
+        if (costRes.ok) {
+            const costs = await costRes.json();
+            costs.forEach(c => { costMap[c.nm_id] = c; });
+        }
+        
+        // Filter by search
+        if (search) {
+            const q = search.toLowerCase();
+            products = products.filter(p => 
+                (p.product_name||'').toLowerCase().includes(q) || 
+                String(p.nm_id).includes(q) || 
+                (p.vendor_code||'').toLowerCase().includes(q)
+            );
+        }
+        
+        document.getElementById('cost-count').textContent = products.length + ' товаров';
+        
+        // Calculate totals
+        let totalCost = 0, filled = 0;
+        
         const tbody = document.getElementById('cost-body');
-        if (!items.length && tbody) { tbody.innerHTML = '<tr><td colspan="7" class="empty">Нет данных. Загрузите Excel.</td></tr>'; return; }
-        if (tbody) tbody.innerHTML = items.map(i =>
-            '<tr><td>' + (i.nm_id||'') + '</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">' + esc(i.product_name||'') + '</td><td>' + (i.barcode||'') + '</td><td>' + esc(i.vendor_code||'') + '</td><td>' + (i.size_name||'') + '</td><td>' + (i.cost_price||'—') + '</td><td>' + (i.vat||'') + '</td></tr>'
-        ).join('');
+        tbody.innerHTML = products.map(p => {
+            const c = costMap[p.nm_id] || {};
+            const purchase = c.purchase_cost || '';
+            const logistics = c.logistics_cost || '';
+            const packaging = c.packaging_cost || '';
+            const other = c.other_costs || '';
+            const costPrice = c.cost_price || '';
+            const vat = c.vat || '';
+            const validFrom = c.valid_from || new Date().toISOString().split('T')[0];
+            if (costPrice) { totalCost += parseFloat(costPrice); filled++; }
+            
+            const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/');
+            return '<tr data-nm="' + p.nm_id + '" data-barcode="' + (p.barcode||'') + '" data-vc="' + esc(p.vendor_code||'') + '">' +
+                '<td>' + (thumb ? '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
+                '<td>' + p.nm_id + '</td>' +
+                '<td>' + esc(p.vendor_code||'') + '</td>' +
+                '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name||'') + '">' + esc(p.product_name||'') + '</td>' +
+                '<td style="font-size:.8em">' + (p.barcode||'') + '</td>' +
+                '<td><input type="number" class="cost-input" data-field="purchase" value="' + purchase + '" style="width:70px" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="logistics" value="' + logistics + '" style="width:70px" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="packaging" value="' + packaging + '" style="width:70px" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="other" value="' + other + '" style="width:70px" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="cost_price" value="' + costPrice + '" style="width:80px;font-weight:600" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="vat" value="' + vat + '" style="width:50px" placeholder="0"></td>' +
+                '<td><input type="date" class="cost-input" data-field="valid_from" value="' + validFrom + '" style="width:110px;font-size:.8em"></td>' +
+                '</tr>';
+        }).join('');
+        
+        document.getElementById('cost-summary').innerHTML = 
+            '<span>💰 Заполнено: <strong>' + filled + '/' + products.length + '</strong></span>' +
+            '<span>📊 Сумма себестоимости: <strong>' + totalCost.toLocaleString('ru-RU') + ' ₽</strong></span>' +
+            (filled > 0 ? '<span>📐 Средняя: <strong>' + Math.round(totalCost/filled).toLocaleString('ru-RU') + ' ₽</strong></span>' : '');
     } catch(e) { console.error('loadCostPrices', e); }
 }
+
+async function saveAllCostPrices() {
+    const rows = document.querySelectorAll('#cost-body tr[data-nm]');
+    let saved = 0;
+    for (const row of rows) {
+        const costInput = row.querySelector('[data-field="cost_price"]');
+        if (!costInput || !costInput.value) continue;
+        const data = {
+            nm_id: parseInt(row.dataset.nm),
+            barcode: row.dataset.barcode,
+            vendor_code: row.dataset.vc,
+            purchase_cost: parseFloat(row.querySelector('[data-field="purchase"]')?.value || '0'),
+            logistics_cost: parseFloat(row.querySelector('[data-field="logistics"]')?.value || '0'),
+            packaging_cost: parseFloat(row.querySelector('[data-field="packaging"]')?.value || '0'),
+            other_costs: parseFloat(row.querySelector('[data-field="other"]')?.value || '0'),
+            cost_price: parseFloat(costInput.value),
+            vat: parseFloat(row.querySelector('[data-field="vat"]')?.value || '0'),
+            valid_from: row.querySelector('[data-field="valid_from"]')?.value || new Date().toISOString().split('T')[0],
+            source: 'manual'
+        };
+        try {
+            await fetch('/api/v1/nl/cost-prices?org_id=' + ORG_ID, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            saved++;
+        } catch(e) { console.error('save error', e); }
+    }
+    alert('Сохранено: ' + saved + ' записей');
+    loadCostPrices();
+}
+
+async function uploadCostExcel(input) {
+    if (!input.files.length) return;
+    const file = input.files[0];
+    const body = await file.arrayBuffer();
+    try {
+        const res = await fetch('/api/v1/nl/cost-prices/upload?org_id=' + ORG_ID, {
+            method: 'POST', headers: {'Content-Type': 'application/octet-stream', 'x-filename': file.name},
+            body: body
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Ошибка');
+        alert('Загружено: ' + data.updated + ' из ' + data.total);
+        loadCostPrices();
+    } catch(e) { alert('Ошибка: ' + e.message); }
+    input.value = '';
+}
+
+function exportCostTemplate() { alert('Скачайте шаблон на странице себестоимости'); }
 
 async function loadWarehouses() {
     if (!ORG_ID) return;
@@ -2205,7 +2326,6 @@ async function importExcel(input) {
 function exportExcel() {
     // Генерируем CSV шаблон с текущими товарами
     const rows = document.querySelectorAll('#ref-body tr');
-    let csv = 'Арт WB;Арт поставщика;Название;Дата;Себестоимость;Закупочная;Упаковка;Логистика;Прочее;Заметки\\n';
     rows.forEach(row => {
         const cells = row.querySelectorAll('td');
         if (cells.length < 3) return;
