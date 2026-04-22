@@ -771,6 +771,40 @@ async def get_opiu(org_id: str, period: str = "4", db: AsyncSession = Depends(ge
     }
 
 
+@router.get("/api/v1/nl/opiu")
+async def get_opiu(org_id: str, period: str = "4", db: AsyncSession = Depends(get_db)):
+    """ОПиУ по неделям"""
+    from sqlalchemy import func
+    from datetime import timedelta
+    import decimal
+    weeks = int(period) if period.isdigit() else 4
+    start_date = date.today() - timedelta(weeks=weeks)
+    result = await db.execute(
+        select(TechStatus.target_date,
+            func.sum(TechStatus.orders_count).label("orders"),
+            func.sum(TechStatus.buyouts_count).label("buyouts"),
+            func.sum(TechStatus.returns_count).label("returns"),
+            func.sum(TechStatus.ad_cost).label("ad_cost"),
+            func.sum(TechStatus.price_discount).label("revenue"),
+        ).where(TechStatus.organization_id == org_id, TechStatus.target_date >= start_date)
+        .group_by(TechStatus.target_date).order_by(TechStatus.target_date.desc())
+    )
+    from collections import OrderedDict
+    weeks_data = OrderedDict()
+    total = {"orders": 0, "buyouts": 0, "returns": 0, "revenue": 0, "ad_cost": 0}
+    for r in result.all():
+        d = r[0]
+        ws = d - timedelta(days=d.weekday())
+        wk = ws.isoformat()
+        if wk not in weeks_data:
+            weeks_data[wk] = {"label": ws.strftime("%d.%m") + " - " + (ws + timedelta(days=6)).strftime("%d.%m"), "orders": 0, "buyouts": 0, "returns": 0, "revenue": 0, "ad_cost": 0}
+        def sf(v): return float(v) if v else 0
+        w = weeks_data[wk]
+        w["orders"] += sf(r[1]); w["buyouts"] += sf(r[2]); w["returns"] += sf(r[3]); w["ad_cost"] += sf(r[4]); w["revenue"] += sf(r[5])
+        total["orders"] += sf(r[1]); total["buyouts"] += sf(r[2]); total["returns"] += sf(r[3]); total["ad_cost"] += sf(r[4]); total["revenue"] += sf(r[5])
+    return {"total": total, "weeks": [{"key": k, **v} for k, v in weeks_data.items()]}
+
+
 @router.get("/nl/v2", response_class=HTMLResponse)
 async def nl_page():
     """НЛ — главная страница"""
@@ -1055,6 +1089,87 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 <option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option>
 </select>
 </div>
+</div>
+
+
+<div id="page-rnp" class="page-section">
+<div style="text-align:center;padding:60px;color:#999"><div style="font-size:2em;margin-bottom:12px">🎯</div><h3>Рука на пульсе</h3><p>План vs факт по юнит-экономике</p><p style="font-size:.85em;margin-top:8px">Раздел в разработке</p></div>
+</div>
+
+<div id="page-opiu" class="page-section">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+<select id="opiu-period" onchange="loadOpiu()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<option value="4">Последние 4 недели</option><option value="8">8 недель</option><option value="12">12 недель</option>
+</select>
+<button class="btn" onclick="loadOpiu()" style="padding:6px 14px;font-size:.85em">🔄</button>
+<button class="btn btn-outline" onclick="exportOpiu()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
+</div>
+<table id="opiu-table"><thead><tr><th>Статья</th><th>Итого</th><th>%</th></tr></thead>
+<tbody id="opiu-body"><tr><td colspan="3" class="empty">Нажмите обновить</td></tr></tbody></table>
+</div>
+
+<div id="page-costprice" class="page-section">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить</button>
+<input type="file" id="cost-file-input" accept=".xlsx,.csv" style="display:none">
+<button class="btn btn-outline" style="padding:6px 14px;font-size:.85em">📥 Шаблон</button>
+<span style="font-size:.85em;color:#999" id="cost-count"></span>
+</div>
+<div style="overflow-x:auto">
+<table><thead><tr><th>Арт WB</th><th>Товар</th><th>Баркод</th><th>Код продавца</th><th>Размер</th><th>Себестоимость</th><th>НДС</th></tr></thead>
+<tbody id="cost-body"><tr><td colspan="7" class="empty">Нет данных</td></tr></tbody></table>
+</div>
+</div>
+
+<div id="page-warehouses" class="page-section">
+<div style="text-align:center;padding:60px;color:#999"><div style="font-size:2em;margin-bottom:12px">📦</div><h3>Склады</h3><p>Остатки на складах WB</p><p style="font-size:.85em;margin-top:8px">Раздел в разработке</p></div>
+</div>
+
+<div id="page-opexpenses" class="page-section">
+<div style="text-align:center;padding:60px;color:#999"><div style="font-size:2em;margin-bottom:12px">📝</div><h3>Операционные расходы</h3><p>Управление расходами</p><p style="font-size:.85em;margin-top:8px">Раздел в разработке</p></div>
+</div>
+
+<div id="page-connectors" class="page-section">
+<div style="max-width:600px;margin:0 auto;padding:20px">
+<h3 style="color:#6c5ce7;margin-bottom:16px">🔌 Подключения</h3>
+<div style="background:#fff;border-radius:8px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px">
+<div style="font-weight:600;margin-bottom:8px">Wildberries</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<input type="text" id="wb-key-name" placeholder="Название" style="width:140px">
+<input type="text" id="wb-key-value" placeholder="API ключ WB" style="flex:1;min-width:200px">
+<button class="btn" onclick="addWbKey()">Подключить</button>
+</div>
+<p style="color:#999;font-size:.8em;margin-top:8px">Кабинет WB → Настройки → Доступ к API</p>
+</div>
+<div id="wb-keys-list"></div>
+</div>
+</div>
+
+<div id="page-subscription" class="page-section">
+<div style="max-width:900px;margin:0 auto;padding:20px;text-align:center">
+<h3 style="color:#6c5ce7;margin-bottom:24px">Тарифные планы</h3>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px">
+<div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+<h4>Новичок</h4><div style="font-size:1.5em;font-weight:700;color:#6c5ce7;margin:12px 0">990 ₽/мес</div>
+<ul style="text-align:left;font-size:.85em;color:#666;list-style:none;padding:0"><li>✅ 1 магазин</li><li>✅ Дашборд + ОПиУ</li><li>✅ Аналитика по товарам</li></ul>
+<button class="btn" style="width:100%;margin-top:12px">Выбрать</button>
+</div>
+<div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);border:2px solid #6c5ce7">
+<h4>Старт ⭐</h4><div style="font-size:1.5em;font-weight:700;color:#6c5ce7;margin:12px 0">1490 ₽/мес</div>
+<ul style="text-align:left;font-size:.85em;color:#666;list-style:none;padding:0"><li>✅ 2 магазина</li><li>✅ Всё из Новичок</li><li>✅ РНП + Склады</li></ul>
+<button class="btn" style="width:100%;margin-top:12px">Выбрать</button>
+</div>
+<div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+<h4>Бизнес</h4><div style="font-size:1.5em;font-weight:700;color:#6c5ce7;margin:12px 0">3990 ₽/мес</div>
+<ul style="text-align:left;font-size:.85em;color:#666;list-style:none;padding:0"><li>✅ 5 магазинов</li><li>✅ Всё из Старт</li><li>✅ Приоритетная поддержка</li></ul>
+<button class="btn" style="width:100%;margin-top:12px">Выбрать</button>
+</div>
+</div>
+</div>
+</div>
+
+<div id="page-help" class="page-section">
+<div style="max-width:600px;margin:0 auto;padding:40px;text-align:center;color:#999"><div style="font-size:3em;margin-bottom:16px">❓</div><h3>Помощь</h3><p>support@nl-table.ru</p></div>
 </div>
 
 <div id="page-settings" class="page-section">
@@ -1353,6 +1468,40 @@ async function loadOpiu() {
 }
 
 async function exportOpiu() { alert('Экспорт ОПиУ в разработке'); }
+
+async function loadOpiu() {
+    if (!ORG_ID) return;
+    const period = document.getElementById('opiu-period')?.value || '4';
+    try {
+        const res = await fetch('/api/v1/nl/opiu?org_id=' + ORG_ID + '&period=' + period);
+        if (!res.ok) return;
+        const data = await res.json();
+        const weeks = data.weeks || [];
+        const total = data.total || {};
+        const fmt = (v) => v != null ? Number(v).toLocaleString('ru-RU', {maximumFractionDigits:0}) : '—';
+        const thead = document.querySelector('#opiu-table thead tr');
+        thead.innerHTML = '<th>Статья</th><th>Итого</th><th>%</th>';
+        weeks.forEach(w => { thead.innerHTML += '<th>' + w.label + '</th>'; });
+        const tbody = document.getElementById('opiu-body');
+        const tr = total.revenue || 1;
+        const rows = [
+            ['Реализация', total.revenue], ['Продажи (шт)', total.buyouts],
+            ['Возвраты (шт)', total.returns], ['Реклама', total.ad_cost],
+        ];
+        let html = '';
+        rows.forEach(([name, val]) => {
+            html += '<tr><td><strong>' + name + '</strong></td><td>' + fmt(val) + '</td><td>' + (tr ? (val/tr*100).toFixed(1) : '—') + '%</td>';
+            weeks.forEach(w => { const v = name.includes('Реал') ? w.revenue : name.includes('Прод') ? w.buyouts : name.includes('Воз') ? w.returns : w.ad_cost; html += '<td>' + fmt(v) + '</td>'; });
+            html += '</tr>';
+        });
+        const profit = (total.revenue || 0) - (total.ad_cost || 0);
+        html += '<tr style="font-weight:700;background:#f0edfc"><td>Чистая прибыль</td><td>' + fmt(profit) + '</td><td>' + (tr ? (profit/tr*100).toFixed(1) : '—') + '%</td>';
+        weeks.forEach(w => { const p = (w.revenue||0)-(w.ad_cost||0); html += '<td>' + fmt(p) + '</td>'; });
+        html += '</tr>';
+        tbody.innerHTML = html || '<tr><td colspan="3" class="empty">Нет данных</td></tr>';
+    } catch(e) { console.error('loadOpiu', e); }
+}
+async function exportOpiu() { alert('В разработке'); }
 
 async function loadRefData() {
     if (!ORG_ID) { document.getElementById('ref-body').innerHTML = '<tr><td colspan="13" class="empty">Нет данных. Добавьте WB API ключ в настройках.</td></tr>'; return; }
