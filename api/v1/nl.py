@@ -1265,6 +1265,8 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 <div style="margin-bottom:24px">
 <div style="font-size:.85em;color:#999;margin-bottom:8px">ПРИБЫЛЬ</div>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
+<div class="metric-card"><div class="mc-label">Выручка</div><div class="mc-value" id="v-revenue">—</div></div>
+<div class="metric-card"><div class="mc-label">Выкупов</div><div class="mc-value" id="v-buyouts-count">—</div></div>
 <div class="metric-card" id="mc-profit"><div class="mc-label">Прибыль</div><div class="mc-value" id="v-profit">—</div><div class="mc-delta" id="d-profit"></div></div>
 <div class="metric-card" id="mc-realization"><div class="mc-label">Реализация</div><div class="mc-value" id="v-realization">—</div><div class="mc-delta" id="d-realization"></div></div>
 <div class="metric-card"><div class="mc-label">Продажи</div><div class="mc-value" id="v-sales">—</div><div class="mc-delta" id="d-sales"></div></div>
@@ -1598,7 +1600,7 @@ async function loadStats() {
         const el1 = document.getElementById('v-revenue');
         if (el1) el1.textContent = fmt(revenue, ' ₽');
         const el2 = document.getElementById('v-buyouts-count');
-        if (el2) el2.textContent = fmt(s.total_buyouts);
+        if (el2) el2.textContent = s.total_buyouts || 0;
         const el3 = document.getElementById('v-profitunit');
         if (el3) el3.textContent = s.total_buyouts ? fmt(profit / s.total_buyouts, ' ₽') : '—';
         // Алерты
