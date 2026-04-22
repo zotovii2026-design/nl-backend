@@ -18,10 +18,17 @@ celery_app_new.conf.update(
     timezone="UTC",
     enable_utc=True,
     beat_schedule={
-        # Ежедневная полная синхронизация (raw data + ТС) — раз в сутки
         "daily-wb-sync": {
             "task": "wb.daily_sync",
             "schedule": 60 * 60 * 24,
+        },
+        "daily-tariffs": {
+            "task": "wb.fetch_tariffs",
+            "schedule": 60 * 60 * 24,
+        },
+        "parse-raw-data": {
+            "task": "wb.parse_raw",
+            "schedule": 60 * 60 * 6,
         },
     },
 )
