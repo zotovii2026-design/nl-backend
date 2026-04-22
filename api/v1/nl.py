@@ -633,6 +633,76 @@ document.getElementById('submitBtn').addEventListener('click', async function() 
     resp.headers["Cache-Control"] = "no-cache, no-store"
     return resp
 
+@router.get("/api/v1/nl/analytics")
+async def get_analytics(org_id: str, target_date: Optional[str] = None, search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Аналитика по товарам — детальная таблица"""
+    from datetime import datetime as dt_mod
+    import decimal
+
+    d = dt_mod.strptime(target_date, "%Y-%m-%d").date() if target_date else date.today()
+
+    query = select(
+        TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name,
+        TechStatus.photo_main, TechStatus.stock_qty, TechStatus.orders_count,
+        TechStatus.buyouts_count, TechStatus.returns_count,
+        TechStatus.price, TechStatus.price_discount, TechStatus.tariff,
+        TechStatus.ad_cost, TechStatus.rating,
+        TechStatus.impressions, TechStatus.clicks,
+        TechStatus.warehouse_name, TechStatus.barcode,
+    ).where(TechStatus.organization_id == org_id, TechStatus.target_date == d)
+
+    if search:
+        query = query.where(
+            (TechStatus.vendor_code.ilike(f"%{search}%")) |
+            (TechStatus.product_name.ilike(f"%{search}%")) |
+            (TechStatus.nm_id == int(search) if search.isdigit() else False)
+        )
+
+    query = query.order_by(TechStatus.orders_count.desc().nullslast())
+    result = await db.execute(query)
+    rows = result.all()
+
+    def sf(v): return float(v) if v and not isinstance(v, decimal.Decimal) else (float(v) if isinstance(v, decimal.Decimal) else None)
+    def si(v): return int(v) if v else None
+
+    products = []
+    for r in rows:
+        price = sf(r[8])
+        price_disc = sf(r[9])
+        tariff = sf(r[10])
+        ad_cost = sf(r[11]) or 0
+        orders = si(r[5]) or 0
+        buyouts = si(r[6]) or 0
+        revenue = price_disc * buyouts if price_disc and buyouts else 0
+        commission = revenue * (tariff / 100) if revenue and tariff else 0
+        payout = revenue - commission - ad_cost
+
+        products.append({
+            "nm_id": r[0], "vendor_code": r[1], "product_name": r[2],
+            "photo_main": r[3], "stock_qty": si(r[4]),
+            "orders_count": orders, "buyouts_count": buyouts,
+            "returns_count": si(r[7]),
+            "buyout_percent": round(buyouts / orders * 100, 1) if orders else 0,
+            "price": price, "price_discount": price_disc,
+            "tariff_percent": tariff,
+            "commission": round(commission, 2),
+            "logistics": 0, "ad_cost": round(ad_cost, 2),
+            "drr": round(ad_cost / revenue * 100, 1) if revenue else 0,
+            "fines": 0, "storage": 0, "reception": 0, "other_deductions": 0,
+            "avg_check": round(revenue / buyouts, 2) if buyouts else 0,
+            "revenue": round(revenue, 2), "payout": round(payout, 2),
+            "cost_price": 0, "margin": round(payout, 2),
+            "margin_per_unit": round(payout / buyouts, 2) if buyouts else 0,
+            "profitability": round(payout / revenue * 100, 1) if revenue else 0,
+            "roi": 0, "rating": sf(r[12]),
+            "impressions": si(r[13]), "clicks": si(r[14]),
+            "ctr": round((r[14] or 0) / (r[13] or 1) * 100, 2) if r[13] else 0,
+            "turnover": 0, "in_transit": 0,
+        })
+
+    return {"date": str(d), "count": len(products), "products": products}
+
+
 @router.get("/api/v1/nl/opiu")
 async def get_opiu(org_id: str, period: str = "4", db: AsyncSession = Depends(get_db)):
     """ОПиУ — отчёт о прибылях и убытках по неделям"""
@@ -932,126 +1002,58 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 </div>
 <div id="page-analytics" class="page-section">
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-<div style="display:flex;align-items:center;gap:6px">
-<label style="font-size:.85em;color:#666">📅 Дата:</label>
-<select id="ctrl-date" onchange="loadControl()" style="border:1px solid #e0e0e0;border-radius:4px;padding:6px 10px;font-size:.9em;cursor:pointer"></select>
+<input type="text" id="analytics-search" placeholder="🔍 Поиск по артикулу/названию" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:250px" oninput="loadAnalytics()">
+<select id="analytics-date" onchange="loadAnalytics()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"></select>
+<button class="btn" onclick="loadAnalytics()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+<button class="btn btn-outline" onclick="exportAnalytics()" style="padding:6px 14px;font-size:.85em">📥 Скачать</button>
 </div>
-<button class="btn" onclick="loadControl()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
-</div>
-<div id="ctrl-alerts" style="margin-bottom:16px"></div>
-<div id="ctrl-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px"></div>
-<table id="ctrl-table" style="width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+<div style="overflow-x:auto">
+<table id="analytics-table" style="font-size:.8em">
 <thead><tr>
-<th>Фото</th><th>Арт WB</th><th>Название</th><th>Остаток</th><th>Заказы</th><th>Выкупы</th><th>Возвраты</th><th>Рейтинг</th><th>Показы</th><th>Клики</th><th>CTR</th><th>Реклама ₽</th><th>Цена</th><th>Скидка</th><th>Комиссия</th>
+<th>Фото</th>
+<th>Арт продавца</th>
+<th>Арт WB</th>
+<th>Товар</th>
+<th>Остаток</th>
+<th>Заказы</th>
+<th>Выкупы</th>
+<th>Отмены</th>
+<th>Возвраты</th>
+<th>% выкупа</th>
+<th>Цена</th>
+<th>Цена со скидкой</th>
+<th>Комиссия ВБ %</th>
+<th>Комиссия ВБ ₽</th>
+<th>Логистика</th>
+<th>Реклама ₽</th>
+<th>ДРР %</th>
+<th>Штрафы</th>
+<th>Хранение</th>
+<th>Приёмка</th>
+<th>Прочие удерж.</th>
+<th>Средний чек</th>
+<th>Сумма реализации</th>
+<th>К выплате</th>
+<th>Себестоимость</th>
+<th>Маржа</th>
+<th>Маржа/ед.</th>
+<th>Рентабельность</th>
+<th>ROI</th>
+<th>Рейтинг</th>
+<th>Показы</th>
+<th>Клики</th>
+<th>CTR</th>
+<th>Оборачив.</th>
+<th>В пути к клиенту</th>
 </tr></thead>
-<tbody id="ctrl-body"><tr><td colspan="15" class="empty">Выберите дату</td></tr></tbody>
+<tbody id="analytics-body"><tr><td colspan="35" class="empty">Загрузка...</td></tr></tbody>
 </table>
 </div>
-
-<div id="page-rnp" class="page-section">
-<div style="text-align:center;padding:60px;color:#999">
-<div style="font-size:2em;margin-bottom:12px">🎯</div>
-<h3>Рука на пульсе</h3>
-<p>План vs факт по юнит-экономике. За последние 10 дней.</p>
-<p style="font-size:.85em;margin-top:8px">Раздел в разработке</p>
-</div>
-</div>
-
-<div id="page-opiu" class="page-section">
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
-<select id="opiu-detail" onchange="loadOpiu()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<option value="week">По неделям</option>
-<option value="day">По дням</option>
+<div style="margin-top:12px;display:flex;align-items:center;gap:12px;font-size:.85em;color:#999">
+<span id="analytics-count"></span>
+<select id="analytics-pagesize" onchange="loadAnalytics()" style="border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em">
+<option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option>
 </select>
-<select id="opiu-period" onchange="loadOpiu()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<option value="4">Последние 4 недели</option>
-<option value="8">Последние 8 недель</option>
-<option value="12">Последние 12 недель</option>
-</select>
-<button class="btn" onclick="loadOpiu()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
-<button class="btn btn-outline" onclick="exportOpiu()" style="padding:6px 14px;font-size:.85em">📥 Скачать Excel</button>
-</div>
-<table id="opiu-table">
-<thead><tr>
-<th>Статья</th>
-<th>Итого ₽</th>
-<th>Итого %</th>
-</tr></thead>
-<tbody id="opiu-body"><tr><td colspan="3" class="empty">Загрузка...</td></tr></tbody>
-</table>
-</div>
-
-<div id="page-costprice" class="page-section">
-<div style="text-align:center;padding:60px;color:#999">
-<div style="font-size:2em;margin-bottom:12px">💰</div>
-<h3>Себестоимость товаров</h3>
-<p>Управление себестоимостью по артикулам и баркодам</p>
-<p style="font-size:.85em;margin-top:8px">Раздел в разработке</p>
-</div>
-</div>
-
-<div id="page-warehouses" class="page-section">
-<div style="text-align:center;padding:60px;color:#999">
-<div style="font-size:2em;margin-bottom:12px">📦</div>
-<h3>Склады</h3>
-<p>Остатки на складах WB с детализацией</p>
-<p style="font-size:.85em;margin-top:8px">Раздел в разработке</p>
-</div>
-</div>
-
-<div id="page-opexpenses" class="page-section">
-<div style="text-align:center;padding:60px;color:#999">
-<div style="font-size:2em;margin-bottom:12px">📝</div>
-<h3>Операционные расходы</h3>
-<p>Управление операционными расходами</p>
-<p style="font-size:.85em;margin-top:8px">Раздел в разработке</p>
-</div>
-</div>
-
-<div id="page-connectors" class="page-section">
-<div style="max-width:600px;margin:0 auto;padding:20px">
-<h3 style="color:#6c5ce7;margin-bottom:16px">🔌 Wildberries</h3>
-<div style="background:#fff;border-radius:8px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px">
-<div style="margin-bottom:8px;font-size:.85em;color:#666">API токен</div>
-<div style="display:flex;gap:8px;flex-wrap:wrap">
-<input type="text" id="wb-key-name" placeholder="Название" style="width:140px">
-<input type="text" id="wb-key-value" placeholder="API ключ WB" style="flex:1;min-width:200px">
-<button class="btn" onclick="addWbKey()">Подключить</button>
-</div>
-<p style="color:#999;font-size:.8em;margin-top:8px">ГДЕ ВЗЯТЬ ТОКЕН? Кабинет WB → Настройки → Доступ к API</p>
-</div>
-<div id="wb-keys-list"></div>
-</div>
-</div>
-
-<div id="page-subscription" class="page-section">
-<div style="max-width:900px;margin:0 auto;padding:20px;text-align:center">
-<h3 style="color:#6c5ce7;margin-bottom:24px">Тарифные планы</h3>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px">
-<div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
-<h4>Новичок</h4><div style="font-size:1.5em;font-weight:700;color:#6c5ce7;margin:12px 0">990 ₽<span style="font-size:.5em;font-weight:400">/мес</span></div>
-<ul style="text-align:left;font-size:.85em;color:#666;list-style:none;padding:0"><li>✅ 1 магазин</li><li>✅ Основные показатели</li><li>✅ ОПиУ</li><li>✅ Аналитика по товарам</li></ul>
-<button class="btn" style="width:100%;margin-top:12px">Выбрать</button>
-</div>
-<div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);border:2px solid #6c5ce7">
-<h4>Старт</h4><div style="font-size:1.5em;font-weight:700;color:#6c5ce7;margin:12px 0">1490 ₽<span style="font-size:.5em;font-weight:400">/мес</span></div>
-<ul style="text-align:left;font-size:.85em;color:#666;list-style:none;padding:0"><li>✅ 2 магазина</li><li>✅ Всё из Новичок</li><li>✅ РНП</li><li>✅ Склады</li></ul>
-<button class="btn" style="width:100%;margin-top:12px">Выбрать</button>
-</div>
-<div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
-<h4>Бизнес</h4><div style="font-size:1.5em;font-weight:700;color:#6c5ce7;margin:12px 0">3990 ₽<span style="font-size:.5em;font-weight:400">/мес</span></div>
-<ul style="text-align:left;font-size:.85em;color:#666;list-style:none;padding:0"><li>✅ 5 магазинов</li><li>✅ Всё из Старт</li><li>✅ Опер. расходы</li><li>✅ Приоритетная поддержка</li></ul>
-<button class="btn" style="width:100%;margin-top:12px">Выбрать</button>
-</div>
-</div>
-</div>
-</div>
-
-<div id="page-help" class="page-section">
-<div style="max-width:600px;margin:0 auto;padding:40px;text-align:center;color:#999">
-<div style="font-size:3em;margin-bottom:16px">❓</div>
-<h3>Помощь</h3>
-<p>Свяжитесь с нами: support@nl-table.ru</p>
 </div>
 </div>
 
@@ -1234,6 +1236,64 @@ async function loadDates() {
         sel.appendChild(opt);
     });
     return dates[0];
+}
+
+async function loadAnalytics() {
+    if (!ORG_ID) return;
+    const sel = document.getElementById('analytics-date') || document.getElementById('ref-date');
+    const dateVal = sel ? sel.value : '';
+    if (!dateVal || dateVal === 'Нет данных') return;
+    const search = document.getElementById('analytics-search')?.value || '';
+    try {
+        const res = await fetch('/api/v1/nl/analytics?org_id=' + ORG_ID + '&target_date=' + dateVal + (search ? '&search=' + encodeURIComponent(search) : ''));
+        if (!res.ok) { document.getElementById('analytics-body').innerHTML = '<tr><td colspan="35" class="empty">Ошибка загрузки</td></tr>'; return; }
+        const data = await res.json();
+        const prods = data.products || [];
+        document.getElementById('analytics-count').textContent = prods.length + ' товаров';
+        if (!prods.length) { document.getElementById('analytics-body').innerHTML = '<tr><td colspan="35" class="empty">Нет данных</td></tr>'; return; }
+        const fmt = (v, s) => { if (v == null) return '—'; return Number(v).toLocaleString('ru-RU', {maximumFractionDigits:2}) + (s || ''); };
+        const size = parseInt(document.getElementById('analytics-pagesize')?.value || '25');
+        document.getElementById('analytics-body').innerHTML = prods.slice(0, size).map(p => {
+            const thumb = (p.photo_main || '').replace('/big/', '/c246x328/');
+            return '<tr>' +
+            '<td>' + (thumb ? '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
+            '<td>' + esc(p.vendor_code || '') + '</td>' +
+            '<td>' + (p.nm_id || '') + '</td>' +
+            '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.product_name || '') + '</td>' +
+            '<td>' + (p.stock_qty ?? '—') + '</td>' +
+            '<td>' + (p.orders_count ?? '—') + '</td>' +
+            '<td>' + (p.buyouts_count ?? '—') + '</td>' +
+            '<td>—</td>' +
+            '<td>' + (p.returns_count ?? '—') + '</td>' +
+            '<td>' + (p.buyout_percent || '—') + '%</td>' +
+            '<td>' + fmt(p.price) + '</td>' +
+            '<td>' + fmt(p.price_discount) + '</td>' +
+            '<td>' + (p.tariff_percent || '—') + '%</td>' +
+            '<td>' + fmt(p.commission) + '</td>' +
+            '<td>' + fmt(p.logistics) + '</td>' +
+            '<td>' + fmt(p.ad_cost) + '</td>' +
+            '<td>' + (p.drr || '—') + '%</td>' +
+            '<td>' + fmt(p.fines) + '</td>' +
+            '<td>' + fmt(p.storage) + '</td>' +
+            '<td>' + fmt(p.reception) + '</td>' +
+            '<td>' + fmt(p.other_deductions) + '</td>' +
+            '<td>' + fmt(p.avg_check) + '</td>' +
+            '<td>' + fmt(p.revenue) + '</td>' +
+            '<td>' + fmt(p.payout) + '</td>' +
+            '<td>' + fmt(p.cost_price) + '</td>' +
+            '<td>' + fmt(p.margin) + '</td>' +
+            '<td>' + fmt(p.margin_per_unit) + '</td>' +
+            '<td>' + (p.profitability || '—') + '%</td>' +
+            '<td>' + (p.roi || '—') + '%</td>' +
+            '<td>' + (p.rating || '—') + '</td>' +
+            '<td>' + (p.impressions ?? '—') + '</td>' +
+            '<td>' + (p.clicks ?? '—') + '</td>' +
+            '<td>' + (p.ctr || '—') + '%</td>' +
+            '<td>' + (p.turnover || '—') + '</td>' +
+            '<td>' + (p.in_transit || '—') + '</td>' +
+            '</tr>';
+        }).join('');
+    } catch(e) { console.error('loadAnalytics error:', e); }
 }
 
 async function loadOpiu() {
