@@ -1,3 +1,4 @@
+import uuid
 """Сборщик данных WB API — сохраняет сырые данные и заполняет ТС"""
 import asyncio
 import logging
@@ -33,7 +34,7 @@ API_METHODS = [
 REWRITE_WINDOW = 15
 
 # Паузы между запросами (секунд) — для rate-limited методов
-RATE_LIMIT_PAUSE = 5
+RATE_LIMIT_PAUSE = 12
 
 
 def run_async(coro):
@@ -121,11 +122,24 @@ async def fetch_products(client: WBApiClient, org_id: str, target_date: date):
         return None
 
 
+async def fetch_with_retry(request_fn, max_retries=3):
+    """HTTP запрос с retry при 429"""
+    for attempt in range(max_retries):
+        try:
+            return await request_fn()
+        except Exception as e:
+            if "429" in str(e) and attempt < max_retries - 1:
+                wait = 15 * (attempt + 1)
+                logger.warning(f"429 rate limit, waiting {wait}s (attempt {attempt+1}/{max_retries})")
+                await asyncio.sleep(wait)
+            else:
+                raise
+
+
 async def fetch_sales(client: WBApiClient, org_id: str, target_date: date):
     """Продажи за дату"""
     try:
-        date_str = target_date.isoformat()
-        sales = await client.get_sales(date_from=date_str)
+        sales = await fetch_with_retry(lambda: client.get_sales(date_from=target_date.isoformat()))
         if isinstance(sales, list):
             await save_raw(org_id, "sales", target_date, sales, count=len(sales))
         else:
@@ -172,12 +186,14 @@ async def fetch_stocks(client: WBApiClient, org_id: str, target_date: date):
 async def fetch_tariffs(client: WBApiClient, org_id: str, target_date: date):
     """Тарифы складов"""
     try:
-        resp = await client.client.get(
-            "https://common-api.wildberries.ru/api/v1/tariffs/box",
-            params={"date": target_date.isoformat()}
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        async def _do():
+            resp = await client.client.get(
+                "https://common-api.wildberries.ru/api/v1/tariffs/box",
+                params={"date": target_date.isoformat()}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        data = await fetch_with_retry(_do)
         await save_raw(org_id, "tariffs", target_date, data)
         return data
     except Exception as e:
@@ -519,3 +535,214 @@ async def _daily_sync(organization_id: str = None):
         results[org_id] = org_result
 
     return {"status": "completed", "results": results}
+
+
+
+async def parse_raw_to_tech_status(org_id: str = None):
+    """Парсинг raw_api_data → tech_status по реальному формату WB"""
+    async with async_session() as db:
+        if org_id:
+            org_ids = [org_id]
+        else:
+            result = await db.execute(select(RawApiData.organization_id).distinct())
+            org_ids = [str(r[0]) for r in result.all()]
+
+        total_parsed = 0
+        for oid in org_ids:
+            result = await db.execute(
+                select(RawApiData.target_date).where(
+                    RawApiData.organization_id == oid, RawApiData.status == "ok"
+                ).distinct().order_by(RawApiData.target_date.desc())
+            )
+            dates = [r[0] for r in result.all()]
+
+            for td in dates:
+                # --- products: названия, бренд, фото ---
+                result = await db.execute(
+                    select(RawApiData.raw_response).where(
+                        RawApiData.organization_id == oid,
+                        RawApiData.api_method == "products",
+                        RawApiData.target_date == td,
+                        RawApiData.status == "ok"
+                    ).limit(1)
+                )
+                prod_row = result.first()
+                product_map = {}  # nm_id → {name, brand, photo, barcodes}
+                if prod_row and prod_row[0]:
+                    cards = prod_row[0] if isinstance(prod_row[0], list) else prod_row[0].get("cards", prod_row[0].get("items", []))
+                    if isinstance(cards, dict):
+                        cards = cards.get("cards", cards.get("items", []))
+                    for c in (cards if isinstance(cards, list) else []):
+                        if not isinstance(c, dict): continue
+                        nm = c.get("nmID", c.get("nm_id"))
+                        if not nm: continue
+                        barcodes = []
+                        for sz in (c.get("sizes") or []):
+                            barcodes.extend(sz.get("skus") or [])
+                        photos = c.get("photos") or []
+                        product_map[int(nm)] = {
+                            "name": c.get("title", c.get("name", "")),
+                            "brand": c.get("brand", ""),
+                            "photo": photos[0].get("hq", photos[0].get("tm", "")) if photos else "",
+                            "barcodes": barcodes,
+                        }
+
+                # --- orders: продажи/заказы по nmId ---
+                result = await db.execute(
+                    select(RawApiData.raw_response).where(
+                        RawApiData.organization_id == oid,
+                        RawApiData.api_method == "orders",
+                        RawApiData.target_date == td,
+                        RawApiData.status == "ok"
+                    ).limit(1)
+                )
+                orders_row = result.first()
+                orders_map = {}  # nmId → {count, revenue}
+                if orders_row and orders_row[0]:
+                    ords = orders_row[0] if isinstance(orders_row[0], list) else []
+                    for o in (ords if isinstance(ords, list) else []):
+                        if not isinstance(o, dict): continue
+                        nm = o.get("nmId", o.get("nm_id"))
+                        if not nm: continue
+                        nm = int(nm)
+                        if nm not in orders_map:
+                            orders_map[nm] = {"count": 0, "revenue": 0, "vendor_code": "", "barcode": "", "subject": ""}
+                        orders_map[nm]["count"] += 1
+                        price = o.get("totalPrice") or o.get("price") or 0
+                        orders_map[nm]["revenue"] += float(price)
+                        if not orders_map[nm]["vendor_code"]:
+                            orders_map[nm]["vendor_code"] = str(o.get("supplierArticle", o.get("vendor_code", "")) or "")
+                        if not orders_map[nm]["barcode"]:
+                            orders_map[nm]["barcode"] = str(o.get("barcode", "") or "")
+                        if not orders_map[nm]["subject"]:
+                            orders_map[nm]["subject"] = str(o.get("subject", "") or "")
+
+                # --- sales: выкупы/возвраты ---
+                result = await db.execute(
+                    select(RawApiData.raw_response).where(
+                        RawApiData.organization_id == oid,
+                        RawApiData.api_method == "sales",
+                        RawApiData.target_date == td,
+                        RawApiData.status == "ok"
+                    ).limit(1)
+                )
+                sales_row = result.first()
+                sales_map = {}  # nmId → {buyouts, returns, sales_revenue}
+                if sales_row and sales_row[0]:
+                    sls = sales_row[0] if isinstance(sales_row[0], list) else []
+                    for s in (sls if isinstance(sls, list) else []):
+                        if not isinstance(s, dict): continue
+                        nm = s.get("nmId", s.get("nm_id"))
+                        if not nm: continue
+                        nm = int(nm)
+                        if nm not in sales_map:
+                            sales_map[nm] = {"buyouts": 0, "returns": 0, "revenue": 0}
+                        sale_type = str(s.get("saleID", "") or "")
+                        price = float(s.get("forPay") or s.get("totalPrice") or 0)
+                        # WB sales: "S" = продажа, "R" = возврат
+                        if "R" in sale_type and not sale_type.startswith("S"):
+                            sales_map[nm]["returns"] += 1
+                            sales_map[nm]["revenue"] -= price
+                        else:
+                            sales_map[nm]["buyouts"] += 1
+                            sales_map[nm]["revenue"] += price
+
+                # --- stocks: остатки ---
+                result = await db.execute(
+                    select(RawApiData.raw_response).where(
+                        RawApiData.organization_id == oid,
+                        RawApiData.api_method == "stocks",
+                        RawApiData.target_date == td,
+                        RawApiData.status == "ok"
+                    ).limit(1)
+                )
+                stocks_row = result.first()
+                stock_map = {}
+                if stocks_row and stocks_row[0]:
+                    stks = stocks_row[0] if isinstance(stocks_row[0], list) else stocks_row[0].get("stocks", [])
+                    for st in (stks if isinstance(stks, list) else []):
+                        if not isinstance(st, dict): continue
+                        nm = st.get("nmId", st.get("nm_id"))
+                        if not nm: continue
+                        nm = int(nm)
+                        if nm not in stock_map:
+                            stock_map[nm] = {"qty": 0, "warehouses": set()}
+                        stock_map[nm]["qty"] += int(st.get("quantity", st.get("qty", 0)) or 0)
+                        wh = st.get("warehouseName", st.get("warehouse_name", ""))
+                        if wh: stock_map[nm]["warehouses"].add(wh)
+
+                # --- adverts: расходы ---
+                result = await db.execute(
+                    select(RawApiData.raw_response).where(
+                        RawApiData.organization_id == oid,
+                        RawApiData.api_method == "adverts",
+                        RawApiData.target_date == td,
+                        RawApiData.status == "ok"
+                    ).limit(1)
+                )
+                ad_row = result.first()
+                ad_cost_map = {}
+                if ad_row and ad_row[0]:
+                    adata = ad_row[0]
+                    if isinstance(adata, dict):
+                        adata = adata.get("response", adata)
+                    if isinstance(adata, list):
+                        for a in adata:
+                            if not isinstance(a, dict): continue
+                            for nm_id in (a.get("nm_ids") or a.get("nms") or []):
+                                ad_cost_map[int(nm_id)] = ad_cost_map.get(int(nm_id), 0) + float(a.get("sum", a.get("total", 0)) or 0)
+
+                # Собираем все уникальные nm_id
+                all_nms = set(product_map.keys()) | set(orders_map.keys()) | set(sales_map.keys()) | set(stock_map.keys()) | set(ad_cost_map.keys())
+
+                for nm_id in all_nms:
+                    pinfo = product_map.get(nm_id, {})
+                    oinfo = orders_map.get(nm_id, {})
+                    sinfo = sales_map.get(nm_id, {})
+                    skinfo = stock_map.get(nm_id, {})
+
+                    # Ищем запись
+                    from models.raw_data import TechStatus
+                    result = await db.execute(
+                        select(TechStatus).where(
+                            TechStatus.organization_id == oid,
+                            TechStatus.target_date == td,
+                            TechStatus.nm_id == nm_id
+                        )
+                    )
+                    ts = result.scalar_one_or_none()
+                    if not ts:
+                        ts = TechStatus(
+                            id=str(uuid.uuid4()),
+                            organization_id=oid,
+                            target_date=td,
+                            nm_id=nm_id,
+                            row_status="active",
+                            is_final="no"
+                        )
+                        db.add(ts)
+
+                    ts.product_name = pinfo.get("name", "") or oinfo.get("subject", "")
+                    ts.vendor_code = oinfo.get("vendor_code", "")
+                    ts.barcode = oinfo.get("barcode", "") or (pinfo.get("barcodes") or [""])[0]
+                    ts.photo_main = pinfo.get("photo", "")
+                    ts.orders_count = oinfo.get("count", 0)
+                    ts.buyouts_count = sinfo.get("buyouts", 0)
+                    ts.returns_count = sinfo.get("returns", 0)
+                    ts.price_discount = sinfo.get("revenue") / max(sinfo.get("buyouts", 1), 1) if sinfo.get("buyouts") else None
+                    ts.stock_qty = skinfo.get("qty", 0)
+                    ts.warehouse_name = ", ".join(skinfo.get("warehouses", set())) if skinfo.get("warehouses") else ""
+                    ts.ad_cost = ad_cost_map.get(nm_id, 0)
+                    ts.updated_at = datetime.now()
+                    total_parsed += 1
+
+            await db.commit()
+        logger.info(f"Parsed {total_parsed} tech_status records for {len(org_ids)} orgs")
+        return {"parsed": total_parsed}
+
+
+
+@shared_task(name="wb.parse_raw")
+def parse_raw_task(organization_id: str = None):
+    """Celery task: парсинг raw → tech_status"""
+    return run_async(parse_raw_to_tech_status(organization_id))
