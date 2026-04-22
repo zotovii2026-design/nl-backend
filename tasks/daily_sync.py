@@ -38,10 +38,14 @@ RATE_LIMIT_PAUSE = 5
 
 def run_async(coro):
     """Запуск async из Celery (sync контекст)"""
-    loop = asyncio.new_event_loop()
+    import asyncio as _a
+    loop = _a.new_event_loop()
+    _a.set_event_loop(loop)
     try:
         return loop.run_until_complete(coro)
     finally:
+        # Закриваем все asyncpg connections привязанные к этому loop
+        loop.run_until_complete(loop.shutdown_asyncgens())
         loop.close()
 
 

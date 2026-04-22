@@ -9,7 +9,7 @@ from typing import Optional
 from datetime import datetime, date
 
 from core.database import get_db
-from core.security import verify_password, get_password_hash, create_access_token, decode_token
+from core.security import verify_password, get_password_hash, create_access_token, decode_token, encrypt_data, decrypt_data
 from core.dependencies import get_current_user
 from models.user import User
 from models.reference import ReferenceSheet
