@@ -932,13 +932,20 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
     nm_id = data.get("nm_id")
     cost = data.get("cost_price", 0)
     valid_from = data.get("valid_from", date.today().isoformat())
+    if isinstance(valid_from, str):
+        from datetime import datetime as _dt
+        valid_from = _dt.strptime(valid_from, "%Y-%m-%d").date()
     if not nm_id:
         raise HTTPException(400, "nm_id обязателен")
     await db.execute(text(
         "INSERT INTO cost_prices (organization_id, nm_id, barcode, vendor_code, size_name, "
         "cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs, vat, valid_from, source) "
         "VALUES (:org, :nm, :bc, :vc, :sz, :cp, :pc, :lc, :pk, :oc, :vat, :vf, :src) "
-        "ON CONFLICT DO NOTHING"
+        "ON CONFLICT (organization_id, nm_id, valid_from) DO UPDATE SET "
+        "barcode = EXCLUDED.barcode, vendor_code = EXCLUDED.vendor_code, "
+        "cost_price = EXCLUDED.cost_price, purchase_cost = EXCLUDED.purchase_cost, "
+        "logistics_cost = EXCLUDED.logistics_cost, packaging_cost = EXCLUDED.packaging_cost, "
+        "other_costs = EXCLUDED.other_costs, vat = EXCLUDED.vat, source = EXCLUDED.source"
     ), {"org": org_id, "nm": nm_id, "bc": data.get("barcode"), "vc": data.get("vendor_code"),
         "sz": data.get("size_name"), "cp": cost, "pc": data.get("purchase_cost"),
         "lc": data.get("logistics_cost"), "pk": data.get("packaging_cost"),
@@ -977,7 +984,8 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             await db.execute(text(
                 "INSERT INTO cost_prices (organization_id, nm_id, barcode, vendor_code, cost_price, vat, valid_from, source) "
                 "VALUES (:org, :nm, :bc, :vc, :cp, :vat, CURRENT_DATE, 'excel') "
-                "ON CONFLICT DO NOTHING"
+                "ON CONFLICT (organization_id, nm_id, valid_from) DO UPDATE SET "
+                "cost_price = EXCLUDED.cost_price, vat = EXCLUDED.vat, barcode = EXCLUDED.barcode, vendor_code = EXCLUDED.vendor_code"
             ), {"org": org_id, "nm": int(nm), "bc": str(row.get("Баркод","")),
                 "vc": str(row.get("Арт продавца","")), "cp": float(cost),
                 "vat": float(row.get("НДС",0))})
@@ -1996,7 +2004,29 @@ async function uploadCostExcel(input) {
     input.value = '';
 }
 
-function exportCostTemplate() { alert('Скачайте шаблон на странице себестоимости'); }
+function exportCostTemplate() {
+    // Собираем товары из таблицы если есть, или отдаём пустой шаблон
+    const rows = document.querySelectorAll('#cost-body tr[data-nm]');
+    let csv = 'Арт WB;Арт продавца;Баркод;Название;Закупка;Логистика;Упаковка;Прочее;Себестоимость;НДС %';
+    if (rows.length) {
+        csv += '
+';
+        rows.forEach(row => {
+            const nm = row.dataset.nm || '';
+            const vc = row.dataset.vc || '';
+            const bc = row.dataset.barcode || '';
+            const name = row.querySelector('td:nth-child(4)')?.textContent || '';
+            csv += [nm, vc, bc, '"' + name + '"', '', '', '', '', '', ''].join(';') + '
+';
+        });
+    }
+    const blob = new Blob(['﻿' + csv], {type: 'text/csv;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'template_sebestoimost.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
 
 async function loadWarehouses() {
     if (!ORG_ID) return;
