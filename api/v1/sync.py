@@ -9,7 +9,7 @@ from models.user import User
 from models.wb_data import WbProduct, SyncLog
 from core.dependencies import get_current_user
 from sqlalchemy import select
-from services.wb_api.client import get_wb_client
+from services.wb_api.client import get_wb_client, WBApiClient
 from core.security import decrypt_data
 from models.organization import WbApiKey
 
@@ -35,8 +35,14 @@ async def sync_products(
         if not api_key_record:
             raise Exception(f"API key {api_key_id} not found")
         
-        # Расшифровываем ключ
-        decrypted_key = decrypt_data(api_key_record.api_key)
+        # Используем Personal token (приоритет), либо обычный API key
+        import sys
+        from core.security import decrypt_data as dd
+        token = None
+        if api_key_record.personal_token:
+            token = dd(api_key_record.personal_token)
+        if not token:
+            token = decrypt_data(api_key_record.api_key)
         
         # Создаём лог синхронизации
         log = SyncLog(
@@ -51,7 +57,10 @@ async def sync_products(
         log_id = log.id
         
         # Получаем карточки из WB API
-        client = await get_wb_client(decrypted_key)
+        # DEBUG
+        import sys
+        
+        client = WBApiClient(token)
         cards = await client.get_all_cards()
         # client.close() removed
         
@@ -126,6 +135,8 @@ async def sync_products(
         }
     
     except Exception as e:
+        import traceback, logging
+        logging.error(f"SYNC PRODUCTS ERROR: {traceback.format_exc()}")
         # Логируем ошибку
         if log_id:
             log = await db.get(SyncLog, log_id)
@@ -172,7 +183,7 @@ async def sync_sales(
         date_to = datetime.utcnow().date()
         date_from = date_to - timedelta(days=max(days - 1, 0))
 
-        client = await get_wb_client(decrypted_key)
+        client = WBApiClient(token)
         products = await client.get_sales_funnel_products(
             date_from=date_from.isoformat(),
             date_to=date_to.isoformat()
