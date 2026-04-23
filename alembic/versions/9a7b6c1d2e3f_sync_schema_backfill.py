@@ -20,8 +20,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Создаём raw_barcodes, если не существует
+    op.execute("CREATE TABLE IF NOT EXISTS raw_barcodes (id UUID PRIMARY KEY, organization_id UUID NOT NULL, barcode VARCHAR(100), nm_id INTEGER, source VARCHAR(50), raw_data JSONB, created_at TIMESTAMP WITH TIME ZONE DEFAULT now(), synced_at TIMESTAMP WITH TIME ZONE DEFAULT now())")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_raw_barcodes_organization_id ON raw_barcodes(organization_id)")
     op.add_column('raw_barcodes', sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True))
 
+    # Создаём tech_status, если не существует
+    op.execute("CREATE TABLE IF NOT EXISTS tech_status (id UUID PRIMARY KEY, organization_id UUID NOT NULL, nm_id INTEGER, status VARCHAR(50), created_at TIMESTAMP WITH TIME ZONE DEFAULT now())")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_tech_status_organization_id ON tech_status(organization_id)")
     op.add_column('tech_status', sa.Column('cards_total', sa.Integer(), nullable=True))
     op.add_column('tech_status', sa.Column('cards_archive', sa.Integer(), nullable=True))
     op.add_column('tech_status', sa.Column('cards_draft', sa.Integer(), nullable=True))

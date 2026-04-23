@@ -95,6 +95,7 @@ class WbApiKey(Base):
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False)
     name = Column(String(255), nullable=False)
     api_key = Column(Text, nullable=False)  # Зашифрованный ключ
+    personal_token = Column(Text, nullable=True)  # Personal token для analytics API (зашифрованный)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

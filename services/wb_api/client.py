@@ -162,7 +162,11 @@ class WBApiClient:
         )
         response.raise_for_status()
         result = response.json()
-        return result if isinstance(result, list) else result.get("data", result)
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict):
+            return result.get("items") or result.get("data") or []
+        return []
 
     async def get_sales_funnel_products(self,
                      date_from: str,
@@ -248,8 +252,29 @@ class WBApiClient:
         return result if isinstance(result, list) else result.get("data", result)
 
 
+    async def get_stocks_warehouses(self, is_archive: bool = False) -> list:
+        """
+        Получение остатков со складов WB через analytics API.
+        Требует Personal token (не Standard).
+
+        POST /api/analytics/v1/stocks-report/wb-warehouses
+        """
+        payload = {"isArchive": is_archive}
+        response = await self.client.post(
+            "https://seller-analytics-api.wildberries.ru/api/analytics/v1/stocks-report/wb-warehouses",
+            json=payload
+        )
+        response.raise_for_status()
+        result = response.json()
+        # API возвращает list записей с полями вроде nmID, vendorCode, warehouseName, quantity и т.д.
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict):
+            return result.get("items") or result.get("data") or []
+        return []
+
+
 async def get_wb_client(api_key: str) -> WBApiClient:
     """Фабрика для создания клиента с расшифрованным ключом"""
     # TODO: Добавить логику расшифровки ключа
     return WBApiClient(api_key)
-

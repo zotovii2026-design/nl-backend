@@ -193,3 +193,34 @@ class SyncLog(Base):
 
     # Отношения
     organization = relationship("Organization")
+
+class WbStock(Base):
+    """Остатки Wildberries по складам"""
+    __tablename__ = "wb_stocks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    nm_id = Column(Integer, nullable=False, index=True)  # Артикул WB
+    vendor_code = Column(String(100), nullable=True)      # Артикул продавца
+    warehouse_name = Column(String(200), nullable=False)  # Название склада
+    warehouse_id = Column(Integer, nullable=True)         # ID склада
+    quantity = Column(Integer, nullable=True, default=0)  # Остаток
+    quantity_full = Column(Integer, nullable=True, default=0)  # Полный остаток (с резервом)
+    in_way_to_client = Column(Integer, nullable=True, default=0)
+    in_way_from_client = Column(Integer, nullable=True, default=0)
+
+    # Мета
+    category = Column(String(200), nullable=True)
+    subject = Column(String(200), nullable=True)
+    brand = Column(String(100), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    synced_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    organization = relationship("Organization")
+
+    __table_args__ = (
+        {"extend_existing": True},
+    )

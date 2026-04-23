@@ -71,3 +71,7 @@ class WbApiKeyResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class WbApiKeyPersonalTokenUpdate(BaseModel):
+    personal_token: str

@@ -72,3 +72,26 @@ async def delete_wb_key(
         )
     
     return {"message": "WB API key deleted"}
+
+
+@router.post("/{key_id}/personal-token")
+async def set_personal_token(
+    org_id: str,
+    key_id: str,
+    token_data: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Установка Personal Token для stocks analytics API"""
+    await require_organization_role(org_id, Role.ADMIN, current_user, db)
+    from sqlalchemy import select
+    from models.organization import WbApiKey
+    from core.security import encrypt_data
+
+    result = await db.execute(select(WbApiKey).where(WbApiKey.id == key_id, WbApiKey.organization_id == org_id))
+    key_rec = result.scalar_one_or_none()
+    if not key_rec:
+        raise HTTPException(status_code=404, detail="Key not found")
+    key_rec.personal_token = encrypt_data(token_data["personal_token"])
+    await db.commit()
+    return {"status": "ok", "message": "Personal token saved"}

@@ -271,3 +271,104 @@ async def get_sync_logs(
             for log in logs
         ]
     }
+
+
+@router.post("/stocks")
+async def sync_stocks(
+    api_key_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Синхронизация остатков WB по складам (требуется Personal token)"""
+    log_id = None
+    try:
+        result = await db.execute(select(WbApiKey).where(WbApiKey.id == api_key_id))
+        key_rec = result.scalar_one_or_none()
+        if not key_rec:
+            raise Exception(f"API key {api_key_id} not found")
+
+        from core.security import decrypt_data as dd
+        personal_token = dd(key_rec.personal_token) if key_rec.personal_token else None
+        if not personal_token:
+            raise HTTPException(status_code=400, detail="Personal token not set. Set it via POST /organizations/{org_id}/wb-keys/{key_id}/personal-token")
+
+        log = SyncLog(
+            organization_id=str(key_rec.organization_id),
+            task_name="wb.sync_stocks",
+            status="running",
+            started_at=datetime.utcnow()
+        )
+        db.add(log)
+        await db.commit()
+        await db.refresh(log)
+        log_id = log.id
+
+        from services.wb_api.client import WBApiClient
+        client = WBApiClient(personal_token)
+        stocks_data = await client.get_stocks_warehouses(is_archive=False)
+        await client.client.aclose()
+
+        from models.wb_data import WbStock
+        count = 0
+        for item in stocks_data:
+            nm_id = item.get("nmID") or item.get("nmId")
+            wh_name = item.get("warehouseName", "unknown")
+            if not nm_id:
+                continue
+            existing = await db.execute(
+                select(WbStock).where(
+                    WbStock.nm_id == nm_id,
+                    WbStock.warehouse_name == wh_name,
+                    WbStock.organization_id == str(key_rec.organization_id)
+                )
+            )
+            row = existing.scalar_one_or_none()
+            if row:
+                row.quantity = item.get("quantity", 0)
+                row.quantity_full = item.get("quantityFull") or item.get("quantity_full", 0)
+                row.in_way_to_client = item.get("inWayToClient", 0)
+                row.in_way_from_client = item.get("inWayFromClient", 0)
+                row.vendor_code = item.get("vendorCode") or row.vendor_code
+                row.category = item.get("category") or row.category
+                row.subject = item.get("subject") or row.subject
+                row.brand = item.get("brand") or row.brand
+                row.synced_at = datetime.utcnow()
+            else:
+                stock = WbStock(
+                    organization_id=str(key_rec.organization_id),
+                    nm_id=nm_id,
+                    vendor_code=item.get("vendorCode"),
+                    warehouse_name=wh_name,
+                    warehouse_id=item.get("warehouseId"),
+                    quantity=item.get("quantity", 0),
+                    quantity_full=item.get("quantityFull") or item.get("quantity_full", 0),
+                    in_way_to_client=item.get("inWayToClient", 0),
+                    in_way_from_client=item.get("inWayFromClient", 0),
+                    category=item.get("category"),
+                    subject=item.get("subject"),
+                    brand=item.get("brand"),
+                    synced_at=datetime.utcnow()
+                )
+                db.add(stock)
+            count += 1
+
+        await db.commit()
+
+        log.status = "success"
+        log.finished_at = datetime.utcnow()
+        log.synced_count = count
+        await db.commit()
+
+        return {"status": "success", "stocks_count": count}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        if log_id:
+            log = await db.get(SyncLog, log_id)
+            if log:
+                log.status = "error"
+                log.finished_at = datetime.utcnow()
+                log.error_message = str(e)
+                await db.commit()
+        raise HTTPException(status_code=500, detail=str(e))

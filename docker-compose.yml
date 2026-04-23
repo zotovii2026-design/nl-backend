@@ -3,6 +3,8 @@ version: '3.8'
 services:
   app:
     build: .
+    mem_limit: 700m
+    mem_reservation: 256m
     container_name: nl-backend-app
     ports:
       - "8000:8000"
@@ -34,7 +36,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./pg_hba.conf:/var/lib/postgresql/data/pg_hba.conf
     restart: unless-stopped
 
   redis:
@@ -49,6 +50,8 @@ services:
 
   celery-worker:
     build: .
+    mem_limit: 900m
+    mem_reservation: 256m
     container_name: nl-backend-celery-worker
     command: celery -A tasks.celery_app_new worker --loglevel=info
     dns:
@@ -66,6 +69,8 @@ services:
 
   celery-beat:
     build: .
+    mem_limit: 300m
+    mem_reservation: 128m
     container_name: nl-backend-celery-beat
     command: celery -A tasks.celery_app_new beat --loglevel=info
     dns:
