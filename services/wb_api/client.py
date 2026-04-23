@@ -165,7 +165,13 @@ class WBApiClient:
         if isinstance(result, list):
             return result
         if isinstance(result, dict):
-            return result.get("items") or result.get("data") or []
+            # WB возвращает {"data": {"items": [...]}}
+            data = result.get("data", {})
+            if isinstance(data, dict):
+                return data.get("items", [])
+            if isinstance(data, list):
+                return data
+            return result.get("items", [])
         return []
 
     async def get_sales_funnel_products(self,
@@ -270,7 +276,13 @@ class WBApiClient:
         if isinstance(result, list):
             return result
         if isinstance(result, dict):
-            return result.get("items") or result.get("data") or []
+            # WB возвращает {"data": {"items": [...]}}
+            data = result.get("data", {})
+            if isinstance(data, dict):
+                return data.get("items", [])
+            if isinstance(data, list):
+                return data
+            return result.get("items", [])
         return []
 
 
