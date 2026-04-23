@@ -165,7 +165,12 @@ async def sync_sales(
         if not api_key_record:
             raise Exception(f"API key {api_key_id} not found")
 
-        decrypted_key = decrypt_data(api_key_record.api_key)
+        from core.security import decrypt_data as dd
+        token = None
+        if api_key_record.personal_token:
+            token = dd(api_key_record.personal_token)
+        if not token:
+            token = decrypt_data(api_key_record.api_key)
 
         log = SyncLog(
             organization_id=str(api_key_record.organization_id),
@@ -237,6 +242,123 @@ async def sync_sales(
             "date_to": date_to.isoformat()
         }
 
+    except Exception as e:
+        if log_id:
+            log = await db.get(SyncLog, log_id)
+            if log:
+                log.status = "error"
+                log.finished_at = datetime.utcnow()
+                log.error_message = str(e)
+                await db.commit()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+@router.post("/orders")
+async def sync_orders(
+    api_key_id: UUID,
+    days: int = 7,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Синхронизация заказов WB через Statistics API"""
+    log_id = None
+    try:
+        result = await db.execute(select(WbApiKey).where(WbApiKey.id == api_key_id))
+        api_key_record = result.scalar_one_or_none()
+        if not api_key_record:
+            raise Exception(f"API key {api_key_id} not found")
+
+        from core.security import decrypt_data as dd
+        token = None
+        if api_key_record.personal_token:
+            token = dd(api_key_record.personal_token)
+        if not token:
+            token = decrypt_data(api_key_record.api_key)
+
+        log = SyncLog(
+            organization_id=str(api_key_record.organization_id),
+            task_name="wb.sync_orders",
+            status="running",
+            started_at=datetime.utcnow()
+        )
+        db.add(log)
+        await db.commit()
+        await db.refresh(log)
+        log_id = log.id
+
+        from datetime import timedelta
+        from models.wb_data import WbOrder
+        import httpx
+
+        date_from = (datetime.utcnow().date() - timedelta(days=days)).isoformat()
+
+        # Прямой запрос к WB Statistics API
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            r = await http.get(
+                "https://statistics-api.wildberries.ru/api/v1/supplier/orders",
+                params={"dateFrom": date_from},
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            r.raise_for_status()
+            orders_data = r.json()
+
+        synced_count = 0
+        for item in orders_data:
+            # WB возвращает srid как уникальный ID заказа
+            order_id = str(item.get("srid", ""))
+            if not order_id:
+                continue
+
+            existing = await db.execute(
+                select(WbOrder).where(WbOrder.order_id == order_id)
+            )
+            if existing.scalar_one_or_none():
+                continue
+
+            raw_date = item.get("date", "")
+            raw_change = item.get("lastChangeDate", "")
+
+            order = WbOrder(
+                organization_id=str(api_key_record.organization_id),
+                order_id=order_id,
+                g_number=str(item.get("gNumber", "")),
+                date=datetime.fromisoformat(raw_date) if raw_date else datetime.utcnow(),
+                last_change_date=datetime.fromisoformat(raw_change) if raw_change else None,
+                status="cancel" if item.get("isCancel") else "active",
+                nm_id=item.get("nmId"),
+                subject=item.get("subject", ""),
+                brand=item.get("brand", ""),
+                tech_size=item.get("techSize", ""),
+                total_price=item.get("totalPrice"),
+                quantity=1,
+                barcode=item.get("barcode", ""),
+                warehouse_name=item.get("warehouseName", ""),
+                region_name=item.get("regionName", ""),
+                is_supply=str(item.get("isSupply", "")),
+                synced_at=datetime.utcnow()
+            )
+            db.add(order)
+            synced_count += 1
+
+        await db.commit()
+
+        log.status = "success"
+        log.finished_at = datetime.utcnow()
+        log.synced_count = synced_count
+        log.error_message = None
+        await db.commit()
+
+        return {
+            "status": "success",
+            "orders_count": synced_count,
+            "date_from": date_from
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
         if log_id:
             log = await db.get(SyncLog, log_id)
