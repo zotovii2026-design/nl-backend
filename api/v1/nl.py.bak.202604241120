@@ -1290,12 +1290,6 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 .page-content{padding:20px 24px}
 .page-section{display:none}
 .page-section.active{display:block}
-
-th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
-th.sortable:hover { background: rgba(255,255,255,0.15); }
-th.sortable::after { content: ' ↕'; font-size: 0.7em; opacity: 0.5; }
-th.sortable.asc::after { content: ' ↑'; opacity: 1; }
-th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </style>
 </head>
 <body>
@@ -1426,7 +1420,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
 <!-- Таблица товаров -->
 <div style="font-size:.85em;color:#999;margin-bottom:8px">ТОВАРЫ</div>
-<table id="stats-table">
+<table>
 <thead><tr><th>Фото</th><th>Арт WB</th><th>Название</th><th>Остаток</th><th>Заказы</th><th>Выкупы</th><th>Возвраты</th><th>Рейтинг</th><th>Показы</th><th>Клики</th><th>CTR</th><th>Реклама ₽</th><th>Цена</th></tr></thead>
 <tbody id="stats-products"><tr><td colspan="13" class="empty">Выберите дату</td></tr></tbody>
 </table>
@@ -1533,7 +1527,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <button class="btn" onclick="saveAllCostPrices()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить всё</button>
 </div>
 <div style="overflow-x:auto">
-<table id="cost-table" style="font-size:.82em"><thead><tr>
+<table style="font-size:.82em"><thead><tr>
 <th>Фото</th><th>Арт WB</th><th>Арт продавца</th><th>Товар</th><th>Баркод</th>
 <th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th>
 <th>Себестоимость ₽</th><th>НДС %</th><th>Дата начала</th>
@@ -1550,7 +1544,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <label style="font-size:.85em;display:flex;align-items:center;gap:6px"><input type="checkbox" id="wh-sizes" onchange="loadWarehouses()"> Размеры</label>
 </div>
 <div style="overflow-x:auto">
-<table id="wh-table"><thead><tr><th>Арт WB</th><th>Арт продавца</th><th>Товар</th><th>Склад</th><th>Кол-во, шт</th><th>Общая себестоимость</th></tr></thead>
+<table><thead><tr><th>Арт WB</th><th>Арт продавца</th><th>Товар</th><th>Склад</th><th>Кол-во, шт</th><th>Общая себестоимость</th></tr></thead>
 <tbody id="wh-body"><tr><td colspan="6" class="empty">Выберите дату</td></tr></tbody></table>
 </div>
 <div style="margin-top:12px;font-size:.85em;color:#999" id="wh-count"></div>
@@ -1561,7 +1555,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <button class="btn" onclick="showOpExDialog()" style="padding:6px 14px;font-size:.85em">➕ Добавить</button>
 <div style="font-size:.85em;color:#999;margin-left:auto" id="opex-count"></div>
 </div>
-<table id="opex-table"><thead><tr><th>Дата</th><th>Статья расходов</th><th>Описание</th><th>Сумма ₽</th><th>НДС</th><th>Магазин</th><th></th></tr></thead>
+<table><thead><tr><th>Дата</th><th>Статья расходов</th><th>Описание</th><th>Сумма ₽</th><th>НДС</th><th>Магазин</th><th></th></tr></thead>
 <tbody id="opex-body"><tr><td colspan="7" class="empty">Нет записей</td></tr></tbody></table>
 
 <div id="opex-dialog" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:100;align-items:center;justify-content:center">
@@ -1609,14 +1603,14 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
 <!-- Таблица по дням -->
 <h3 style="color:#6c5ce7;margin-bottom:10px;font-size:1em">📅 Статистика по дням</h3>
-<table id="ads-daily-table" style="margin-bottom:24px">
+<table style="margin-bottom:24px">
 <thead><tr><th>Дата</th><th class="r">Показы</th><th class="r">Клики</th><th class="r">CTR %</th><th class="r">CPC ₽</th><th class="r">Расход ₽</th><th class="r">Заказы</th><th class="r">CR %</th><th class="r">В корзину</th></tr></thead>
 <tbody id="ads-daily-body"><tr><td colspan="9" class="empty">Загрузка...</td></tr></tbody>
 </table>
 
 <!-- Топ кампаний -->
 <h3 style="color:#6c5ce7;margin-bottom:10px;font-size:1em">🏆 Топ кампаний по расходу</h3>
-<table id="ads-campaigns-table">
+<table>
 <thead><tr><th>Кампания</th><th>ID</th><th class="r">Показы</th><th class="r">Клики</th><th class="r">CTR %</th><th class="r">Расход ₽</th><th class="r">Заказы</th><th class="r">В корзину</th></tr></thead>
 <tbody id="ads-campaigns-body"><tr><td colspan="8" class="empty">Загрузка...</td></tr></tbody>
 </table>
@@ -1838,22 +1832,6 @@ function doLogout() { showAuth(); }
 function switchTab(name, el) { navTo(name, el); }
 
 function navTo(name, el) {
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    if (el) el.classList.add('active');
-    document.querySelectorAll('.page-section').forEach(t => t.classList.remove('active'));
-    var target = document.getElementById('page-' + name);
-    if (target) target.classList.add('active');
-    // Load data for the tab
-    if (name === 'stats') loadStats();
-    else if (name === 'analytics') loadAnalytics();
-    else if (name === 'rnp') loadRnp();
-    else if (name === 'opiu') loadOpiu();
-    else if (name === 'costprice') loadCostPrices();
-    else if (name === 'warehouses') loadWarehouses();
-    else if (name === 'opexpenses') loadOpEx();
-    else if (name === 'ads') loadAds();
-}
-
 async function loadAds() {
     const days = document.getElementById('ads-period').value;
     try {
@@ -1898,6 +1876,24 @@ async function loadAds() {
         console.error('loadAds error:', e);
         document.getElementById('ads-daily-body').innerHTML = '<tr><td colspan="9" class="empty">Ошибка загрузки: '+e.message+'</td></tr>';
     }
+}
+
+    document.querySelectorAll('.nav-item').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.page-section').forEach(t => t.classList.remove('active'));
+    if (el) el.classList.add('active');
+    const page = document.getElementById('page-' + name);
+    if (page) page.classList.add('active');
+    // Update title
+    const titles = {stats:'Основные показатели',rnp:'Рука на пульсе',opiu:'ОПиУ',analytics:'Аналитика по товарам',costprice:'Себестоимость',warehouses:'Склады',ads:'Реклама',opexpenses:'Операционные расходы',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
+    document.getElementById('page-title').textContent = titles[name] || name;
+    // Load data for the section
+    if (name === 'costprice') loadCostPrices();
+    if (name === 'rnp') loadRnp();
+    if (name === 'opiu') loadOpiu();
+    if (name === 'analytics') loadAnalytics();
+    if (name === 'warehouses') loadWarehouses();
+    if (name === 'opexpenses') loadOpEx();
+    if (name === 'ads') loadAds();
 }
 
 async function loadDates() {
@@ -2370,7 +2366,8 @@ async function loadOrgs() {
 function switchOrg() {
     ORG_ID = document.getElementById('org-select').value;
     localStorage.setItem('nl_org_id', ORG_ID);
-    showApp();
+    loadRefData();
+    loadWbKeys();
 }
 
 function showNewOrgDialog() {
@@ -2585,56 +2582,6 @@ try {
         });
     }
 } catch(e) { console.error('Auto-login error:', e); }
-
-// === Сортировка таблиц ===
-function parseVal(v) {
-    if (v == null || v === '—' || v === '') return null;
-    var s = String(v).replace(/[\s₽%]/g,'').replace(',','.');
-    var n = parseFloat(s);
-    return isNaN(n) ? v : n;
-}
-
-function addSorting(tableId) {
-    var table = document.getElementById(tableId);
-    if (!table) return;
-    var headers = table.querySelectorAll('thead th');
-    headers.forEach(function(th, ci) {
-        th.classList.add('sortable');
-        th.addEventListener('click', function() {
-            var tbody = table.querySelector('tbody');
-            var rows = Array.from(tbody.querySelectorAll('tr'));
-            if (!rows.length) return;
-            // Check if first row is empty message
-            if (rows[0].querySelector('.empty')) return;
-            var asc = th.classList.contains('asc') ? false : (th.classList.contains('desc') ? true : true);
-            headers.forEach(h => h.classList.remove('asc','desc'));
-            th.classList.add(asc ? 'asc' : 'desc');
-            rows.sort(function(a, b) {
-                var va = parseVal(a.children[ci] ? a.children[ci].textContent.trim() : '');
-                var vb = parseVal(b.children[ci] ? b.children[ci].textContent.trim() : '');
-                if (va == null && vb == null) return 0;
-                if (va == null) return 1;
-                if (vb == null) return -1;
-                if (typeof va === 'number' && typeof vb === 'number') return asc ? va - vb : vb - va;
-                return asc ? String(va).localeCompare(String(vb),'ru') : String(vb).localeCompare(String(va),'ru');
-            });
-            rows.forEach(r => tbody.appendChild(r));
-        });
-    });
-}
-
-function initSorting() {
-    // Stats products table
-    var sp = document.getElementById('stats-products');
-    if (sp && sp.closest('table')) addSorting(sp.closest('table').id || undefined);
-    // All tables with thead
-    document.querySelectorAll('table').forEach(function(t) {
-        if (t.querySelector('thead') && t.id) addSorting(t.id);
-    });
-}
-
-// Call initSorting after DOM is ready (deferred)
-setTimeout(initSorting, 500);
 </script>
 </body>
 </html>
