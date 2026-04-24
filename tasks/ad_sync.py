@@ -110,24 +110,31 @@ async def _do_ad_stats(sf, days_back=1):
 
         logger.info("[ad_stats] Total campaigns: %d", len(all_campaigns))
 
-        # 2) Имена кампаний type 9
-        type9_ids = [c["advertId"] for c in all_campaigns if c["type"] == 9]
+        # 2) Имена кампаний через /adv/v1/upd (история расходов содержит campName)
         campaign_names = {}
-        if type9_ids:
-            for i in range(0, len(type9_ids), 50):
-                batch = type9_ids[i:i+50]
-                try:
-                    resp2 = await client.get(
-                        "/adv/v0/auction/adverts",
-                        params={"ids": ",".join(str(x) for x in batch)},
-                    )
-                    if resp2.status_code == 200:
-                        data = resp2.json()
-                        for c in data.get("adverts", []):
-                            campaign_names[c["id"]] = c.get("settings", {}).get("name", "")
-                    await asyncio.sleep(1)
-                except Exception as e:
-                    logger.warning("[ad_stats] auction adverts: %s", e)
+        try:
+            # Запрашиваем расходы за последние 30 дней — этого достаточно чтобы покрыть
+            # все активные и недавно завершённые кампании
+            today = date.today()
+            from_date = (today - timedelta(days=30)).isoformat()
+            to_date = today.isoformat()
+            resp_names = await client.get(
+                "/adv/v1/upd",
+                params={"from": from_date, "to": to_date},
+            )
+            if resp_names.status_code == 200:
+                upd_data = resp_names.json()
+                if isinstance(upd_data, list):
+                    for item in upd_data:
+                        aid = item.get("advertId")
+                        name = item.get("campName", "")
+                        if aid and name:
+                            campaign_names[aid] = name
+                logger.info("[ad_stats] Got %d campaign names from /adv/v1/upd", len(campaign_names))
+            else:
+                logger.warning("[ad_stats] /adv/v1/upd status %d: %s", resp_names.status_code, resp_names.text[:200])
+        except Exception as e:
+            logger.warning("[ad_stats] upd names error: %s", e)
 
         # 3) Upsert кампаний
         async with sf() as db:
