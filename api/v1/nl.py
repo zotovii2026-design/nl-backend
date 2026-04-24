@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, Query, Request, HTTPException, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from pydantic import BaseModel
 from typing import Optional
@@ -1095,6 +1095,104 @@ async def upload_seo_keywords(org_id: str, request: Request, db: AsyncSession = 
     return {"updated": updated, "total": len(rows)}
 
 
+
+# ─── РЕКЛАМА ────────────────────────────────────────────
+
+@router.get("/api/v1/nl/ad-stats")
+async def get_ad_stats(org_id: str, days: str = "7", db: AsyncSession = Depends(get_db)):
+    """Рекламная статистика по дням"""
+    import decimal as _dec
+    try:
+        days_int = int(days)
+    except:
+        days_int = 7
+
+    rows = await db.execute(text("""
+        SELECT s.stat_date,
+               SUM(s.views) as views,
+               SUM(s.clicks) as clicks,
+               SUM(s.spent) as spent,
+               AVG(s.ctr) as avg_ctr,
+               AVG(s.cpc) as avg_cpc,
+               SUM(s.orders) as orders,
+               SUM(s.atbs) as atbs,
+               AVG(s.cr) as avg_cr
+        FROM ad_stats s
+        WHERE s.organization_id = :org
+          AND s.stat_date >= CURRENT_DATE - make_interval(days => :days)
+        GROUP BY s.stat_date
+        ORDER BY s.stat_date DESC
+    """), {"org": org_id, "days": days_int})
+    daily = []
+    for r in rows:
+        def sf(v): return float(v) if v and not isinstance(v, _dec.Decimal) else (float(v) if isinstance(v, _dec.Decimal) else 0)
+        daily.append({
+            "date": str(r[0]),
+            "views": int(r[1] or 0),
+            "clicks": int(r[2] or 0),
+            "spent": round(sf(r[3]), 2),
+            "ctr": round(sf(r[4]), 2),
+            "cpc": round(sf(r[5]), 2),
+            "orders": int(r[6] or 0),
+            "atbs": int(r[7] or 0),
+            "cr": round(sf(r[8]), 2),
+        })
+
+    # Топ кампаний за период
+    top_rows = await db.execute(text("""
+        SELECT c.name, s.wb_campaign_id,
+               SUM(s.views) as views, SUM(s.clicks) as clicks,
+               SUM(s.spent) as spent, AVG(s.ctr) as ctr,
+               SUM(s.orders) as orders, SUM(s.atbs) as atbs
+        FROM ad_stats s
+        LEFT JOIN ad_campaigns c ON c.wb_campaign_id = s.wb_campaign_id AND c.organization_id = s.organization_id
+        WHERE s.organization_id = :org
+          AND s.stat_date >= CURRENT_DATE - make_interval(days => :days)
+        GROUP BY c.name, s.wb_campaign_id
+        ORDER BY SUM(s.spent) DESC
+        LIMIT 20
+    """), {"org": org_id, "days": days_int})
+    top_campaigns = []
+    for r in top_rows:
+        def sf(v): return float(v) if v and not isinstance(v, _dec.Decimal) else (float(v) if isinstance(v, _dec.Decimal) else 0)
+        top_campaigns.append({
+            "name": r[0] or "Без названия",
+            "campaign_id": r[1],
+            "views": int(r[2] or 0),
+            "clicks": int(r[3] or 0),
+            "spent": round(sf(r[4]), 2),
+            "ctr": round(sf(r[5]), 2),
+            "orders": int(r[6] or 0),
+            "atbs": int(r[7] or 0),
+        })
+
+    # Баланс
+    balance = None
+    bal_row = await db.execute(text("""
+        SELECT raw_response FROM raw_api_data
+        WHERE api_method = 'ad_balance' AND status = 'ok' AND organization_id = :org
+        ORDER BY fetched_at DESC LIMIT 1
+    """), {"org": org_id})
+    br = bal_row.first()
+    if br and br[0]:
+        balance = br[0]
+
+    # Итого
+    totals = {"views": 0, "clicks": 0, "spent": 0, "orders": 0, "atbs": 0}
+    for d in daily:
+        for k in totals:
+            totals[k] += d.get(k, 0)
+    totals["ctr"] = round(totals["clicks"] / totals["views"] * 100, 2) if totals["views"] else 0
+    totals["cpc"] = round(totals["spent"] / totals["clicks"], 2) if totals["clicks"] else 0
+    totals["cr"] = round(totals["orders"] / totals["clicks"] * 100, 2) if totals["clicks"] else 0
+    return {
+        "daily": daily,
+        "top_campaigns": top_campaigns,
+        "totals": totals,
+        "balance": balance,
+    }
+
+
 @router.get("/nl/v2", response_class=HTMLResponse)
 async def nl_page():
     """НЛ — главная страница"""
@@ -1236,6 +1334,7 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 <a class="nav-item" onclick="navTo('costprice',this)"><span class="icon">💰</span>Себестоимость</a>
 <a class="nav-item" onclick="navTo('warehouses',this)"><span class="icon">📦</span>Склады</a>
 <a class="nav-item" onclick="navTo('opexpenses',this)"><span class="icon">📝</span>Опер. расходы</a>
+<a class="nav-item" onclick="navTo('ads',this)"><span class="icon">📢</span>Реклама</a>
 </div>
 <div class="nav-group">
 <div class="nav-label">Остальное</div>
@@ -1475,6 +1574,47 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 </div>
 </div>
 
+
+<!-- ─── РЕКЛАМА ──────────────────────────────────────────── -->
+<div id="page-ads" class="page-section">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<select id="ads-period" onchange="loadAds()" style="border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em">
+<option value="7">7 дней</option>
+<option value="14">14 дней</option>
+<option value="30" selected>30 дней</option>
+<option value="60">60 дней</option>
+</select>
+<button class="btn" onclick="loadAds()" style="padding:6px 14px;font-size:.85em">Обновить</button>
+<div style="margin-left:auto;font-size:.85em;color:#999" id="ads-updated"></div>
+</div>
+
+<!-- Метрики -->
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px" id="ads-metrics">
+<div class="metric-card"><div class="mc-label">Баланс</div><div class="mc-value" id="ad-balance">—</div></div>
+<div class="metric-card"><div class="mc-label">Расход за период</div><div class="mc-value" id="ad-spent">—</div></div>
+<div class="metric-card"><div class="mc-label">Показы</div><div class="mc-value" id="ad-views">—</div></div>
+<div class="metric-card"><div class="mc-label">Клики</div><div class="mc-value" id="ad-clicks">—</div></div>
+<div class="metric-card"><div class="mc-label">CTR</div><div class="mc-value" id="ad-ctr">—</div></div>
+<div class="metric-card"><div class="mc-label">CPC</div><div class="mc-value" id="ad-cpc">—</div></div>
+<div class="metric-card"><div class="mc-label">Заказы</div><div class="mc-value" id="ad-orders">—</div></div>
+<div class="metric-card"><div class="mc-label">Конверсия (CR)</div><div class="mc-value" id="ad-cr">—</div></div>
+<div class="metric-card"><div class="mc-label">В корзину</div><div class="mc-value" id="ad-atbs">—</div></div>
+</div>
+
+<!-- Таблица по дням -->
+<h3 style="color:#6c5ce7;margin-bottom:10px;font-size:1em">📅 Статистика по дням</h3>
+<table style="margin-bottom:24px">
+<thead><tr><th>Дата</th><th class="r">Показы</th><th class="r">Клики</th><th class="r">CTR %</th><th class="r">CPC ₽</th><th class="r">Расход ₽</th><th class="r">Заказы</th><th class="r">CR %</th><th class="r">В корзину</th></tr></thead>
+<tbody id="ads-daily-body"><tr><td colspan="9" class="empty">Загрузка...</td></tr></tbody>
+</table>
+
+<!-- Топ кампаний -->
+<h3 style="color:#6c5ce7;margin-bottom:10px;font-size:1em">🏆 Топ кампаний по расходу</h3>
+<table>
+<thead><tr><th>Кампания</th><th>ID</th><th class="r">Показы</th><th class="r">Клики</th><th class="r">CTR %</th><th class="r">Расход ₽</th><th class="r">Заказы</th><th class="r">В корзину</th></tr></thead>
+<tbody id="ads-campaigns-body"><tr><td colspan="8" class="empty">Загрузка...</td></tr></tbody>
+</table>
+</div>
 <div id="page-connectors" class="page-section">
 <div style="max-width:600px;margin:0 auto;padding:20px">
 <h3 style="color:#6c5ce7;margin-bottom:16px">🔌 Подключения</h3>
@@ -1692,13 +1832,59 @@ function doLogout() { showAuth(); }
 function switchTab(name, el) { navTo(name, el); }
 
 function navTo(name, el) {
+async function loadAds() {
+    const days = document.getElementById('ads-period').value;
+    try {
+        const r = await fetch('/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=' + days, {headers:{'Authorization':'Bearer '+TOKEN}});
+        const d = await r.json();
+        // Totals
+        const t = d.totals || {};
+        const fmt = (v, s='') => v != null ? (v >= 1000 ? v.toLocaleString('ru-RU', {maximumFractionDigits:0}) : v.toFixed(2)) + s : '—';
+        document.getElementById('ad-views').textContent = fmt(t.views);
+        document.getElementById('ad-clicks').textContent = fmt(t.clicks);
+        document.getElementById('ad-spent').textContent = fmt(t.spent, ' ₽');
+        document.getElementById('ad-ctr').textContent = t.ctr ? t.ctr + '%' : '—';
+        document.getElementById('ad-cpc').textContent = fmt(t.cpc, ' ₽');
+        document.getElementById('ad-orders').textContent = fmt(t.orders);
+        document.getElementById('ad-cr').textContent = t.cr ? t.cr + '%' : '—';
+        document.getElementById('ad-atbs').textContent = fmt(t.atbs);
+        // Balance
+        if (d.balance) {
+            const bal = d.balance.balance || d.balance.balanceXdiscount || d.balance;
+            document.getElementById('ad-balance').textContent = typeof bal === 'number' ? fmt(bal, ' ₽') : JSON.stringify(bal);
+        } else {
+            document.getElementById('ad-balance').textContent = '—';
+        }
+        // Daily table
+        const daily = d.daily || [];
+        const db = document.getElementById('ads-daily-body');
+        if (!daily.length) {
+            db.innerHTML = '<tr><td colspan="9" class="empty">Нет данных за период. Запустите синхронизацию.</td></tr>';
+        } else {
+            db.innerHTML = daily.map(r => '<tr><td>'+r.date+'</td><td class="r">'+r.views.toLocaleString('ru-RU')+'</td><td class="r">'+r.clicks.toLocaleString('ru-RU')+'</td><td class="r">'+r.ctr+'%</td><td class="r">'+r.cpc.toFixed(2)+' ₽</td><td class="r">'+r.spent.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽</td><td class="r">'+r.orders+'</td><td class="r">'+r.cr+'%</td><td class="r">'+r.atbs+'</td></tr>').join('');
+        }
+        // Campaigns table
+        const camps = d.top_campaigns || [];
+        const cb = document.getElementById('ads-campaigns-body');
+        if (!camps.length) {
+            cb.innerHTML = '<tr><td colspan="8" class="empty">Нет данных по кампаниям</td></tr>';
+        } else {
+            cb.innerHTML = camps.map(c => '<tr><td>'+c.name+'</td><td>'+c.campaign_id+'</td><td class="r">'+c.views.toLocaleString('ru-RU')+'</td><td class="r">'+c.clicks.toLocaleString('ru-RU')+'</td><td class="r">'+c.ctr+'%</td><td class="r">'+c.spent.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽</td><td class="r">'+c.orders+'</td><td class="r">'+c.atbs+'</td></tr>').join('');
+        }
+        document.getElementById('ads-updated').textContent = 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
+    } catch(e) {
+        console.error('loadAds error:', e);
+        document.getElementById('ads-daily-body').innerHTML = '<tr><td colspan="9" class="empty">Ошибка загрузки: '+e.message+'</td></tr>';
+    }
+}
+
     document.querySelectorAll('.nav-item').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.page-section').forEach(t => t.classList.remove('active'));
     if (el) el.classList.add('active');
     const page = document.getElementById('page-' + name);
     if (page) page.classList.add('active');
     // Update title
-    const titles = {stats:'Основные показатели',rnp:'Рука на пульсе',opiu:'ОПиУ',analytics:'Аналитика по товарам',costprice:'Себестоимость',warehouses:'Склады',opexpenses:'Операционные расходы',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
+    const titles = {stats:'Основные показатели',rnp:'Рука на пульсе',opiu:'ОПиУ',analytics:'Аналитика по товарам',costprice:'Себестоимость',warehouses:'Склады',ads:'Реклама',opexpenses:'Операционные расходы',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
     document.getElementById('page-title').textContent = titles[name] || name;
     // Load data for the section
     if (name === 'costprice') loadCostPrices();
@@ -1707,6 +1893,7 @@ function navTo(name, el) {
     if (name === 'analytics') loadAnalytics();
     if (name === 'warehouses') loadWarehouses();
     if (name === 'opexpenses') loadOpEx();
+    if (name === 'ads') loadAds();
 }
 
 async function loadDates() {
