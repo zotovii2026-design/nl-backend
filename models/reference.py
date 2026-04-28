@@ -25,5 +25,12 @@ class ReferenceSheet(Base):
     other_costs = Column(Numeric(10, 2))  # Прочие расходы
     notes = Column(Text)  # Заметки
 
+    # Юнит Экономика — новые поля
+    product_class = Column(String(100))  # Класс товара
+    brand = Column(String(200))  # Бренд
+    tax_system = Column(String(20))  # Налоговая система: usn / osn / usn_dr
+    tax_rate = Column(Numeric(5, 2))  # Ставка налога %
+    vat_rate = Column(Numeric(5, 2))  # Ставка НДС % (для ОСН)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

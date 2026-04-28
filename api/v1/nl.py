@@ -52,6 +52,11 @@ class RefItem(BaseModel):
     logistics_cost: Optional[float] = None
     other_costs: Optional[float] = None
     notes: Optional[str] = None
+    product_class: Optional[str] = None
+    brand: Optional[str] = None
+    tax_system: Optional[str] = None  # usn / osn / usn_dr
+    tax_rate: Optional[float] = None
+    vat_rate: Optional[float] = None
 
 
 @router.post("/api/v1/nl/register")
@@ -141,6 +146,11 @@ async def get_reference(org_id: str, target_date: Optional[str] = None, db: Asyn
         "logistics_cost": float(i.logistics_cost) if i.logistics_cost else None,
         "other_costs": float(i.other_costs) if i.other_costs else None,
         "notes": i.notes,
+        "product_class": i.product_class,
+        "brand": i.brand,
+        "tax_system": i.tax_system,
+        "tax_rate": float(i.tax_rate) if i.tax_rate else None,
+        "vat_rate": float(i.vat_rate) if i.vat_rate else None,
     } for i in items]
 
 
@@ -155,6 +165,8 @@ async def save_reference(item: RefItem, org_id: str, db: AsyncSession = Depends(
         cost_price=item.cost_price,
         purchase_price=item.purchase_price, packaging_cost=item.packaging_cost,
         logistics_cost=item.logistics_cost, other_costs=item.other_costs, notes=item.notes,
+        product_class=item.product_class, brand=item.brand,
+        tax_system=item.tax_system, tax_rate=item.tax_rate, vat_rate=item.vat_rate,
     )
     stmt = ins.on_conflict_do_update(
         constraint="reference_sheet_org_nm_date_key",
@@ -163,6 +175,8 @@ async def save_reference(item: RefItem, org_id: str, db: AsyncSession = Depends(
             "cost_price": ins.excluded.cost_price, "purchase_price": ins.excluded.purchase_price,
             "packaging_cost": ins.excluded.packaging_cost, "logistics_cost": ins.excluded.logistics_cost,
             "other_costs": ins.excluded.other_costs, "notes": ins.excluded.notes,
+            "product_class": ins.excluded.product_class, "brand": ins.excluded.brand,
+            "tax_system": ins.excluded.tax_system, "tax_rate": ins.excluded.tax_rate, "vat_rate": ins.excluded.vat_rate,
             "updated_at": date.today(),
         }
     )
@@ -909,6 +923,7 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
         "SELECT cp.id, cp.nm_id, cp.barcode, cp.vendor_code, cp.size_name, "
         "cp.cost_price, cp.purchase_cost, cp.logistics_cost, cp.packaging_cost, "
         "cp.other_costs, cp.vat, cp.valid_from, cp.valid_to, cp.source, cp.notes, "
+        "cp.product_class, cp.brand, cp.tax_system, cp.tax_rate, cp.vat_rate, "
         "ts.product_name FROM cost_prices cp "
         "LEFT JOIN (SELECT DISTINCT nm_id, product_name FROM tech_status WHERE organization_id = :org) ts ON cp.nm_id = ts.nm_id "
         "WHERE cp.organization_id = :org AND (cp.valid_to IS NULL OR cp.valid_to >= CURRENT_DATE) "
@@ -922,7 +937,11 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
              "other_costs": float(r[9]) if r[9] else None,
              "vat": float(r[10]) if r[10] else 0,
              "valid_from": str(r[11]), "valid_to": str(r[12]) if r[12] else None,
-             "source": r[13], "notes": r[14], "product_name": r[15]} for r in result.all()]
+             "source": r[13], "notes": r[14],
+             "product_class": r[15], "brand": r[16],
+             "tax_system": r[17], "tax_rate": float(r[18]) if r[18] else None,
+             "vat_rate": float(r[19]) if r[19] else None,
+             "product_name": r[20]} for r in result.all()]
 
 
 @router.post("/api/v1/nl/cost-prices")
@@ -939,18 +958,24 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         raise HTTPException(400, "nm_id обязателен")
     await db.execute(text(
         "INSERT INTO cost_prices (organization_id, nm_id, barcode, vendor_code, size_name, "
-        "cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs, vat, valid_from, source) "
-        "VALUES (:org, :nm, :bc, :vc, :sz, :cp, :pc, :lc, :pk, :oc, :vat, :vf, :src) "
+        "cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs, vat, valid_from, source, "
+        "product_class, brand, tax_system, tax_rate, vat_rate) "
+        "VALUES (:org, :nm, :bc, :vc, :sz, :cp, :pc, :lc, :pk, :oc, :vat, :vf, :src, "
+        ":pcls, :brand, :tsys, :trate, :vrate) "
         "ON CONFLICT (organization_id, nm_id, valid_from) DO UPDATE SET "
         "barcode = EXCLUDED.barcode, vendor_code = EXCLUDED.vendor_code, "
         "cost_price = EXCLUDED.cost_price, purchase_cost = EXCLUDED.purchase_cost, "
+        "product_class = EXCLUDED.product_class, brand = EXCLUDED.brand, "
+        "tax_system = EXCLUDED.tax_system, tax_rate = EXCLUDED.tax_rate, vat_rate = EXCLUDED.vat_rate, "
         "logistics_cost = EXCLUDED.logistics_cost, packaging_cost = EXCLUDED.packaging_cost, "
         "other_costs = EXCLUDED.other_costs, vat = EXCLUDED.vat, source = EXCLUDED.source"
     ), {"org": org_id, "nm": nm_id, "bc": data.get("barcode"), "vc": data.get("vendor_code"),
         "sz": data.get("size_name"), "cp": cost, "pc": data.get("purchase_cost"),
         "lc": data.get("logistics_cost"), "pk": data.get("packaging_cost"),
         "oc": data.get("other_costs"), "vat": data.get("vat", 0),
-        "vf": valid_from, "src": data.get("source", "manual")})
+        "vf": valid_from, "src": data.get("source", "manual"),
+        "pcls": data.get("product_class"), "brand": data.get("brand"),
+        "tsys": data.get("tax_system"), "trate": data.get("tax_rate"), "vrate": data.get("vat_rate")})
     await db.commit()
     return {"ok": True}
 
@@ -1537,8 +1562,9 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th>Фото</th><th>Арт WB</th><th>Арт продавца</th><th>Товар</th><th>Баркод</th>
 <th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th>
 <th>Себестоимость ₽</th><th>НДС %</th><th>Дата начала</th>
+<th>Класс товара</th><th>Бренд</th><th>Налог. система</th><th>Ставка налога %</th><th>НДС ставка %</th>
 </tr></thead>
-<tbody id="cost-body"><tr><td colspan="12" class="empty">Загрузка...</td></tr></tbody></table>
+<tbody id="cost-body"><tr><td colspan="17" class="empty">Загрузка...</td></tr></tbody></table>
 </div>
 <div style="margin-top:12px;display:flex;gap:16px;font-size:.85em" id="cost-summary"></div>
 </div>
@@ -2137,6 +2163,11 @@ async function loadCostPrices() {
                 '<td><input type="number" class="cost-input" data-field="cost_price" value="' + costPrice + '" style="width:80px;font-weight:600" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="vat" value="' + vat + '" style="width:50px" placeholder="0"></td>' +
                 '<td><input type="date" class="cost-input" data-field="valid_from" value="' + validFrom + '" style="width:110px;font-size:.8em"></td>' +
+                '<td><input type="text" class="cost-input" data-field="product_class" value="' + esc(c.product_class||'') + '" style="width:80px" placeholder="-"></td>' +
+                '<td><input type="text" class="cost-input" data-field="brand" value="' + esc(c.brand||'') + '" style="width:80px" placeholder="-"></td>' +
+                '<td><select class="cost-input" data-field="tax_system" style="width:90px;font-size:.8em"><option value="">-</option><option value="usn"' + (c.tax_system==='usn'?' selected':'') + '>УСН</option><option value="usn_dr"' + (c.tax_system==='usn_dr'?' selected':'') + '>Доходы-Расходы</option><option value="osn"' + (c.tax_system==='osn'?' selected':'') + '>ОСН</option></select></td>' +
+                '<td><input type="number" class="cost-input" data-field="tax_rate" value="' + (c.tax_rate||'') + '" style="width:60px" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="vat_rate" value="' + (c.vat_rate||'') + '" style="width:60px" placeholder="0"></td>' +
                 '</tr>';
         }).join('');
         
@@ -2164,6 +2195,11 @@ async function saveAllCostPrices() {
             cost_price: parseFloat(costInput.value),
             vat: parseFloat(row.querySelector('[data-field="vat"]')?.value || '0'),
             valid_from: row.querySelector('[data-field="valid_from"]')?.value || new Date().toISOString().split('T')[0],
+            product_class: row.querySelector('[data-field="product_class"]')?.value || '',
+            brand: row.querySelector('[data-field="brand"]')?.value || '',
+            tax_system: row.querySelector('[data-field="tax_system"]')?.value || '',
+            tax_rate: parseFloat(row.querySelector('[data-field="tax_rate"]')?.value || '0'),
+            vat_rate: parseFloat(row.querySelector('[data-field="vat_rate"]')?.value || '0'),
             source: 'manual'
         };
         try {
