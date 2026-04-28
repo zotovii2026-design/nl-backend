@@ -1779,7 +1779,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div class="main-area">
 <div class="top-bar">
 <span class="page-title" id="page-title">Основные показатели</span>
-<div class="filters">
+<div class="filters" id="top-filters">
 <select id="filter-store" style="min-width:120px"><option>Все магазины</option></select>
 <select id="filter-period"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option></select>
 <input type="text" id="filter-article" placeholder="Артикул" style="width:120px">
@@ -1943,6 +1943,12 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 
 <div id="page-costprice" class="page-section">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;background:#f8f9fb;padding:10px 16px;border-radius:8px">
+<select id="cp-store" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:130px"><option>Все магазины</option></select>
+<select id="cp-period" onchange="loadCostPrices()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option></select>
+<input type="text" id="cp-article" placeholder="Артикул" oninput="loadCostPrices()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:120px">
+</div>
+
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
 <button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить Excel</button>
 <input type="file" id="cost-file-input" accept=".xlsx,.csv" style="display:none" onchange="uploadCostExcel(this)">
@@ -2042,6 +2048,12 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </table>
 </div>
 <div id="page-unitecon" class="page-section">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;background:#f8f9fb;padding:10px 16px;border-radius:8px">
+<select id="ue-store" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:130px"><option>Все магазины</option></select>
+<select id="ue-period" onchange="loadUnitEcon()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option></select>
+<input type="text" id="ue-article" placeholder="Артикул" oninput="loadUnitEcon()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:120px">
+</div>
+
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
 <button class="btn" onclick="loadUnitEcon()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
 <input type="text" id="ue-search" placeholder="🔍 Поиск по артикулу/названию" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:240px" oninput="loadUnitEcon()">
@@ -2323,6 +2335,14 @@ function navTo(name, el) {
     document.querySelectorAll('.page-section').forEach(t => t.classList.remove('active'));
     var target = document.getElementById('page-' + name);
     if (target) target.classList.add('active');
+    // Update page title
+    var titles = {stats:'Основные показатели',rnp:'РНП',opiu:'ОПиУ',analytics:'Аналитика по товарам',
+        costprice:'Себестоимость',warehouses:'Склады',opexpenses:'Опер. расходы',ads:'Реклама',
+        unitecon:'Юнит Экономика',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
+    document.getElementById('page-title').textContent = titles[name] || name;
+    // Update top-bar filters visibility
+    var topFilters = document.getElementById('top-filters');
+    if (topFilters) topFilters.style.display = (name === 'stats' || name === 'analytics' || name === 'rnp' || name === 'opiu') ? 'flex' : 'none';
     // Load data for the tab
     if (name === 'stats') loadStats();
     else if (name === 'analytics') loadAnalytics();
@@ -2332,6 +2352,7 @@ function navTo(name, el) {
     else if (name === 'warehouses') loadWarehouses();
     else if (name === 'opexpenses') loadOpEx();
     else if (name === 'ads') loadAds();
+    else if (name === 'unitecon') loadUnitEcon();
 }
 
 async function loadAds() {
@@ -2556,7 +2577,7 @@ async function exportOpiu() { alert('В разработке'); }
 
 async function loadCostPrices() {
     if (!ORG_ID) return;
-    const search = document.getElementById('cost-search')?.value || '';
+    const search = document.getElementById('cost-search')?.value || document.getElementById('cp-article')?.value || '';
     try {
         // Load products from latest tech_status date
         const datesRes = await fetch('/api/v1/nl/dates?org_id=' + ORG_ID);
@@ -3131,7 +3152,7 @@ let ueData = [];
 
 async function loadUnitEcon() {
     if (!ORG_ID) return;
-    const search = document.getElementById('ue-search')?.value || '';
+    const search = document.getElementById('ue-search')?.value || document.getElementById('ue-article')?.value || '';
     try {
         const res = await fetch('/api/v1/nl/unit-economics?org_id=' + ORG_ID + (search ? '&search=' + encodeURIComponent(search) : ''));
         if (!res.ok) return;
