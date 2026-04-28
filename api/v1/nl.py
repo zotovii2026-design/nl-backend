@@ -1240,7 +1240,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
     # 2) Продукты с базовыми данными
     prods_result = await db.execute(
         sql_text("""
-            SELECT DISTINCT ON (nm_id) nm_id, vendor_code, product_name, photo_main, barcode, price, price_discount
+            SELECT DISTINCT ON (nm_id) nm_id, vendor_code, product_name, photo_main, barcode, price, price_discount, tariff, ad_cost
             FROM tech_status 
             WHERE organization_id = :org AND target_date = :dt
             ORDER BY nm_id, barcode
@@ -1306,7 +1306,73 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             barcode_map[nm] = []
         barcode_map[nm].append({"barcode": r[1]})
 
-    # 6) Собираем результат
+    # 6) Тарифы из raw_api_data (логистика + хранение) — короба и палеты
+    import json as _json
+    def _extract_tariffs(raw_data, prefix="box"):
+        """Извлечь средние тарифы по 3 складам из ответа WB"""
+        if not raw_data:
+            return 0, 0
+        try:
+            tdata = raw_data if isinstance(raw_data, dict) else _json.loads(raw_data)
+            warehouses = tdata.get("response", {}).get("data", {}).get("warehouseList", [])
+            target_wh = ["Коледино", "Краснодар", "Казань"]
+            delivery_vals = []
+            storage_vals = []
+            for wh in warehouses:
+                name = wh.get("warehouseName", "")
+                if any(t in name for t in target_wh):
+                    dkey = f"{prefix}DeliveryBase" if prefix == "box" else "palletDeliveryBase"
+                    skey = f"{prefix}StorageBase" if prefix == "box" else "palletStorageBase"
+                    # Fallback: box prefix for both
+                    db_val = wh.get(dkey, wh.get("boxDeliveryBase", "0"))
+                    sb_val = wh.get(skey, wh.get("boxStorageBase", "0"))
+                    try: delivery_vals.append(float(str(db_val).replace(",", ".")))
+                    except: pass
+                    try: storage_vals.append(float(str(sb_val).replace(",", ".")))
+                    except: pass
+            avg_d = sum(delivery_vals) / len(delivery_vals) if delivery_vals else 0
+            avg_s = sum(storage_vals) / len(storage_vals) if storage_vals else 0
+            return avg_d, avg_s
+        except:
+            return 0, 0
+
+    box_tariffs_result = await db.execute(
+        sql_text("SELECT raw_response FROM raw_api_data WHERE organization_id = :org AND api_method IN ('tariffs', 'tariffs_box') ORDER BY target_date DESC LIMIT 1"),
+        {"org": org_id}
+    )
+    box_row = box_tariffs_result.first()
+    box_logistics, box_storage = _extract_tariffs(box_row[0] if box_row else None, "box")
+
+    pallet_tariffs_result = await db.execute(
+        sql_text("SELECT raw_response FROM raw_api_data WHERE organization_id = :org AND api_method = 'tariffs_pallet' ORDER BY target_date DESC LIMIT 1"),
+        {"org": org_id}
+    )
+    pallet_row = pallet_tariffs_result.first()
+    pallet_logistics, pallet_storage = _extract_tariffs(pallet_row[0] if pallet_row else None, "pallet")
+
+    # Средние тарифы по коробам (default) — будут выбраны по tariff_type каждого товара
+    logistics_avg = box_logistics
+    storage_avg = box_storage
+
+    # 7) % выкупа факт — из sales/orders за последние 30 дней
+    buyout_result = await db.execute(
+        sql_text("""
+            SELECT nm_id,
+                   SUM(CASE WHEN buyouts_count > 0 THEN buyouts_count ELSE 0 END) as buyouts,
+                   SUM(CASE WHEN orders_count > 0 THEN orders_count ELSE 0 END) as orders
+            FROM tech_status
+            WHERE organization_id = :org AND target_date >= CURRENT_DATE - INTERVAL '30 days'
+            GROUP BY nm_id
+        """),
+        {"org": org_id}
+    )
+    buyout_map = {}
+    for r in buyout_result.all():
+        b = float(r[1] or 0)
+        o = float(r[2] or 0)
+        buyout_map[r[0]] = round(b / o * 100, 1) if o > 0 else 0
+
+    # 8) Собираем результат
     items = []
     search_q = search.lower() if search else ""
     
@@ -1347,18 +1413,18 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "tax_rate": float(cost.get("tax_rate") or 0),
             "vat_rate": float(cost.get("vat_rate") or 0),
 
-            # Из API WB (пока заглушки, Фаза 3 подставит реальные)
-            "mp_base_pct": 0,
-            "buyout_fact_pct": 0,
-            "logistics_tariff": 0,
-            "logistics_actual": 0,
-            "storage_tariff": 0,
-            "storage_actual": 0,
-            "acceptance_avg": 0,
+            # Из API WB / raw_api_data
+            "mp_base_pct": float(p[7]) if p[7] else 0,  # tariff (комиссия) из tech_status
+            "buyout_fact_pct": buyout_map.get(nm_id, 0),
+            "logistics_tariff": pallet_logistics if ue.get("tariff_type") == "pallet" else box_logistics,
+            "logistics_actual": 0,  # Будет из финотчётов (Фаза 3b)
+            "storage_tariff": pallet_storage if ue.get("tariff_type") == "pallet" else box_storage,
+            "storage_actual": 0,  # Будет из финотчётов (Фаза 3b)
+            "acceptance_avg": 0,  # Будет из API приёмки (Фаза 3b)
             "price_before_spp": price,
-            "spp_pct": 0,
+            "spp_pct": round((1 - price_discount / price) * 100, 1) if price and price_discount and price_discount < price else 0,
             "price_with_spp": price_discount or price,
-            "ad_fact_rub": 0,
+            "ad_fact_rub": float(p[8]) if p[8] else 0,  # ad_cost из tech_status
             "wb_club_discount_pct_api": 0,
 
             # Ручные вводы

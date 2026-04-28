@@ -233,22 +233,25 @@ async def _do_tariffs(sf):
 
     today = date.today()
     async with WBApiClient(api_key) as client:
-        try:
-            resp = await client.client.get(
-                "https://common-api.wildberries.ru/api/v1/tariffs/box",
-                params={"date": today.isoformat()}
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        results = {}
+        for tariff_type in ["box", "pallet"]:
+            try:
+                resp = await client.client.get(
+                    f"https://common-api.wildberries.ru/api/v1/tariffs/{tariff_type}",
+                    params={"date": today.isoformat()}
+                )
+                resp.raise_for_status()
+                data = resp.json()
 
-            async with sf() as db:
-                await _save_raw(db, org_id, "tariffs", today, data)
+                async with sf() as db:
+                    await _save_raw(db, org_id, f"tariffs_{tariff_type}", today, data)
 
-            logger.info("[sched] tariffs: ok")
-            return {"status": "ok"}
-        except Exception as e:
-            logger.error(f"[sched] tariffs: {e}")
-            return {"status": "error", "error": str(e)}
+                results[tariff_type] = "ok"
+                logger.info(f"[sched] tariffs_{tariff_type}: ok")
+            except Exception as e:
+                logger.error(f"[sched] tariffs_{tariff_type}: {e}")
+                results[tariff_type] = f"error: {e}"
+        return {"status": results}
 
 
 @shared_task(name="wb.sched.adverts")
