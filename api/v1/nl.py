@@ -1218,6 +1218,333 @@ async def get_ad_stats(org_id: str, days: str = "7", db: AsyncSession = Depends(
     }
 
 
+
+# ==================== UNIT ECONOMICS APIs ====================
+
+@router.get("/api/v1/nl/unit-economics")
+async def get_unit_economics(org_id: str, search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Юнит Экономика — сборка всех данных по SKU"""
+    from models.unit_economics_user import UnitEconomicsUser
+    from sqlalchemy import text as sql_text
+
+    # 1) Получаем список товаров из tech_status (последняя дата)
+    dates_result = await db.execute(
+        sql_text("SELECT DISTINCT target_date FROM tech_status WHERE organization_id = :org ORDER BY target_date DESC LIMIT 1"),
+        {"org": org_id}
+    )
+    latest_date_row = dates_result.first()
+    if not latest_date_row:
+        return {"items": [], "total": 0}
+    latest_date = latest_date_row[0]
+
+    # 2) Продукты с базовыми данными
+    prods_result = await db.execute(
+        sql_text("""
+            SELECT DISTINCT ON (nm_id) nm_id, vendor_code, product_name, photo_main, barcode, price, price_discount
+            FROM tech_status 
+            WHERE organization_id = :org AND target_date = :dt
+            ORDER BY nm_id, barcode
+        """),
+        {"org": org_id, "dt": latest_date}
+    )
+    products = prods_result.all()
+
+    # 3) Ручные вводы Юнит Экономики
+    ue_result = await db.execute(
+        sql_text("SELECT * FROM unit_economics_user WHERE organization_id = :org"),
+        {"org": org_id}
+    )
+    ue_rows = ue_result.all()
+    # Ключ: (nm_id, barcode) → dict
+    ue_map = {}
+    # cols: id(0), org(1), nm_id(2), barcode(3), size_name(4),
+    # mp_correction_pct(5), buyout_niche_pct(6), extra_costs(7), ad_plan_rub(8),
+    # price_before_spp_plan(9), price_before_spp_change(10), change_date(11),
+    # tariff_type(12), wb_club_discount_pct(13), created_at(14), updated_at(15)
+    for r in ue_rows:
+        key = (r[2], r[3] or "")
+        ue_map[key] = {
+            "mp_correction_pct": r[5], "buyout_niche_pct": r[6],
+            "extra_costs": r[7], "ad_plan_rub": r[8],
+            "price_before_spp_plan": r[9], "price_before_spp_change": r[10],
+            "change_date": r[11], "tariff_type": r[12],
+            "wb_club_discount_pct": r[13],
+        }
+
+    # 4) Себестоимость из cost_prices
+    cost_result = await db.execute(
+        sql_text("""
+            SELECT DISTINCT ON (nm_id) nm_id, cost_price, purchase_cost, logistics_cost, packaging_cost,
+            other_costs, vat, product_class, brand, tax_system, tax_rate, vat_rate as cost_vat_rate
+            FROM cost_prices WHERE organization_id = :org 
+            AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+            ORDER BY nm_id, valid_from DESC
+        """),
+        {"org": org_id}
+    )
+    cost_rows = cost_result.all()
+    cost_map = {}
+    # cols: nm_id(0), cost_price(1), purchase_cost(2), logistics_cost(3), packaging_cost(4),
+    # other_costs(5), vat(6), product_class(7), brand(8), tax_system(9), tax_rate(10), cost_vat_rate(11)
+    for r in cost_rows:
+        cost_map[r[0]] = {
+            "cost_price": r[1], "purchase_cost": r[2], "logistics_cost": r[3],
+            "packaging_cost": r[4], "other_costs": r[5], "vat": r[6],
+            "product_class": r[7], "brand": r[8], "tax_system": r[9],
+            "tax_rate": r[10], "vat_rate": r[11],
+        }
+
+    # 5) Штрихкоды из raw_barcodes (для размеров)
+    bc_result = await db.execute(
+        sql_text("SELECT nm_id, barcode FROM raw_barcodes WHERE organization_id = :org"),
+        {"org": org_id}
+    )
+    barcode_map = {}
+    for r in bc_result.all():
+        nm = r[0]
+        if nm not in barcode_map:
+            barcode_map[nm] = []
+        barcode_map[nm].append({"barcode": r[1]})
+
+    # 6) Собираем результат
+    items = []
+    search_q = search.lower() if search else ""
+    
+    for p in products:
+        nm_id = p[0]
+        vendor_code = p[1] or ""
+        product_name = p[2] or ""
+        photo = p[3] or ""
+        main_barcode = p[4] or ""
+        price = float(p[5]) if p[5] else 0
+        price_discount = float(p[6]) if p[6] else 0
+
+        # Фильтр поиска
+        if search_q and search_q not in str(nm_id) and search_q not in product_name.lower() and search_q not in vendor_code.lower():
+            continue
+
+        cost = cost_map.get(nm_id, {})
+        ue = ue_map.get((nm_id, main_barcode), ue_map.get((nm_id, ""), {}))
+
+        item = {
+            "nm_id": nm_id,
+            "vendor_code": vendor_code,
+            "product_name": product_name,
+            "photo": photo.replace("/hq/", "/c246x328/") if photo else "",
+            "barcode": main_barcode,
+            "size_name": None,
+            "sku": f"{vendor_code}_{main_barcode}" if vendor_code else str(nm_id),
+
+            # Из справочника / себестоимости
+            "cost_price": float(cost.get("cost_price") or 0),
+            "purchase_cost": float(cost.get("purchase_cost") or 0),
+            "logistics_cost": float(cost.get("logistics_cost") or 0),
+            "packaging_cost": float(cost.get("packaging_cost") or 0),
+            "other_costs": float(cost.get("other_costs") or 0),
+            "product_class": cost.get("product_class"),
+            "brand": cost.get("brand"),
+            "tax_system": cost.get("tax_system"),
+            "tax_rate": float(cost.get("tax_rate") or 0),
+            "vat_rate": float(cost.get("vat_rate") or 0),
+
+            # Из API WB (пока заглушки, Фаза 3 подставит реальные)
+            "mp_base_pct": 0,
+            "buyout_fact_pct": 0,
+            "logistics_tariff": 0,
+            "logistics_actual": 0,
+            "storage_tariff": 0,
+            "storage_actual": 0,
+            "acceptance_avg": 0,
+            "price_before_spp": price,
+            "spp_pct": 0,
+            "price_with_spp": price_discount or price,
+            "ad_fact_rub": 0,
+            "wb_club_discount_pct_api": 0,
+
+            # Ручные вводы
+            "mp_correction_pct": float(ue.get("mp_correction_pct") or 0),
+            "buyout_niche_pct": float(ue.get("buyout_niche_pct") or 0),
+            "extra_costs": float(ue.get("extra_costs") or 0),
+            "ad_plan_rub": float(ue.get("ad_plan_rub") or 0),
+            "price_before_spp_plan": float(ue.get("price_before_spp_plan") or 0),
+            "price_before_spp_change": float(ue.get("price_before_spp_change") or 0),
+            "change_date": str(ue.get("change_date")) if ue.get("change_date") else None,
+            "tariff_type": ue.get("tariff_type") or "box",
+            "wb_club_discount_pct": float(ue.get("wb_club_discount_pct") or 0),
+        }
+
+        # Расчётные формулы
+        mp_total_pct = item["mp_base_pct"] + item["mp_correction_pct"]
+        item["mp_total_pct"] = mp_total_pct
+
+        # Комиссия МП
+        mp_commission = round(item["price_with_spp"] * mp_total_pct / 100, 2)
+
+        # Эквайринг 1.5%
+        acquiring = round(item["price_with_spp"] * 0.015, 2)
+
+        # Налог
+        tax = 0
+        ts = item["tax_system"]
+        if ts == "usn":
+            tax = round(item["price_with_spp"] * item["tax_rate"] / 100, 2)
+        elif ts == "usn_dr":
+            income = item["price_with_spp"] - mp_commission - item["cost_price"] - item["extra_costs"]
+            tax = round(max(income, 0) * item["tax_rate"] / 100, 2)
+        elif ts == "osn":
+            nds = round(item["price_with_spp"] * item["vat_rate"] / 100, 2)
+            input_nds = round(item["purchase_cost"] / 120 * item["vat_rate"] if item["purchase_cost"] else 0, 2)
+            tax = round(nds - input_nds, 2)
+
+        item["tax_total"] = tax
+
+        # === БЛОК 7: Расчёт по ФАКТУ ===
+        expenses_fact = (
+            item["cost_price"] + item["logistics_cost"] + item["packaging_cost"] +
+            item["other_costs"] + item["extra_costs"] +
+            mp_commission + item["logistics_actual"] + item["storage_actual"] +
+            item["acceptance_avg"] + acquiring + tax +
+            item["ad_fact_rub"]
+        )
+        profit_fact = round(item["price_with_spp"] - expenses_fact, 2)
+        margin_fact = round(profit_fact / item["price_with_spp"] * 100, 2) if item["price_with_spp"] else 0
+        roi_fact = round(profit_fact / item["cost_price"] * 100, 2) if item["cost_price"] else 0
+        to_account_fact = round(item["price_with_spp"] - mp_commission - tax, 2)
+
+        item["expenses_fact"] = round(expenses_fact, 2)
+        item["profit_fact"] = profit_fact
+        item["margin_fact"] = margin_fact
+        item["roi_fact"] = roi_fact
+        item["to_account_fact"] = to_account_fact
+
+        # === БЛОК 8: Расчёт по ПЛАНУ ===
+        plan_price = item["price_before_spp_plan"] or item["price_before_spp"]
+        plan_price_spp = round(plan_price * (1 - item["spp_pct"] / 100), 2) if item["spp_pct"] else plan_price
+        plan_mp = round(plan_price_spp * mp_total_pct / 100, 2)
+        plan_acquiring = round(plan_price_spp * 0.015, 2)
+        
+        # Пересчёт налога для плановой цены
+        plan_tax = 0
+        if ts == "usn":
+            plan_tax = round(plan_price_spp * item["tax_rate"] / 100, 2)
+        elif ts == "usn_dr":
+            plan_income = plan_price_spp - plan_mp - item["cost_price"] - item["extra_costs"]
+            plan_tax = round(max(plan_income, 0) * item["tax_rate"] / 100, 2)
+        elif ts == "osn":
+            plan_nds = round(plan_price_spp * item["vat_rate"] / 100, 2)
+            plan_input_nds = round(item["purchase_cost"] / 120 * item["vat_rate"] if item["purchase_cost"] else 0, 2)
+            plan_tax = round(plan_nds - plan_input_nds, 2)
+
+        expenses_plan = (
+            item["cost_price"] + item["logistics_cost"] + item["packaging_cost"] +
+            item["other_costs"] + item["extra_costs"] +
+            plan_mp + item["logistics_actual"] + item["storage_actual"] +
+            item["acceptance_avg"] + plan_acquiring + plan_tax +
+            item["ad_plan_rub"]
+        )
+        profit_plan = round(plan_price_spp - expenses_plan, 2)
+        margin_plan = round(profit_plan / plan_price_spp * 100, 2) if plan_price_spp else 0
+        roi_plan = round(profit_plan / item["cost_price"] * 100, 2) if item["cost_price"] else 0
+        to_account_plan = round(plan_price_spp - plan_mp - plan_tax, 2)
+
+        item["plan_price_spp"] = plan_price_spp
+        item["expenses_plan"] = round(expenses_plan, 2)
+        item["profit_plan"] = profit_plan
+        item["margin_plan"] = margin_plan
+        item["roi_plan"] = roi_plan
+        item["to_account_plan"] = to_account_plan
+
+        # === БЛОК 9: После изменений ===
+        change_price = item["price_before_spp_change"] or item["price_before_spp"]
+        change_price_spp = round(change_price * (1 - item["spp_pct"] / 100), 2) if item["spp_pct"] else change_price
+        change_mp = round(change_price_spp * mp_total_pct / 100, 2)
+        
+        change_tax = 0
+        if ts == "usn":
+            change_tax = round(change_price_spp * item["tax_rate"] / 100, 2)
+        elif ts == "usn_dr":
+            change_income = change_price_spp - change_mp - item["cost_price"] - item["extra_costs"]
+            change_tax = round(max(change_income, 0) * item["tax_rate"] / 100, 2)
+        elif ts == "osn":
+            change_nds = round(change_price_spp * item["vat_rate"] / 100, 2)
+            change_input_nds = round(item["purchase_cost"] / 120 * item["vat_rate"] if item["purchase_cost"] else 0, 2)
+            change_tax = round(change_nds - change_input_nds, 2)
+
+        expenses_change = (
+            item["cost_price"] + item["logistics_cost"] + item["packaging_cost"] +
+            item["other_costs"] + item["extra_costs"] +
+            change_mp + item["logistics_actual"] + item["storage_actual"] +
+            item["acceptance_avg"] + round(change_price_spp * 0.015, 2) + change_tax +
+            item["ad_fact_rub"]
+        )
+        profit_change = round(change_price_spp - expenses_change, 2)
+        roi_change = round(profit_change / item["cost_price"] * 100, 2) if item["cost_price"] else 0
+
+        item["profit_change"] = profit_change
+        item["roi_change"] = roi_change
+
+        items.append(item)
+
+    return {"items": items, "total": len(items)}
+
+
+class UnitEconSave(BaseModel):
+    nm_id: int
+    barcode: Optional[str] = None
+    mp_correction_pct: Optional[float] = None
+    buyout_niche_pct: Optional[float] = None
+    extra_costs: Optional[float] = None
+    ad_plan_rub: Optional[float] = None
+    price_before_spp_plan: Optional[float] = None
+    price_before_spp_change: Optional[float] = None
+    change_date: Optional[str] = None
+    tariff_type: Optional[str] = None
+    wb_club_discount_pct: Optional[float] = None
+
+
+@router.post("/api/v1/nl/unit-economics")
+async def save_unit_economics(data: UnitEconSave, org_id: str, db: AsyncSession = Depends(get_db)):
+    """Сохранить ручные вводы Юнит Экономики"""
+    from models.unit_economics_user import UnitEconomicsUser
+    from datetime import datetime as dt_mod
+
+    change_date = None
+    if data.change_date:
+        change_date = dt_mod.strptime(data.change_date, "%Y-%m-%d").date()
+
+    ins = pg_insert(UnitEconomicsUser).values(
+        organization_id=org_id,
+        nm_id=data.nm_id,
+        barcode=data.barcode,
+        mp_correction_pct=data.mp_correction_pct,
+        buyout_niche_pct=data.buyout_niche_pct,
+        extra_costs=data.extra_costs,
+        ad_plan_rub=data.ad_plan_rub,
+        price_before_spp_plan=data.price_before_spp_plan,
+        price_before_spp_change=data.price_before_spp_change,
+        change_date=change_date,
+        tariff_type=data.tariff_type or "box",
+        wb_club_discount_pct=data.wb_club_discount_pct,
+    )
+    stmt = ins.on_conflict_do_update(
+        constraint="unit_economics_user_organization_id_nm_id_barcode_key",
+        set_={
+            "mp_correction_pct": ins.excluded.mp_correction_pct,
+            "buyout_niche_pct": ins.excluded.buyout_niche_pct,
+            "extra_costs": ins.excluded.extra_costs,
+            "ad_plan_rub": ins.excluded.ad_plan_rub,
+            "price_before_spp_plan": ins.excluded.price_before_spp_plan,
+            "price_before_spp_change": ins.excluded.price_before_spp_change,
+            "change_date": ins.excluded.change_date,
+            "tariff_type": ins.excluded.tariff_type,
+            "wb_club_discount_pct": ins.excluded.wb_club_discount_pct,
+        }
+    )
+    await db.execute(stmt)
+    await db.commit()
+    return {"ok": True}
+
+
 @router.get("/nl/v2", response_class=HTMLResponse)
 async def nl_page():
     """НЛ — главная страница"""
