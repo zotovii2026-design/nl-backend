@@ -1759,6 +1759,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <a class="nav-item" onclick="navTo('warehouses',this)"><span class="icon">📦</span>Склады</a>
 <a class="nav-item" onclick="navTo('opexpenses',this)"><span class="icon">📝</span>Опер. расходы</a>
 <a class="nav-item" onclick="navTo('ads',this)"><span class="icon">📢</span>Реклама</a>
+<a class="nav-item" onclick="navTo('unitecon',this)"><span class="icon">🧮</span>Юнит Экономика</a>
 </div>
 <div class="nav-group">
 <div class="nav-label">Остальное</div>
@@ -2040,6 +2041,66 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <tbody id="ads-campaigns-body"><tr><td colspan="8" class="empty">Загрузка...</td></tr></tbody>
 </table>
 </div>
+<div id="page-unitecon" class="page-section">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<button class="btn" onclick="loadUnitEcon()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+<input type="text" id="ue-search" placeholder="🔍 Поиск по артикулу/названию" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:240px" oninput="loadUnitEcon()">
+<button class="btn btn-outline" onclick="exportUnitEcon()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
+<span style="font-size:.85em;color:#999;margin-left:auto" id="ue-count"></span>
+<button class="btn" onclick="saveAllUnitEcon()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
+</div>
+<div style="overflow-x:auto;max-height:70vh">
+<table id="ue-table" style="font-size:.75em"><thead><tr>
+<th style="position:sticky;left:0;z-index:2;background:#fff">Фото</th>
+<th style="position:sticky;left:40px;z-index:2;background:#fff">Арт WB</th>
+<th>Арт продавца</th>
+<th style="min-width:140px">Название</th>
+<th>Класс</th>
+<th>Бренд</th>
+<th>Себест. ₽</th>
+<th>Доп. затраты</th>
+<th style="background:#f0f0ff">Баз. % МП</th>
+<th style="background:#f0f0ff">Корр. % МП</th>
+<th style="background:#f0f0ff">Итог. % МП</th>
+<th style="background:#f0f0ff">% выкупа ниши</th>
+<th>% выкупа факт</th>
+<th style="background:#fff3f0">Лог. тариф</th>
+<th style="background:#fff3f0">Лог. факт</th>
+<th style="background:#fff3f0">Хран. тариф</th>
+<th style="background:#fff3f0">Хран. факт</th>
+<th>Эквайр. 1.5%</th>
+<th>Приёмка</th>
+<th>Налог %</th>
+<th>НДС %</th>
+<th>Налог ₽</th>
+<th style="background:#f0fff0">Рекл. факт</th>
+<th style="background:#f0fff0">Рекл. план</th>
+<th style="background:#e8f4fd">Цена до СПП</th>
+<th style="background:#e8f4fd">СПП %</th>
+<th style="background:#e8f4fd">Цена с СПП</th>
+<th style="background:#fff8e0">Скидка ВБ Клуб %</th>
+<th style="background:#ffe8e8">Расходы</th>
+<th style="background:#ffe8e8">Прибыль</th>
+<th style="background:#ffe8e8">Маржа %</th>
+<th style="background:#ffe8e8">ROI %</th>
+<th style="background:#ffe8e8">На Р/С</th>
+<th style="background:#e8f0ff">Цена план</th>
+<th style="background:#e8f0ff">Расходы план</th>
+<th style="background:#e8f0ff">Прибыль план</th>
+<th style="background:#e8f0ff">Маржа план %</th>
+<th style="background:#e8f0ff">ROI план %</th>
+<th style="background:#e8f0ff">На Р/С план</th>
+<th style="background:#f0e8ff">Дата правок</th>
+<th style="background:#f0e8ff">Цена к изм.</th>
+<th style="background:#f0e8ff">Прибыль изм.</th>
+<th style="background:#f0e8ff">ROI изм.</th>
+<th>Тариф тип</th>
+</tr></thead>
+<tbody id="ue-body"><tr><td colspan="44" class="empty">Нажмите обновить</td></tr></tbody></table>
+</div>
+<div style="margin-top:12px;display:flex;gap:16px;font-size:.85em;flex-wrap:wrap" id="ue-summary"></div>
+</div>
+
 <div id="page-connectors" class="page-section">
 <div style="max-width:600px;margin:0 auto;padding:20px">
 <h3 style="color:#6c5ce7;margin-bottom:16px">🔌 Подключения</h3>
@@ -3064,6 +3125,134 @@ function initSorting() {
 
 // Call initSorting after DOM is ready (deferred)
 setTimeout(initSorting, 500);
+
+// === UNIT ECONOMICS ===
+let ueData = [];
+
+async function loadUnitEcon() {
+    if (!ORG_ID) return;
+    const search = document.getElementById('ue-search')?.value || '';
+    try {
+        const res = await fetch('/api/v1/nl/unit-economics?org_id=' + ORG_ID + (search ? '&search=' + encodeURIComponent(search) : ''));
+        if (!res.ok) return;
+        const data = await res.json();
+        ueData = data.items || [];
+        document.getElementById('ue-count').textContent = ueData.length + ' товаров';
+
+        const tbody = document.getElementById('ue-body');
+        tbody.innerHTML = ueData.map((p, idx) => {
+            const thumb = p.photo || '';
+            const profitClass = p.profit_fact > 0 ? 'color:#00b894' : p.profit_fact < 0 ? 'color:#d63031' : '';
+            const profitPlanClass = p.profit_plan > 0 ? 'color:#00b894' : p.profit_plan < 0 ? 'color:#d63031' : '';
+            const fmt = (v) => v != null ? (typeof v === 'number' ? v.toFixed(2) : v) : '—';
+            const fmtI = (v) => v != null ? (typeof v === 'number' ? v.toFixed(0) : v) : '—';
+
+            return '<tr data-idx="' + idx + '">' +
+                '<td style="position:sticky;left:0;z-index:1;background:#fff">' + (thumb ? '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
+                '<td style="position:sticky;left:40px;z-index:1;background:#fff;font-weight:600">' + p.nm_id + '</td>' +
+                '<td>' + esc(p.vendor_code || '') + '</td>' +
+                '<td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name || '') + '">' + esc(p.product_name || '') + '</td>' +
+                '<td>' + esc(p.product_class || '') + '</td>' +
+                '<td>' + esc(p.brand || '') + '</td>' +
+                '<td>' + fmt(p.cost_price) + '</td>' +
+                '<td><input type="number" class="ue-input" data-field="extra_costs" value="' + (p.extra_costs || '') + '" style="width:60px" placeholder="0"></td>' +
+                '<td style="background:#f0f0ff">' + fmtI(p.mp_base_pct) + '</td>' +
+                '<td style="background:#f0f0ff"><input type="number" class="ue-input" data-field="mp_correction_pct" value="' + (p.mp_correction_pct || '') + '" style="width:50px" step="0.1" placeholder="0"></td>' +
+                '<td style="background:#f0f0ff;font-weight:600">' + fmtI(p.mp_total_pct) + '</td>' +
+                '<td style="background:#f0f0ff"><input type="number" class="ue-input" data-field="buyout_niche_pct" value="' + (p.buyout_niche_pct || '') + '" style="width:50px" placeholder="0"></td>' +
+                '<td>' + fmtI(p.buyout_fact_pct) + '</td>' +
+                '<td style="background:#fff3f0">' + fmt(p.logistics_tariff) + '</td>' +
+                '<td style="background:#fff3f0">' + fmt(p.logistics_actual) + '</td>' +
+                '<td style="background:#fff3f0">' + fmt(p.storage_tariff) + '</td>' +
+                '<td style="background:#fff3f0">' + fmt(p.storage_actual) + '</td>' +
+                '<td>' + fmt(p.price_with_spp * 0.015) + '</td>' +
+                '<td>' + fmt(p.acceptance_avg) + '</td>' +
+                '<td>' + (p.tax_rate || '—') + '</td>' +
+                '<td>' + (p.vat_rate || '—') + '</td>' +
+                '<td>' + fmt(p.tax_total) + '</td>' +
+                '<td style="background:#f0fff0">' + fmt(p.ad_fact_rub) + '</td>' +
+                '<td style="background:#f0fff0"><input type="number" class="ue-input" data-field="ad_plan_rub" value="' + (p.ad_plan_rub || '') + '" style="width:60px" placeholder="0"></td>' +
+                '<td style="background:#e8f4fd">' + fmt(p.price_before_spp) + '</td>' +
+                '<td style="background:#e8f4fd">' + fmtI(p.spp_pct) + '</td>' +
+                '<td style="background:#e8f4fd;font-weight:600">' + fmt(p.price_with_spp) + '</td>' +
+                '<td style="background:#fff8e0"><input type="number" class="ue-input" data-field="wb_club_discount_pct" value="' + (p.wb_club_discount_pct || '') + '" style="width:50px" placeholder="0"></td>' +
+                '<td style="background:#ffe8e8">' + fmt(p.expenses_fact) + '</td>' +
+                '<td style="background:#ffe8e8;font-weight:600;' + profitClass + '">' + fmt(p.profit_fact) + '</td>' +
+                '<td style="background:#ffe8e8">' + fmtI(p.margin_fact) + '</td>' +
+                '<td style="background:#ffe8e8">' + fmtI(p.roi_fact) + '</td>' +
+                '<td style="background:#ffe8e8">' + fmt(p.to_account_fact) + '</td>' +
+                '<td style="background:#e8f0ff"><input type="number" class="ue-input" data-field="price_before_spp_plan" value="' + (p.price_before_spp_plan || '') + '" style="width:70px" placeholder="0"></td>' +
+                '<td style="background:#e8f0ff">' + fmt(p.expenses_plan) + '</td>' +
+                '<td style="background:#e8f0ff;font-weight:600;' + profitPlanClass + '">' + fmt(p.profit_plan) + '</td>' +
+                '<td style="background:#e8f0ff">' + fmtI(p.margin_plan) + '</td>' +
+                '<td style="background:#e8f0ff">' + fmtI(p.roi_plan) + '</td>' +
+                '<td style="background:#e8f0ff">' + fmt(p.to_account_plan) + '</td>' +
+                '<td style="background:#f0e8ff"><input type="date" class="ue-input" data-field="change_date" value="' + (p.change_date || '') + '" style="width:100px;font-size:.9em"></td>' +
+                '<td style="background:#f0e8ff"><input type="number" class="ue-input" data-field="price_before_spp_change" value="' + (p.price_before_spp_change || '') + '" style="width:70px" placeholder="0"></td>' +
+                '<td style="background:#f0e8ff;font-weight:600">' + fmt(p.profit_change) + '</td>' +
+                '<td style="background:#f0e8ff">' + fmtI(p.roi_change) + '</td>' +
+                '<td><select class="ue-input" data-field="tariff_type" style="width:70px;font-size:.9em"><option value="box"' + (p.tariff_type==='box'?' selected':'') + '>Короб</option><option value="pallet"' + (p.tariff_type==='pallet'?' selected':'') + '>Палета</option></select></td>' +
+                '</tr>';
+        }).join('');
+
+        // Summary
+        let totalProfit = 0, totalCost = 0, posCount = 0;
+        ueData.forEach(p => {
+            totalProfit += (p.profit_fact || 0);
+            totalCost += (p.cost_price || 0);
+            if (p.profit_fact > 0) posCount++;
+        });
+        document.getElementById('ue-summary').innerHTML =
+            '<span>📊 Товаров: <strong>' + ueData.length + '</strong></span>' +
+            '<span>💰 Прибыльных: <strong>' + posCount + '/' + ueData.length + '</strong></span>' +
+            '<span>📈 Сумма прибыли: <strong>' + totalProfit.toFixed(0) + ' ₽</strong></span>' +
+            '<span>📐 Ср. ROI: <strong>' + (totalCost ? (totalProfit / totalCost * 100).toFixed(1) : 0) + '%</strong></span>';
+    } catch(e) { console.error('loadUnitEcon', e); }
+}
+
+async function saveAllUnitEcon() {
+    const rows = document.querySelectorAll('#ue-body tr[data-idx]');
+    let saved = 0, errors = 0;
+    for (const row of rows) {
+        const idx = parseInt(row.dataset.idx);
+        const p = ueData[idx];
+        if (!p) continue;
+        const inputs = row.querySelectorAll('.ue-input');
+        const data = { nm_id: p.nm_id, barcode: p.barcode || null };
+        inputs.forEach(inp => { data[inp.dataset.field] = inp.type === 'number' ? parseFloat(inp.value) || 0 : inp.value; });
+        try {
+            const res = await fetch('/api/v1/nl/unit-economics?org_id=' + ORG_ID, {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+            });
+            if (res.ok) saved++; else errors++;
+        } catch(e) { errors++; }
+    }
+    alert('Сохранено: ' + saved + (errors ? ', ошибок: ' + errors : ''));
+    loadUnitEcon();
+}
+
+function exportUnitEcon() {
+    if (!ueData.length) return;
+    let csv = 'Арт WB;Арт продавца;Название;Класс;Бренд;Себестоимость;Доп затраты;Баз % МП;Корр % МП;Итог % МП;% выкупа ниши;% выкупа факт;Лог тариф;Лог факт;Хран тариф;Хран факт;Эквайринг;Приёмка;Налог %;НДС %;Налог руб;Рекл факт;Рекл план;Цена до СПП;СПП %;Цена с СПП;Скидка ВБ Клуб %;Расходы;Прибыль;Маржа %;ROI %;На Р/С;Цена план;Расходы план;Прибыль план;Маржа план %;ROI план %;На Р/С план;Дата правок;Цена к изм;Прибыль изм;ROI изм;Тариф тип';
+    csv += String.fromCharCode(10);
+    ueData.forEach(p => {
+        csv += [p.nm_id, p.vendor_code, p.product_name, p.product_class, p.brand,
+            p.cost_price, p.extra_costs, p.mp_base_pct, p.mp_correction_pct, p.mp_total_pct,
+            p.buyout_niche_pct, p.buyout_fact_pct, p.logistics_tariff, p.logistics_actual,
+            p.storage_tariff, p.storage_actual, (p.price_with_spp*0.015).toFixed(2), p.acceptance_avg,
+            p.tax_rate, p.vat_rate, p.tax_total, p.ad_fact_rub, p.ad_plan_rub,
+            p.price_before_spp, p.spp_pct, p.price_with_spp, p.wb_club_discount_pct,
+            p.expenses_fact, p.profit_fact, p.margin_fact, p.roi_fact, p.to_account_fact,
+            p.price_before_spp_plan, p.expenses_plan, p.profit_plan, p.margin_plan, p.roi_plan, p.to_account_plan,
+            p.change_date, p.price_before_spp_change, p.profit_change, p.roi_change, p.tariff_type
+        ].join(';') + String.fromCharCode(10);
+    });
+    const blob = new Blob(['﻿' + csv], {type: 'text/csv;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'unit_economics.csv'; a.click();
+    URL.revokeObjectURL(url);
+}
+
 </script>
 </body>
 </html>
