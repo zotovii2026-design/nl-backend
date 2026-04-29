@@ -187,17 +187,60 @@ async def save_reference(item: RefItem, org_id: str, db: AsyncSession = Depends(
 
 @router.get("/api/v1/nl/products")
 async def get_products(org_id: str, target_date: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    """Список уникальных карточек из ТС на дату"""
+    """Список уникальных карточек из ТС на дату с entity_id и size_name"""
     from datetime import datetime as dt_mod
+    from models.product_entity import ProductEntity, EntityBarcode
     q = select(
-        TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name,
+        TechStatus.entity_id, TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name,
         TechStatus.photo_main, TechStatus.barcode, TechStatus.sku
     ).where(TechStatus.organization_id == org_id, TechStatus.nm_id.isnot(None))
     if target_date:
         q = q.where(TechStatus.target_date == dt_mod.strptime(target_date, "%Y-%m-%d").date())
     q = q.distinct()
     result = await db.execute(q)
-    return [{"nm_id": r[0], "vendor_code": r[1], "product_name": r[2], "photo_main": r[3], "barcode": r[4], "sku": r[5]} for r in result.all()]
+
+    # Получаем маппинг entity_id → size_name
+    ent_result = await db.execute(
+        select(ProductEntity.id, ProductEntity.size_name).where(
+            ProductEntity.organization_id == org_id
+        )
+    )
+    size_map = {str(r[0]): r[1] for r in ent_result.all()}
+
+    # Получаем все активные ШК по сущностям
+    bc_result = await db.execute(
+        select(EntityBarcode.entity_id, EntityBarcode.barcode).where(
+            EntityBarcode.organization_id == org_id,
+            EntityBarcode.is_active == True,
+        )
+    )
+    barcode_map = {}
+    for r in bc_result.all():
+        eid = str(r[0])
+        if eid not in barcode_map:
+            barcode_map[eid] = []
+        barcode_map[eid].append(r[1])
+
+    items = []
+    seen = set()
+    for r in result.all():
+        eid = str(r[0]) if r[0] else None
+        key = (r[1], eid)  # уникальность по nm_id + entity_id
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({
+            "entity_id": eid,
+            "nm_id": r[1],
+            "vendor_code": r[2],
+            "product_name": r[3],
+            "photo_main": r[4],
+            "barcode": r[5],
+            "sku": r[6],
+            "size_name": size_map.get(eid, "") if eid else "",
+            "barcodes": barcode_map.get(eid, []) if eid else ([r[5]] if r[5] else []),
+        })
+    return items
 
 
 
@@ -355,17 +398,27 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
         )
     )
 
-    # Детализация по товарам
+    # Детализация по товарам (с entity_id)
     products_detail = await db.execute(
         select(
-            TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name,
+            TechStatus.entity_id, TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name,
             TechStatus.photo_main, TechStatus.stock_qty, TechStatus.orders_count,
             TechStatus.buyouts_count, TechStatus.returns_count, TechStatus.rating,
             TechStatus.impressions, TechStatus.clicks, TechStatus.ad_cost,
             TechStatus.price, TechStatus.price_discount, TechStatus.tariff,
+            TechStatus.barcode,
         ).where(TechStatus.organization_id == org_id, TechStatus.target_date == d)
         .order_by(TechStatus.orders_count.desc().nullslast())
     )
+
+    # Маппинг entity_id → size_name
+    from models.product_entity import ProductEntity
+    ent_result = await db.execute(
+        select(ProductEntity.id, ProductEntity.size_name).where(
+            ProductEntity.organization_id == org_id
+        )
+    )
+    size_map = {str(r[0]): r[1] for r in ent_result.all()}
 
     def safe_float(v):
         return float(v) if v is not None and not isinstance(v, decimal.Decimal) else (float(v) if isinstance(v, decimal.Decimal) else None)
@@ -394,21 +447,24 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
             "low_rating_count": safe_int(low_rating.scalar()) or 0,
         },
         "products": [{
-            "nm_id": r[0],
-            "vendor_code": r[1],
-            "product_name": r[2],
-            "photo_main": r[3],
-            "stock_qty": safe_int(r[4]),
-            "orders_count": safe_int(r[5]),
-            "buyouts_count": safe_int(r[6]),
-            "returns_count": safe_int(r[7]),
-            "rating": safe_float(r[8]),
-            "impressions": safe_int(r[9]),
-            "clicks": safe_int(r[10]),
-            "ad_cost": safe_float(r[11]),
-            "price": safe_float(r[12]),
-            "price_discount": safe_float(r[13]),
-            "tariff": safe_float(r[14]),
+            "entity_id": str(r[0]) if r[0] else None,
+            "nm_id": r[1],
+            "vendor_code": r[2],
+            "product_name": r[3],
+            "photo_main": r[4],
+            "stock_qty": safe_int(r[5]),
+            "orders_count": safe_int(r[6]),
+            "buyouts_count": safe_int(r[7]),
+            "returns_count": safe_int(r[8]),
+            "rating": safe_float(r[9]),
+            "impressions": safe_int(r[10]),
+            "clicks": safe_int(r[11]),
+            "ad_cost": safe_float(r[12]),
+            "price": safe_float(r[13]),
+            "price_discount": safe_float(r[14]),
+            "tariff": safe_float(r[15]),
+            "barcode": r[16] or "",
+            "size_name": size_map.get(str(r[0]), "") if r[0] else "",
         } for r in products_detail.all()]
     }
 
@@ -1240,10 +1296,10 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
     # 2) Продукты с базовыми данными
     prods_result = await db.execute(
         sql_text("""
-            SELECT DISTINCT ON (nm_id) nm_id, vendor_code, product_name, photo_main, barcode, price, price_discount, tariff, ad_cost
+            SELECT DISTINCT ON (entity_id, nm_id) entity_id, nm_id, vendor_code, product_name, photo_main, barcode, price, price_discount, tariff, ad_cost
             FROM tech_status 
             WHERE organization_id = :org AND target_date = :dt
-            ORDER BY nm_id, barcode
+            ORDER BY entity_id, nm_id, barcode
         """),
         {"org": org_id, "dt": latest_date}
     )
@@ -1376,14 +1432,24 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
     items = []
     search_q = search.lower() if search else ""
     
+    # Маппинг entity_id → size_name
+    from models.product_entity import ProductEntity
+    ent_result = await db.execute(
+        select(ProductEntity.id, ProductEntity.size_name).where(
+            ProductEntity.organization_id == org_id
+        )
+    )
+    size_map_ue = {str(r[0]): r[1] for r in ent_result.all()}
+
     for p in products:
-        nm_id = p[0]
-        vendor_code = p[1] or ""
-        product_name = p[2] or ""
-        photo = p[3] or ""
-        main_barcode = p[4] or ""
-        price = float(p[5]) if p[5] else 0
-        price_discount = float(p[6]) if p[6] else 0
+        entity_id = str(p[0]) if p[0] else None
+        nm_id = p[1]
+        vendor_code = p[2] or ""
+        product_name = p[3] or ""
+        photo = p[4] or ""
+        main_barcode = p[5] or ""
+        price = float(p[6]) if p[6] else 0
+        price_discount = float(p[7]) if p[7] else 0
 
         # Фильтр поиска
         if search_q and search_q not in str(nm_id) and search_q not in product_name.lower() and search_q not in vendor_code.lower():
@@ -1393,12 +1459,13 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         ue = ue_map.get((nm_id, main_barcode), ue_map.get((nm_id, ""), {}))
 
         item = {
+            "entity_id": entity_id,
             "nm_id": nm_id,
             "vendor_code": vendor_code,
             "product_name": product_name,
             "photo": photo.replace("/hq/", "/c246x328/") if photo else "",
             "barcode": main_barcode,
-            "size_name": None,
+            "size_name": size_map_ue.get(entity_id, "") if entity_id else "",
             "sku": f"{vendor_code}_{main_barcode}" if vendor_code else str(nm_id),
 
             # Из справочника / себестоимости
@@ -1414,7 +1481,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "vat_rate": float(cost.get("vat_rate") or 0),
 
             # Из API WB / raw_api_data
-            "mp_base_pct": float(p[7]) if p[7] else 0,  # tariff (комиссия) из tech_status
+            "mp_base_pct": float(p[8]) if p[8] else 0,  # tariff (комиссия) из tech_status
             "buyout_fact_pct": buyout_map.get(nm_id, 0),
             "logistics_tariff": pallet_logistics if ue.get("tariff_type") == "pallet" else box_logistics,
             "logistics_actual": 0,  # Будет из финотчётов (Фаза 3b)
@@ -1424,7 +1491,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "price_before_spp": price,
             "spp_pct": round((1 - price_discount / price) * 100, 1) if price and price_discount and price_discount < price else 0,
             "price_with_spp": price_discount or price,
-            "ad_fact_rub": float(p[8]) if p[8] else 0,  # ad_cost из tech_status
+            "ad_fact_rub": float(p[9]) if p[9] else 0,  # ad_cost из tech_status
             "wb_club_discount_pct_api": 0,
 
             # Ручные вводы
@@ -1846,8 +1913,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Таблица товаров -->
 <div style="font-size:.85em;color:#999;margin-bottom:8px">ТОВАРЫ</div>
 <table id="stats-table">
-<thead><tr><th>Фото</th><th>Арт WB</th><th>Название</th><th>Остаток</th><th>Заказы</th><th>Выкупы</th><th>Возвраты</th><th>Рейтинг</th><th>Показы</th><th>Клики</th><th>CTR</th><th>Реклама ₽</th><th>Цена</th></tr></thead>
-<tbody id="stats-products"><tr><td colspan="13" class="empty">Выберите дату</td></tr></tbody>
+<thead><tr><th>Фото</th><th>Арт WB</th><th>Название</th><th>Размер</th><th>ШК</th><th>Остаток</th><th>Заказы</th><th>Выкупы</th><th>Возвраты</th><th>Рейтинг</th><th>Показы</th><th>Клики</th><th>CTR</th><th>Реклама ₽</th><th>Цена</th></tr></thead>
+<tbody id="stats-products"><tr><td colspan="15" class="empty">Выберите дату</td></tr></tbody>
 </table>
 </div>
 <div id="page-analytics" class="page-section">
@@ -2257,13 +2324,19 @@ async function loadStats() {
         // Таблица товаров
         const tbody = document.getElementById('stats-products');
         const prods = data.products || [];
-        if (!prods.length) { tbody.innerHTML = '<tr><td colspan="13" class="empty">Нет данных</td></tr>'; return; }
+        if (!prods.length) { tbody.innerHTML = '<tr><td colspan="15" class="empty">Нет данных</td></tr>'; return; }
         tbody.innerHTML = prods.map(p => {
             const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/');
             const ctr = p.impressions > 0 ? (p.clicks / p.impressions * 100).toFixed(1) + '%' : '—';
-            return '<tr><td>' + (thumb ? '<img src="' + thumb + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
-            '<td>' + (p.nm_id || '') + '</td><td>' + esc(p.product_name) + '</td>' +
-            '<td>' + (p.stock_qty ?? '—') + '</td><td>' + (p.orders_count ?? '—') + '</td>' +
+            const sizeLabel = p.size_name && p.size_name !== '0' && p.size_name !== 'ONE SIZE' ? p.size_name : '';
+            const stockColor = p.stock_qty <= 0 ? '#e74c3c' : p.stock_qty <= 5 ? '#e17055' : '';
+            return '<tr data-entity="' + (p.entity_id||'') + '">' +
+            '<td>' + (thumb ? '<img src="' + thumb + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
+            '<td>' + (p.nm_id || '') + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name) + '">' + esc(p.product_name) + '</td>' +
+            '<td style="font-size:.8em;color:#636e72">' + sizeLabel + '</td>' +
+            '<td style="font-size:.7em;color:#999">' + (p.barcode || '') + '</td>' +
+            '<td style="color:' + stockColor + ';font-weight:600">' + (p.stock_qty ?? '—') + '</td>' +
+            '<td>' + (p.orders_count ?? '—') + '</td>' +
             '<td>' + (p.buyouts_count ?? '—') + '</td><td>' + (p.returns_count ?? '—') + '</td>' +
             '<td>' + (p.rating ?? '—') + '</td><td>' + (p.impressions ?? '—') + '</td>' +
             '<td>' + (p.clicks ?? '—') + '</td><td>' + ctr + '</td>' +
@@ -2993,10 +3066,13 @@ async function loadControl() {
         const img = thumb ? '<img class="photo" src="' + thumb + '" loading="lazy">' : '📦';
         const ctr = p.impressions > 0 ? (p.clicks / p.impressions * 100).toFixed(1) + '%' : '—';
         const stockColor = p.stock_qty <= 0 ? '#e74c3c' : p.stock_qty <= 5 ? '#e17055' : '#00b894';
-        return '<tr>' +
+        const sizeLabel = p.size_name && p.size_name !== '0' && p.size_name !== 'ONE SIZE' ? p.size_name : '';
+        return '<tr data-entity="' + (p.entity_id||'') + '">' +
             '<td>' + img + '</td>' +
             '<td><b>' + p.nm_id + '</b></td>' +
             '<td>' + (p.product_name || '').substring(0, 25) + '</td>' +
+            '<td style="font-size:.8em;color:#636e72">' + sizeLabel + '</td>' +
+            '<td style="font-size:.7em;color:#999">' + (p.barcode || '') + '</td>' +
             '<td style="color:' + stockColor + ';font-weight:600">' + (p.stock_qty ?? '—') + '</td>' +
             '<td>' + (p.orders_count ?? '—') + '</td>' +
             '<td>' + (p.buyouts_count ?? '—') + '</td>' +

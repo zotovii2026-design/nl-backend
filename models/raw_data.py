@@ -104,6 +104,7 @@ class TechStatus(Base):
 
     # 2. Данные по карточке (products)
     nm_id = Column(Integer, nullable=True, index=True)  # Арт WB
+    entity_id = Column(UUID(as_uuid=True), ForeignKey("product_entities.id", ondelete="SET NULL"), nullable=True, index=True)  # Сущность (слот размера)
     vendor_code = Column(String(100), nullable=True)  # Арт поставщика
     barcode = Column(String(50), nullable=True)  # Штрихкод
     product_name = Column(String(500), nullable=True)  # Название
@@ -145,5 +146,6 @@ class TechStatus(Base):
     organization = relationship("Organization")
 
     __table_args__ = (
-        UniqueConstraint("organization_id", "target_date", "nm_id", name="tech_status_organization_id_target_date_nm_id_key"),
+        UniqueConstraint("organization_id", "target_date", "entity_id", name="tech_status_org_date_entity_key"),
+        # Старый constraint оставлен для совместимости — будет заменён миграцией,
     )

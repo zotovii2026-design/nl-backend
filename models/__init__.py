@@ -25,6 +25,11 @@ from models.raw_data import (
     TechStatus,
     RawSyncStatus
 )
+from models.product_entity import (
+    ProductEntity,
+    EntityBarcode,
+    UnmatchedBarcode
+)
 
 __all__ = [
     "User",
@@ -46,4 +51,7 @@ __all__ = [
     "WarehouseRef",
     "TechStatus",
     "RawSyncStatus",
+    "ProductEntity",
+    "EntityBarcode",
+    "UnmatchedBarcode",
 ]

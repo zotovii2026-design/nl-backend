@@ -16,6 +16,8 @@ from core.config import settings
 from core.security import decrypt_data
 from models.organization import WbApiKey
 from models.raw_data import RawApiData, TechStatus
+from services.entity_sync import sync_entities_from_raw, find_entity_by_barcode, find_entity_by_nm_and_size, add_unmatched
+from models.product_entity import ProductEntity, EntityBarcode
 from services.wb_api.client import WBApiClient
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -116,8 +118,16 @@ async def _do_products(sf):
             await _save_raw(db, org_id, "products_stats", today,
                             {"total": count, "archive": archive, "active": active}, count=count)
 
-    logger.info(f"[sched] products: {count} cards")
-    return {"status": "ok", "cards": count}
+    # Синхронизация сущностей из карточек
+    entity_result = None
+    async with sf() as db:
+        try:
+            entity_result = await sync_entities_from_raw(db, org_id, today)
+        except Exception as e:
+            logger.error(f"[sched] entity_sync error: {e}")
+
+    logger.info(f"[sched] products: {count} cards, entities: {entity_result}")
+    return {"status": "ok", "cards": count, "entities": entity_result}
 
 
 @shared_task(name="wb.sched.sales")
@@ -339,7 +349,9 @@ def sched_parse_raw():
 
 
 async def _do_parse_raw(sf):
-    """Парсер raw → tech_status с новым session factory"""
+    """Парсер raw → tech_status по entity_id (слот размера)"""
+
+    from services.entity_sync import find_entity_by_barcode, add_unmatched
 
     # Получаем org_ids из raw_api_data
     async with sf() as db:
@@ -350,7 +362,32 @@ async def _do_parse_raw(sf):
 
     total = 0
     for org_id in org_ids:
-        # --- products ---
+        # --- Загружаем маппинг entity_id по (nm_id, size_name) ---
+        async with sf() as db:
+            result = await db.execute(text("""
+                SELECT id, nm_id, size_name FROM product_entities WHERE organization_id = :org
+            """), {"org": org_id})
+            entity_by_nm_size = {}
+            nm_to_first_entity = {}  # fallback: nm_id → любой entity_id
+            for row in result.all():
+                eid = str(row[0])
+                nm = int(row[1])
+                sz = str(row[2])
+                entity_by_nm_size[(nm, sz)] = eid
+                if nm not in nm_to_first_entity:
+                    nm_to_first_entity[nm] = eid
+
+        # --- Загружаем маппинг entity_id по barcode ---
+        async with sf() as db:
+            result = await db.execute(text("""
+                SELECT eb.barcode, eb.entity_id FROM entity_barcodes eb
+                WHERE eb.organization_id = :org
+            """), {"org": org_id})
+            entity_by_barcode = {}
+            for row in result.all():
+                entity_by_barcode[str(row[0])] = str(row[1])
+
+        # --- products (карточки) ---
         async with sf() as db:
             result = await db.execute(text("""
                 SELECT raw_response FROM raw_api_data 
@@ -368,18 +405,21 @@ async def _do_parse_raw(sf):
                 nm = c.get("nmID")
                 if not nm:
                     continue
-                barcodes = []
-                for sz in (c.get("sizes") or []):
-                    barcodes.extend(sz.get("skus") or [])
                 photos = c.get("photos") or []
-                product_map[int(nm)] = {
-                    "name": c.get("title", ""),
-                    "brand": c.get("brand", ""),
-                    "photo": photos[0].get("hq", photos[0].get("tm", photos[0].get("big", ""))) if photos else "",
-                    "barcodes": barcodes,
-                }
+                for sz in (c.get("sizes") or []):
+                    size_name = sz.get("techSizeName") or sz.get("techSize") or "ONE SIZE"
+                    entity_id = entity_by_nm_size.get((int(nm), size_name))
+                    key = entity_id or int(nm)  # fallback на nm_id если entity ещё нет
+                    if key not in product_map:
+                        product_map[key] = {
+                            "name": c.get("title", ""),
+                            "brand": c.get("brand", ""),
+                            "photo": photos[0].get("hq", photos[0].get("tm", photos[0].get("big", ""))) if photos else "",
+                            "nm_id": int(nm),
+                            "entity_id": entity_id,
+                        }
 
-        # --- orders ---
+        # --- orders (по entity_id) ---
         async with sf() as db:
             result = await db.execute(text("""
                 SELECT target_date, raw_response FROM raw_api_data 
@@ -387,7 +427,7 @@ async def _do_parse_raw(sf):
             """), {"org": org_id})
             orders_rows = result.all()
 
-        orders_map = {}
+        orders_map = {}  # key = (date, entity_id)
         for orow in orders_rows:
             td, resp = orow
             ords = resp if isinstance(resp, list) else []
@@ -395,20 +435,31 @@ async def _do_parse_raw(sf):
                 if not isinstance(o, dict):
                     continue
                 nm = o.get("nmId") or o.get("nm_id")
+                barcode = str(o.get("barcode", "") or "")
+                tech_size = str(o.get("techSize", "") or "")
                 if not nm:
                     continue
                 nm = int(nm)
-                key = (td, nm)
+                # Ищем entity_id: сначала по barcode, потом по (nm, size)
+                entity_id = entity_by_barcode.get(barcode) if barcode else None
+                if not entity_id and tech_size:
+                    entity_id = entity_by_nm_size.get((nm, tech_size))
+                if not entity_id:
+                    # Фоллбэк: берём первую сущность для этого nm_id
+                    entity_id = nm_to_first_entity.get(nm)
+
+                key = (td, entity_id or nm)
                 if key not in orders_map:
-                    orders_map[key] = {"count": 0, "revenue": 0, "vendor_code": "", "barcode": ""}
+                    orders_map[key] = {"count": 0, "revenue": 0, "vendor_code": "", "barcode": barcode, "entity_id": entity_id, "nm_id": nm}
                 orders_map[key]["count"] += 1
                 orders_map[key]["revenue"] += float(o.get("totalPrice") or o.get("price") or 0)
                 if not orders_map[key]["vendor_code"]:
                     orders_map[key]["vendor_code"] = str(o.get("supplierArticle", "") or "")
-                if not orders_map[key]["barcode"]:
-                    orders_map[key]["barcode"] = str(o.get("barcode", "") or "")
+                # Если нашли entity_id позже — обновляем
+                if entity_id and not orders_map[key]["entity_id"]:
+                    orders_map[key]["entity_id"] = entity_id
 
-        # --- sales ---
+        # --- sales (по entity_id) ---
         async with sf() as db:
             result = await db.execute(text("""
                 SELECT target_date, raw_response FROM raw_api_data 
@@ -416,7 +467,7 @@ async def _do_parse_raw(sf):
             """), {"org": org_id})
             sales_rows = result.all()
 
-        sales_map = {}
+        sales_map = {}  # key = (date, entity_id)
         for srow in sales_rows:
             td, resp = srow
             sls = resp if isinstance(resp, list) else []
@@ -424,12 +475,21 @@ async def _do_parse_raw(sf):
                 if not isinstance(s, dict):
                     continue
                 nm = s.get("nmId") or s.get("nm_id")
+                barcode = str(s.get("barcode", "") or "")
+                tech_size = str(s.get("techSize", "") or "")
                 if not nm:
                     continue
                 nm = int(nm)
-                key = (td, nm)
+                entity_id = entity_by_barcode.get(barcode) if barcode else None
+                if not entity_id and tech_size:
+                    entity_id = entity_by_nm_size.get((nm, tech_size))
+                if not entity_id:
+                    # Фоллбэк: берём первую сущность для этого nm_id
+                    entity_id = nm_to_first_entity.get(nm)
+
+                key = (td, entity_id or nm)
                 if key not in sales_map:
-                    sales_map[key] = {"buyouts": 0, "returns": 0, "revenue": 0}
+                    sales_map[key] = {"buyouts": 0, "returns": 0, "revenue": 0, "entity_id": entity_id, "nm_id": nm}
                 sale_id = str(s.get("saleID", "") or "")
                 price = float(s.get("forPay") or s.get("totalPrice") or 0)
                 if "R" in sale_id and not sale_id.startswith("S"):
@@ -438,8 +498,10 @@ async def _do_parse_raw(sf):
                 else:
                     sales_map[key]["buyouts"] += 1
                     sales_map[key]["revenue"] += price
+                if entity_id and not sales_map[key]["entity_id"]:
+                    sales_map[key]["entity_id"] = entity_id
 
-        # --- stocks ---
+        # --- stocks (по entity_id) ---
         async with sf() as db:
             result = await db.execute(text("""
                 SELECT raw_response FROM raw_api_data 
@@ -448,80 +510,125 @@ async def _do_parse_raw(sf):
             """), {"org": org_id})
             stocks_row = result.first()
 
-        stock_map = {}
+        stock_map = {}  # key = entity_id или nm_id
         if stocks_row and stocks_row[0]:
             stks = stocks_row[0] if isinstance(stocks_row[0], list) else []
             for st in stks:
                 if not isinstance(st, dict):
                     continue
                 nm = st.get("nmId") or st.get("nm_id")
+                barcode = str(st.get("barcode", "") or "")
                 if not nm:
                     continue
                 nm = int(nm)
-                if nm not in stock_map:
-                    stock_map[nm] = {"qty": 0, "warehouses": set()}
-                stock_map[nm]["qty"] += int(st.get("quantity", st.get("qty", 0)) or 0)
+                entity_id = entity_by_barcode.get(barcode) if barcode else None
+                if not entity_id:
+                    # Фоллбэк: берём первую сущность для этого nm_id
+                    entity_id = nm_to_first_entity.get(nm)
+
+                key = entity_id or nm
+                if key not in stock_map:
+                    stock_map[key] = {"qty": 0, "warehouses": set(), "entity_id": entity_id, "nm_id": nm}
+                stock_map[key]["qty"] += int(st.get("quantity", st.get("qty", 0)) or 0)
                 wh = st.get("warehouseName", st.get("warehouse_name", ""))
                 if wh:
-                    stock_map[nm]["warehouses"].add(wh)
+                    stock_map[key]["warehouses"].add(wh)
 
-        # Собираем уникальные (date, nm) из всех источников
+        # --- Собираем уникальные ключи ---
         all_keys = set(orders_map.keys()) | set(sales_map.keys())
-        all_nms = set(product_map.keys()) | set(stock_map.keys())
+        all_entity_or_nm = set()
+        for k in all_keys:
+            all_entity_or_nm.add(k[1])  # entity_id или nm_id
+        for k in stock_map.keys():
+            all_entity_or_nm.add(k)
+        for k in product_map.keys():
+            all_entity_or_nm.add(k)
 
         today = date.today()
-        for nm in all_nms:
-            if (today, nm) not in all_keys:
-                all_keys.add((today, nm))
+        # Добавляем ключи для entities без продаж/заказов
+        for (nm, sz), eid in entity_by_nm_size.items():
+            if eid not in all_entity_or_nm and nm not in all_entity_or_nm:
+                all_entity_or_nm.add(eid)
 
-        # Upsert в tech_status
-        for td, nm in all_keys:
-            pinfo = product_map.get(nm, {})
-            oinfo = orders_map.get((td, nm), {})
-            sinfo = sales_map.get((td, nm), {})
-            skinfo = stock_map.get(nm, {})
+        # --- Upsert в tech_status ---
+        for key in all_entity_or_nm:
+            pinfo = product_map.get(key, {})
+            nm_from_pinfo = pinfo.get("nm_id", None)
+            entity_from_pinfo = pinfo.get("entity_id", None)
 
-            async with sf() as db:
-                ins = pg_insert(TechStatus)
-                stmt = ins.values(
-                    id=str(uuid.uuid4()),
-                    organization_id=org_id,
-                    target_date=td,
-                    nm_id=nm,
-                    product_name=pinfo.get("name", ""),
-                    vendor_code=oinfo.get("vendor_code", ""),
-                    barcode=oinfo.get("barcode", "") or (pinfo.get("barcodes") or [""])[0],
-                    photo_main=pinfo.get("photo", ""),
-                    orders_count=oinfo.get("count", 0),
-                    buyouts_count=sinfo.get("buyouts", 0),
-                    returns_count=sinfo.get("returns", 0),
-                    stock_qty=skinfo.get("qty", 0),
-                    warehouse_name=", ".join(skinfo.get("warehouses", set())) if skinfo.get("warehouses") else None,
-                    row_status="active",
-                    is_final="no",
-                    last_sync_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow(),
-                ).on_conflict_do_update(
-                    constraint="tech_status_organization_id_target_date_nm_id_key",
-                    set_={
-                        "product_name": ins.excluded.product_name,
-                        "vendor_code": ins.excluded.vendor_code,
-                        "barcode": ins.excluded.barcode,
-                        "photo_main": ins.excluded.photo_main,
-                        "orders_count": ins.excluded.orders_count,
-                        "buyouts_count": ins.excluded.buyouts_count,
-                        "returns_count": ins.excluded.returns_count,
-                        "stock_qty": ins.excluded.stock_qty,
-                        "warehouse_name": ins.excluded.warehouse_name,
-                        "last_sync_at": datetime.utcnow(),
-                        "updated_at": datetime.utcnow(),
-                    }
-                )
-                await db.execute(stmt)
-            total += 1
+            # Определяем entity_id и nm_id
+            if entity_from_pinfo:
+                e_id = entity_from_pinfo
+                n_id = nm_from_pinfo
+            elif key in entity_by_nm_size.values():
+                # key это entity_id
+                e_id = key
+                # Найдём nm_id по entity_id
+                n_id = None
+                for (nm, sz), eid in entity_by_nm_size.items():
+                    if eid == key:
+                        n_id = nm
+                        break
+            else:
+                # Фоллбэк — key это nm_id, entity_id неизвестен
+                e_id = None
+                n_id = key if isinstance(key, int) else None
 
-        async with sf() as db:
-            await db.commit()
+            # Собираем данные по всем дням для этого entity/nm
+            for td, ek in all_keys:
+                if ek != key:
+                    continue
+                oinfo = orders_map.get((td, key), {})
+                sinfo = sales_map.get((td, key), {})
+                skinfo = stock_map.get(key, {})
+
+                async with sf() as db:
+                    ins = pg_insert(TechStatus)
+                    stmt = ins.values(
+                        id=str(uuid.uuid4()),
+                        organization_id=org_id,
+                        target_date=td,
+                        nm_id=n_id,
+                        entity_id=e_id,
+                        product_name=pinfo.get("name", ""),
+                        vendor_code=oinfo.get("vendor_code", ""),
+                        barcode=oinfo.get("barcode", "") or (pinfo.get("barcodes") or [""])[0],
+                        photo_main=pinfo.get("photo", ""),
+                        orders_count=oinfo.get("count", 0),
+                        buyouts_count=sinfo.get("buyouts", 0),
+                        returns_count=sinfo.get("returns", 0),
+                        stock_qty=skinfo.get("qty", 0),
+                        warehouse_name=", ".join(skinfo.get("warehouses", set())) if skinfo.get("warehouses") else None,
+                        row_status="active",
+                        is_final="no",
+                        last_sync_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow(),
+                    ).on_conflict_do_update(
+                        constraint="tech_status_org_date_entity_key",
+                        set_={
+                            "product_name": ins.excluded.product_name,
+                            "vendor_code": ins.excluded.vendor_code,
+                            "barcode": ins.excluded.barcode,
+                            "photo_main": ins.excluded.photo_main,
+                            "orders_count": ins.excluded.orders_count,
+                            "buyouts_count": ins.excluded.buyouts_count,
+                            "returns_count": ins.excluded.returns_count,
+                            "stock_qty": ins.excluded.stock_qty,
+                            "warehouse_name": ins.excluded.warehouse_name,
+                            "nm_id": ins.excluded.nm_id,
+                            "last_sync_at": datetime.utcnow(),
+                            "updated_at": datetime.utcnow(),
+                        }
+                    )
+                    try:
+                        await db.execute(stmt)
+                        await db.commit()
+                        total += 1
+                    except Exception as exc:
+                        await db.rollback()
+                        logger.error(f"[parse_raw] upsert error for entity={e_id}, nm={n_id}, date={td}: {exc}")
+
+    # Финальный коммит не нужен — каждый upsert коммитится отдельно
 
     logger.info(f"[sched] parse_raw: {total} records")
     return {"parsed": total}

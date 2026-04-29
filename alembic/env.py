@@ -30,6 +30,18 @@ from models.wb_data import (
     WbOrder,
     OrderStatus
 )
+from models.raw_data import (
+    RawApiData,
+    RawBarcode,
+    WarehouseRef,
+    TechStatus,
+    RawSyncStatus
+)
+from models.product_entity import (
+    ProductEntity,
+    EntityBarcode,
+    UnmatchedBarcode
+)
 
 config = context.config
 
