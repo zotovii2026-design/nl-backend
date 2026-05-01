@@ -1,103 +1,71 @@
-"""Подтяжка фото товаров через публичный API WB"""
+"""Подтяжка фото товаров через перебор корзин WB CDN"""
 import logging
 import httpx
 from typing import Optional
+import asyncio
 
 logger = logging.getLogger(__name__)
 
-# Публичный API WB для деталей товара
-WB_CARD_URL = "https://card.wb.ru/cards/v1/detail"
+# WB CDN корзины — параллельная проверка
+MAX_BASKET = 32  # корзины basket-01 .. basket-32
+CDN_TEMPLATE = "https://basket-{basket}.wbbasket.ru/vol{vol}/part{part}/{nm_id}/images/hq/1.webp"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Accept": "application/json",
 }
+
+
+def _build_url(nm_id: int, basket_num: int) -> str:
+    vol = nm_id // 100000
+    part = nm_id // 1000
+    b = str(basket_num).zfill(2)
+    return CDN_TEMPLATE.format(basket=b, vol=vol, part=part, nm_id=nm_id)
+
+
+async def _check_url(client: httpx.AsyncClient, url: str) -> bool:
+    """HEAD запрос — вернёт True если 200"""
+    try:
+        resp = await client.head(url, follow_redirects=True)
+        return resp.status_code == 200
+    except:
+        return False
 
 
 async def fetch_photo_for_nm(nm_id: int) -> Optional[str]:
     """
-    Получить URL главного фото товара через публичный API WB.
-    Возвращает URL фото или None если не найдено.
+    Найти фото товара перебором корзин WB CDN.
+    Параллельно проверяем все корзины (~32 HEAD запроса).
     """
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                WB_CARD_URL,
-                params={
-                    "appType": 1,
-                    "curr": "rub",
-                    "dest": -1257786,
-                    "nm": nm_id,
-                },
-                headers=HEADERS,
-            )
-            if resp.status_code != 200:
-                logger.debug(f"photo_fetch: nm={nm_id} status={resp.status_code}")
-                return None
-
-            data = resp.json()
-            products = data.get("data", {}).get("products", [])
-            if not products:
-                return None
-
-            product = products[0]
-            photos = product.get("photos", [])
-            if not photos:
-                return None
-
-            # Берём maxRes (самое большое), fallback на big
-            photo = photos[0]
-            url = photo.get("maxRes", "") or photo.get("big", "") or photo.get("small", "")
-            return url if url else None
-
-    except Exception as e:
-        logger.debug(f"photo_fetch error nm={nm_id}: {e}")
-        return None
+    urls = [(i, _build_url(nm_id, i)) for i in range(1, MAX_BASKET + 1)]
+    
+    async with httpx.AsyncClient(timeout=5.0, headers=HEADERS) as client:
+        tasks = [_check_url(client, url) for _, url in urls]
+        results = await asyncio.gather(*tasks)
+        
+        for (basket_num, url), found in zip(urls, results):
+            if found:
+                return url
+    
+    return None
 
 
 async def fetch_photos_batch(nm_ids: list[int]) -> dict[int, str]:
     """
     Получить фото для списка nm_id.
-    WB отдаёт до ~100 товаров за запрос.
-    Возвращает {nm_id: photo_url}.
+    Каждый nm_id — перебор корзин параллельно.
+    Группируем по 5 nm_id одновременно (чтобы не DDOSить CDN).
     """
     result = {}
-    if not nm_ids:
-        return result
-
-    # WB принимает nm как строку с запятыми
-    nm_str = ",".join(str(n) for n in nm_ids)
-
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.get(
-                WB_CARD_URL,
-                params={
-                    "appType": 1,
-                    "curr": "rub",
-                    "dest": -1257786,
-                    "nm": nm_str,
-                },
-                headers=HEADERS,
-            )
-            if resp.status_code != 200:
-                logger.warning(f"photo_fetch batch: status={resp.status_code}")
-                return result
-
-            data = resp.json()
-            products = data.get("data", {}).get("products", [])
-
-            for product in products:
-                nm = product.get("id")
-                if not nm:
-                    continue
-                photos = product.get("photos", [])
-                if photos:
-                    url = photos[0].get("maxRes", "") or photos[0].get("big", "")
-                    if url:
-                        result[nm] = url
-
-    except Exception as e:
-        logger.error(f"photo_fetch batch error: {e}")
-
+    semaphore = asyncio.Semaphore(5)
+    
+    async def _fetch_one(nm_id: int):
+        async with semaphore:
+            url = await fetch_photo_for_nm(nm_id)
+            if url:
+                result[nm_id] = url
+    
+    tasks = [_fetch_one(nm) for nm in nm_ids]
+    await asyncio.gather(*tasks)
+    
+    logger.info(f"photo_fetch: {len(result)}/{len(nm_ids)} photos found")
     return result

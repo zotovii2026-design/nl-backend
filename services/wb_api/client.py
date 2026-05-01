@@ -82,18 +82,25 @@ class WBApiClient:
         """
         Получение всех карточек с автоматической пагинацией
         
-        Args:
-            limit: лимит карточек за запрос
-            search: фильтр поиска
+        WB API отдаёт максимум limit карточек за запрос.
+        Пагинация через курсор: берём updatedAt и nmID последней карточки
+        и передаём как cursor в следующем запросе.
         
-        Returns:
-            List всех карточек
+        Если WB не отдаёт cursor.next — делаем повторный запрос
+        с курсором из последней карточки (WB иногда не ставит next=true).
         """
+        import logging
+        _log = logging.getLogger(__name__)
+        
         all_cards = []
+        seen_nm = set()
+        page = 0
+        max_pages = 50  # Защита от бесконечного цикла (50 * 100 = 5000 карточек)
+        
         cursor_updated_at = None
         cursor_nm_id = None
         
-        while True:
+        while page < max_pages:
             result = await self.get_cards(
                 limit=limit,
                 search=search,
@@ -103,20 +110,48 @@ class WBApiClient:
             
             cards = result.get("cards", [])
             cursor = result.get("cursor", {})
+            page += 1
             
             if not cards:
+                _log.info(f"[pagination] page {page}: empty response, stopping")
                 break
             
-            all_cards.extend(cards)
+            # Дедупликация по nmID
+            new_cards = []
+            for c in cards:
+                nm = c.get("nmID")
+                if nm and nm not in seen_nm:
+                    seen_nm.add(nm)
+                    new_cards.append(c)
             
-            # Обновляем курсор для следующей страницы
-            cursor_updated_at = cursor.get("updatedAt")
-            cursor_nm_id = cursor.get("nmID")
+            all_cards.extend(new_cards)
+            _log.info(f"[pagination] page {page}: {len(cards)} cards ({len(new_cards)} new), total {len(all_cards)}")
             
-            # Если курсор говорит, что нет следующей страницы — выходим
-            if not cursor.get("next", False):
+            # Курсор из ответа API
+            api_cursor_at = cursor.get("updatedAt")
+            api_cursor_nm = cursor.get("nmID")
+            
+            # Если API отдал курсор — используем его
+            if api_cursor_at or api_cursor_nm:
+                cursor_updated_at = api_cursor_at
+                cursor_nm_id = api_cursor_nm
+            else:
+                # Fallback: берём курсор из последней карточки
+                last = cards[-1]
+                cursor_updated_at = last.get("updatedAt")
+                cursor_nm_id = last.get("nmID")
+            
+            # Если вернулось меньше чем limit — это последняя страница
+            if len(cards) < limit:
+                _log.info(f"[pagination] page {page}: got {len(cards)} < {limit}, last page")
+                break
+            
+            # Если нет курсора вообще — не можем продолжать
+            if not cursor_updated_at and not cursor_nm_id:
+                _log.warning(f"[pagination] page {page}: no cursor available, stopping")
                 break
         
+        _log.info(f"[pagination] done: {len(all_cards)} unique cards in {page} pages")
         return all_cards
 
     async def get_card_by_nm_id(self, nm_id: int) -> Optional[Dict[str, Any]]:
