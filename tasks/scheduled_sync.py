@@ -632,3 +632,79 @@ async def _do_parse_raw(sf):
 
     logger.info(f"[sched] parse_raw: {total} records")
     return {"parsed": total}
+
+# ─── ПОДТЯЖКА ФОТО ────────────────────────────────────────
+
+@shared_task(name="wb.sched.fetch_photos")
+def sched_fetch_photos():
+    """Подтянуть фото для товаров без фото через публичный API WB"""
+    return _run(_do_fetch_photos)
+
+
+async def _do_fetch_photos(sf):
+    from services.photo_fetch import fetch_photos_batch
+    from models.product_entity import ProductEntity
+    from models.raw_data import TechStatus
+
+    # 1. Найти nm_id без фото в product_entities
+    async with sf() as db:
+        result = await db.execute(text("""
+            SELECT DISTINCT nm_id FROM (
+                SELECT DISTINCT nm_id FROM product_entities 
+                WHERE (photo_main IS NULL OR photo_main = '') AND organization_id IS NOT NULL
+                UNION
+                SELECT DISTINCT nm_id FROM tech_status 
+                WHERE (photo_main IS NULL OR photo_main = '') AND organization_id IS NOT NULL
+            ) sub
+        """))
+        nm_ids = [r[0] for r in result.all()]
+
+    if not nm_ids:
+        logger.info("[sched] fetch_photos: все сущности с фото")
+        return {"status": "ok", "fetched": 0, "reason": "all_have_photos"}
+
+    logger.info(f"[sched] fetch_photos: {len(nm_ids)} товаров без фото")
+
+    # 2. Батчевая подтяжка (по 30 штук — WB лимит)
+    all_photos = {}
+    batch_size = 30
+    for i in range(0, len(nm_ids), batch_size):
+        batch = nm_ids[i:i+batch_size]
+        photos = await fetch_photos_batch(batch)
+        all_photos.update(photos)
+        if i + batch_size < len(nm_ids):
+            import asyncio
+            await asyncio.sleep(1)  # пауза между батчами
+
+    if not all_photos:
+        logger.info("[sched] fetch_photos: фото не найдены")
+        return {"status": "ok", "fetched": 0, "reason": "no_photos_found"}
+
+    # 3. Обновить product_entities
+    updated_entities = 0
+    async with sf() as db:
+        for nm_id, photo_url in all_photos.items():
+            result = await db.execute(
+                ProductEntity.__table__.update()
+                .where(ProductEntity.nm_id == nm_id)
+                .where((ProductEntity.photo_main == None) | (ProductEntity.photo_main == ""))
+                .values(photo_main=photo_url, updated_at=datetime.utcnow())
+            )
+            updated_entities += result.rowcount
+        await db.commit()
+
+    # 4. Обновить tech_status
+    updated_ts = 0
+    async with sf() as db:
+        for nm_id, photo_url in all_photos.items():
+            result = await db.execute(
+                TechStatus.__table__.update()
+                .where(TechStatus.nm_id == nm_id)
+                .where((TechStatus.photo_main == None) | (TechStatus.photo_main == ""))
+                .values(photo_main=photo_url, updated_at=datetime.utcnow())
+            )
+            updated_ts += result.rowcount
+        await db.commit()
+
+    logger.info(f"[sched] fetch_photos: {len(all_photos)} photos, {updated_entities} entities, {updated_ts} ts rows updated")
+    return {"status": "ok", "photos_found": len(all_photos), "entities_updated": updated_entities, "ts_updated": updated_ts}
