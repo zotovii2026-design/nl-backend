@@ -425,7 +425,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
         .order_by(TechStatus.orders_count.desc().nullslast())
     )
 
-    # Маппинг entity_id → size_name
+    # Маппинг entity_id -> size_name
     from models.product_entity import ProductEntity
     ent_result = await db.execute(
         select(ProductEntity.id, ProductEntity.size_name).where(
@@ -433,6 +433,64 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
         )
     )
     size_map = {str(r[0]): r[1] for r in ent_result.all()}
+
+    # --- Юнит Экономика для ТС ---
+    from sqlalchemy import text
+
+    # Себестоимость и справочник
+    ref_result = await db.execute(text(
+        "SELECT entity_id, nm_id, cost_price, product_class, brand, tax_system, tax_rate, vat_rate "
+        "FROM reference_book WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
+    ), {"org": org_id})
+    ref_by_entity = {}
+    ref_by_nm = {}
+    for r in ref_result.all():
+        d_item = {
+            "cost_price": float(r[2]) if r[2] else 0,
+            "product_class": r[3] or "",
+            "brand": r[4] or "",
+            "tax_system": r[5] or "",
+            "tax_rate": float(r[6]) if r[6] else 0,
+            "vat_rate": float(r[7]) if r[7] else 0,
+        }
+        if r[0]:
+            ref_by_entity[str(r[0])] = d_item
+        if r[1]:
+            ref_by_nm[r[1]] = d_item
+
+    # WB тарифы (из wb_tariff_snapshot)
+    snap_result = await db.execute(text(
+        "SELECT nm_id, logistics_tariff, storage_tariff, commission_pct, buyout_pct_fact "
+        "FROM wb_tariff_snapshot WHERE organization_id = :org ORDER BY target_date DESC"
+    ), {"org": org_id})
+    snap_by_nm_ts = {}
+    for r in snap_result.all():
+        if r[0] not in snap_by_nm_ts:
+            snap_by_nm_ts[r[0]] = {
+                "logistics_tariff": float(r[1]) if r[1] else 0,
+                "storage_tariff": float(r[2]) if r[2] else 0,
+                "commission_pct": float(r[3]) if r[3] else 0,
+                "buyout_pct_fact": float(r[4]) if r[4] else 0,
+            }
+
+    def _get_ref(eid, nm):
+        return ref_by_entity.get(eid, ref_by_nm.get(nm, {"cost_price":0,"product_class":"","brand":"","tax_system":"","tax_rate":0,"vat_rate":0}))
+
+    def _get_snap(nm):
+        return snap_by_nm_ts.get(nm, {"logistics_tariff":0,"storage_tariff":0,"commission_pct":0,"buyout_pct_fact":0})
+
+    def _calc_unit(price_disc, ad_cost, ref, snap):
+        """Упрощённый расчёт юнитки для ТС"""
+        p = float(price_disc or 0)
+        a = float(ad_cost or 0)
+        cp = ref["cost_price"]
+        comm = p * snap["commission_pct"] / 100 if p and snap["commission_pct"] else 0
+        logist = snap["logistics_tariff"]
+        expenses = round(cp + comm + logist + a, 2)
+        profit = round(p - expenses, 2)
+        margin = round(profit / p * 100, 1) if p else 0
+        roi = round(profit / cp * 100, 1) if cp else 0
+        return {"unit_expenses": expenses, "unit_profit": profit, "unit_margin": margin, "unit_roi": roi}
 
     def safe_float(v):
         return float(v) if v is not None and not isinstance(v, decimal.Decimal) else (float(v) if isinstance(v, decimal.Decimal) else None)
@@ -460,26 +518,33 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
             "low_stock_count": safe_int(low_stock.scalar()) or 0,
             "low_rating_count": safe_int(low_rating.scalar()) or 0,
         },
-        "products": [{
-            "entity_id": str(r[0]) if r[0] else None,
-            "nm_id": r[1],
-            "vendor_code": r[2],
-            "product_name": r[3],
-            "photo_main": r[4],
-            "stock_qty": safe_int(r[5]),
-            "orders_count": safe_int(r[6]),
-            "buyouts_count": safe_int(r[7]),
-            "returns_count": safe_int(r[8]),
-            "rating": safe_float(r[9]),
-            "impressions": safe_int(r[10]),
-            "clicks": safe_int(r[11]),
-            "ad_cost": safe_float(r[12]),
-            "price": safe_float(r[13]),
-            "price_discount": safe_float(r[14]),
-            "tariff": safe_float(r[15]),
-            "barcode": r[16] or "",
-            "size_name": size_map.get(str(r[0]), "") if r[0] else "",
-        } for r in products_detail.all()]
+        "products": (lambda rows: [
+            {**{
+                "entity_id": str(r[0]) if r[0] else None,
+                "nm_id": r[1],
+                "vendor_code": r[2],
+                "product_name": r[3],
+                "photo_main": r[4],
+                "stock_qty": safe_int(r[5]),
+                "orders_count": safe_int(r[6]),
+                "buyouts_count": safe_int(r[7]),
+                "returns_count": safe_int(r[8]),
+                "rating": safe_float(r[9]),
+                "impressions": safe_int(r[10]),
+                "clicks": safe_int(r[11]),
+                "ad_cost": safe_float(r[12]),
+                "price": safe_float(r[13]),
+                "price_discount": safe_float(r[14]),
+                "tariff": safe_float(r[15]),
+                "barcode": r[16] or "",
+                "size_name": size_map.get(str(r[0]), "") if r[0] else "",
+            },
+            **{k: v for k, v in _get_ref(str(r[0]) if r[0] else "", r[1]).items()},
+            **{f"snap_{k}": v for k, v in _get_snap(r[1]).items()},
+            **_calc_unit(safe_float(r[14]), safe_float(r[12]), _get_ref(str(r[0]) if r[0] else "", r[1]), _get_snap(r[1])),
+            }
+            for r in rows
+        ])(products_detail.all())
     }
 
 
