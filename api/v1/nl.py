@@ -3444,7 +3444,7 @@ async function saveAllUnitEcon() {
         const p = ueData[idx];
         if (!p) continue;
         const inputs = row.querySelectorAll('.ue-input');
-        const data = { nm_id: p.nm_id, barcode: p.barcode || null };
+        const data = { nm_id: p.nm_id, barcode: p.barcode || null, entity_id: p.entity_id || null };
         inputs.forEach(inp => { data[inp.dataset.field] = inp.type === 'number' ? parseFloat(inp.value) || 0 : inp.value; });
         try {
             const res = await fetch('/api/v1/nl/unit-economics?org_id=' + ORG_ID, {
