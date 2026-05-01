@@ -711,6 +711,43 @@ async def _do_fetch_photos(sf):
 
 # ==================== WB TARIFF SNAPSHOT SYNC ====================
 
+
+
+@shared_task(name="wb.sched.commission")
+def sched_commission():
+    """Подтягивает комиссии МП по предметам"""
+    return _run(_do_commission)
+
+
+async def _do_commission(sf):
+    """Сохраняет маппинг subjectID -> commission в raw_api_data"""
+    info = await _get_first_key(sf)
+    if not info:
+        return {"status": "skipped", "reason": "no_keys"}
+    org_id, api_key = info
+
+    today = date.today()
+
+    import httpx
+    async with httpx.AsyncClient() as http:
+        resp = await http.get(
+            "https://common-api.wildberries.ru/api/v1/tariffs/commission",
+            headers={"Authorization": api_key},
+            timeout=30
+        )
+        if resp.status_code != 200:
+            logger.error(f"[commission] API error: {resp.status_code} {resp.text[:200]}")
+            return {"status": "error", "code": resp.status_code}
+
+        data = resp.json()
+        report = data.get("report", [])
+        logger.info(f"[commission] got {len(report)} subjects")
+
+        async with sf() as db:
+            await _save_raw(db, org_id, "tariffs_commission", today, data, count=len(report))
+
+        return {"status": "ok", "subjects": len(report)}
+
 @shared_task(name="wb.sched.tariff_snapshot")
 def sched_tariff_snapshot():
     """Собирает снимок WB-данных (тарифы, цены, комиссия, реклама, % выкупа)"""
@@ -730,10 +767,83 @@ async def _do_tariff_snapshot(sf):
 
     results = {"tariffs": 0, "adverts": 0, "buyout": 0, "total": 0}
 
+    # 0b. Загружаем цены из stocks (Price + Discount -> price_retail, price_with_spp)
+    prices_by_nm = {}  # nm_id -> {price_retail, price_with_spp}
+
+    async with sf() as db:
+        stocks_result = await db.execute(
+            text("SELECT raw_response FROM raw_api_data "
+                 "WHERE organization_id = :org AND api_method = 'stocks' "
+                 "ORDER BY target_date DESC LIMIT 1"),
+            {"org": org_id}
+        )
+        stocks_row = stocks_result.first()
+        if stocks_row and stocks_row[0]:
+            try:
+                sdata = stocks_row[0] if isinstance(stocks_row[0], list) else _json.loads(stocks_row[0])
+                items = sdata if isinstance(sdata, list) else sdata.get("response", sdata.get("data", []))
+                if isinstance(items, list):
+                    for s in items:
+                        nm = int(s.get("nmId", 0))
+                        price = float(s.get("Price", 0) or 0)
+                        discount = float(s.get("Discount", 0) or 0)
+                        if nm and price:
+                            price_with_spp = round(price * (1 - discount / 100), 2)
+                            # Берём максимальную цену (может быть несколько записей для одного nm)
+                            if nm not in prices_by_nm or price > prices_by_nm[nm]["price_retail"]:
+                                prices_by_nm[nm] = {"price_retail": price, "price_with_spp": price_with_spp}
+                logger.info(f"[tariff_snapshot] loaded {len(prices_by_nm)} prices from stocks")
+            except Exception as e:
+                logger.error(f"[tariff_snapshot] stocks prices parse error: {e}")
+
     # 1. Извлекаем тарифы (логистика + хранение) из raw_api_data
     logistics_avg = 0
     storage_avg = 0
-    commission_pct = 0
+    # 0. Загружаем комиссии по subjectID из raw_api_data
+    commission_rates = {}  # subjectID -> paidStorageKgvp (ФБО)
+    products_subjects = {}  # nm_id -> subjectID
+
+    async with sf() as db:
+        comm_result = await db.execute(
+            text("SELECT raw_response FROM raw_api_data "
+                 "WHERE organization_id = :org AND api_method = 'tariffs_commission' "
+                 "ORDER BY target_date DESC LIMIT 1"),
+            {"org": org_id}
+        )
+        comm_row = comm_result.first()
+        if comm_row and comm_row[0]:
+            try:
+                cdata = comm_row[0] if isinstance(comm_row[0], dict) else _json.loads(comm_row[0])
+                for item in cdata.get("report", []):
+                    sid = item.get("subjectID")
+                    pct = item.get("paidStorageKgvp")  # ФБО комиссия
+                    if sid and pct is not None:
+                        commission_rates[sid] = float(pct)
+                logger.info(f"[tariff_snapshot] loaded {len(commission_rates)} commission rates")
+            except Exception as e:
+                logger.error(f"[tariff_snapshot] commission parse error: {e}")
+
+        # Загружаем subjectID для продуктов
+        subj_result = await db.execute(
+            text("SELECT raw_response FROM raw_api_data "
+                 "WHERE organization_id = :org AND api_method = 'products' "
+                 "ORDER BY target_date DESC LIMIT 1"),
+            {"org": org_id}
+        )
+        subj_row = subj_result.first()
+        if subj_row and subj_row[0]:
+            try:
+                pdata = subj_row[0] if isinstance(subj_row[0], list) else _json.loads(subj_row[0])
+                items = pdata if isinstance(pdata, list) else pdata.get("response", pdata.get("data", []))
+                if isinstance(items, list):
+                    for p in items:
+                        nm = p.get("nmID")
+                        sid = p.get("subjectID")
+                        if nm and sid:
+                            products_subjects[int(nm)] = int(sid)
+                logger.info(f"[tariff_snapshot] loaded {len(products_subjects)} product subjects")
+            except Exception as e:
+                logger.error(f"[tariff_snapshot] products subject parse error: {e}")
 
     async with sf() as db:
         box_result = await db.execute(
@@ -826,6 +936,13 @@ async def _do_tariff_snapshot(sf):
                 entities[nm] = []
             entities[nm].append(r[0])
 
+    # 4b. Маппинг nm_id -> commission_pct
+    commission_pct_map = {}
+    for nm_id in entities:
+        sid = products_subjects.get(nm_id)
+        if sid and sid in commission_rates:
+            commission_pct_map[nm_id] = commission_rates[sid]
+
     # 5. Записываем в wb_tariff_snapshot
     for nm_id, entity_ids in entities.items():
         eid = entity_ids[0] if entity_ids else None
@@ -840,7 +957,9 @@ async def _do_tariff_snapshot(sf):
                 logistics_base=round(logistics_avg, 2) if logistics_avg else None,
                 storage_tariff=round(storage_avg, 4) if storage_avg else None,
                 storage_base=round(storage_avg, 4) if storage_avg else None,
-                commission_pct=None,  # Будет из API комиссии
+                commission_pct=commission_pct_map.get(nm_id),
+                price_retail=prices_by_nm.get(nm_id, {}).get("price_retail"),
+                price_with_spp=prices_by_nm.get(nm_id, {}).get("price_with_spp"),
                 ad_cost_fact=ad_by_nm.get(nm_id, 0) if ad_by_nm.get(nm_id, 0) > 0 else None,
                 buyout_pct_fact=buyout_map.get(nm_id),
             )
@@ -853,6 +972,9 @@ async def _do_tariff_snapshot(sf):
                     "storage_base": ins.excluded.storage_base,
                     "ad_cost_fact": ins.excluded.ad_cost_fact,
                     "buyout_pct_fact": ins.excluded.buyout_pct_fact,
+                    "commission_pct": ins.excluded.commission_pct,
+                    "price_retail": ins.excluded.price_retail,
+                    "price_with_spp": ins.excluded.price_with_spp,
                     "fetched_at": datetime.utcnow(),
                 }
             )

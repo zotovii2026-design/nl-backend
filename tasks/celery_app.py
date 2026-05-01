@@ -5,7 +5,7 @@ celery_app = Celery(
     "nl_backend",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
-    include=["tasks.sync_tasks", "tasks.wb_sync", "tasks.ad_sync"]
+    include=["tasks.sync_tasks", "tasks.wb_sync", "tasks.ad_sync", "tasks.scheduled_sync"]
 )
 
 celery_app.conf.update(
@@ -19,6 +19,14 @@ celery_app.conf.update(
             "task": "wb.sched.ad_stats",
             "schedule": 86400,  # раз в сутки
             "kwargs": {"days_back": 1},
+        },
+        "commission-daily": {
+            "task": "wb.sched.commission",
+            "schedule": 86400,  # раз в сутки
+        },
+        "tariff-snapshot-daily": {
+            "task": "wb.sched.tariff_snapshot",
+            "schedule": 86400,  # раз в сутки
         },
     },
 )
