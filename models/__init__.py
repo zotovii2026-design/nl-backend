@@ -30,6 +30,8 @@ from models.product_entity import (
     EntityBarcode,
     UnmatchedBarcode
 )
+from models.reference_book import ReferenceBook
+from models.wb_tariff_snapshot import WbTariffSnapshot
 
 __all__ = [
     "User",
@@ -54,4 +56,6 @@ __all__ = [
     "ProductEntity",
     "EntityBarcode",
     "UnmatchedBarcode",
+    "ReferenceBook",
+    "WbTariffSnapshot",
 ]

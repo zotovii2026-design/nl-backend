@@ -708,3 +708,161 @@ async def _do_fetch_photos(sf):
 
     logger.info(f"[sched] fetch_photos: {len(all_photos)} photos, {updated_entities} entities, {updated_ts} ts rows updated")
     return {"status": "ok", "photos_found": len(all_photos), "entities_updated": updated_entities, "ts_updated": updated_ts}
+
+# ==================== WB TARIFF SNAPSHOT SYNC ====================
+
+@shared_task(name="wb.sched.tariff_snapshot")
+def sched_tariff_snapshot():
+    """Собирает снимок WB-данных (тарифы, цены, комиссия, реклама, % выкупа)"""
+    return _run(_do_tariff_snapshot)
+
+
+async def _do_tariff_snapshot(sf):
+    """Заполняет wb_tariff_snapshot из уже собранных raw_api_data + tech_status"""
+    info = await _get_first_key(sf)
+    if not info:
+        return {"status": "skipped", "reason": "no_keys"}
+    org_id, api_key = info
+    today = date.today()
+
+    import json as _json
+    from models.wb_tariff_snapshot import WbTariffSnapshot
+
+    results = {"tariffs": 0, "adverts": 0, "buyout": 0, "total": 0}
+
+    # 1. Извлекаем тарифы (логистика + хранение) из raw_api_data
+    logistics_avg = 0
+    storage_avg = 0
+    commission_pct = 0
+
+    async with sf() as db:
+        box_result = await db.execute(
+            text("SELECT raw_response FROM raw_api_data "
+                 "WHERE organization_id = :org AND api_method IN ('tariffs', 'tariffs_box') "
+                 "ORDER BY target_date DESC LIMIT 1"),
+            {"org": org_id}
+        )
+        box_row = box_result.first()
+        if box_row and box_row[0]:
+            try:
+                tdata = box_row[0] if isinstance(box_row[0], dict) else _json.loads(box_row[0])
+                warehouses = tdata.get("response", {}).get("data", {}).get("warehouseList", [])
+                target_wh = ["Коледино", "Краснодар", "Казань"]
+                delivery_vals = []
+                storage_vals = []
+                for wh in warehouses:
+                    name = wh.get("warehouseName", "")
+                    if any(t in name for t in target_wh):
+                        db_val = wh.get("boxDeliveryBase", "0")
+                        sb_val = wh.get("boxStorageBase", "0")
+                        try: delivery_vals.append(float(str(db_val).replace(",", ".")))
+                        except: pass
+                        try: storage_vals.append(float(str(sb_val).replace(",", ".")))
+                        except: pass
+                logistics_avg = sum(delivery_vals) / len(delivery_vals) if delivery_vals else 0
+                storage_avg = sum(storage_vals) / len(storage_vals) if storage_vals else 0
+                results["tariffs"] = len(delivery_vals)
+            except Exception as e:
+                logger.error(f"[tariff_snapshot] tariffs parse error: {e}")
+
+    # 2. Рекламные расходы по nm_id из adverts
+    ad_by_nm = {}
+    async with sf() as db:
+        advert_result = await db.execute(
+            text("SELECT raw_response FROM raw_api_data "
+                 "WHERE organization_id = :org AND api_method = 'adverts' "
+                 "ORDER BY target_date DESC LIMIT 1"),
+            {"org": org_id}
+        )
+        advert_row = advert_result.first()
+        if advert_row and advert_row[0]:
+            try:
+                adata = advert_row[0] if isinstance(advert_row[0], list) else _json.loads(advert_row[0])
+                if isinstance(adata, list):
+                    for camp in adata:
+                        camp_sum = float(camp.get("sum", 0) or 0)
+                        # adverts могут содержать nmId в параметрах
+                        params = camp.get("params", [])
+                        if isinstance(params, list):
+                            for p in params:
+                                nm = p.get("nmId") or p.get("nm")
+                                if nm:
+                                    key = int(nm)
+                                    ad_by_nm[key] = ad_by_nm.get(key, 0) + camp_sum
+                    results["adverts"] = len(ad_by_nm)
+            except Exception as e:
+                logger.error(f"[tariff_snapshot] adverts parse error: {e}")
+
+    # 3. % выкупа из tech_status (последние 30 дней)
+    buyout_map = {}
+    async with sf() as db:
+        buyout_result = await db.execute(
+            text("""
+                SELECT nm_id,
+                       SUM(COALESCE(buyouts_count, 0)) as buyouts,
+                       SUM(COALESCE(orders_count, 0)) as orders
+                FROM tech_status
+                WHERE organization_id = :org AND target_date >= CURRENT_DATE - INTERVAL '30 days'
+                GROUP BY nm_id
+            """),
+            {"org": org_id}
+        )
+        for r in buyout_result.all():
+            b = float(r[1] or 0)
+            o = float(r[2] or 0)
+            buyout_map[r[0]] = round(b / o * 100, 1) if o > 0 else 0
+        results["buyout"] = len(buyout_map)
+
+    # 4. Список nm_id из product_entities
+    entities = {}
+    async with sf() as db:
+        ent_result = await db.execute(
+            text("SELECT id, nm_id FROM product_entities WHERE organization_id = :org"),
+            {"org": org_id}
+        )
+        for r in ent_result.all():
+            nm = r[1]
+            if nm not in entities:
+                entities[nm] = []
+            entities[nm].append(r[0])
+
+    # 5. Записываем в wb_tariff_snapshot
+    for nm_id, entity_ids in entities.items():
+        eid = entity_ids[0] if entity_ids else None
+
+        async with sf() as db:
+            ins = pg_insert(WbTariffSnapshot).values(
+                organization_id=org_id,
+                entity_id=eid,
+                nm_id=nm_id,
+                target_date=today,
+                logistics_tariff=round(logistics_avg, 2) if logistics_avg else None,
+                logistics_base=round(logistics_avg, 2) if logistics_avg else None,
+                storage_tariff=round(storage_avg, 4) if storage_avg else None,
+                storage_base=round(storage_avg, 4) if storage_avg else None,
+                commission_pct=None,  # Будет из API комиссии
+                ad_cost_fact=ad_by_nm.get(nm_id, 0) if ad_by_nm.get(nm_id, 0) > 0 else None,
+                buyout_pct_fact=buyout_map.get(nm_id),
+            )
+            stmt = ins.on_conflict_do_update(
+                constraint="wb_tariff_snapshot_org_nm_date_key",
+                set_={
+                    "logistics_tariff": ins.excluded.logistics_tariff,
+                    "logistics_base": ins.excluded.logistics_base,
+                    "storage_tariff": ins.excluded.storage_tariff,
+                    "storage_base": ins.excluded.storage_base,
+                    "ad_cost_fact": ins.excluded.ad_cost_fact,
+                    "buyout_pct_fact": ins.excluded.buyout_pct_fact,
+                    "fetched_at": datetime.utcnow(),
+                }
+            )
+            try:
+                await db.execute(stmt)
+                await db.commit()
+                results["total"] += 1
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"[tariff_snapshot] upsert error nm={nm_id}: {e}")
+
+    logger.info(f"[tariff_snapshot] done: {results}")
+    return {"status": "ok", "results": results}

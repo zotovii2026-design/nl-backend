@@ -12,7 +12,7 @@ from core.database import get_db
 from core.security import verify_password, get_password_hash, create_access_token, decode_token, encrypt_data, decrypt_data
 from core.dependencies import get_current_user
 from models.user import User
-from models.reference import ReferenceSheet
+from models.reference_book import ReferenceBook
 from models.raw_data import TechStatus
 
 router = APIRouter(tags=["nl"])
@@ -128,30 +128,37 @@ async def nl_me(token: str = Query(""), db: AsyncSession = Depends(get_db)):
 
 @router.get("/api/v1/nl/reference")
 async def get_reference(org_id: str, target_date: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    """Справочный лист на дату"""
+    """Справочник — все актуальные записи"""
     from datetime import datetime as dt
-    q = select(ReferenceSheet).where(ReferenceSheet.organization_id == org_id)
+    from sqlalchemy import text
+    sql = (
+        "SELECT nm_id, vendor_code, cost_price, purchase_cost as purchase_price, packaging_cost, "
+        "logistics_cost, other_costs, notes, product_class, brand, tax_system, tax_rate, vat_rate, "
+        "valid_from FROM reference_book "
+        "WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
+    )
+    params = {"org": org_id}
     if target_date:
-        q = q.where(ReferenceSheet.target_date == dt.strptime(target_date, "%Y-%m-%d").date())
-    result = await db.execute(q)
-    items = result.scalars().all()
+        sql += " AND valid_from <= :td"
+        params["td"] = dt.strptime(target_date, "%Y-%m-%d").date()
+    sql += " ORDER BY nm_id, valid_from DESC"
+    result = await db.execute(text(sql), params)
     return [{
-        "nm_id": i.nm_id,
-        "vendor_code": i.vendor_code,
-        "product_name": i.product_name,
-        "target_date": str(i.target_date),
-        "cost_price": float(i.cost_price) if i.cost_price else None,
-        "purchase_price": float(i.purchase_price) if i.purchase_price else None,
-        "packaging_cost": float(i.packaging_cost) if i.packaging_cost else None,
-        "logistics_cost": float(i.logistics_cost) if i.logistics_cost else None,
-        "other_costs": float(i.other_costs) if i.other_costs else None,
-        "notes": i.notes,
-        "product_class": i.product_class,
-        "brand": i.brand,
-        "tax_system": i.tax_system,
-        "tax_rate": float(i.tax_rate) if i.tax_rate else None,
-        "vat_rate": float(i.vat_rate) if i.vat_rate else None,
-    } for i in items]
+        "nm_id": r[0],
+        "vendor_code": r[1],
+        "target_date": str(r[13]),
+        "cost_price": float(r[2]) if r[2] else None,
+        "purchase_price": float(r[3]) if r[3] else None,
+        "packaging_cost": float(r[4]) if r[4] else None,
+        "logistics_cost": float(r[5]) if r[5] else None,
+        "other_costs": float(r[6]) if r[6] else None,
+        "notes": r[7],
+        "product_class": r[8],
+        "brand": r[9],
+        "tax_system": r[10],
+        "tax_rate": float(r[11]) if r[11] else None,
+        "vat_rate": float(r[12]) if r[12] else None,
+    } for r in result.all()]
 
 
 @router.post("/api/v1/nl/reference")
@@ -159,25 +166,32 @@ async def save_reference(item: RefItem, org_id: str, db: AsyncSession = Depends(
     """Сохранить строку справочного листа"""
     from datetime import datetime as dt_mod
     t_date = dt_mod.strptime(item.target_date, "%Y-%m-%d").date() if item.target_date else date.today()
-    ins = pg_insert(ReferenceSheet).values(
+    # entity_id lookup
+    from sqlalchemy import text as _sql_text
+    ent_q = await db.execute(_sql_text(
+        "SELECT id FROM product_entities WHERE organization_id = :org AND nm_id = :nm LIMIT 1"
+    ), {"org": org_id, "nm": item.nm_id})
+    ent_row = ent_q.first()
+    eid = ent_row[0] if ent_row else None
+    ins = pg_insert(ReferenceBook).values(
         organization_id=org_id, nm_id=item.nm_id, vendor_code=item.vendor_code,
-        product_name=item.product_name, target_date=t_date,
+        valid_from=t_date, entity_id=eid,
         cost_price=item.cost_price,
-        purchase_price=item.purchase_price, packaging_cost=item.packaging_cost,
+        purchase_cost=item.purchase_price, packaging_cost=item.packaging_cost,
         logistics_cost=item.logistics_cost, other_costs=item.other_costs, notes=item.notes,
         product_class=item.product_class, brand=item.brand,
         tax_system=item.tax_system, tax_rate=item.tax_rate, vat_rate=item.vat_rate,
     )
     stmt = ins.on_conflict_do_update(
-        constraint="reference_sheet_org_nm_date_key",
+        constraint="reference_book_org_entity_vf_key",
         set_={
-            "vendor_code": ins.excluded.vendor_code, "product_name": ins.excluded.product_name,
-            "cost_price": ins.excluded.cost_price, "purchase_price": ins.excluded.purchase_price,
+            "vendor_code": ins.excluded.vendor_code,
+            "cost_price": ins.excluded.cost_price, "purchase_cost": ins.excluded.purchase_cost,
             "packaging_cost": ins.excluded.packaging_cost, "logistics_cost": ins.excluded.logistics_cost,
             "other_costs": ins.excluded.other_costs, "notes": ins.excluded.notes,
             "product_class": ins.excluded.product_class, "brand": ins.excluded.brand,
             "tax_system": ins.excluded.tax_system, "tax_rate": ins.excluded.tax_rate, "vat_rate": ins.excluded.vat_rate,
-            "updated_at": date.today(),
+            "updated_at": func.now(),
         }
     )
     await db.execute(stmt)
@@ -531,20 +545,19 @@ async def import_reference_excel(org_id: str, request: Request, db: AsyncSession
             from datetime import datetime as dt_mod
             t_date = dt_mod.strptime(target_date_str, "%Y-%m-%d").date() if target_date_str else date.today()
 
-            ins = pg_insert(ReferenceSheet).values(
+            ins = pg_insert(ReferenceBook).values(
                 organization_id=org_id, nm_id=nm_id, vendor_code=vendor_code,
-                product_name=product_name, target_date=t_date,
-                cost_price=cost_price, purchase_price=purchase_price,
+                valid_from=t_date,
+                cost_price=cost_price, purchase_cost=purchase_price,
                 packaging_cost=packaging_cost, logistics_cost=logistics_cost,
                 other_costs=other_costs, notes=notes,
             )
             stmt = ins.on_conflict_do_update(
-                constraint="reference_sheet_org_nm_date_key",
+                constraint="reference_book_org_entity_vf_key",
                 set_={
                     "vendor_code": ins.excluded.vendor_code,
-                    "product_name": ins.excluded.product_name,
                     "cost_price": ins.excluded.cost_price,
-                    "purchase_price": ins.excluded.purchase_price,
+                    "purchase_cost": ins.excluded.purchase_cost,
                     "packaging_cost": ins.excluded.packaging_cost,
                     "logistics_cost": ins.excluded.logistics_cost,
                     "other_costs": ins.excluded.other_costs,
@@ -980,7 +993,7 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
         "cp.cost_price, cp.purchase_cost, cp.logistics_cost, cp.packaging_cost, "
         "cp.other_costs, cp.vat, cp.valid_from, cp.valid_to, cp.source, cp.notes, "
         "cp.product_class, cp.brand, cp.tax_system, cp.tax_rate, cp.vat_rate, "
-        "ts.product_name FROM cost_prices cp "
+        "ts.product_name FROM reference_book cp "
         "LEFT JOIN (SELECT DISTINCT nm_id, product_name FROM tech_status WHERE organization_id = :org) ts ON cp.nm_id = ts.nm_id "
         "WHERE cp.organization_id = :org AND (cp.valid_to IS NULL OR cp.valid_to >= CURRENT_DATE) "
         "ORDER BY cp.nm_id, cp.valid_from DESC"
@@ -1023,7 +1036,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         ent_row = ent_q.first()
         entity_id = str(ent_row[0]) if ent_row else None
     await db.execute(text(
-        "INSERT INTO cost_prices (organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
+        "INSERT INTO reference_book (organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
         "cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs, vat, valid_from, source, "
         "product_class, brand, tax_system, tax_rate, vat_rate) "
         "VALUES (:org, :nm, :bc, :vc, :sz, :eid, :cp, :pc, :lc, :pk, :oc, :vat, :vf, :src, "
@@ -1074,7 +1087,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
         cost = row.get("Себестоимость") or row.get("cost_price")
         if nm and cost:
             await db.execute(text(
-                "INSERT INTO cost_prices (organization_id, nm_id, barcode, vendor_code, cost_price, vat, valid_from, source, entity_id) "
+                "INSERT INTO reference_book (organization_id, nm_id, barcode, vendor_code, cost_price, vat, valid_from, source, entity_id) "
                 "VALUES (:org, :nm, :bc, :vc, :cp, :vat, CURRENT_DATE, 'excel', :eid) "
                 "ON CONFLICT (organization_id, entity_id, valid_from) DO UPDATE SET "
                 "cost_price = EXCLUDED.cost_price, vat = EXCLUDED.vat, barcode = EXCLUDED.barcode, vendor_code = EXCLUDED.vendor_code"
@@ -1291,7 +1304,7 @@ async def get_ad_stats(org_id: str, days: str = "7", db: AsyncSession = Depends(
 @router.get("/api/v1/nl/unit-economics")
 async def get_unit_economics(org_id: str, search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """Юнит Экономика — сборка всех данных по SKU"""
-    from models.unit_economics_user import UnitEconomicsUser
+    from models.reference_book import ReferenceBook
     from sqlalchemy import text as sql_text
 
     # 1) Получаем список товаров из tech_status (последняя дата)
@@ -1318,37 +1331,33 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
 
     # 3) Ручные вводы Юнит Экономики — по entity_id, fallback nm_id+barcode
     ue_result = await db.execute(
-        sql_text("SELECT * FROM unit_economics_user WHERE organization_id = :org"),
+        sql_text("SELECT entity_id, nm_id, mp_correction_pct, buyout_niche_pct, extra_costs, ad_plan_rub, price_before_spp_plan, price_before_spp_change, change_date, fulfillment_model, wb_club_discount_pct, storage_pct, product_status FROM reference_book WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"),
         {"org": org_id}
     )
     ue_rows = ue_result.all()
     ue_by_entity = {}
     ue_by_nm_bc = {}
-    # cols: id(0), org(1), nm_id(2), barcode(3), size_name(4),
-    # mp_correction_pct(5), buyout_niche_pct(6), extra_costs(7), ad_plan_rub(8),
-    # price_before_spp_plan(9), price_before_spp_change(10), change_date(11),
-    # tariff_type(12), wb_club_discount_pct(13), created_at(14), updated_at(15), entity_id(16)
     _ue_fields = lambda r: {
-        "mp_correction_pct": r[5], "buyout_niche_pct": r[6],
-        "extra_costs": r[7], "ad_plan_rub": r[8],
-        "price_before_spp_plan": r[9], "price_before_spp_change": r[10],
-        "change_date": r[11], "tariff_type": r[12],
-        "wb_club_discount_pct": r[13],
+        "mp_correction_pct": r[2], "buyout_niche_pct": r[3],
+        "extra_costs": r[4], "ad_plan_rub": r[5],
+        "price_before_spp_plan": r[6], "price_before_spp_change": r[7],
+        "change_date": r[8], "tariff_type": r[9],
+        "wb_club_discount_pct": r[10],
     }
     for r in ue_rows:
-        eid = str(r[16]) if len(r) > 16 and r[16] else None
+        eid = str(r[0]) if r[0] else None
         if eid:
             ue_by_entity[eid] = _ue_fields(r)
         else:
-            key = (r[2], r[3] or "")
+            key = (r[1], "")
             ue_by_nm_bc[key] = _ue_fields(r)
 
-    # 4) Себестоимость из cost_prices — приоритет по entity_id, fallback по nm_id
+    # 4) Себестоимость из reference_book — приоритет по entity_id, fallback по nm_id
     cost_result = await db.execute(
         sql_text("""
             SELECT entity_id, nm_id, cost_price, purchase_cost, logistics_cost, packaging_cost,
             other_costs, vat, product_class, brand, tax_system, tax_rate, vat_rate as cost_vat_rate
-            FROM cost_prices WHERE organization_id = :org 
+            FROM reference_book WHERE organization_id = :org 
             AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
             ORDER BY entity_id NULLS LAST, valid_from DESC
         """),
@@ -1371,83 +1380,31 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         if r[1] and r[1] not in cost_by_nm:
             cost_by_nm[r[1]] = _cost_fields(r)
 
-    # 5) Штрихкоды из raw_barcodes (для размеров)
-    bc_result = await db.execute(
-        sql_text("SELECT nm_id, barcode FROM raw_barcodes WHERE organization_id = :org"),
-        {"org": org_id}
-    )
-    barcode_map = {}
-    for r in bc_result.all():
-        nm = r[0]
-        if nm not in barcode_map:
-            barcode_map[nm] = []
-        barcode_map[nm].append({"barcode": r[1]})
-
-    # 6) Тарифы из raw_api_data (логистика + хранение) — короба и палеты
-    import json as _json
-    def _extract_tariffs(raw_data, prefix="box"):
-        """Извлечь средние тарифы по 3 складам из ответа WB"""
-        if not raw_data:
-            return 0, 0
-        try:
-            tdata = raw_data if isinstance(raw_data, dict) else _json.loads(raw_data)
-            warehouses = tdata.get("response", {}).get("data", {}).get("warehouseList", [])
-            target_wh = ["Коледино", "Краснодар", "Казань"]
-            delivery_vals = []
-            storage_vals = []
-            for wh in warehouses:
-                name = wh.get("warehouseName", "")
-                if any(t in name for t in target_wh):
-                    dkey = f"{prefix}DeliveryBase" if prefix == "box" else "palletDeliveryBase"
-                    skey = f"{prefix}StorageBase" if prefix == "box" else "palletStorageBase"
-                    # Fallback: box prefix for both
-                    db_val = wh.get(dkey, wh.get("boxDeliveryBase", "0"))
-                    sb_val = wh.get(skey, wh.get("boxStorageBase", "0"))
-                    try: delivery_vals.append(float(str(db_val).replace(",", ".")))
-                    except: pass
-                    try: storage_vals.append(float(str(sb_val).replace(",", ".")))
-                    except: pass
-            avg_d = sum(delivery_vals) / len(delivery_vals) if delivery_vals else 0
-            avg_s = sum(storage_vals) / len(storage_vals) if storage_vals else 0
-            return avg_d, avg_s
-        except:
-            return 0, 0
-
-    box_tariffs_result = await db.execute(
-        sql_text("SELECT raw_response FROM raw_api_data WHERE organization_id = :org AND api_method IN ('tariffs', 'tariffs_box') ORDER BY target_date DESC LIMIT 1"),
-        {"org": org_id}
-    )
-    box_row = box_tariffs_result.first()
-    box_logistics, box_storage = _extract_tariffs(box_row[0] if box_row else None, "box")
-
-    pallet_tariffs_result = await db.execute(
-        sql_text("SELECT raw_response FROM raw_api_data WHERE organization_id = :org AND api_method = 'tariffs_pallet' ORDER BY target_date DESC LIMIT 1"),
-        {"org": org_id}
-    )
-    pallet_row = pallet_tariffs_result.first()
-    pallet_logistics, pallet_storage = _extract_tariffs(pallet_row[0] if pallet_row else None, "pallet")
-
-    # Средние тарифы по коробам (default) — будут выбраны по tariff_type каждого товара
-    logistics_avg = box_logistics
-    storage_avg = box_storage
-
-    # 7) % выкупа факт — из sales/orders за последние 30 дней
-    buyout_result = await db.execute(
+    # 5) Автоматические WB-данные из wb_tariff_snapshot
+    tsnap_result = await db.execute(
         sql_text("""
-            SELECT nm_id,
-                   SUM(CASE WHEN buyouts_count > 0 THEN buyouts_count ELSE 0 END) as buyouts,
-                   SUM(CASE WHEN orders_count > 0 THEN orders_count ELSE 0 END) as orders
-            FROM tech_status
-            WHERE organization_id = :org AND target_date >= CURRENT_DATE - INTERVAL '30 days'
-            GROUP BY nm_id
+            SELECT nm_id, logistics_tariff, storage_tariff, ad_cost_fact,
+                   buyout_pct_fact, commission_pct, price_retail, price_with_spp,
+                   spp_pct
+            FROM wb_tariff_snapshot
+            WHERE organization_id = :org
+            ORDER BY target_date DESC
         """),
         {"org": org_id}
     )
-    buyout_map = {}
-    for r in buyout_result.all():
-        b = float(r[1] or 0)
-        o = float(r[2] or 0)
-        buyout_map[r[0]] = round(b / o * 100, 1) if o > 0 else 0
+    snap_by_nm = {}
+    for r in tsnap_result.all():
+        if r[0] not in snap_by_nm:  # Берём только последнюю дату
+            snap_by_nm[r[0]] = {
+                "logistics_tariff": float(r[1]) if r[1] else 0,
+                "storage_tariff": float(r[2]) if r[2] else 0,
+                "ad_cost_fact": float(r[3]) if r[3] else 0,
+                "buyout_pct_fact": float(r[4]) if r[4] else 0,
+                "commission_pct": float(r[5]) if r[5] else 0,
+                "price_retail": float(r[6]) if r[6] else 0,
+                "price_with_spp": float(r[7]) if r[7] else 0,
+                "spp_pct": float(r[8]) if r[8] else 0,
+            }
 
     # 8) Собираем результат
     items = []
@@ -1501,18 +1458,18 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "tax_rate": float(cost.get("tax_rate") or 0),
             "vat_rate": float(cost.get("vat_rate") or 0),
 
-            # Из API WB / raw_api_data
-            "mp_base_pct": float(p[8]) if p[8] else 0,  # tariff (комиссия) из tech_status
-            "buyout_fact_pct": buyout_map.get(nm_id, 0),
-            "logistics_tariff": pallet_logistics if ue.get("tariff_type") == "pallet" else box_logistics,
-            "logistics_actual": 0,  # Будет из финотчётов (Фаза 3b)
-            "storage_tariff": pallet_storage if ue.get("tariff_type") == "pallet" else box_storage,
-            "storage_actual": 0,  # Будет из финотчётов (Фаза 3b)
-            "acceptance_avg": 0,  # Будет из API приёмки (Фаза 3b)
-            "price_before_spp": price,
-            "spp_pct": round((1 - price_discount / price) * 100, 1) if price and price_discount and price_discount < price else 0,
-            "price_with_spp": price_discount or price,
-            "ad_fact_rub": float(p[9]) if p[9] else 0,  # ad_cost из tech_status
+            # Из wb_tariff_snapshot (автоподтяжка)
+            "mp_base_pct": (snap_by_nm.get(nm_id, {})).get("commission_pct") or float(p[8] or 0),  # комиссия из snapshot, fallback tech_status
+            "buyout_fact_pct": snap_by_nm.get(nm_id, {}).get("buyout_pct_fact", 0),
+            "logistics_tariff": snap_by_nm.get(nm_id, {}).get("logistics_tariff", 0),
+            "logistics_actual": 0,  # Будет из финотчётов
+            "storage_tariff": snap_by_nm.get(nm_id, {}).get("storage_tariff", 0),
+            "storage_actual": 0,  # Будет из финотчётов
+            "acceptance_avg": 0,  # Будет из API приёмки
+            "price_before_spp": snap_by_nm.get(nm_id, {}).get("price_retail") or price,
+            "spp_pct": snap_by_nm.get(nm_id, {}).get("spp_pct") or round((1 - price_discount / price) * 100, 1) if price and price_discount and price_discount < price else 0,
+            "price_with_spp": snap_by_nm.get(nm_id, {}).get("price_with_spp") or price_discount or price,
+            "ad_fact_rub": snap_by_nm.get(nm_id, {}).get("ad_cost_fact") or float(p[9] or 0),
             "wb_club_discount_pct_api": 0,
 
             # Ручные вводы
@@ -1660,7 +1617,7 @@ class UnitEconSave(BaseModel):
 @router.post("/api/v1/nl/unit-economics")
 async def save_unit_economics(data: UnitEconSave, org_id: str, db: AsyncSession = Depends(get_db)):
     """Сохранить ручные вводы Юнит Экономики"""
-    from models.unit_economics_user import UnitEconomicsUser
+    from models.reference_book import ReferenceBook
     from datetime import datetime as dt_mod
 
     change_date = None
@@ -1678,11 +1635,12 @@ async def save_unit_economics(data: UnitEconSave, org_id: str, db: AsyncSession 
         ), {"org": org_id, "nm": data.nm_id, "sz": data.barcode or ""})
         ent_row = ent_q.first()
         entity_id_ue = ent_row[0] if ent_row else None
-    ins = pg_insert(UnitEconomicsUser).values(
+    ins = pg_insert(ReferenceBook).values(
         organization_id=org_id,
         nm_id=data.nm_id,
         barcode=data.barcode,
         entity_id=entity_id_ue,
+        valid_from=date.today(),
         mp_correction_pct=data.mp_correction_pct,
         buyout_niche_pct=data.buyout_niche_pct,
         extra_costs=data.extra_costs,
@@ -1690,11 +1648,11 @@ async def save_unit_economics(data: UnitEconSave, org_id: str, db: AsyncSession 
         price_before_spp_plan=data.price_before_spp_plan,
         price_before_spp_change=data.price_before_spp_change,
         change_date=change_date,
-        tariff_type=data.tariff_type or "box",
+        fulfillment_model=data.tariff_type or "fbo",
         wb_club_discount_pct=data.wb_club_discount_pct,
     )
     stmt = ins.on_conflict_do_update(
-        constraint="unit_economics_user_org_entity_key",
+        constraint="reference_book_org_entity_vf_key",
         set_={
             "mp_correction_pct": ins.excluded.mp_correction_pct,
             "buyout_niche_pct": ins.excluded.buyout_niche_pct,
@@ -1703,7 +1661,7 @@ async def save_unit_economics(data: UnitEconSave, org_id: str, db: AsyncSession 
             "price_before_spp_plan": ins.excluded.price_before_spp_plan,
             "price_before_spp_change": ins.excluded.price_before_spp_change,
             "change_date": ins.excluded.change_date,
-            "tariff_type": ins.excluded.tariff_type,
+            "fulfillment_model": ins.excluded.fulfillment_model,
             "wb_club_discount_pct": ins.excluded.wb_club_discount_pct,
         }
     )

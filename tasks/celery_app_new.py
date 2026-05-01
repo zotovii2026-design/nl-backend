@@ -73,5 +73,11 @@ celery_app_new.conf.update(
             "task": "wb.sched.parse_raw",
             "schedule": crontab(hour=19, minute=0),   # UTC 19:00 = MSK 22:00
         },
+
+        # --- 23:00 MSK --- Snapshot tariffov dlya unitki ---
+        "tariff-snapshot": {
+            "task": "wb.sched.tariff_snapshot",
+            "schedule": crontab(hour=20, minute=0),   # UTC 20:00 = MSK 23:00
+        },
     },
 )
