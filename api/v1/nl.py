@@ -1396,7 +1396,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
 
     # 3) Ручные вводы Юнит Экономики — по entity_id, fallback nm_id+barcode
     ue_result = await db.execute(
-        sql_text("SELECT entity_id, nm_id, mp_correction_pct, buyout_niche_pct, extra_costs, ad_plan_rub, price_before_spp_plan, price_before_spp_change, change_date, fulfillment_model, wb_club_discount_pct, storage_pct, product_status FROM reference_book WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"),
+        sql_text("SELECT entity_id, nm_id, mp_correction_pct, buyout_niche_pct, extra_costs, ad_plan_rub, price_before_spp_plan, price_before_spp_change, change_date, fulfillment_model, wb_club_discount_pct, storage_pct, product_status FROM reference_book WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE) ORDER BY valid_from DESC"),
         {"org": org_id}
     )
     ue_rows = ue_result.all()
@@ -1411,11 +1411,25 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
     }
     for r in ue_rows:
         eid = str(r[0]) if r[0] else None
+        fields = _ue_fields(r)
         if eid:
-            ue_by_entity[eid] = _ue_fields(r)
+            if eid not in ue_by_entity:
+                ue_by_entity[eid] = fields
+            else:
+                # Merge: newer non-null values override
+                existing = ue_by_entity[eid]
+                for k, v in fields.items():
+                    if v is not None and v != 0 and v != "":
+                        existing[k] = v
         else:
             key = (r[1], "")
-            ue_by_nm_bc[key] = _ue_fields(r)
+            if key not in ue_by_nm_bc:
+                ue_by_nm_bc[key] = fields
+            else:
+                existing = ue_by_nm_bc[key]
+                for k, v in fields.items():
+                    if v is not None and v != 0 and v != "":
+                        existing[k] = v
 
     # 4) Себестоимость из reference_book — приоритет по entity_id, fallback по nm_id
     cost_result = await db.execute(
@@ -1440,10 +1454,23 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         "tax_rate": r[11], "vat_rate": r[12],
     }
     for r in cost_rows:
-        if r[0] and str(r[0]) not in cost_by_entity:
-            cost_by_entity[str(r[0])] = _cost_fields(r)
-        if r[1] and r[1] not in cost_by_nm:
-            cost_by_nm[r[1]] = _cost_fields(r)
+        fields = _cost_fields(r)
+        if r[0]:
+            eid = str(r[0])
+            if eid not in cost_by_entity:
+                cost_by_entity[eid] = fields
+            else:
+                for k, v in fields.items():
+                    if v is not None and v != 0:
+                        cost_by_entity[eid][k] = v
+        if r[1]:
+            nm = r[1]
+            if nm not in cost_by_nm:
+                cost_by_nm[nm] = fields
+            else:
+                for k, v in fields.items():
+                    if v is not None and v != 0:
+                        cost_by_nm[nm][k] = v
 
     # 5) Автоматические WB-данные из wb_tariff_snapshot
     tsnap_result = await db.execute(
