@@ -875,33 +875,29 @@ async def _do_tariff_snapshot(sf):
             except Exception as e:
                 logger.error(f"[tariff_snapshot] tariffs parse error: {e}")
 
-    # 2. Рекламные расходы по nm_id из adverts
+    # 2. Рекламные расходы по nm_id из ad_stats + ad_campaigns
     ad_by_nm = {}
     async with sf() as db:
-        advert_result = await db.execute(
-            text("SELECT raw_response FROM raw_api_data "
-                 "WHERE organization_id = :org AND api_method = 'adverts' "
-                 "ORDER BY target_date DESC LIMIT 1"),
+        ad_result = await db.execute(
+            text(r"""
+                WITH camp_nm AS (
+                    SELECT wb_campaign_id,
+                           (regexp_match(name, '^\s*(\d+)'))[1]::int as nm_id
+                    FROM ad_campaigns
+                    WHERE organization_id = :org AND name ~ '^\s*\d+'
+                )
+                SELECT c.nm_id, SUM(a.spent)::numeric(10,2) as total_spent
+                FROM camp_nm c
+                JOIN ad_stats a ON a.wb_campaign_id = c.wb_campaign_id
+                    AND a.organization_id = :org
+                    AND a.stat_date >= CURRENT_DATE - INTERVAL '30 days'
+                GROUP BY c.nm_id
+            """),
             {"org": org_id}
         )
-        advert_row = advert_result.first()
-        if advert_row and advert_row[0]:
-            try:
-                adata = advert_row[0] if isinstance(advert_row[0], list) else _json.loads(advert_row[0])
-                if isinstance(adata, list):
-                    for camp in adata:
-                        camp_sum = float(camp.get("sum", 0) or 0)
-                        # adverts могут содержать nmId в параметрах
-                        params = camp.get("params", [])
-                        if isinstance(params, list):
-                            for p in params:
-                                nm = p.get("nmId") or p.get("nm")
-                                if nm:
-                                    key = int(nm)
-                                    ad_by_nm[key] = ad_by_nm.get(key, 0) + camp_sum
-                    results["adverts"] = len(ad_by_nm)
-            except Exception as e:
-                logger.error(f"[tariff_snapshot] adverts parse error: {e}")
+        for r in ad_result.all():
+            ad_by_nm[int(r[0])] = float(r[1] or 0)
+        results["adverts"] = len(ad_by_nm)
 
     # 3. % выкупа из tech_status (последние 30 дней)
     buyout_map = {}
