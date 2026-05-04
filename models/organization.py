@@ -44,6 +44,7 @@ class Organization(Base):
     description = Column(Text, nullable=True)
     subscription_tier = Column(ENUM(SubscriptionTier), default=SubscriptionTier.TRIAL)
     subscription_status = Column(ENUM(SubscriptionStatus), default=SubscriptionStatus.ACTIVE)
+    wb_seller_id = Column(String(20), nullable=True)  # ID магазина WB (oid из JWT)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

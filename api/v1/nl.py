@@ -283,6 +283,7 @@ async def nl_organizations(token: str = Query(""), db: AsyncSession = Depends(ge
         orgs.append({
             "id": str(o.id),
             "name": o.name,
+            "wb_seller_id": o.wb_seller_id,
             "wb_keys_count": len(keys),
             "role": m.role.value if hasattr(m.role, "value") else str(m.role),
         })
@@ -320,14 +321,30 @@ async def nl_wb_keys(org_id: str, db: AsyncSession = Depends(get_db)):
 @router.post("/api/v1/nl/wb-keys")
 async def nl_add_wb_key(data: dict, org_id: str, db: AsyncSession = Depends(get_db)):
     """Добавить WB API ключ"""
-    from models.organization import WbApiKey
+    import base64, json as _json
+    from models.organization import WbApiKey, Organization
     name = data.get("name", "WB Key")
     api_key = data.get("api_key", "")
     if not api_key:
         raise HTTPException(400, "API ключ обязателен")
     encrypted = encrypt_data(api_key)
-    key = WbApiKey(organization_id=org_id, name=name, api_key=encrypted)
+    key = WbApiKey(organization_id=org_id, name=name, personal_token=encrypted, api_key="unused")
     db.add(key)
+    # Извлекаем wb_seller_id (oid) из JWT payload
+    try:
+        parts = api_key.split(".")
+        if len(parts) >= 2:
+            payload_b64 = parts[1] + "=" * (4 - len(parts[1]) % 4)
+            payload_json = base64.urlsafe_b64decode(payload_b64)
+            payload_data = _json.loads(payload_json)
+            oid = payload_data.get("oid")
+            if oid:
+                result = await db.execute(select(Organization).where(Organization.id == org_id))
+                org = result.scalar_one_or_none()
+                if org:
+                    org.wb_seller_id = oid
+    except Exception:
+        pass  # Не критично если не удалось распарсить
     await db.commit()
     return {"status": "ok", "id": str(key.id)}
 
@@ -1906,7 +1923,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <a class="nav-item" onclick="navTo('rnp',this)"><span class="icon">🎯</span>РНП</a>
 <a class="nav-item" onclick="navTo('opiu',this)"><span class="icon">📑</span>ОПиУ</a>
 <a class="nav-item" onclick="navTo('analytics',this)"><span class="icon">📈</span>Аналитика по товарам</a>
-<a class="nav-item" onclick="navTo('costprice',this)"><span class="icon">💰</span>Себестоимость</a>
+<a class="nav-item" onclick="navTo('costprice',this)"><span class="icon">📖</span>Справочник</a>
 <a class="nav-item" onclick="navTo('warehouses',this)"><span class="icon">📦</span>Склады</a>
 <a class="nav-item" onclick="navTo('opexpenses',this)"><span class="icon">📝</span>Опер. расходы</a>
 <a class="nav-item" onclick="navTo('ads',this)"><span class="icon">📢</span>Реклама</a>
@@ -2309,6 +2326,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
 <div id="page-settings" class="page-section">
 <h3 style="margin-bottom:12px;color:#6c5ce7">🔑 WB API ключи</h3>
+<div id="seller-id-display" style="margin-bottom:12px;font-size:.9em;color:#666"></div>
 <div id="wb-keys-list"></div>
 <div style="margin-top:16px;padding:16px;background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
 <h4 style="margin-bottom:10px">Добавить ключ</h4>
@@ -2566,7 +2584,7 @@ function navTo(name, el) {
     if (target) target.classList.add('active');
     // Update page title
     var titles = {stats:'Основные показатели',rnp:'РНП',opiu:'ОПиУ',analytics:'Аналитика по товарам',
-        costprice:'Себестоимость',warehouses:'Склады',opexpenses:'Опер. расходы',ads:'Реклама',
+        costprice:'Справочник',warehouses:'Склады',opexpenses:'Опер. расходы',ads:'Реклама',
         unitecon:'Юнит Экономика',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
     document.getElementById('page-title').textContent = titles[name] || name;
     // Update top-bar filters visibility
@@ -3098,10 +3116,15 @@ async function loadOrgs() {
     orgs.forEach(o => {
         const opt = document.createElement('option');
         opt.value = o.id;
-        opt.textContent = o.name + (o.wb_keys_count ? ' (' + o.wb_keys_count + '🔑)' : '');
+        opt.textContent = o.name + (o.wb_seller_id ? ' (ID ' + o.wb_seller_id + ')' : '') + (o.wb_keys_count ? ' ' + o.wb_keys_count + '🔑' : '');
         if (o.id === ORG_ID) opt.selected = true;
         sel.appendChild(opt);
     });
+    // Show seller ID in settings
+    const current = orgs.find(o => o.id === ORG_ID);
+    const sid = document.getElementById('seller-id-display');
+    if (sid && current && current.wb_seller_id) sid.innerHTML = '<strong>ID ' + current.wb_seller_id + '</strong>';
+    else if (sid) sid.innerHTML = '';
     if (!ORG_ID && orgs.length) {
         ORG_ID = orgs[0].id;
         localStorage.setItem('nl_org_id', ORG_ID);
