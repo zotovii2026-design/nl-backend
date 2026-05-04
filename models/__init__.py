@@ -33,6 +33,7 @@ from models.product_entity import (
 from models.reference_book import ReferenceBook
 from models.wb_tariff_snapshot import WbTariffSnapshot
 from models.sales_plan import SalesPlan, PlanType, Seasonality
+from models.external_ad import ExternalAd
 
 __all__ = [
     "User",

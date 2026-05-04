@@ -2550,6 +2550,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <a class="nav-item" onclick="navTo('warehouses',this)"><span class="icon">📦</span>Склады</a>
 <a class="nav-item" onclick="navTo('opexpenses',this)"><span class="icon">📝</span>Опер. расходы</a>
 <a class="nav-item" onclick="navTo('ads',this)"><span class="icon">📢</span>Реклама</a>
+<a class="nav-item" onclick="navTo('extads',this)"><span class="icon">🎯</span>Внешняя реклама</a>
 <a class="nav-item" onclick="navTo('fboneeds',this)"><span class="icon">🚚</span>Потребность FBO</a>
 <a class="nav-item" onclick="navTo('unitecon',this)"><span class="icon">🧮</span>Юнит Экономика</a>
 </div>
@@ -2975,6 +2976,74 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <tbody id="ads-campaigns-body"><tr><td colspan="8" class="empty">Загрузка...</td></tr></tbody>
 </table>
 </div>
+
+<div id="page-extads" class="page-section">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
+<select id="ext-type" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<option value="">Все типы</option><option value="ad">Реклама</option><option value="buyout">Самовыкуп</option></select>
+<select id="ext-source" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:140px"><option value="">Все источники</option></select>
+<input type="date" id="ext-date-from" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<input type="date" id="ext-date-to" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<input type="text" id="ext-search" placeholder="🔍 Поиск..." oninput="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:160px">
+<span style="flex:1"></span>
+<button class="btn" onclick="showExtAdModal()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff">➕ Добавить</button>
+<button class="btn" onclick="loadExtAds()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">
+<div style="background:#fff;border-radius:8px;padding:12px;text-align:center;border:1px solid #e0e0e0"><div style="font-size:1.4em;font-weight:700;color:#6c5ce7" id="ext-total-count">0</div><div style="font-size:.75em;color:#999">Всего записей</div></div>
+<div style="background:#fff;border-radius:8px;padding:12px;text-align:center;border:1px solid #e0e0e0"><div style="font-size:1.4em;font-weight:700;color:#e17055" id="ext-total-amount">0 ₽</div><div style="font-size:.75em;color:#999">Общая сумма</div></div>
+<div style="background:#fff;border-radius:8px;padding:12px;text-align:center;border:1px solid #e0e0e0"><div style="font-size:1.4em;font-weight:700;color:#00b894" id="ext-total-orders">0</div><div style="font-size:.75em;color:#999">Заказов</div></div>
+<div style="background:#fff;border-radius:8px;padding:12px;text-align:center;border:1px solid #e0e0e0"><div style="font-size:1.4em;font-weight:700;color:#0984e3" id="ext-total-reach">0</div><div style="font-size:.75em;color:#999">Охват</div></div>
+</div>
+<div style="overflow-x:auto;position:relative">
+<table id="ext-table" style="font-size:.82em"><thead><tr>
+<th style="position:sticky;left:0;z-index:2;background:#fff"><input type="checkbox" id="ext-check-all" onchange="toggleAllExtRows(this.checked)"></th>
+<th>Фото</th><th>Артикул</th><th>Арт WB</th><th>Арт продавца</th><th>Товар</th>
+<th>Карточка</th><th>Подменная</th><th>UTM</th>
+<th>Источник</th><th>Запрос</th><th>Дата</th>
+<th>Охват</th><th>Сумма ₽</th><th>Заказы</th><th>Заказов/нед</th>
+<th>Тип</th><th>Заметки</th><th>⚡</th>
+</tr></thead>
+<tbody id="ext-body"><tr><td colspan="20" class="empty">Нажмите "Добавить" для создания записи</td></tr></tbody></table>
+</div>
+<div id="ext-bulk-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:#6c5ce7;color:#fff;padding:10px 16px;border-radius:8px 8px 0 0;align-items:center;gap:12px;flex-wrap:wrap;z-index:10;box-shadow:0 -2px 10px rgba(0,0,0,.15)">
+<span style="font-weight:600" id="ext-bulk-count">Выделено: 0</span>
+<select id="ext-bulk-field" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:rgba(255,255,255,.15);color:#fff">
+<option value="">Поле...</option><option value="source">Источник</option><option value="ad_type">Тип</option><option value="amount">Сумма</option><option value="notes">Заметки</option></select>
+<input type="text" id="ext-bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:rgba(255,255,255,.15);color:#fff">
+<button onclick="applyExtBulkEdit()" style="background:#00b894;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer;font-weight:600">✅ Применить</button>
+<button onclick="clearExtBulkSelection()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer">Снять</button>
+</div>
+</div>
+
+<div id="ext-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center">
+<div style="background:#fff;border-radius:12px;padding:24px;width:600px;max-width:90vw;max-height:85vh;overflow-y:auto">
+<h3 id="ext-modal-title" style="margin-bottom:16px;color:#1a1a2e">Добавить запись</h3>
+<input type="hidden" id="ext-edit-id">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+<div><label style="font-size:.85em;color:#666">Артикул WB (nm_id)</label><input type="number" id="ext-nm-id" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px" oninput="extAutoFill()"></div>
+<div><label style="font-size:.85em;color:#666">Арт продавца</label><input type="text" id="ext-vendor-code" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Артикул (свой)</label><input type="text" id="ext-article" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Тип</label><select id="ext-ad-type" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"><option value="ad">Реклама</option><option value="buyout">Самовыкуп</option></select></div>
+<div><label style="font-size:.85em;color:#666">Источник</label><input type="text" id="ext-source-input" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px" placeholder="Telegram-канал, блогер..."></div>
+<div><label style="font-size:.85em;color:#666">Запрос</label><input type="text" id="ext-query" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Дата</label><input type="date" id="ext-ad-date" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Охват</label><input type="number" id="ext-reach" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Сумма ₽</label><input type="number" step="0.01" id="ext-amount" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Заказов</label><input type="number" id="ext-orders-count" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Заказов/нед (ср.)</label><input type="number" step="0.01" id="ext-orders-avg" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Фото (URL)</label><input type="text" id="ext-photo-url" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div style="grid-column:span 2"><label style="font-size:.85em;color:#666">Подменная ссылка</label><input type="text" id="ext-sub-url" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div style="grid-column:span 2"><label style="font-size:.85em;color:#666">UTM ссылка</label><input type="text" id="ext-utm-url" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div style="grid-column:span 2"><label style="font-size:.85em;color:#666">Заметки</label><textarea id="ext-notes" rows="2" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px;resize:vertical"></textarea></div>
+</div>
+<div style="display:flex;gap:12px;margin-top:16px;justify-content:flex-end">
+<button onclick="closeExtAdModal()" style="padding:8px 16px;border:1px solid #e0e0e0;border-radius:6px;cursor:pointer;font-size:.9em">Отмена</button>
+<button onclick="saveExtAd()" style="padding:8px 16px;background:#6c5ce7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:.9em;font-weight:600">💾 Сохранить</button>
+</div>
+</div>
+</div>
+
 <div id="page-fboneeds" class="page-section">
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;background:#f8f9fb;padding:10px 16px;border-radius:8px">
 <select id="fbo-warehouse-filter" onchange="filterFboTable()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:160px"><option value="">Все склады</option></select>
@@ -3373,7 +3442,7 @@ function navTo(name, el) {
     // Update page title
     var titles = {stats:'Основные показатели',rnp:'РНП',opiu:'ОПиУ',analytics:'Аналитика по товарам',
         costprice:'Справочник',salesplan:'План продаж',warehouses:'Склады',opexpenses:'Опер. расходы',ads:'Реклама',
-        fboneeds:'Потребность FBO',unitecon:'Юнит Экономика',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
+        extads:'Внешняя реклама',fboneeds:'Потребность FBO',unitecon:'Юнит Экономика',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
     document.getElementById('page-title').textContent = titles[name] || name;
     // Update top-bar filters visibility
     var topFilters = document.getElementById('top-filters');
@@ -3388,6 +3457,7 @@ function navTo(name, el) {
     else if (name === 'warehouses') loadWarehouses();
     else if (name === 'opexpenses') loadOpEx();
     else if (name === 'ads') loadAds();
+    else if (name === 'extads') loadExtAds();
     else if (name === 'fboneeds') loadFboNeeds();
     else if (name === 'unitecon') loadUnitEcon();
 }
@@ -3437,6 +3507,236 @@ async function loadAds() {
         document.getElementById('ads-daily-body').innerHTML = '<tr><td colspan="9" class="empty">Ошибка загрузки: '+e.message+'</td></tr>';
     }
 }
+
+
+// ===== EXTERNAL ADS =====
+var extAdData = [];
+var extSelectedIds = new Set();
+
+async function loadExtAds() {
+    try {
+        var params = new URLSearchParams({org_id: ORG_ID});
+        var tp = document.getElementById('ext-type').value;
+        var src = document.getElementById('ext-source').value;
+        var df = document.getElementById('ext-date-from').value;
+        var dt = document.getElementById('ext-date-to').value;
+        var sr = document.getElementById('ext-search').value;
+        if (tp) params.set('ad_type', tp);
+        if (src) params.set('source', src);
+        if (df) params.set('date_from', df);
+        if (dt) params.set('date_to', dt);
+        if (sr) params.set('search', sr);
+        var r = await fetch('/api/v1/nl/external-ads?' + params, {headers:{'Authorization':'Bearer '+TOKEN}});
+        extAdData = await r.json();
+        renderExtAds();
+        loadExtSources();
+    } catch(e) { console.error('loadExtAds error:', e); }
+}
+
+async function loadExtSources() {
+    try {
+        var r = await fetch('/api/v1/nl/external-ads/sources/list?org_id=' + ORG_ID, {headers:{'Authorization':'Bearer '+TOKEN}});
+        var sources = await r.json();
+        var sel = document.getElementById('ext-source');
+        var cur = sel.value;
+        sel.innerHTML = '<option value="">Все источники</option>' + sources.map(s => '<option value="'+s+'"'+(s===cur?' selected':'')+'>'+s+'</option>').join('');
+    } catch(e) {}
+}
+
+function renderExtAds() {
+    var body = document.getElementById('ext-body');
+    if (!extAdData.length) {
+        body.innerHTML = '<tr><td colspan="20" class="empty">Нет записей. Нажмите "Добавить"</td></tr>';
+    } else {
+        body.innerHTML = extAdData.map(function(r) {
+            var photo = r.photo_url ? '<img src="'+r.photo_url+'" style="width:40px;height:40px;object-fit:cover;border-radius:4px">' : '—';
+            var cardLink = r.card_url ? '<a href="'+r.card_url+'" target="_blank" style="color:#6c5ce7;font-size:.9em">🔗</a>' : '—';
+            var subLink = r.substitution_url ? '<a href="'+r.substitution_url+'" target="_blank" style="color:#0984e3;font-size:.9em" title="'+r.substitution_url+'">🔗</a>' : '—';
+            var utmLink = r.utm_url ? '<a href="'+r.utm_url+'" target="_blank" style="color:#00b894;font-size:.9em" title="'+r.utm_url+'">🔗</a>' : '—';
+            var typeLabel = r.ad_type === 'buyout' ? '<span style="background:#fdcb6e;color:#333;padding:2px 8px;border-radius:10px;font-size:.75em">Самовыкуп</span>' : '<span style="background:#dfe6e9;color:#333;padding:2px 8px;border-radius:10px;font-size:.75em">Реклама</span>';
+            var checked = extSelectedIds.has(r.id) ? 'checked' : '';
+            return '<tr data-id="'+r.id+'">'
+                + '<td style="position:sticky;left:0;background:#fff"><input type="checkbox" '+checked+' onclick="toggleExtRow(r.id,this.checked)"></td>'
+                + '<td>'+photo+'</td>'
+                + '<td>'+(r.article||'—')+'</td>'
+                + '<td>'+(r.nm_id||'—')+'</td>'
+                + '<td>'+(r.vendor_code||'—')+'</td>'
+                + '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(r.product_name||'')+'">'+(r.product_name||'—')+'</td>'
+                + '<td>'+cardLink+'</td>'
+                + '<td>'+subLink+'</td>'
+                + '<td>'+utmLink+'</td>'
+                + '<td>'+(r.source||'—')+'</td>'
+                + '<td>'+(r.query||'—')+'</td>'
+                + '<td>'+(r.ad_date||'—')+'</td>'
+                + '<td class="r">'+(r.reach!=null?r.reach.toLocaleString('ru-RU'):'—')+'</td>'
+                + '<td class="r">'+(r.amount!=null?Number(r.amount).toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽':'—')+'</td>'
+                + '<td class="r">'+(r.orders_count||'—')+'</td>'
+                + '<td class="r">'+(r.orders_avg_weekly!=null?Number(r.orders_avg_weekly).toFixed(1):'—')+'</td>'
+                + '<td>'+typeLabel+'</td>'
+                + '<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(r.notes||'')+'">'+(r.notes||'—')+'</td>'
+                + '<td><button onclick="editExtAd(r.id)" style="background:none;border:none;cursor:pointer;font-size:1em" title="Редактировать">✏️</button>'
+                + '<button onclick="deleteExtAd(r.id)" style="background:none;border:none;cursor:pointer;font-size:1em" title="Удалить">🗑️</button></td>'
+                + '</tr>';
+        }).join('');
+    }
+    // Stats
+    var total = extAdData.length;
+    var totalAmount = extAdData.reduce(function(s,r){return s+(r.amount?Number(r.amount):0)},0);
+    var totalOrders = extAdData.reduce(function(s,r){return s+(r.orders_count||0)},0);
+    var totalReach = extAdData.reduce(function(s,r){return s+(r.reach||0)},0);
+    document.getElementById('ext-total-count').textContent = total;
+    document.getElementById('ext-total-amount').textContent = totalAmount.toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽';
+    document.getElementById('ext-total-orders').textContent = totalOrders.toLocaleString('ru-RU');
+    document.getElementById('ext-total-reach').textContent = totalReach.toLocaleString('ru-RU');
+}
+
+function showExtAdModal(id) {
+    document.getElementById('ext-edit-id').value = '';
+    document.getElementById('ext-modal-title').textContent = 'Добавить запись';
+    ['ext-nm-id','ext-vendor-code','ext-article','ext-source-input','ext-query','ext-ad-date','ext-reach','ext-amount','ext-orders-count','ext-orders-avg','ext-photo-url','ext-sub-url','ext-utm-url','ext-notes'].forEach(function(id){document.getElementById(id).value=''});
+    document.getElementById('ext-ad-type').value = 'ad';
+    document.getElementById('ext-modal').style.display = 'flex';
+}
+
+function closeExtAdModal() {
+    document.getElementById('ext-modal').style.display = 'none';
+}
+
+function editExtAd(id) {
+    var item = extAdData.find(function(r){return r.id===id});
+    if (!item) return;
+    document.getElementById('ext-edit-id').value = id;
+    document.getElementById('ext-modal-title').textContent = 'Редактировать';
+    document.getElementById('ext-nm-id').value = item.nm_id || '';
+    document.getElementById('ext-vendor-code').value = item.vendor_code || '';
+    document.getElementById('ext-article').value = item.article || '';
+    document.getElementById('ext-ad-type').value = item.ad_type || 'ad';
+    document.getElementById('ext-source-input').value = item.source || '';
+    document.getElementById('ext-query').value = item.query || '';
+    document.getElementById('ext-ad-date').value = item.ad_date || '';
+    document.getElementById('ext-reach').value = item.reach || '';
+    document.getElementById('ext-amount').value = item.amount || '';
+    document.getElementById('ext-orders-count').value = item.orders_count || '';
+    document.getElementById('ext-orders-avg').value = item.orders_avg_weekly || '';
+    document.getElementById('ext-photo-url').value = item.photo_url || '';
+    document.getElementById('ext-sub-url').value = item.substitution_url || '';
+    document.getElementById('ext-utm-url').value = item.utm_url || '';
+    document.getElementById('ext-notes').value = item.notes || '';
+    document.getElementById('ext-modal').style.display = 'flex';
+}
+
+async function saveExtAd() {
+    var editId = document.getElementById('ext-edit-id').value;
+    var payload = {
+        nm_id: document.getElementById('ext-nm-id').value || null,
+        vendor_code: document.getElementById('ext-vendor-code').value || null,
+        article: document.getElementById('ext-article').value || null,
+        ad_type: document.getElementById('ext-ad-type').value || 'ad',
+        source: document.getElementById('ext-source-input').value || null,
+        query: document.getElementById('ext-query').value || null,
+        ad_date: document.getElementById('ext-ad-date').value || null,
+        reach: document.getElementById('ext-reach').value || null,
+        amount: document.getElementById('ext-amount').value || null,
+        orders_count: document.getElementById('ext-orders-count').value || null,
+        orders_avg_weekly: document.getElementById('ext-orders-avg').value || null,
+        photo_url: document.getElementById('ext-photo-url').value || null,
+        substitution_url: document.getElementById('ext-sub-url').value || null,
+        utm_url: document.getElementById('ext-utm-url').value || null,
+        notes: document.getElementById('ext-notes').value || null,
+    };
+    if (payload.nm_id) payload.nm_id = parseInt(payload.nm_id);
+    if (payload.reach) payload.reach = parseInt(payload.reach);
+    if (payload.orders_count) payload.orders_count = parseInt(payload.orders_count);
+    if (payload.amount) payload.amount = parseFloat(payload.amount);
+    if (payload.orders_avg_weekly) payload.orders_avg_weekly = parseFloat(payload.orders_avg_weekly);
+
+    try {
+        var url, method;
+        if (editId) {
+            url = '/api/v1/nl/external-ads/' + editId + '?org_id=' + ORG_ID;
+            method = 'PUT';
+        } else {
+            url = '/api/v1/nl/external-ads?org_id=' + ORG_ID;
+            method = 'POST';
+        }
+        var r = await fetch(url, {
+            method: method,
+            headers: {'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},
+            body: JSON.stringify(payload)
+        });
+        if (!r.ok) { var err = await r.json(); throw new Error(err.detail || 'Ошибка сохранения'); }
+        closeExtAdModal();
+        loadExtAds();
+    } catch(e) { alert('Ошибка: ' + e.message); }
+}
+
+async function deleteExtAd(id) {
+    if (!confirm('Удалить запись?')) return;
+    try {
+        await fetch('/api/v1/nl/external-ads/' + id + '?org_id=' + ORG_ID, {
+            method: 'DELETE',
+            headers: {'Authorization':'Bearer '+TOKEN}
+        });
+        loadExtAds();
+    } catch(e) { alert('Ошибка удаления: ' + e.message); }
+}
+
+function extAutoFill() {
+    // Автозаполнение фото при вводе nm_id
+    var nmId = document.getElementById('ext-nm-id').value;
+    if (nmId && extAdData.length) {
+        var found = extAdData.find(function(r){ return r.nm_id == nmId; });
+        if (found && found.photo_url && !document.getElementById('ext-photo-url').value) {
+            document.getElementById('ext-photo-url').value = found.photo_url;
+        }
+    }
+}
+
+function toggleExtRow(id, checked) {
+    if (checked) extSelectedIds.add(id); else extSelectedIds.delete(id);
+    updateExtBulkBar();
+}
+
+function toggleAllExtRows(checked) {
+    extSelectedIds.clear();
+    if (checked) extAdData.forEach(function(r){ extSelectedIds.add(r.id); });
+    renderExtAds();
+    updateExtBulkBar();
+}
+
+function updateExtBulkBar() {
+    var bar = document.getElementById('ext-bulk-bar');
+    var cnt = document.getElementById('ext-bulk-count');
+    if (extSelectedIds.size > 0) {
+        bar.style.display = 'flex';
+        cnt.textContent = 'Выделено: ' + extSelectedIds.size;
+    } else {
+        bar.style.display = 'none';
+    }
+}
+
+function clearExtBulkSelection() {
+    extSelectedIds.clear();
+    document.getElementById('ext-check-all').checked = false;
+    renderExtAds();
+    updateExtBulkBar();
+}
+
+async function applyExtBulkEdit() {
+    var field = document.getElementById('ext-bulk-field').value;
+    var value = document.getElementById('ext-bulk-value').value;
+    if (!field || extSelectedIds.size === 0) return;
+    try {
+        await fetch('/api/v1/nl/external-ads/bulk-update?org_id=' + ORG_ID, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},
+            body: JSON.stringify({ids: Array.from(extSelectedIds), updates: {[field]: value}})
+        });
+        clearExtBulkSelection();
+        loadExtAds();
+    } catch(e) { alert('Ошибка: ' + e.message); }
+}
+
 
 async function loadDates() {
     if (!ORG_ID) return [];
