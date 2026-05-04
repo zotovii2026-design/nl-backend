@@ -62,6 +62,10 @@ class ReferenceBook(Base):
     # === РЕКЛАМА ===
     ad_plan_rub = Column(Numeric(10, 2), nullable=True)             # Реклама план руб
 
+    # === ПОСТАВКИ FBO ===
+    supply_days = Column(Integer, nullable=True)                        # Срок поставки (дни)
+    min_batch_fbo = Column(Integer, nullable=True)                      # Мин. партия FBO (шт)
+
     # === НАЛОГИ ===
     tax_system = Column(String(20), nullable=True)                  # Налоговая: usn / osn / usn_dr
     tax_rate = Column(Numeric(5, 2), nullable=True)                 # Ставка налога %

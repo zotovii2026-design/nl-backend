@@ -1077,7 +1077,7 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
         "cp.mp_base_pct, cp.mp_correction_pct, cp.fulfillment_model, cp.storage_pct, "
         "cp.buyout_niche_pct, "
         "cp.price_before_spp_plan, cp.price_before_spp_change, cp.change_date, "
-        "cp.wb_club_discount_pct, cp.ad_plan_rub, "
+        "cp.wb_club_discount_pct, cp.ad_plan_rub, cp.supply_days, cp.min_batch_fbo, "
         "cp.product_status, "
         "cp.valid_from, cp.valid_to, cp.source, cp.notes, "
         "cp.product_class, cp.brand, cp.tax_system, cp.tax_rate, cp.vat_rate, "
@@ -1104,13 +1104,15 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
              "change_date": str(r[20]) if r[20] else None,
              "wb_club_discount_pct": float(r[21]) if r[21] else None,
              "ad_plan_rub": float(r[22]) if r[22] else None,
-             "product_status": r[23],
-             "valid_from": str(r[24]), "valid_to": str(r[25]) if r[25] else None,
-             "source": r[26], "notes": r[27],
-             "product_class": r[28], "brand": r[29],
-             "tax_system": r[30], "tax_rate": float(r[31]) if r[31] else None,
-             "vat_rate": float(r[32]) if r[32] else None,
-             "product_name": r[33]} for r in result.all()]
+             "supply_days": r[23] if r[23] else None,
+             "min_batch_fbo": r[24] if r[24] else None,
+             "product_status": r[25],
+             "valid_from": str(r[26]), "valid_to": str(r[27]) if r[27] else None,
+             "source": r[28], "notes": r[29],
+             "product_class": r[30], "brand": r[31],
+             "tax_system": r[32], "tax_rate": float(r[33]) if r[33] else None,
+             "vat_rate": float(r[34]) if r[34] else None,
+             "product_name": r[35]} for r in result.all()]
 
 
 @router.post("/api/v1/nl/cost-prices")
@@ -1141,7 +1143,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "mp_base_pct, mp_correction_pct, fulfillment_model, storage_pct, "
         "buyout_niche_pct, "
         "price_before_spp_plan, price_before_spp_change, change_date, "
-        "wb_club_discount_pct, ad_plan_rub, "
+        "wb_club_discount_pct, ad_plan_rub, supply_days, min_batch_fbo, "
         "product_status, product_class, brand, tax_system, tax_rate, vat_rate, "
         "valid_from, source, notes) "
         "VALUES (:org, :nm, :bc, :vc, :sz, :eid, "
@@ -1149,7 +1151,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         ":mpb, :mpc, :ffm, :stp, "
         ":bnp, "
         ":pspp, :psppc, :cdate, "
-        ":wbcd, :adpr, "
+        ":wbcd, :adpr, :sdays, :minb, "
         ":pstatus, :pcls, :brand, :tsys, :trate, :vrate, "
         ":vf, :src, :notes) "
         "ON CONFLICT (organization_id, entity_id, valid_from) DO UPDATE SET "
@@ -1163,6 +1165,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "price_before_spp_plan = EXCLUDED.price_before_spp_plan, "
         "price_before_spp_change = EXCLUDED.price_before_spp_change, change_date = EXCLUDED.change_date, "
         "wb_club_discount_pct = EXCLUDED.wb_club_discount_pct, ad_plan_rub = EXCLUDED.ad_plan_rub, "
+        "supply_days = EXCLUDED.supply_days, min_batch_fbo = EXCLUDED.min_batch_fbo, "
         "product_status = EXCLUDED.product_status, "
         "product_class = EXCLUDED.product_class, brand = EXCLUDED.brand, "
         "tax_system = EXCLUDED.tax_system, tax_rate = EXCLUDED.tax_rate, vat_rate = EXCLUDED.vat_rate, "
@@ -1178,6 +1181,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "pspp": data.get("price_before_spp_plan"), "psppc": data.get("price_before_spp_change"),
         "cdate": data.get("change_date"),
         "wbcd": data.get("wb_club_discount_pct"), "adpr": data.get("ad_plan_rub"),
+        "sdays": data.get("supply_days"), "minb": data.get("min_batch_fbo"),
         "pstatus": data.get("product_status"),
         "pcls": data.get("product_class"), "brand": data.get("brand"),
         "tsys": data.get("tax_system"), "trate": data.get("tax_rate"), "vrate": data.get("vat_rate"),
@@ -1292,6 +1296,156 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
     _log.info(f"[auto_fill] org={org_id}: {stats}")
     return {"ok": True, "stats": stats}
+
+
+@router.get("/api/v1/nl/fbo-needs")
+async def get_fbo_needs(org_id: str, days: int = 14, db: AsyncSession = Depends(get_db)):
+    """Расчёт потребности FBO: остатки + темп заказов по складам"""
+    from sqlalchemy import text
+
+    # 1) Остатки по складам (из wb_stocks)
+    stocks_result = await db.execute(text("""
+        SELECT s.nm_id, s.warehouse_name, s.warehouse_id,
+               SUM(s.quantity) as qty, SUM(s.quantity_full) as qty_full
+        FROM wb_stocks s
+        WHERE s.organization_id = :org
+        GROUP BY s.nm_id, s.warehouse_name, s.warehouse_id
+    """), {"org": org_id})
+    stocks = stocks_result.all()
+
+    # Маппинг: (nm_id, warehouse_name) -> {qty, qty_full, warehouse_id}
+    stock_map = {}
+    warehouses = {}  # warehouse_name -> warehouse_id
+    for s in stocks:
+        key = (s[0], s[1])
+        stock_map[key] = {"qty": s[3] or 0, "qty_full": s[4] or 0, "warehouse_id": s[2]}
+        if s[1] not in warehouses:
+            warehouses[s[1]] = s[2]
+
+    # 2) Темп заказов по складам за N дней (из raw_api_data JSONB)
+    import json as _json
+    orders_result = await db.execute(text("""
+        SELECT raw_response FROM raw_api_data
+        WHERE organization_id = :org AND api_method = 'orders'
+          AND target_date >= CURRENT_DATE - make_interval(days => :days_back)
+    """), {"org": org_id, "days_back": days})
+    raw_orders = orders_result.all()
+
+    # Парсим JSONB: подсчёт заказов по (nmId, warehouseName)
+    from collections import defaultdict
+    order_agg = defaultdict(lambda: {"total_qty": 0, "days": set()})
+    for row in raw_orders:
+        raw = row[0]
+        items = raw if isinstance(raw, list) else []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("isCancel"):
+                continue
+            nm = item.get("nmId")
+            wh = item.get("warehouseName")
+            if not nm or not wh:
+                continue
+            key = (nm, wh)
+            order_agg[key]["total_qty"] += 1
+            d = item.get("date", "")[:10]
+            if d:
+                order_agg[key]["days"].add(d)
+
+    order_map = {}
+    for key, v in order_agg.items():
+        active = max(len(v["days"]), 1)
+        order_map[key] = {"total_qty": v["total_qty"], "rate_per_day": round(v["total_qty"] / active, 2), "active_days": len(v["days"])}
+
+    # 3) Все nm_id из entities (чтобы показать даже без остатков)
+    entities_result = await db.execute(text("""
+        SELECT pe.id, pe.nm_id, pe.size_name, pe.product_name, pe.photo_main
+        FROM product_entities pe
+        WHERE pe.organization_id = :org
+    """), {"org": org_id})
+    entities = entities_result.all()
+
+    # Маппинг nm_id -> entity info
+    entity_by_nm = {}
+    for e in entities:
+        if e[1] not in entity_by_nm:
+            entity_by_nm[e[1]] = {"entity_id": str(e[0]), "size_name": e[2], "product_name": e[3], "photo_main": e[4]}
+
+    # 4) Справочник: supply_days, min_batch_fbo по entity_id
+    ref_result = await db.execute(text("""
+        SELECT entity_id, nm_id, supply_days, min_batch_fbo
+        FROM reference_book
+        WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+    """), {"org": org_id})
+    refs = ref_result.all()
+
+    # entity_id -> supply_days, min_batch_fbo; fallback nm_id
+    ref_by_entity = {}
+    ref_by_nm = {}
+    for r in refs:
+        d = {"supply_days": r[2], "min_batch_fbo": r[3]}
+        if r[0]:
+            ref_by_entity[str(r[0])] = d
+        ref_by_nm[r[1]] = d
+
+    # 5) Собираем результат — только комбинации с остатками или заказами
+    all_keys = set(stock_map.keys()) | set(order_map.keys())
+    rows = []
+    for key in all_keys:
+        nm_id, wname = key
+        if nm_id not in entity_by_nm:
+            continue
+        einfo = entity_by_nm[nm_id]
+        eid = einfo["entity_id"]
+        wid = warehouses.get(wname, 0)
+
+        qty = stock_map.get(key, {}).get("qty", 0)
+        qty_full = stock_map.get(key, {}).get("qty_full", 0)
+        ref = ref_by_entity.get(eid, ref_by_nm.get(nm_id, {}))
+        supply_days = ref.get("supply_days") or 5
+        min_batch = ref.get("min_batch_fbo") or 1
+
+        order_info = order_map.get(key, {})
+        rate = order_info.get("rate_per_day", 0)
+        total_orders = order_info.get("total_qty", 0)
+        active_days = order_info.get("active_days", 0)
+
+        # Расчёт потребности
+        need = round(rate * supply_days) - qty
+        if need <= 0:
+            need = 0
+        elif need < min_batch:
+            need = min_batch
+        else:
+            import math
+            need = math.ceil(need / min_batch) * min_batch
+
+        # Дней до нуля
+        days_to_zero = round(qty / rate, 1) if rate > 0 else 999
+
+        rows.append({
+            "entity_id": eid,
+            "nm_id": nm_id,
+            "product_name": einfo["product_name"],
+            "size_name": einfo["size_name"],
+            "photo_main": einfo["photo_main"],
+            "warehouse_name": wname,
+            "warehouse_id": wid,
+            "stock_qty": qty,
+            "stock_qty_full": qty_full,
+            "order_rate": rate,
+            "orders_total": total_orders,
+            "active_days": active_days,
+            "supply_days": supply_days,
+            "min_batch": min_batch,
+            "need": need,
+            "days_to_zero": days_to_zero,
+        })
+
+    # Сортировка: сначала критичные (days_to_zero меньше)
+    rows.sort(key=lambda x: x["days_to_zero"])
+
+    return {"warehouses": list(warehouses.keys()), "rows": rows, "days": days}
 
 
 @router.post("/api/v1/nl/cost-prices/upload")
@@ -2173,6 +2327,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <a class="nav-item" onclick="navTo('warehouses',this)"><span class="icon">📦</span>Склады</a>
 <a class="nav-item" onclick="navTo('opexpenses',this)"><span class="icon">📝</span>Опер. расходы</a>
 <a class="nav-item" onclick="navTo('ads',this)"><span class="icon">📢</span>Реклама</a>
+<a class="nav-item" onclick="navTo('fboneeds',this)"><span class="icon">🚚</span>Потребность FBO</a>
 <a class="nav-item" onclick="navTo('unitecon',this)"><span class="icon">🧮</span>Юнит Экономика</a>
 </div>
 <div class="nav-group">
@@ -2399,11 +2554,12 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th>Баз. % МП</th><th>Корр. % МП</th><th>ФБО/ФБС</th><th>% хранения</th><th>% выкупа ниши</th>
 <th>Цена до СПП план ₽</th><th>Цена до СПП к изм. ₽</th><th>Дата правок</th><th>Скидка WB Клуб %</th>
 <th>Реклама план ₽</th>
+<th>Срок поставки (дни)</th><th>Мин. партия FBO</th>
 <th>Класс товара</th><th>Бренд</th><th>Статус товара</th>
 <th>Налог. система</th><th>Ставка налога %</th><th>НДС ставка %</th>
 <th>Дата начала</th><th>Заметки</th>
 </tr></thead>
-<tbody id="cost-body"><tr><td colspan="33" class="empty">Загрузка...</td></tr></tbody></table>
+<tbody id="cost-body"><tr><td colspan="35" class="empty">Загрузка...</td></tr></tbody></table>
 </div>
 
 <!-- Плавающая панель массовых действий -->
@@ -2437,7 +2593,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <option value="ad_plan_rub">Реклама план ₽</option>
 </optgroup>
 <optgroup label="Классификация">
-<option value="product_class">Класс товара</option>
+<option value="supply_days">Срок поставки</option><option value="min_batch_fbo">Мин. партия FBO</option><option value="product_class">Класс товара</option>
 <option value="brand">Бренд</option>
 <option value="product_status">Статус товара</option>
 </optgroup>
@@ -2537,6 +2693,33 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <tbody id="ads-campaigns-body"><tr><td colspan="8" class="empty">Загрузка...</td></tr></tbody>
 </table>
 </div>
+<div id="page-fboneeds" class="page-section">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;background:#f8f9fb;padding:10px 16px;border-radius:8px">
+<select id="fbo-warehouse-filter" onchange="filterFboTable()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:160px"><option value="">Все склады</option></select>
+<select id="fbo-period" onchange="loadFboNeeds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<option value="7">7 дней</option><option value="14" selected>14 дней</option><option value="21">21 день</option><option value="30">30 дней</option></select>
+<label style="font-size:.85em;color:#666;display:flex;align-items:center;gap:4px"><input type="checkbox" id="fbo-only-needs" onchange="filterFboTable()" checked> Только с потребностью</label>
+</div>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<button class="btn" onclick="loadFboNeeds()" style="padding:6px 14px;font-size:.85em">🔄 Рассчитать</button>
+<input type="text" id="fbo-search" placeholder="🔍 Поиск по артикулу/названию" oninput="filterFboTable()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:240px">
+<button class="btn btn-outline" onclick="exportFboExcel()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
+<span style="font-size:.85em;color:#999;margin-left:auto" id="fbo-count"></span>
+<button class="btn" onclick="saveFboEdits()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
+</div>
+<div style="overflow-x:auto;max-height:65vh;position:relative">
+<table id="fbo-table" style="font-size:.82em"><thead><tr>
+<th>Фото</th><th>Арт WB</th><th>Товар</th><th>Размер</th><th>Склад</th>
+<th class="r">Остаток</th><th class="r">Заказов</th><th class="r">Темп/день</th>
+<th class="r">Дней до 0</th><th>Срок поставки</th><th>Мин. партия</th>
+<th class="r" style="background:#ffeaa7">Потребность</th>
+<th class="r" style="background:#fdcb6e;color:#d63031;font-weight:700">✏ К отправке</th>
+</tr></thead>
+<tbody id="fbo-body"><tr><td colspan="13" class="empty">Нажмите «Рассчитать» для загрузки данных</td></tr></tbody>
+</table>
+</div>
+</div>
+
 <div id="page-unitecon" class="page-section">
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;background:#f8f9fb;padding:10px 16px;border-radius:8px">
 <select id="ue-store" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:130px"><option>Все магазины</option></select>
@@ -2908,7 +3091,7 @@ function navTo(name, el) {
     // Update page title
     var titles = {stats:'Основные показатели',rnp:'РНП',opiu:'ОПиУ',analytics:'Аналитика по товарам',
         costprice:'Справочник',warehouses:'Склады',opexpenses:'Опер. расходы',ads:'Реклама',
-        unitecon:'Юнит Экономика',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
+        fboneeds:'Потребность FBO',unitecon:'Юнит Экономика',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
     document.getElementById('page-title').textContent = titles[name] || name;
     // Update top-bar filters visibility
     var topFilters = document.getElementById('top-filters');
@@ -2922,6 +3105,7 @@ function navTo(name, el) {
     else if (name === 'warehouses') loadWarehouses();
     else if (name === 'opexpenses') loadOpEx();
     else if (name === 'ads') loadAds();
+    else if (name === 'fboneeds') loadFboNeeds();
     else if (name === 'unitecon') loadUnitEcon();
 }
 
@@ -3154,7 +3338,7 @@ async function loadCostPrices() {
     try {
         const datesRes = await fetch('/api/v1/nl/dates?org_id=' + ORG_ID);
         const dates = datesRes.ok ? await datesRes.json() : [];
-        if (!dates.length) { document.getElementById('cost-body').innerHTML = '<tr><td colspan="33" class="empty">Нет данных</td></tr>'; return; }
+        if (!dates.length) { document.getElementById('cost-body').innerHTML = '<tr><td colspan="35" class="empty">Нет данных</td></tr>'; return; }
         
         const prodsRes = await fetch('/api/v1/nl/control?org_id=' + ORG_ID + '&target_date=' + dates[0]);
         if (!prodsRes.ok) return;
@@ -3283,6 +3467,9 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="wb_club_discount_pct" value="' + (c.wb_club_discount_pct||'') + '" style="width:60px" placeholder="0"></td>' +
                 // Реклама
                 '<td><input type="number" class="cost-input" data-field="ad_plan_rub" value="' + (c.ad_plan_rub||'') + '" style="width:80px" placeholder="0"></td>' +
+                // Поставки FBO
+                '<td><input type="number" class="cost-input" data-field="supply_days" value="' + (c.supply_days||'') + '" style="width:80px" placeholder="5" min="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="min_batch_fbo" value="' + (c.min_batch_fbo||'') + '" style="width:80px" placeholder="1" min="1"></td>' +
                 // Классификация
                 '<td><input type="text" class="cost-input" data-field="product_class" value="' + esc(c.product_class||'') + '" style="width:70px" placeholder="-"></td>' +
                 '<td><input type="text" class="cost-input" data-field="brand" value="' + esc(c.brand||'') + '" style="width:80px" placeholder="-"></td>' +
@@ -3972,6 +4159,117 @@ setTimeout(initSorting, 500);
 
 // === UNIT ECONOMICS ===
 let ueData = [];
+
+
+// ==================== FBO NEEDS ====================
+var fboAllData = [];
+var fboEdits = {};  // key -> edited value
+
+async function loadFboNeeds() {
+    const days = document.getElementById('fbo-period').value;
+    const tbody = document.getElementById('fbo-body');
+    tbody.innerHTML = '<tr><td colspan="13" class="empty">Загрузка...</td></tr>';
+    try {
+        const r = await fetch('/api/v1/nl/fbo-needs?org_id=' + ORG_ID + '&days=' + days, {headers:{'Authorization':'Bearer '+TOKEN}});
+        const d = await r.json();
+        fboAllData = d.rows || [];
+        fboEdits = {};
+        // Fill warehouse filter
+        const sel = document.getElementById('fbo-warehouse-filter');
+        const curVal = sel.value;
+        sel.innerHTML = '<option value="">Все склады</option>';
+        (d.warehouses || []).forEach(w => {
+            const opt = document.createElement('option');
+            opt.value = w; opt.textContent = w;
+            sel.appendChild(opt);
+        });
+        sel.value = curVal;
+        filterFboTable();
+    } catch(e) {
+        tbody.innerHTML = '<tr><td colspan="13" class="empty">Ошибка: ' + e.message + '</td></tr>';
+    }
+}
+
+function filterFboTable() {
+    const wh = document.getElementById('fbo-warehouse-filter').value;
+    const search = (document.getElementById('fbo-search').value || '').toLowerCase();
+    const onlyNeeds = document.getElementById('fbo-only-needs').checked;
+    let rows = fboAllData;
+    if (wh) rows = rows.filter(r => r.warehouse_name === wh);
+    if (search) rows = rows.filter(r =>
+        String(r.nm_id).includes(search) ||
+        (r.product_name || '').toLowerCase().includes(search)
+    );
+    if (onlyNeeds) rows = rows.filter(r => (fboEdits[r.entity_id + '_' + r.warehouse_name] ?? r.need) > 0);
+    const tbody = document.getElementById('fbo-body');
+    document.getElementById('fbo-count').textContent = rows.length + ' строк';
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="13" class="empty">Нет данных</td></tr>'; return; }
+    var html = '';
+    rows.forEach(r => {
+        var key = r.entity_id + '_' + r.warehouse_name;
+        var toSend = fboEdits[key] ?? r.need;
+        var d2z = r.days_to_zero;
+        var d2zColor = d2z <= 2 ? '#d63031' : d2z <= 5 ? '#e17055' : d2z <= 10 ? '#fdcb6e' : '#00b894';
+        var toSendColor = toSend > 0 ? '#fdcb6e' : '';
+        html += '<tr style="border-bottom:1px solid #f0f0f0">';
+        html += '<td><img src="' + (r.photo_main || '') + '" style="width:40px;height:40px;object-fit:cover;border-radius:4px"></td>';
+        html += '<td style="font-weight:600">' + r.nm_id + '</td>';
+        html += '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.product_name || '') + '</td>';
+        html += '<td>' + esc(r.size_name || '-') + '</td>';
+        html += '<td style="font-size:.9em">' + esc(r.warehouse_name) + '</td>';
+        html += '<td class="r">' + r.stock_qty + '</td>';
+        html += '<td class="r">' + r.orders_total + '</td>';
+        html += '<td class="r">' + r.order_rate.toFixed(1) + '</td>';
+        html += '<td class="r" style="color:' + d2zColor + ';font-weight:600">' + (d2z >= 999 ? '\u221e' : d2z) + '</td>';
+        html += '<td>' + r.supply_days + '</td>';
+        html += '<td>' + r.min_batch + '</td>';
+        html += '<td class="r" style="background:#ffeaa7">' + r.need + '</td>';
+        html += '<td class="r" style="background:' + toSendColor + '"><input type="number" class="cost-input" data-fbo-key="' + key + '" value="' + toSend + '" min="0" style="width:60px;font-weight:700;font-size:1em" onchange="fboEditChange(this)"></td>';
+        html += '</tr>';
+    });
+    tbody.innerHTML = html;
+}
+
+function fboEditChange(el) {
+    var key = el.getAttribute('data-fbo-key');
+    fboEdits[key] = parseInt(el.value) || 0;
+}
+
+function saveFboEdits() {
+    // FBO edits are local only (for Excel export), no backend save needed yet
+    alert('Изменения сохранены локально. Скачайте Excel для экспорта.');
+}
+
+function exportFboExcel() {
+    var wh = document.getElementById('fbo-warehouse-filter').value;
+    var search = (document.getElementById('fbo-search').value || '').toLowerCase();
+    var onlyNeeds = document.getElementById('fbo-only-needs').checked;
+    var rows = fboAllData;
+    if (wh) rows = rows.filter(r => r.warehouse_name === wh);
+    if (search) rows = rows.filter(r =>
+        String(r.nm_id).includes(search) ||
+        (r.product_name || '').toLowerCase().includes(search)
+    );
+    if (onlyNeeds) rows = rows.filter(r => (fboEdits[r.entity_id + '_' + r.warehouse_name] ?? r.need) > 0);
+    if (!rows.length) { alert('Нет данных для экспорта'); return; }
+
+    var lines = ['Арт WB\tТовар\tРазмер\tСклад\tОстаток\tЗаказов\tТемп/день\tДней до 0\tСрок поставки\tМин. партия\tПотребность\tК отправке'];
+    rows.forEach(r => {
+        var key = r.entity_id + '_' + r.warehouse_name;
+        var toSend = fboEdits[key] ?? r.need;
+        lines.push([r.nm_id, r.product_name, r.size_name, r.warehouse_name,
+            r.stock_qty, r.orders_total, r.order_rate.toFixed(1),
+            r.days_to_zero >= 999 ? 'inf' : r.days_to_zero,
+            r.supply_days, r.min_batch, r.need, toSend
+        ].join('\t'));
+    });
+    var blob = new Blob(['\ufeff' + lines.join(String.fromCharCode(10))], {type: 'text/tab-separated-values;charset=utf-8'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'fbo_needs_' + new Date().toISOString().slice(0,10) + '.xls';
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
 
 async function loadUnitEcon() {
     if (!ORG_ID) return;
