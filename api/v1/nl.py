@@ -1186,6 +1186,114 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
     return {"ok": True}
 
 
+@router.post("/api/v1/nl/cost-prices/auto-fill")
+async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
+    """Автозаполнение справочника из wb_tariff_snapshot (только пустые поля)"""
+    from sqlalchemy import text
+    import logging
+    _log = logging.getLogger(__name__)
+
+    # Берём свежий snapshot за последнюю дату
+    snap_result = await db.execute(text("""
+        SELECT entity_id, nm_id, commission_pct, logistics_tariff, storage_tariff,
+               price_retail, price_with_spp, ad_cost_fact, buyout_pct_fact
+        FROM wb_tariff_snapshot
+        WHERE organization_id = :org AND target_date = (
+            SELECT MAX(target_date) FROM wb_tariff_snapshot WHERE organization_id = :org
+        )
+    """), {"org": org_id})
+    snapshots = snap_result.all()
+    if not snapshots:
+        return {"ok": False, "error": "Нет данных в wb_tariff_snapshot. Запустите синхронизацию."}
+
+    # Строим маппинг: entity_id -> snapshot, nm_id -> snapshot
+    snap_by_entity = {}
+    snap_by_nm = {}
+    for s in snapshots:
+        eid, nm_id = str(s[0]) if s[0] else None, s[1]
+        data = {
+            "commission_pct": float(s[2]) if s[2] else None,
+            "logistics_tariff": float(s[3]) if s[3] else None,
+            "storage_tariff": float(s[4]) if s[4] else None,
+            "price_retail": float(s[5]) if s[5] else None,
+            "price_with_spp": float(s[6]) if s[6] else None,
+            "ad_cost_fact": float(s[7]) if s[7] else None,
+            "buyout_pct_fact": float(s[8]) if s[8] else None,
+        }
+        if eid:
+            snap_by_entity[eid] = data
+        if nm_id:
+            snap_by_nm[nm_id] = data
+
+    # Загружаем текущий справочник
+    ref_result = await db.execute(text("""
+        SELECT id, entity_id, nm_id,
+               mp_base_pct, logistics_cost, storage_pct,
+               price_before_spp_plan, buyout_niche_pct, ad_plan_rub
+        FROM reference_book
+        WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+    """), {"org": org_id})
+    refs = ref_result.all()
+
+    stats = {"updated": 0, "skipped": 0, "fields_filled": {}}
+    field_map = {
+        "mp_base_pct": "commission_pct",
+        "logistics_cost": "logistics_tariff",
+        "storage_pct": "storage_tariff",
+        "price_before_spp_plan": "price_retail",
+        "buyout_niche_pct": "buyout_pct_fact",
+        "ad_plan_rub": "ad_cost_fact",
+    }
+
+    for r in refs:
+        rid = str(r[0])
+        eid = str(r[1]) if r[1] else None
+        nm_id = r[2]
+        # Текущие значения в справочнике
+        current = {
+            "mp_base_pct": r[3],
+            "logistics_cost": r[4],
+            "storage_pct": r[5],
+            "price_before_spp_plan": r[6],
+            "buyout_niche_pct": r[7],
+            "ad_plan_rub": r[8],
+        }
+
+        # Ищем snapshot: сначала по entity_id, потом по nm_id
+        snap = None
+        if eid and eid in snap_by_entity:
+            snap = snap_by_entity[eid]
+        elif nm_id and nm_id in snap_by_nm:
+            snap = snap_by_nm[nm_id]
+
+        if not snap:
+            stats["skipped"] += 1
+            continue
+
+        # Собираем обновления (только пустые поля)
+        updates = {}
+        for ref_field, snap_field in field_map.items():
+            snap_val = snap.get(snap_field)
+            cur_val = current.get(ref_field)
+            if snap_val is not None and (cur_val is None or cur_val == 0):
+                updates[ref_field] = snap_val
+                stats["fields_filled"][ref_field] = stats["fields_filled"].get(ref_field, 0) + 1
+
+        if not updates:
+            stats["skipped"] += 1
+            continue
+
+        # Обновляем
+        set_clauses = ", ".join(f"{k} = :{k}" for k in updates)
+        updates["rid"] = rid
+        await db.execute(text(f"UPDATE reference_book SET {set_clauses} WHERE id = :rid"), updates)
+        stats["updated"] += 1
+
+    await db.commit()
+    _log.info(f"[auto_fill] org={org_id}: {stats}")
+    return {"ok": True, "stats": stats}
+
+
 @router.post("/api/v1/nl/cost-prices/upload")
 async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Загрузка справочника из Excel/CSV"""
@@ -2264,6 +2372,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <span style="font-size:.85em;color:#999" id="cost-count"></span>
 <span style="flex:1"></span>
 <span id="cost-selected-info" style="font-size:.85em;color:#6c5ce7;font-weight:600;display:none">☑ Выделено: <span id="cost-selected-count">0</span></span>
+<button class="btn" onclick="autoFillReference()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff">🔄 Автозаполнение</button>
 <button class="btn" onclick="saveAllCostPrices()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить всё</button>
 </div>
 
@@ -3271,6 +3380,45 @@ function applyBulkEdit() {
             setTimeout(() => { td.style.background = ''; }, 1500);
         }
     });
+}
+
+async function autoFillReference() {
+    if (!ORG_ID) return;
+    const btn = event.target.closest('button');
+    const origText = btn.innerHTML;
+    btn.innerHTML = '⏳ Заполнение...';
+    btn.disabled = true;
+    try {
+        const res = await fetch('/api/v1/nl/cost-prices/auto-fill?org_id=' + ORG_ID, {method: 'POST'});
+        const data = await res.json();
+        if (data.ok) {
+            const s = data.stats;
+            const filled = s.fields_filled;
+            let msg = 'Обновлено: ' + s.updated + ' записей';
+            if (s.skipped) msg += ', пропущено: ' + s.skipped;
+            const details = Object.entries(filled).map(([k,v]) => {
+                const names = {
+                    'mp_base_pct': 'Комиссия МП',
+                    'logistics_cost': 'Логистика',
+                    'storage_pct': 'Хранение',
+                    'price_before_spp_plan': 'Цена',
+                    'buyout_niche_pct': '% выкупа',
+                    'ad_plan_rub': 'Реклама'
+                };
+                return (names[k] || k) + ': ' + v;
+            }).join(', ');
+            if (details) msg += String.fromCharCode(10) + 'Поля: ' + details;
+            alert(msg);
+            loadCostPrices();
+        } else {
+            alert('Ошибка: ' + (data.error || 'неизвестная'));
+        }
+    } catch(e) {
+        alert('Ошибка автозаполнения: ' + e.message);
+    } finally {
+        btn.innerHTML = origText;
+        btn.disabled = false;
+    }
 }
 
 async function saveAllCostPrices() {
