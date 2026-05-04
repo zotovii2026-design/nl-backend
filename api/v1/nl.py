@@ -1073,7 +1073,13 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(text(
         "SELECT cp.id, cp.entity_id, cp.nm_id, cp.barcode, cp.vendor_code, cp.size_name, "
         "cp.cost_price, cp.purchase_cost, cp.logistics_cost, cp.packaging_cost, "
-        "cp.other_costs, cp.vat, cp.valid_from, cp.valid_to, cp.source, cp.notes, "
+        "cp.other_costs, cp.extra_costs, cp.vat, "
+        "cp.mp_base_pct, cp.mp_correction_pct, cp.fulfillment_model, cp.storage_pct, "
+        "cp.buyout_niche_pct, "
+        "cp.price_before_spp_plan, cp.price_before_spp_change, cp.change_date, "
+        "cp.wb_club_discount_pct, cp.ad_plan_rub, "
+        "cp.product_status, "
+        "cp.valid_from, cp.valid_to, cp.source, cp.notes, "
         "cp.product_class, cp.brand, cp.tax_system, cp.tax_rate, cp.vat_rate, "
         "ts.product_name FROM reference_book cp "
         "LEFT JOIN (SELECT DISTINCT nm_id, product_name FROM tech_status WHERE organization_id = :org) ts ON cp.nm_id = ts.nm_id "
@@ -1086,13 +1092,25 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
              "logistics_cost": float(r[8]) if r[8] else None,
              "packaging_cost": float(r[9]) if r[9] else None,
              "other_costs": float(r[10]) if r[10] else None,
-             "vat": float(r[11]) if r[11] else 0,
-             "valid_from": str(r[12]), "valid_to": str(r[13]) if r[13] else None,
-             "source": r[14], "notes": r[15],
-             "product_class": r[16], "brand": r[17],
-             "tax_system": r[18], "tax_rate": float(r[19]) if r[19] else None,
-             "vat_rate": float(r[20]) if r[20] else None,
-             "product_name": r[21]} for r in result.all()]
+             "extra_costs": float(r[11]) if r[11] else None,
+             "vat": float(r[12]) if r[12] else 0,
+             "mp_base_pct": float(r[13]) if r[13] else None,
+             "mp_correction_pct": float(r[14]) if r[14] else None,
+             "fulfillment_model": r[15],
+             "storage_pct": float(r[16]) if r[16] else None,
+             "buyout_niche_pct": float(r[17]) if r[17] else None,
+             "price_before_spp_plan": float(r[18]) if r[18] else None,
+             "price_before_spp_change": float(r[19]) if r[19] else None,
+             "change_date": str(r[20]) if r[20] else None,
+             "wb_club_discount_pct": float(r[21]) if r[21] else None,
+             "ad_plan_rub": float(r[22]) if r[22] else None,
+             "product_status": r[23],
+             "valid_from": str(r[24]), "valid_to": str(r[25]) if r[25] else None,
+             "source": r[26], "notes": r[27],
+             "product_class": r[28], "brand": r[29],
+             "tax_system": r[30], "tax_rate": float(r[31]) if r[31] else None,
+             "vat_rate": float(r[32]) if r[32] else None,
+             "product_name": r[33]} for r in result.all()]
 
 
 @router.post("/api/v1/nl/cost-prices")
@@ -1119,32 +1137,58 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         entity_id = str(ent_row[0]) if ent_row else None
     await db.execute(text(
         "INSERT INTO reference_book (organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
-        "cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs, vat, valid_from, source, "
-        "product_class, brand, tax_system, tax_rate, vat_rate) "
-        "VALUES (:org, :nm, :bc, :vc, :sz, :eid, :cp, :pc, :lc, :pk, :oc, :vat, :vf, :src, "
-        ":pcls, :brand, :tsys, :trate, :vrate) "
+        "cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs, extra_costs, vat, "
+        "mp_base_pct, mp_correction_pct, fulfillment_model, storage_pct, "
+        "buyout_niche_pct, "
+        "price_before_spp_plan, price_before_spp_change, change_date, "
+        "wb_club_discount_pct, ad_plan_rub, "
+        "product_status, product_class, brand, tax_system, tax_rate, vat_rate, "
+        "valid_from, source, notes) "
+        "VALUES (:org, :nm, :bc, :vc, :sz, :eid, "
+        ":cp, :pc, :lc, :pk, :oc, :ec, :vat, "
+        ":mpb, :mpc, :ffm, :stp, "
+        ":bnp, "
+        ":pspp, :psppc, :cdate, "
+        ":wbcd, :adpr, "
+        ":pstatus, :pcls, :brand, :tsys, :trate, :vrate, "
+        ":vf, :src, :notes) "
         "ON CONFLICT (organization_id, entity_id, valid_from) DO UPDATE SET "
         "barcode = EXCLUDED.barcode, vendor_code = EXCLUDED.vendor_code, "
         "cost_price = EXCLUDED.cost_price, purchase_cost = EXCLUDED.purchase_cost, "
+        "logistics_cost = EXCLUDED.logistics_cost, packaging_cost = EXCLUDED.packaging_cost, "
+        "other_costs = EXCLUDED.other_costs, extra_costs = EXCLUDED.extra_costs, vat = EXCLUDED.vat, "
+        "mp_base_pct = EXCLUDED.mp_base_pct, mp_correction_pct = EXCLUDED.mp_correction_pct, "
+        "fulfillment_model = EXCLUDED.fulfillment_model, storage_pct = EXCLUDED.storage_pct, "
+        "buyout_niche_pct = EXCLUDED.buyout_niche_pct, "
+        "price_before_spp_plan = EXCLUDED.price_before_spp_plan, "
+        "price_before_spp_change = EXCLUDED.price_before_spp_change, change_date = EXCLUDED.change_date, "
+        "wb_club_discount_pct = EXCLUDED.wb_club_discount_pct, ad_plan_rub = EXCLUDED.ad_plan_rub, "
+        "product_status = EXCLUDED.product_status, "
         "product_class = EXCLUDED.product_class, brand = EXCLUDED.brand, "
         "tax_system = EXCLUDED.tax_system, tax_rate = EXCLUDED.tax_rate, vat_rate = EXCLUDED.vat_rate, "
-        "logistics_cost = EXCLUDED.logistics_cost, packaging_cost = EXCLUDED.packaging_cost, "
-        "other_costs = EXCLUDED.other_costs, vat = EXCLUDED.vat, source = EXCLUDED.source"
+        "source = EXCLUDED.source, notes = EXCLUDED.notes"
     ), {"org": org_id, "nm": nm_id, "bc": data.get("barcode"), "vc": data.get("vendor_code"),
         "sz": data.get("size_name"), "eid": entity_id,
         "cp": cost, "pc": data.get("purchase_cost"),
         "lc": data.get("logistics_cost"), "pk": data.get("packaging_cost"),
-        "oc": data.get("other_costs"), "vat": data.get("vat", 0),
-        "vf": valid_from, "src": data.get("source", "manual"),
+        "oc": data.get("other_costs"), "ec": data.get("extra_costs"), "vat": data.get("vat", 0),
+        "mpb": data.get("mp_base_pct"), "mpc": data.get("mp_correction_pct"),
+        "ffm": data.get("fulfillment_model", "fbo"), "stp": data.get("storage_pct"),
+        "bnp": data.get("buyout_niche_pct"),
+        "pspp": data.get("price_before_spp_plan"), "psppc": data.get("price_before_spp_change"),
+        "cdate": data.get("change_date"),
+        "wbcd": data.get("wb_club_discount_pct"), "adpr": data.get("ad_plan_rub"),
+        "pstatus": data.get("product_status"),
         "pcls": data.get("product_class"), "brand": data.get("brand"),
-        "tsys": data.get("tax_system"), "trate": data.get("tax_rate"), "vrate": data.get("vat_rate")})
+        "tsys": data.get("tax_system"), "trate": data.get("tax_rate"), "vrate": data.get("vat_rate"),
+        "vf": valid_from, "src": data.get("source", "manual"), "notes": data.get("notes")})
     await db.commit()
     return {"ok": True}
 
 
 @router.post("/api/v1/nl/cost-prices/upload")
 async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    """Загрузка себестоимости из Excel/CSV"""
+    """Загрузка справочника из Excel/CSV"""
     import io, csv
     from sqlalchemy import text
     body = await request.body()
@@ -1163,20 +1207,114 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
                 rows.append(dict(zip(headers, row)))
         except ImportError:
             raise HTTPException(400, "xlsx не поддерживается")
+    
+    def pf(row, *keys):
+        """Parse float from row by multiple possible key names"""
+        for k in keys:
+            v = row.get(k)
+            if v is not None and str(v).strip():
+                try: return float(str(v).replace(',','.'))
+                except: pass
+        return None
+    def ps(row, *keys):
+        """Parse string from row"""
+        for k in keys:
+            v = row.get(k)
+            if v and str(v).strip(): return str(v).strip()
+        return None
+    
     updated = 0
     for row in rows:
         nm = row.get("Арт WB") or row.get("nm_id")
-        cost = row.get("Себестоимость") or row.get("cost_price")
-        if nm and cost:
-            await db.execute(text(
-                "INSERT INTO reference_book (organization_id, nm_id, barcode, vendor_code, cost_price, vat, valid_from, source, entity_id) "
-                "VALUES (:org, :nm, :bc, :vc, :cp, :vat, CURRENT_DATE, 'excel', :eid) "
-                "ON CONFLICT (organization_id, entity_id, valid_from) DO UPDATE SET "
-                "cost_price = EXCLUDED.cost_price, vat = EXCLUDED.vat, barcode = EXCLUDED.barcode, vendor_code = EXCLUDED.vendor_code"
-            ), {"org": org_id, "nm": int(nm), "bc": str(row.get("Баркод","")),
-                "vc": str(row.get("Арт продавца","")), "cp": float(cost),
-                "vat": float(row.get("НДС",0)), "eid": None})
-            updated += 1
+        if not nm: continue
+        nm = int(nm)
+        
+        # Определяем entity_id
+        eid = None
+        size_name = ps(row, "Размер", "size_name")
+        ent_q = await db.execute(text(
+            "SELECT pe.id FROM product_entities pe "
+            "WHERE pe.organization_id = :org AND pe.nm_id = :nm "
+            "ORDER BY CASE WHEN pe.size_name = :sz THEN 0 ELSE 1 END LIMIT 1"
+        ), {"org": org_id, "nm": nm, "sz": size_name or ""})
+        ent_row = ent_q.first()
+        eid = str(ent_row[0]) if ent_row else None
+        
+        # Собираем все поля
+        params = {
+            "org": org_id, "nm": nm,
+            "bc": ps(row, "Баркод", "barcode"),
+            "vc": ps(row, "Арт продавца", "vendor_code"),
+            "sz": size_name, "eid": eid,
+            "cp": pf(row, "Себестоимость", "cost_price"),
+            "pc": pf(row, "Закупка", "purchase_cost"),
+            "lc": pf(row, "Логистика", "logistics_cost"),
+            "pk": pf(row, "Упаковка", "packaging_cost"),
+            "oc": pf(row, "Прочее", "other_costs"),
+            "ec": pf(row, "Доп. затраты", "extra_costs"),
+            "vat": pf(row, "НДС руб", "vat"),
+            "mpb": pf(row, "Баз. % МП", "mp_base_pct"),
+            "mpc": pf(row, "Корр. % МП", "mp_correction_pct"),
+            "ffm": ps(row, "ФБО/ФБС", "fulfillment_model") or "fbo",
+            "stp": pf(row, "% хранения", "storage_pct"),
+            "bnp": pf(row, "% выкупа ниши", "buyout_niche_pct"),
+            "pspp": pf(row, "Цена до СПП план", "price_before_spp_plan"),
+            "psppc": pf(row, "Цена до СПП к изм.", "price_before_spp_change"),
+            "cdate": ps(row, "Дата правок", "change_date"),
+            "wbcd": pf(row, "Скидка WB Клуб %", "wb_club_discount_pct"),
+            "adpr": pf(row, "Реклама план", "ad_plan_rub"),
+            "pcls": ps(row, "Класс товара", "product_class"),
+            "brand": ps(row, "Бренд", "brand"),
+            "pstatus": ps(row, "Статус товара", "product_status"),
+            "tsys": ps(row, "Налог. система", "tax_system"),
+            "trate": pf(row, "Ставка налога %", "tax_rate"),
+            "vrate": pf(row, "НДС ставка %", "vat_rate"),
+            "notes": ps(row, "Заметки", "notes"),
+        }
+        
+        await db.execute(text(
+            "INSERT INTO reference_book (organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
+            "cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs, extra_costs, vat, "
+            "mp_base_pct, mp_correction_pct, fulfillment_model, storage_pct, buyout_niche_pct, "
+            "price_before_spp_plan, price_before_spp_change, change_date, wb_club_discount_pct, ad_plan_rub, "
+            "product_class, brand, product_status, tax_system, tax_rate, vat_rate, notes, "
+            "valid_from, source) "
+            "VALUES (:org, :nm, :bc, :vc, :sz, :eid, "
+            ":cp, :pc, :lc, :pk, :oc, :ec, :vat, "
+            ":mpb, :mpc, :ffm, :stp, :bnp, "
+            ":pspp, :psppc, :cdate, :wbcd, :adpr, "
+            ":pcls, :brand, :pstatus, :tsys, :trate, :vrate, :notes, "
+            "CURRENT_DATE, 'excel') "
+            "ON CONFLICT (organization_id, entity_id, valid_from) DO UPDATE SET "
+            "barcode = COALESCE(EXCLUDED.barcode, reference_book.barcode), "
+            "vendor_code = COALESCE(EXCLUDED.vendor_code, reference_book.vendor_code), "
+            "cost_price = COALESCE(EXCLUDED.cost_price, reference_book.cost_price), "
+            "purchase_cost = COALESCE(EXCLUDED.purchase_cost, reference_book.purchase_cost), "
+            "logistics_cost = COALESCE(EXCLUDED.logistics_cost, reference_book.logistics_cost), "
+            "packaging_cost = COALESCE(EXCLUDED.packaging_cost, reference_book.packaging_cost), "
+            "other_costs = COALESCE(EXCLUDED.other_costs, reference_book.other_costs), "
+            "extra_costs = COALESCE(EXCLUDED.extra_costs, reference_book.extra_costs), "
+            "vat = COALESCE(EXCLUDED.vat, reference_book.vat), "
+            "mp_base_pct = COALESCE(EXCLUDED.mp_base_pct, reference_book.mp_base_pct), "
+            "mp_correction_pct = COALESCE(EXCLUDED.mp_correction_pct, reference_book.mp_correction_pct), "
+            "fulfillment_model = COALESCE(EXCLUDED.fulfillment_model, reference_book.fulfillment_model), "
+            "storage_pct = COALESCE(EXCLUDED.storage_pct, reference_book.storage_pct), "
+            "buyout_niche_pct = COALESCE(EXCLUDED.buyout_niche_pct, reference_book.buyout_niche_pct), "
+            "price_before_spp_plan = COALESCE(EXCLUDED.price_before_spp_plan, reference_book.price_before_spp_plan), "
+            "price_before_spp_change = COALESCE(EXCLUDED.price_before_spp_change, reference_book.price_before_spp_change), "
+            "change_date = COALESCE(EXCLUDED.change_date, reference_book.change_date), "
+            "wb_club_discount_pct = COALESCE(EXCLUDED.wb_club_discount_pct, reference_book.wb_club_discount_pct), "
+            "ad_plan_rub = COALESCE(EXCLUDED.ad_plan_rub, reference_book.ad_plan_rub), "
+            "product_class = COALESCE(EXCLUDED.product_class, reference_book.product_class), "
+            "brand = COALESCE(EXCLUDED.brand, reference_book.brand), "
+            "product_status = COALESCE(EXCLUDED.product_status, reference_book.product_status), "
+            "tax_system = COALESCE(EXCLUDED.tax_system, reference_book.tax_system), "
+            "tax_rate = COALESCE(EXCLUDED.tax_rate, reference_book.tax_rate), "
+            "vat_rate = COALESCE(EXCLUDED.vat_rate, reference_book.vat_rate), "
+            "notes = COALESCE(EXCLUDED.notes, reference_book.notes), "
+            "source = EXCLUDED.source"
+        ), params)
+        updated += 1
     await db.commit()
     return {"updated": updated, "total": len(rows)}
 
@@ -2111,29 +2249,104 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 
 <div id="page-costprice" class="page-section">
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;background:#f8f9fb;padding:10px 16px;border-radius:8px">
+<!-- Верхняя панель: магазин + период + поиск -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
 <select id="cp-store" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:130px"><option>Все магазины</option></select>
 <select id="cp-period" onchange="loadCostPrices()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option></select>
 <input type="text" id="cp-article" placeholder="Артикул" oninput="loadCostPrices()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:120px">
 </div>
 
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<!-- Панель действий -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
 <button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить Excel</button>
 <input type="file" id="cost-file-input" accept=".xlsx,.csv" style="display:none" onchange="uploadCostExcel(this)">
 <button class="btn btn-outline" onclick="exportCostTemplate()" style="padding:6px 14px;font-size:.85em">📥 Скачать шаблон</button>
-<input type="text" id="cost-search" placeholder="🔍 Поиск" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:200px" oninput="loadCostPrices()">
-<span style="font-size:.85em;color:#999;margin-left:auto" id="cost-count"></span>
+<span style="font-size:.85em;color:#999" id="cost-count"></span>
+<span style="flex:1"></span>
+<span id="cost-selected-info" style="font-size:.85em;color:#6c5ce7;font-weight:600;display:none">☑ Выделено: <span id="cost-selected-count">0</span></span>
 <button class="btn" onclick="saveAllCostPrices()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить всё</button>
 </div>
-<div style="overflow-x:auto">
-<table id="cost-table" style="font-size:.82em"><thead><tr>
-<th>Фото</th><th>Арт WB</th><th>Арт продавца</th><th>Размер</th><th>Товар</th><th>Баркод</th>
-<th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th>
-<th>Себестоимость ₽</th><th>НДС %</th><th>Дата начала</th>
-<th>Класс товара</th><th>Бренд</th><th>Налог. система</th><th>Ставка налога %</th><th>НДС ставка %</th>
-</tr></thead>
-<tbody id="cost-body"><tr><td colspan="18" class="empty">Загрузка...</td></tr></tbody></table>
+
+<!-- Фильтры по столбцам -->
+<div id="cost-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
+<label style="color:#666;font-weight:600">Фильтры:</label>
+<select id="flt-fulfillment" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">ФБО/ФБС: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
+<select id="flt-tax-system" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Налог. система: все</option><option value="usn">УСН</option><option value="usn_dr">Доходы-Расходы</option><option value="osn">ОСН</option></select>
+<select id="flt-product-class" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option></select>
+<select id="flt-brand" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
+<select id="flt-product-status" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option></select>
+<select id="flt-has-cost" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
+<input type="text" id="cost-search" placeholder="🔍 Поиск по названию/артикулу" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
+<button onclick="clearCostFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сбросить</button>
 </div>
+
+<!-- Таблица -->
+<div style="overflow-x:auto;position:relative">
+<table id="cost-table" style="font-size:.82em"><thead><tr>
+<th style="position:sticky;left:0;z-index:2;background:#fff"><input type="checkbox" id="cost-check-all" onchange="toggleAllCostRows(this.checked)" style="cursor:pointer"></th>
+<th>Фото</th><th>Арт WB</th><th>Арт продавца</th><th>Размер</th><th>Товар</th><th>Баркод</th>
+<th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th><th>Доп. затраты ₽</th>
+<th>Себестоимость ₽</th><th>НДС руб</th>
+<th>Баз. % МП</th><th>Корр. % МП</th><th>ФБО/ФБС</th><th>% хранения</th><th>% выкупа ниши</th>
+<th>Цена до СПП план ₽</th><th>Цена до СПП к изм. ₽</th><th>Дата правок</th><th>Скидка WB Клуб %</th>
+<th>Реклама план ₽</th>
+<th>Класс товара</th><th>Бренд</th><th>Статус товара</th>
+<th>Налог. система</th><th>Ставка налога %</th><th>НДС ставка %</th>
+<th>Дата начала</th><th>Заметки</th>
+</tr></thead>
+<tbody id="cost-body"><tr><td colspan="33" class="empty">Загрузка...</td></tr></tbody></table>
+</div>
+
+<!-- Плавающая панель массовых действий -->
+<div id="cost-bulk-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:#6c5ce7;color:#fff;padding:10px 16px;border-radius:8px 8px 0 0;display:none;align-items:center;gap:12px;flex-wrap:wrap;z-index:10;box-shadow:0 -2px 10px rgba(0,0,0,.15)">
+<span style="font-weight:600" id="bulk-bar-count">Выделено: 0</span>
+<select id="bulk-field" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:rgba(255,255,255,.15);color:#fff">
+<option value="">Выберите поле...</option>
+<optgroup label="Себестоимость">
+<option value="purchase_cost">Закупка ₽</option>
+<option value="logistics_cost">Логистика ₽</option>
+<option value="packaging_cost">Упаковка ₽</option>
+<option value="other_costs">Прочее ₽</option>
+<option value="extra_costs">Доп. затраты ₽</option>
+<option value="cost_price">Себестоимость ₽</option>
+<option value="vat">НДС руб</option>
+</optgroup>
+<optgroup label="МП / Комиссия">
+<option value="mp_base_pct">Баз. % МП</option>
+<option value="mp_correction_pct">Корр. % МП</option>
+<option value="fulfillment_model">ФБО/ФБС</option>
+<option value="storage_pct">% хранения</option>
+<option value="buyout_niche_pct">% выкупа ниши</option>
+</optgroup>
+<optgroup label="Цены">
+<option value="price_before_spp_plan">Цена до СПП план ₽</option>
+<option value="price_before_spp_change">Цена до СПП к изм. ₽</option>
+<option value="change_date">Дата правок</option>
+<option value="wb_club_discount_pct">Скидка WB Клуб %</option>
+</optgroup>
+<optgroup label="Реклама">
+<option value="ad_plan_rub">Реклама план ₽</option>
+</optgroup>
+<optgroup label="Классификация">
+<option value="product_class">Класс товара</option>
+<option value="brand">Бренд</option>
+<option value="product_status">Статус товара</option>
+</optgroup>
+<optgroup label="Налоги">
+<option value="tax_system">Налог. система</option>
+<option value="tax_rate">Ставка налога %</option>
+<option value="vat_rate">НДС ставка %</option>
+</optgroup>
+<optgroup label="Прочее">
+<option value="valid_from">Дата начала</option>
+<option value="notes">Заметки</option>
+</optgroup>
+</select>
+<input type="text" id="bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:rgba(255,255,255,.15);color:#fff">
+<button onclick="applyBulkEdit()" style="background:#00b894;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer;font-weight:600">✅ Применить</button>
+<button onclick="clearBulkSelection()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer">Снять выделение</button>
+</div>
+
 <div style="margin-top:12px;display:flex;gap:16px;font-size:.85em" id="cost-summary"></div>
 </div>
 
@@ -2474,6 +2687,7 @@ async function loadStats() {
             if (hasSizes) {
                 // Родительская строка (кликабельная)
                 html += '<tr class="group-parent" onclick="toggleGroup(this)" style="cursor:pointer;background:#f8f9ff">' +
+                '<td style="position:sticky;left:0;z-index:1;background:#fff"><input type="checkbox" class="cost-row-check" onchange="updateBulkBar()" style="cursor:pointer"></td>' +
                 '<td>' + (thumb ? '<img src="' + thumb + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
                 '<td><b>' + nmId + '</b> <span style="font-size:.7em;color:#6c5ce7">▸ ' + items.length + ' разм.</span></td>' +
                 '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(items[0].product_name) + '">' + esc(items[0].product_name) + '</td>' +
@@ -2822,37 +3036,103 @@ async function loadOpiu() {
 }
 async function exportOpiu() { alert('В разработке'); }
 
+// Глобальный кэш для фильтрации
+let _costProducts = [];
+let _costMap = {};
+
 async function loadCostPrices() {
     if (!ORG_ID) return;
-    const search = document.getElementById('cost-search')?.value || document.getElementById('cp-article')?.value || '';
     try {
-        // Load products from latest tech_status date
         const datesRes = await fetch('/api/v1/nl/dates?org_id=' + ORG_ID);
         const dates = datesRes.ok ? await datesRes.json() : [];
-        if (!dates.length) { document.getElementById('cost-body').innerHTML = '<tr><td colspan="18" class="empty">Нет данных</td></tr>'; return; }
+        if (!dates.length) { document.getElementById('cost-body').innerHTML = '<tr><td colspan="33" class="empty">Нет данных</td></tr>'; return; }
         
         const prodsRes = await fetch('/api/v1/nl/control?org_id=' + ORG_ID + '&target_date=' + dates[0]);
         if (!prodsRes.ok) return;
         const prodsData = await prodsRes.json();
-        let products = prodsData.products || [];
+        _costProducts = prodsData.products || [];
         
-        // Load existing cost prices
         const costRes = await fetch('/api/v1/nl/cost-prices?org_id=' + ORG_ID);
-        const costMap = {};
+        _costMap = {};
         if (costRes.ok) {
             const costs = await costRes.json();
-            costs.forEach(c => { if (c.entity_id) costMap[c.entity_id] = c; else costMap[c.nm_id] = c; });
+            costs.forEach(c => { if (c.entity_id) _costMap[c.entity_id] = c; else _costMap[c.nm_id] = c; });
         }
         
-        // Filter by search
-        if (search) {
-            const q = search.toLowerCase();
-            products = products.filter(p => 
-                (p.product_name||'').toLowerCase().includes(q) || 
-                String(p.nm_id).includes(q) || 
-                (p.vendor_code||'').toLowerCase().includes(q)
-            );
-        }
+        // Заполнить фильтры-дропдауны уникальными значениями
+        populateCostFilterOptions();
+        applyCostFilters();
+    } catch(e) { console.error('loadCostPrices', e); }
+}
+
+function populateCostFilterOptions() {
+    const classes = new Set(), brands = new Set(), statuses = new Set();
+    _costProducts.forEach(p => {
+        const c = _costMap[p.entity_id] || _costMap[p.nm_id] || {};
+        if (c.product_class) classes.add(c.product_class);
+        if (c.brand) brands.add(c.brand);
+        if (c.product_status) statuses.add(c.product_status);
+    });
+    const fillSel = (id, vals) => {
+        const el = document.getElementById(id);
+        const cur = el.value;
+        const opts = ['<option value="">' + el.options[0].text + '</option>'];
+        [...vals].sort().forEach(v => opts.push('<option value="' + esc(v) + '">' + esc(v) + '</option>'));
+        el.innerHTML = opts.join('');
+        el.value = cur;
+    };
+    fillSel('flt-product-class', classes);
+    fillSel('flt-brand', brands);
+    fillSel('flt-product-status', statuses);
+}
+
+function clearCostFilters() {
+    document.getElementById('flt-fulfillment').value = '';
+    document.getElementById('flt-tax-system').value = '';
+    document.getElementById('flt-product-class').value = '';
+    document.getElementById('flt-brand').value = '';
+    document.getElementById('flt-product-status').value = '';
+    document.getElementById('flt-has-cost').value = '';
+    document.getElementById('cost-search').value = '';
+    applyCostFilters();
+}
+
+function applyCostFilters() {
+    const search = (document.getElementById('cost-search')?.value || '').toLowerCase();
+    const fltFF = document.getElementById('flt-fulfillment')?.value || '';
+    const fltTax = document.getElementById('flt-tax-system')?.value || '';
+    const fltClass = document.getElementById('flt-product-class')?.value || '';
+    const fltBrand = document.getElementById('flt-brand')?.value || '';
+    const fltStatus = document.getElementById('flt-product-status')?.value || '';
+    const fltCost = document.getElementById('flt-has-cost')?.value || '';
+    
+    let products = _costProducts;
+    
+    // Фильтрация
+    if (search) {
+        products = products.filter(p => 
+            (p.product_name||'').toLowerCase().includes(search) || 
+            String(p.nm_id).includes(search) || 
+            (p.vendor_code||'').toLowerCase().includes(search)
+        );
+    }
+    
+    const checkMatch = (c, field, filterVal) => {
+        if (!filterVal) return true;
+        return (c[field] || '') === filterVal;
+    };
+    
+    products = products.filter(p => {
+        const c = _costMap[p.entity_id] || _costMap[p.nm_id] || {};
+        if (fltFF && !checkMatch(c, 'fulfillment_model', fltFF)) return false;
+        if (fltTax && !checkMatch(c, 'tax_system', fltTax)) return false;
+        if (fltClass && !checkMatch(c, 'product_class', fltClass)) return false;
+        if (fltBrand && !checkMatch(c, 'brand', fltBrand)) return false;
+        if (fltStatus && !checkMatch(c, 'product_status', fltStatus)) return false;
+        if (fltCost === 'yes' && !c.cost_price) return false;
+        if (fltCost === 'no' && c.cost_price) return false;
+        return true;
+    });
         
         document.getElementById('cost-count').textContent = products.length + ' товаров';
         
@@ -2861,14 +3141,8 @@ async function loadCostPrices() {
         
         const tbody = document.getElementById('cost-body');
         tbody.innerHTML = products.map(p => {
-            const c = costMap[p.entity_id] || costMap[p.nm_id] || {};
-            const purchase = c.purchase_cost || '';
-            const logistics = c.logistics_cost || '';
-            const packaging = c.packaging_cost || '';
-            const other = c.other_costs || '';
+            const c = _costMap[p.entity_id] || _costMap[p.nm_id] || {};
             const costPrice = c.cost_price || '';
-            const vat = c.vat || '';
-            const validFrom = c.valid_from || new Date().toISOString().split('T')[0];
             if (costPrice) { totalCost += parseFloat(costPrice); filled++; }
             
             const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/');
@@ -2879,18 +3153,38 @@ async function loadCostPrices() {
                 '<td>' + esc(p.size_name||'—') + '</td>' +
                 '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name||'') + '">' + esc(p.product_name||'') + '</td>' +
                 '<td style="font-size:.8em">' + (p.barcode||'') + '</td>' +
-                '<td><input type="number" class="cost-input" data-field="purchase" value="' + purchase + '" style="width:70px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="logistics" value="' + logistics + '" style="width:70px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="packaging" value="' + packaging + '" style="width:70px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="other" value="' + other + '" style="width:70px" placeholder="0"></td>' +
+                // Себестоимость
+                '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="other" value="' + (c.other_costs||'') + '" style="width:70px" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="extra_costs" value="' + (c.extra_costs||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="cost_price" value="' + costPrice + '" style="width:80px;font-weight:600" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="vat" value="' + vat + '" style="width:50px" placeholder="0"></td>' +
-                '<td><input type="date" class="cost-input" data-field="valid_from" value="' + validFrom + '" style="width:110px;font-size:.8em"></td>' +
-                '<td><input type="text" class="cost-input" data-field="product_class" value="' + esc(c.product_class||'') + '" style="width:80px" placeholder="-"></td>' +
+                '<td><input type="number" class="cost-input" data-field="vat" value="' + (c.vat||'') + '" style="width:50px" placeholder="0"></td>' +
+                // МП / Комиссия
+                '<td><input type="number" class="cost-input" data-field="mp_base_pct" value="' + (c.mp_base_pct||'') + '" style="width:60px" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="mp_correction_pct" value="' + (c.mp_correction_pct||'') + '" style="width:60px" placeholder="0"></td>' +
+                '<td><select class="cost-input" data-field="fulfillment_model" style="width:60px;font-size:.8em"><option value="fbo"' + (c.fulfillment_model!=='fbs'?' selected':'') + '>ФБО</option><option value="fbs"' + (c.fulfillment_model==='fbs'?' selected':'') + '>ФБС</option></select></td>' +
+                '<td><input type="number" class="cost-input" data-field="storage_pct" value="' + (c.storage_pct||'') + '" style="width:60px" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="buyout_niche_pct" value="' + (c.buyout_niche_pct||'') + '" style="width:60px" placeholder="0"></td>' +
+                // Цены
+                '<td><input type="number" class="cost-input" data-field="price_before_spp_plan" value="' + (c.price_before_spp_plan||'') + '" style="width:80px" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="price_before_spp_change" value="' + (c.price_before_spp_change||'') + '" style="width:80px" placeholder="0"></td>' +
+                '<td><input type="date" class="cost-input" data-field="change_date" value="' + (c.change_date||'') + '" style="width:100px;font-size:.8em"></td>' +
+                '<td><input type="number" class="cost-input" data-field="wb_club_discount_pct" value="' + (c.wb_club_discount_pct||'') + '" style="width:60px" placeholder="0"></td>' +
+                // Реклама
+                '<td><input type="number" class="cost-input" data-field="ad_plan_rub" value="' + (c.ad_plan_rub||'') + '" style="width:80px" placeholder="0"></td>' +
+                // Классификация
+                '<td><input type="text" class="cost-input" data-field="product_class" value="' + esc(c.product_class||'') + '" style="width:70px" placeholder="-"></td>' +
                 '<td><input type="text" class="cost-input" data-field="brand" value="' + esc(c.brand||'') + '" style="width:80px" placeholder="-"></td>' +
+                '<td><input type="text" class="cost-input" data-field="product_status" value="' + esc(c.product_status||'') + '" style="width:80px" placeholder="-"></td>' +
+                // Налоги
                 '<td><select class="cost-input" data-field="tax_system" style="width:90px;font-size:.8em"><option value="">-</option><option value="usn"' + (c.tax_system==='usn'?' selected':'') + '>УСН</option><option value="usn_dr"' + (c.tax_system==='usn_dr'?' selected':'') + '>Доходы-Расходы</option><option value="osn"' + (c.tax_system==='osn'?' selected':'') + '>ОСН</option></select></td>' +
                 '<td><input type="number" class="cost-input" data-field="tax_rate" value="' + (c.tax_rate||'') + '" style="width:60px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="vat_rate" value="' + (c.vat_rate||'') + '" style="width:60px" placeholder="0"></td>' +
+                // Прочее
+                '<td><input type="date" class="cost-input" data-field="valid_from" value="' + (c.valid_from||new Date().toISOString().split('T')[0]) + '" style="width:110px;font-size:.8em"></td>' +
+                '<td><input type="text" class="cost-input" data-field="notes" value="' + esc(c.notes||'') + '" style="width:100px" placeholder="-"></td>' +
                 '</tr>';
         }).join('');
         
@@ -2898,7 +3192,85 @@ async function loadCostPrices() {
             '<span>💰 Заполнено: <strong>' + filled + '/' + products.length + '</strong></span>' +
             '<span>📊 Сумма себестоимости: <strong>' + totalCost.toLocaleString('ru-RU') + ' ₽</strong></span>' +
             (filled > 0 ? '<span>📐 Средняя: <strong>' + Math.round(totalCost/filled).toLocaleString('ru-RU') + ' ₽</strong></span>' : '');
-    } catch(e) { console.error('loadCostPrices', e); }
+}
+
+
+
+// === Чекбоксы и массовые действия ===
+function toggleAllCostRows(checked) {
+    document.querySelectorAll('.cost-row-check').forEach(cb => { cb.checked = checked; });
+    updateBulkBar();
+}
+
+function updateBulkBar() {
+    const checks = document.querySelectorAll('.cost-row-check:checked');
+    const count = checks.length;
+    const bar = document.getElementById('cost-bulk-bar');
+    const info = document.getElementById('cost-selected-info');
+    const countEl = document.getElementById('cost-selected-count');
+    const barCount = document.getElementById('bulk-bar-count');
+    
+    if (count > 0) {
+        bar.style.display = 'flex';
+        info.style.display = 'inline';
+    } else {
+        bar.style.display = 'none';
+        info.style.display = 'none';
+    }
+    if (countEl) countEl.textContent = count;
+    if (barCount) barCount.textContent = '\u0412\u044b\u0434\u0435\u043b\u0435\u043d\u043e: ' + count;
+    
+    const allChecks = document.querySelectorAll('.cost-row-check');
+    const checkAll = document.getElementById('cost-check-all');
+    if (checkAll) checkAll.checked = allChecks.length > 0 && count === allChecks.length;
+}
+
+function clearBulkSelection() {
+    document.querySelectorAll('.cost-row-check').forEach(cb => { cb.checked = false; });
+    document.getElementById('cost-check-all').checked = false;
+    updateBulkBar();
+}
+
+function applyBulkEdit() {
+    const field = document.getElementById('bulk-field').value;
+    const value = document.getElementById('bulk-value').value;
+    if (!field) { alert('\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043f\u043e\u043b\u0435 \u0434\u043b\u044f \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f'); return; }
+    
+    const checkedRows = document.querySelectorAll('.cost-row-check:checked');
+    if (!checkedRows.length) { alert('\u0412\u044b\u0434\u0435\u043b\u0438\u0442\u0435 \u0445\u043e\u0442\u044f \u0431\u044b \u043e\u0434\u043d\u0443 \u0441\u0442\u0440\u043e\u043a\u0443'); return; }
+    
+    const count = checkedRows.length;
+    if (!confirm('\u0417\u0430\u043f\u0438\u0441\u0430\u0442\u044c \u00ab' + value + '\u00bb \u0432 \u043f\u043e\u043b\u0435 \u00ab' + field + '\u00bb \u0434\u043b\u044f ' + count + ' \u0442\u043e\u0432\u0430\u0440\u043e\u0432?')) return;
+    
+    checkedRows.forEach(cb => {
+        const row = cb.closest('tr');
+        const input = row.querySelector('[data-field="' + field + '"]');
+        if (input) {
+            if (input.tagName === 'SELECT') {
+                for (let opt of input.options) {
+                    if (opt.value === value || opt.textContent === value) {
+                        input.value = opt.value;
+                        break;
+                    }
+                }
+            } else {
+                input.value = value;
+            }
+        }
+    });
+    
+    document.getElementById('bulk-field').value = '';
+    document.getElementById('bulk-value').value = '';
+    
+    checkedRows.forEach(cb => {
+        const row = cb.closest('tr');
+        const input = row.querySelector('[data-field="' + field + '"]');
+        if (input) {
+            const td = input.closest('td');
+            td.style.background = '#ffeaa7';
+            setTimeout(() => { td.style.background = ''; }, 1500);
+        }
+    });
 }
 
 async function saveAllCostPrices() {
@@ -2907,23 +3279,44 @@ async function saveAllCostPrices() {
     for (const row of rows) {
         const costInput = row.querySelector('[data-field="cost_price"]');
         if (!costInput || !costInput.value) continue;
+        const gv = (field, def='0') => row.querySelector('[data-field="' + field + '"]')?.value || def;
         const data = {
             nm_id: parseInt(row.dataset.nm),
             entity_id: row.dataset.entityId || undefined,
             barcode: row.dataset.barcode,
             vendor_code: row.dataset.vc,
-            purchase_cost: parseFloat(row.querySelector('[data-field="purchase"]')?.value || '0'),
-            logistics_cost: parseFloat(row.querySelector('[data-field="logistics"]')?.value || '0'),
-            packaging_cost: parseFloat(row.querySelector('[data-field="packaging"]')?.value || '0'),
-            other_costs: parseFloat(row.querySelector('[data-field="other"]')?.value || '0'),
+            // Себестоимость
+            purchase_cost: parseFloat(gv('purchase')),
+            logistics_cost: parseFloat(gv('logistics')),
+            packaging_cost: parseFloat(gv('packaging')),
+            other_costs: parseFloat(gv('other')),
+            extra_costs: parseFloat(gv('extra_costs')),
             cost_price: parseFloat(costInput.value),
-            vat: parseFloat(row.querySelector('[data-field="vat"]')?.value || '0'),
-            valid_from: row.querySelector('[data-field="valid_from"]')?.value || new Date().toISOString().split('T')[0],
-            product_class: row.querySelector('[data-field="product_class"]')?.value || '',
-            brand: row.querySelector('[data-field="brand"]')?.value || '',
-            tax_system: row.querySelector('[data-field="tax_system"]')?.value || '',
-            tax_rate: parseFloat(row.querySelector('[data-field="tax_rate"]')?.value || '0'),
-            vat_rate: parseFloat(row.querySelector('[data-field="vat_rate"]')?.value || '0'),
+            vat: parseFloat(gv('vat')),
+            // МП / Комиссия
+            mp_base_pct: parseFloat(gv('mp_base_pct')),
+            mp_correction_pct: parseFloat(gv('mp_correction_pct')),
+            fulfillment_model: gv('fulfillment_model', 'fbo'),
+            storage_pct: parseFloat(gv('storage_pct')),
+            buyout_niche_pct: parseFloat(gv('buyout_niche_pct')),
+            // Цены
+            price_before_spp_plan: parseFloat(gv('price_before_spp_plan')),
+            price_before_spp_change: parseFloat(gv('price_before_spp_change')),
+            change_date: gv('change_date', '') || null,
+            wb_club_discount_pct: parseFloat(gv('wb_club_discount_pct')),
+            // Реклама
+            ad_plan_rub: parseFloat(gv('ad_plan_rub')),
+            // Классификация
+            product_class: gv('product_class', ''),
+            brand: gv('brand', ''),
+            product_status: gv('product_status', ''),
+            // Налоги
+            tax_system: gv('tax_system', ''),
+            tax_rate: parseFloat(gv('tax_rate')),
+            vat_rate: parseFloat(gv('vat_rate')),
+            // Прочее
+            valid_from: gv('valid_from', new Date().toISOString().split('T')[0]),
+            notes: gv('notes', ''),
             source: 'manual'
         };
         try {
@@ -2956,23 +3349,41 @@ async function uploadCostExcel(input) {
 }
 
 function exportCostTemplate() {
-    // Собираем товары из таблицы если есть, или отдаём пустой шаблон
     const rows = document.querySelectorAll('#cost-body tr[data-nm]');
-    let csv = 'Арт WB;Арт продавца;Баркод;Название;Закупка;Логистика;Упаковка;Прочее;Себестоимость;НДС %';
+    const hdr = 'Арт WB;Арт продавца;Баркод;Название;Размер;' +
+        'Закупка;Логистика;Упаковка;Прочее;Доп. затраты;Себестоимость;НДС руб;' +
+        'Баз. % МП;Корр. % МП;ФБО/ФБС;% хранения;% выкупа ниши;' +
+        'Цена до СПП план;Цена до СПП к изм.;Дата правок;Скидка WB Клуб %;' +
+        'Реклама план;' +
+        'Класс товара;Бренд;Статус товара;' +
+        'Налог. система;Ставка налога %;НДС ставка %;' +
+        'Дата начала;Заметки';
+    let csv = hdr;
     if (rows.length) {
         csv += String.fromCharCode(10);
         rows.forEach(row => {
             const nm = row.dataset.nm || '';
             const vc = row.dataset.vc || '';
             const bc = row.dataset.barcode || '';
-            const name = row.querySelector('td:nth-child(4)')?.textContent || '';
-            csv += [nm, vc, bc, '"' + name + '"', '', '', '', '', '', ''].join(';') + String.fromCharCode(10);
+            const name = row.querySelector('td:nth-child(5)')?.textContent || '';
+            const size = row.querySelector('td:nth-child(4)')?.textContent || '';
+            const gv = (f) => row.querySelector('[data-field="' + f + '"]')?.value || '';
+            const cols = [nm, vc, bc, '"' + name + '"', size,
+                gv('purchase'), gv('logistics'), gv('packaging'), gv('other'), gv('extra_costs'), gv('cost_price'), gv('vat'),
+                gv('mp_base_pct'), gv('mp_correction_pct'), gv('fulfillment_model'), gv('storage_pct'), gv('buyout_niche_pct'),
+                gv('price_before_spp_plan'), gv('price_before_spp_change'), gv('change_date'), gv('wb_club_discount_pct'),
+                gv('ad_plan_rub'),
+                gv('product_class'), gv('brand'), gv('product_status'),
+                gv('tax_system'), gv('tax_rate'), gv('vat_rate'),
+                gv('valid_from'), gv('notes')
+            ];
+            csv += cols.join(';') + String.fromCharCode(10);
         });
     }
-    const blob = new Blob(['﻿' + csv], {type: 'text/csv;charset=utf-8'});
+    const blob = new Blob(['' + csv], {type: 'text/csv;charset=utf-8'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'template_sebestoimost.csv';
+    a.download = 'template_spravochnik.csv';
     a.click();
     URL.revokeObjectURL(a.href);
 }
@@ -3372,14 +3783,21 @@ function addSorting(tableId) {
             var tbody = table.querySelector('tbody');
             var rows = Array.from(tbody.querySelectorAll('tr'));
             if (!rows.length) return;
-            // Check if first row is empty message
             if (rows[0].querySelector('.empty')) return;
             var asc = th.classList.contains('asc') ? false : (th.classList.contains('desc') ? true : true);
             headers.forEach(h => h.classList.remove('asc','desc'));
             th.classList.add(asc ? 'asc' : 'desc');
             rows.sort(function(a, b) {
-                var va = parseVal(a.children[ci] ? a.children[ci].textContent.trim() : '');
-                var vb = parseVal(b.children[ci] ? b.children[ci].textContent.trim() : '');
+                // Get cell value: check for input/select first, then textContent
+                function cellVal(row) {
+                    var cell = row.children[ci];
+                    if (!cell) return '';
+                    var inp = cell.querySelector('input, select');
+                    if (inp) return inp.value || '';
+                    return cell.textContent.trim();
+                }
+                var va = parseVal(cellVal(a));
+                var vb = parseVal(cellVal(b));
                 if (va == null && vb == null) return 0;
                 if (va == null) return 1;
                 if (vb == null) return -1;
