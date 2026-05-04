@@ -42,6 +42,7 @@ from models.product_entity import (
     EntityBarcode,
     UnmatchedBarcode
 )
+from models.sales_plan import SalesPlan, PlanType, Seasonality
 
 config = context.config
 

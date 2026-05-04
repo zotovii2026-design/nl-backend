@@ -14,6 +14,7 @@ from core.dependencies import get_current_user
 from models.user import User
 from models.reference_book import ReferenceBook
 from models.raw_data import TechStatus
+from models.sales_plan import SalesPlan, PlanType, Seasonality
 
 router = APIRouter(tags=["nl"])
 
@@ -57,6 +58,19 @@ class RefItem(BaseModel):
     tax_system: Optional[str] = None  # usn / osn / usn_dr
     tax_rate: Optional[float] = None
     vat_rate: Optional[float] = None
+
+
+class SalesPlanItem(BaseModel):
+    nm_id: int
+    vendor_code: Optional[str] = None
+    size_name: Optional[str] = None
+    period: str  # YYYY-MM-DD (первый день месяца)
+    plan_type: str = "quantity"  # quantity / revenue
+    plan_value: float = 0
+    actual_value: float = 0
+    sales_temp: Optional[float] = None
+    seasonality: str = "medium"  # low / medium / high / peak
+    entity_id: Optional[str] = None
 
 
 @router.post("/api/v1/nl/register")
@@ -1683,6 +1697,214 @@ async def upload_seo_keywords(org_id: str, request: Request, db: AsyncSession = 
 
 
 
+# ─── ПЛАН ПРОДАЖ ────────────────────────────────────────────
+
+@router.get("/api/v1/nl/sales-plans")
+async def get_sales_plans(org_id: str, period: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """План продаж — список по организации с фильтром по периоду"""
+    from sqlalchemy import text
+    sql = (
+        "SELECT sp.id, sp.entity_id, sp.nm_id, sp.vendor_code, sp.size_name, "
+        "sp.period, sp.plan_type, sp.plan_value, sp.actual_value, "
+        "sp.sales_temp, sp.seasonality, sp.created_at, sp.updated_at, "
+        "pe.product_name, pe.photo_main "
+        "FROM sales_plans sp "
+        "LEFT JOIN product_entities pe ON sp.entity_id = pe.id "
+        "WHERE sp.organization_id = :org "
+    )
+    params = {"org": org_id}
+    if period:
+        sql += " AND sp.period = :period"
+        params["period"] = datetime.strptime(period, "%Y-%m-%d").date()
+    sql += " ORDER BY sp.nm_id, sp.period DESC"
+    result = await db.execute(text(sql), params)
+    return [{
+        "id": str(r[0]),
+        "entity_id": str(r[1]) if r[1] else None,
+        "nm_id": r[2],
+        "vendor_code": r[3],
+        "size_name": r[4],
+        "period": str(r[5]),
+        "plan_type": r[6],
+        "plan_value": float(r[7]) if r[7] else 0,
+        "actual_value": float(r[8]) if r[8] else 0,
+        "sales_temp": float(r[9]) if r[9] else None,
+        "seasonality": r[10],
+        "created_at": str(r[11]) if r[11] else None,
+        "updated_at": str(r[12]) if r[12] else None,
+        "product_name": r[13],
+        "photo_main": r[14],
+        "pct_complete": round(float(r[8]) / float(r[7]) * 100, 1) if r[7] and float(r[7]) > 0 else 0,
+    } for r in result.all()]
+
+
+@router.post("/api/v1/nl/sales-plans")
+async def save_sales_plan(data: SalesPlanItem, org_id: str, db: AsyncSession = Depends(get_db)):
+    """Создать/обновить план продаж"""
+    period_date = datetime.strptime(data.period, "%Y-%m-%d").date()
+    # Приводим к первому дню месяца
+    period_date = period_date.replace(day=1)
+
+    # entity_id lookup
+    eid = None
+    if data.entity_id:
+        eid = data.entity_id
+    else:
+        ent_q = await db.execute(text(
+            "SELECT id FROM product_entities WHERE organization_id = :org AND nm_id = :nm LIMIT 1"
+        ), {"org": org_id, "nm": data.nm_id})
+        ent_row = ent_q.first()
+        eid = str(ent_row[0]) if ent_row else None
+
+    # vendor_code / size_name из entity если не заданы
+    vc = data.vendor_code
+    sn = data.size_name
+    if eid and (not vc or not sn):
+        ent_info = await db.execute(text(
+            "SELECT vendor_code, size_name FROM product_entities WHERE id = :eid"
+        ), {"eid": eid})
+        ent_row = ent_info.first()
+        if ent_row:
+            vc = vc or ent_row[0]
+            sn = sn or ent_row[1]
+
+    ins = pg_insert(SalesPlan).values(
+        organization_id=org_id,
+        entity_id=eid,
+        nm_id=data.nm_id,
+        vendor_code=vc,
+        size_name=sn,
+        period=period_date,
+        plan_type=data.plan_type,
+        plan_value=data.plan_value,
+        actual_value=data.actual_value,
+        sales_temp=data.sales_temp,
+        seasonality=data.seasonality,
+    )
+    stmt = ins.on_conflict_do_update(
+        constraint="sales_plans_org_entity_period_type_key",
+        set_={
+            "vendor_code": ins.excluded.vendor_code,
+            "size_name": ins.excluded.size_name,
+            "plan_value": ins.excluded.plan_value,
+            "actual_value": ins.excluded.actual_value,
+            "sales_temp": ins.excluded.sales_temp,
+            "seasonality": ins.excluded.seasonality,
+            "updated_at": datetime.utcnow(),
+        }
+    )
+    await db.execute(stmt)
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.put("/api/v1/nl/sales-plans/{plan_id}")
+async def update_sales_plan(plan_id: str, data: dict, org_id: str, db: AsyncSession = Depends(get_db)):
+    """Обновить отдельные поля плана продаж"""
+    from sqlalchemy import text as _t
+    fields = []
+    params = {"pid": plan_id, "org": org_id}
+    for key in ["plan_value", "actual_value", "sales_temp", "plan_type", "seasonality", "vendor_code", "size_name"]:
+        if key in data:
+            fields.append(f"{key} = :{key}")
+            params[key] = data[key]
+    if not fields:
+        return {"status": "noop"}
+    fields.append("updated_at = NOW()")
+    sql = f"UPDATE sales_plans SET {', '.join(fields)} WHERE id = :pid AND organization_id = :org"
+    await db.execute(_t(sql), params)
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.delete("/api/v1/nl/sales-plans/{plan_id}")
+async def delete_sales_plan(plan_id: str, org_id: str, db: AsyncSession = Depends(get_db)):
+    """Удалить план продаж"""
+    from sqlalchemy import text as _t
+    await db.execute(_t(
+        "DELETE FROM sales_plans WHERE id = :pid AND organization_id = :org"
+    ), {"pid": plan_id, "org": org_id})
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/api/v1/nl/sales-plans/batch")
+async def batch_sales_plans(items: list[SalesPlanItem], org_id: str, db: AsyncSession = Depends(get_db)):
+    """Массовое создание/обновление планов продаж"""
+    updated = 0
+    for item in items:
+        period_date = datetime.strptime(item.period, "%Y-%m-%d").date().replace(day=1)
+
+        ent_q = await db.execute(text(
+            "SELECT id, vendor_code, size_name FROM product_entities "
+            "WHERE organization_id = :org AND nm_id = :nm LIMIT 1"
+        ), {"org": org_id, "nm": item.nm_id})
+        ent_row = ent_q.first()
+        eid = str(ent_row[0]) if ent_row else None
+        vc = item.vendor_code or (ent_row[1] if ent_row else None)
+        sn = item.size_name or (ent_row[2] if ent_row else None)
+
+        ins = pg_insert(SalesPlan).values(
+            organization_id=org_id,
+            entity_id=eid,
+            nm_id=item.nm_id,
+            vendor_code=vc,
+            size_name=sn,
+            period=period_date,
+            plan_type=item.plan_type,
+            plan_value=item.plan_value,
+            actual_value=item.actual_value,
+            sales_temp=item.sales_temp,
+            seasonality=item.seasonality,
+        )
+        stmt = ins.on_conflict_do_update(
+            constraint="sales_plans_org_entity_period_type_key",
+            set_={
+                "plan_value": ins.excluded.plan_value,
+                "actual_value": ins.excluded.actual_value,
+                "sales_temp": ins.excluded.sales_temp,
+                "seasonality": ins.excluded.seasonality,
+                "updated_at": datetime.utcnow(),
+            }
+        )
+        await db.execute(stmt)
+        updated += 1
+    await db.commit()
+    return {"status": "ok", "updated": updated}
+
+
+@router.get("/api/v1/nl/sales-plans/summary")
+async def sales_plans_summary(org_id: str, period: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Сводка по плану продаж"""
+    from sqlalchemy import text
+    params = {"org": org_id}
+    where = "WHERE organization_id = :org"
+    if period:
+        where += " AND period = :period"
+        params["period"] = datetime.strptime(period, "%Y-%m-%d").date()
+    result = await db.execute(text(
+        f"SELECT plan_type, "
+        f"SUM(plan_value) as total_plan, "
+        f"SUM(actual_value) as total_actual, "
+        f"COUNT(*) as items_count, "
+        f"COUNT(*) FILTER (WHERE actual_value / NULLIF(plan_value,0) >= 0.9) as green_count, "
+        f"COUNT(*) FILTER (WHERE actual_value / NULLIF(plan_value,0) >= 0.7 AND actual_value / NULLIF(plan_value,0) < 0.9) as yellow_count, "
+        f"COUNT(*) FILTER (WHERE actual_value / NULLIF(plan_value,0) < 0.7) as red_count "
+        f"FROM sales_plans {where} GROUP BY plan_type"
+    ), params)
+    rows = result.all()
+    return [{
+        "plan_type": r[0],
+        "total_plan": float(r[1]) if r[1] else 0,
+        "total_actual": float(r[2]) if r[2] else 0,
+        "items_count": r[3],
+        "pct_complete": round(float(r[2]) / float(r[1]) * 100, 1) if r[1] and float(r[1]) > 0 else 0,
+        "green_count": r[4],
+        "yellow_count": r[5],
+        "red_count": r[6],
+    } for r in rows]
+
+
 # ─── РЕКЛАМА ────────────────────────────────────────────
 
 @router.get("/api/v1/nl/ad-stats")
@@ -2324,6 +2546,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <a class="nav-item" onclick="navTo('opiu',this)"><span class="icon">📑</span>ОПиУ</a>
 <a class="nav-item" onclick="navTo('analytics',this)"><span class="icon">📈</span>Аналитика по товарам</a>
 <a class="nav-item" onclick="navTo('costprice',this)"><span class="icon">📖</span>Справочник</a>
+<a class="nav-item" onclick="navTo('salesplan',this)"><span class="icon">🎯</span>План продаж</a>
 <a class="nav-item" onclick="navTo('warehouses',this)"><span class="icon">📦</span>Склады</a>
 <a class="nav-item" onclick="navTo('opexpenses',this)"><span class="icon">📝</span>Опер. расходы</a>
 <a class="nav-item" onclick="navTo('ads',this)"><span class="icon">📢</span>Реклама</a>
@@ -2613,6 +2836,65 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 
 <div style="margin-top:12px;display:flex;gap:16px;font-size:.85em" id="cost-summary"></div>
+</div>
+
+<div id="page-salesplan" class="page-section">
+<!-- Фильтры -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
+<select id="sp-period" onchange="loadSalesPlans()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"></select>
+<select id="sp-type" onchange="loadSalesPlans()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="">Тип: все</option><option value="quantity">Штуки</option><option value="revenue">Сумма</option></select>
+<select id="sp-season" onchange="applySpFilters()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="">Сезонность: все</option><option value="low">Низкая</option><option value="medium">Средняя</option><option value="high">Высокая</option><option value="peak">Пик</option></select>
+<select id="sp-status" onchange="applySpFilters()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="">Статус: все</option><option value="green">🟢 ≥90%</option><option value="yellow">🟡 70-89%</option><option value="red">🔴 <70%</option></select>
+<input type="text" id="sp-search" placeholder="🔍 Артикул / название" oninput="applySpFilters()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:180px">
+<button class="btn" onclick="loadSalesPlans()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+</div>
+
+<!-- Сводка -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px" id="sp-summary-cards">
+<div class="metric-card"><div class="mc-label">План (всего)</div><div class="mc-value" id="sp-total-plan">—</div></div>
+<div class="metric-card"><div class="mc-label">Факт (всего)</div><div class="mc-value" id="sp-total-actual">—</div></div>
+<div class="metric-card"><div class="mc-label">% выполнения</div><div class="mc-value" id="sp-total-pct">—</div></div>
+<div class="metric-card"><div class="mc-label">🟢 Выполняют</div><div class="mc-value" id="sp-green-count">—</div></div>
+<div class="metric-card"><div class="mc-label">🟡 Отстают</div><div class="mc-value" id="sp-yellow-count">—</div></div>
+<div class="metric-card"><div class="mc-label">🔴 Не выполняют</div><div class="mc-value" id="sp-red-count">—</div></div>
+</div>
+
+<!-- Панель действий -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+<button class="btn" onclick="openSpAddModal()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff">➕ Добавить план</button>
+<button class="btn" onclick="openSpBatchModal()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">📋 Массовое назначение</button>
+<span style="font-size:.85em;color:#999" id="sp-count"></span>
+<span style="flex:1"></span>
+<span id="sp-selected-info" style="font-size:.85em;color:#6c5ce7;font-weight:600;display:none">☑ Выделено: <span id="sp-selected-count">0</span></span>
+<button class="btn" onclick="saveAllSpChanges()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff;display:none" id="sp-save-all-btn">💾 Сохранить всё</button>
+</div>
+
+<!-- Таблица -->
+<div style="overflow-x:auto;position:relative">
+<table id="sp-table" style="font-size:.82em"><thead><tr>
+<th style="position:sticky;left:0;z-index:2;background:#fff"><input type="checkbox" id="sp-check-all" onchange="toggleAllSpRows(this.checked)" style="cursor:pointer"></th>
+<th>Фото</th><th>Арт ВБ</th><th>Арт поставщика</th><th>Товар</th><th>Размер</th>
+<th>Период</th><th>Тип плана</th><th>План</th><th>Факт</th><th>% выполн.</th><th>Статус</th>
+<th>Темп продаж</th><th>Сезонность</th><th>Действия</th>
+</tr></thead>
+<tbody id="sp-body"><tr><td colspan="15" class="empty">Загрузка...</td></tr></tbody></table>
+</div>
+
+<!-- Плавающая панель массовых действий -->
+<div id="sp-bulk-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:#6c5ce7;color:#fff;padding:10px 16px;border-radius:8px 8px 0 0;align-items:center;gap:12px;flex-wrap:wrap;z-index:10;box-shadow:0 -2px 10px rgba(0,0,0,.15)">
+<span style="font-weight:600" id="sp-bulk-count">Выделено: 0</span>
+<select id="sp-bulk-field" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:rgba(255,255,255,.15);color:#fff">
+<option value="">Выберите поле...</option>
+<option value="plan_value">План</option>
+<option value="plan_type">Тип плана</option>
+<option value="seasonality">Сезонность</option>
+<option value="actual_value">Факт</option>
+<option value="sales_temp">Темп продаж</option>
+</select>
+<input type="text" id="sp-bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:rgba(255,255,255,.15);color:#fff">
+<button onclick="applySpBulkEdit()" style="background:#00b894;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer;font-weight:600">✅ Применить</button>
+<button onclick="clearSpBulkSelection()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer">Снять выделение</button>
+</div>
 </div>
 
 <div id="page-warehouses" class="page-section">
@@ -3090,7 +3372,7 @@ function navTo(name, el) {
     if (target) target.classList.add('active');
     // Update page title
     var titles = {stats:'Основные показатели',rnp:'РНП',opiu:'ОПиУ',analytics:'Аналитика по товарам',
-        costprice:'Справочник',warehouses:'Склады',opexpenses:'Опер. расходы',ads:'Реклама',
+        costprice:'Справочник',salesplan:'План продаж',warehouses:'Склады',opexpenses:'Опер. расходы',ads:'Реклама',
         fboneeds:'Потребность FBO',unitecon:'Юнит Экономика',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
     document.getElementById('page-title').textContent = titles[name] || name;
     // Update top-bar filters visibility
@@ -3102,6 +3384,7 @@ function navTo(name, el) {
     else if (name === 'rnp') loadRnp();
     else if (name === 'opiu') loadOpiu();
     else if (name === 'costprice') loadCostPrices();
+    else if (name === 'salesplan') loadSalesPlans();
     else if (name === 'warehouses') loadWarehouses();
     else if (name === 'opexpenses') loadOpEx();
     else if (name === 'ads') loadAds();
@@ -3161,6 +3444,22 @@ async function loadDates() {
     if (!res.ok) return [];
     const dates = await res.json();
     // Fill both date selectors
+    // Заполнить периоды для плана продаж
+    var spPeriodSel = document.getElementById('sp-period');
+    if (spPeriodSel && spPeriodSel.tagName === 'SELECT') {
+        spPeriodSel.innerHTML = '';
+        // Генерируем последние 12 месяцев
+        var now = new Date();
+        for (var m = 0; m < 12; m++) {
+            var d = new Date(now.getFullYear(), now.getMonth() - m, 1);
+            var val = d.toISOString().substring(0,10);
+            var label = d.toLocaleDateString('ru-RU', {month:'long', year:'numeric'});
+            var opt = document.createElement('option');
+            opt.value = val;
+            opt.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+            spPeriodSel.appendChild(opt);
+        }
+    }
     ['ref-date', 'stats-date', 'analytics-date', 'wh-date', 'opiu-period'].forEach(id => {
         const sel = document.getElementById(id);
         if (!sel || sel.tagName !== 'SELECT') return;
@@ -3789,6 +4088,249 @@ async function loadRnp() {
         ).join('');
     } catch(e) { console.error('loadRnp', e); }
 }
+
+// ─── ПЛАН ПРОДАЖ ─────────────────────────────────────────
+var spData = [];
+var spChanged = new Set();
+var spSelected = new Set();
+
+async function loadSalesPlans() {
+    if (!ORG_ID) return;
+    var periodSel = document.getElementById('sp-period');
+    var period = periodSel ? periodSel.value : '';
+    var type = document.getElementById('sp-type')?.value || '';
+    var url = '/api/v1/nl/sales-plans?org_id=' + ORG_ID;
+    if (period) url += '&period=' + period;
+    try {
+        var r = await fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}});
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        var data = await r.json();
+        // Фильтр по типу на клиенте
+        if (type) data = data.filter(function(d) { return d.plan_type === type; });
+        spData = data;
+        spChanged.clear();
+        document.getElementById('sp-save-all-btn').style.display = 'none';
+        renderSpTable(data);
+        // Загрузить сводку
+        loadSpSummary(period);
+    } catch(e) {
+        console.error('loadSalesPlans error:', e);
+        document.getElementById('sp-body').innerHTML = '<tr><td colspan="15" class="empty">Ошибка: ' + esc(e.message) + '</td></tr>';
+    }
+}
+
+async function loadSpSummary(period) {
+    if (!ORG_ID) return;
+    var url = '/api/v1/nl/sales-plans/summary?org_id=' + ORG_ID;
+    if (period) url += '&period=' + period;
+    try {
+        var r = await fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}});
+        var data = await r.json();
+        var fmt = function(v) { return v != null ? Number(v).toLocaleString('ru-RU', {maximumFractionDigits:0}) : '—'; };
+        var totalPlan = 0, totalActual = 0, greenCount = 0, yellowCount = 0, redCount = 0;
+        data.forEach(function(d) {
+            totalPlan += d.total_plan;
+            totalActual += d.total_actual;
+            greenCount += d.green_count;
+            yellowCount += d.yellow_count;
+            redCount += d.red_count;
+        });
+        var pct = totalPlan > 0 ? (totalActual / totalPlan * 100).toFixed(1) : '—';
+        document.getElementById('sp-total-plan').textContent = fmt(totalPlan);
+        document.getElementById('sp-total-actual').textContent = fmt(totalActual);
+        document.getElementById('sp-total-pct').textContent = pct + '%';
+        document.getElementById('sp-green-count').textContent = greenCount;
+        document.getElementById('sp-yellow-count').textContent = yellowCount;
+        document.getElementById('sp-red-count').textContent = redCount;
+    } catch(e) { console.error('loadSpSummary error:', e); }
+}
+
+function renderSpTable(data) {
+    var body = document.getElementById('sp-body');
+    if (!data || !data.length) {
+        body.innerHTML = '<tr><td colspan="15" class="empty">Нет планов продаж. Нажмите «➕ Добавить план» или «📋 Массовое назначение»</td></tr>';
+        document.getElementById('sp-count').textContent = '';
+        return;
+    }
+    // Фильтры
+    var season = document.getElementById('sp-season')?.value || '';
+    var status = document.getElementById('sp-status')?.value || '';
+    var search = (document.getElementById('sp-search')?.value || '').toLowerCase();
+    var filtered = data.filter(function(d) {
+        if (season && d.seasonality !== season) return false;
+        if (status) {
+            var pct = d.pct_complete || 0;
+            if (status === 'green' && pct < 90) return false;
+            if (status === 'yellow' && (pct < 70 || pct >= 90)) return false;
+            if (status === 'red' && pct >= 70) return false;
+        }
+        if (search) {
+            var s = (d.nm_id + ' ' + (d.vendor_code||'') + ' ' + (d.product_name||'') + ' ' + (d.size_name||'')).toLowerCase();
+            if (s.indexOf(search) < 0) return false;
+        }
+        return true;
+    });
+    document.getElementById('sp-count').textContent = filtered.length + ' из ' + data.length + ' записей';
+    var fmt = function(v) { return v != null ? Number(v).toLocaleString('ru-RU', {maximumFractionDigits:2}) : '—'; };
+    var seasonLabel = {low:'Низкая',medium:'Средняя',high:'Высокая',peak:'Пик'};
+    var typeLabel = {quantity:'шт',revenue:'₽'};
+    body.innerHTML = filtered.map(function(d, i) {
+        var thumb = (d.photo_main||'').replace('/hq/','/c246x328/');
+        var pct = d.pct_complete || 0;
+        var statusColor = pct >= 90 ? '#00b894' : (pct >= 70 ? '#fdcb6e' : '#e17055');
+        var statusIcon = pct >= 90 ? '🟢' : (pct >= 70 ? '🟡' : '🔴');
+        var origIdx = spData.indexOf(d);
+        return '<tr data-idx="' + origIdx + '">' +
+        '<td style="position:sticky;left:0;background:#fff;z-index:1"><input type="checkbox" class="sp-row-check" data-idx="' + origIdx + '" onchange="onSpRowCheck(this)" style="cursor:pointer"></td>' +
+        '<td>' + (thumb ? '<img src="' + esc(thumb) + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
+        '<td>' + d.nm_id + '</td>' +
+        '<td>' + esc(d.vendor_code||'') + '</td>' +
+        '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(d.product_name||'') + '">' + esc(d.product_name||'') + '</td>' +
+        '<td>' + esc(d.size_name||'') + '</td>' +
+        '<td>' + (d.period||'').substring(0,7) + '</td>' +
+        '<td>' + (typeLabel[d.plan_type]||d.plan_type) + '</td>' +
+        '<td><input type="number" value="' + (d.plan_value||0) + '" data-field="plan_value" data-idx="' + origIdx + '" onchange="onSpFieldChange(this)" style="width:80px;border:1px solid #ddd;border-radius:4px;padding:2px 4px;font-size:.9em"></td>' +
+        '<td><input type="number" value="' + (d.actual_value||0) + '" data-field="actual_value" data-idx="' + origIdx + '" onchange="onSpFieldChange(this)" style="width:80px;border:1px solid #ddd;border-radius:4px;padding:2px 4px;font-size:.9em"></td>' +
+        '<td style="font-weight:600;color:' + statusColor + '">' + pct.toFixed(1) + '%</td>' +
+        '<td style="text-align:center">' + statusIcon + '</td>' +
+        '<td><input type="number" step="0.1" value="' + (d.sales_temp||'') + '" data-field="sales_temp" data-idx="' + origIdx + '" onchange="onSpFieldChange(this)" style="width:70px;border:1px solid #ddd;border-radius:4px;padding:2px 4px;font-size:.9em" placeholder="—"></td>' +
+        '<td><select data-field="seasonality" data-idx="' + origIdx + '" onchange="onSpFieldChange(this)" style="border:1px solid #ddd;border-radius:4px;padding:2px 4px;font-size:.9em">' +
+            '<option value="low"' + (d.seasonality==='low'?' selected':'') + '>Низкая</option>' +
+            '<option value="medium"' + (d.seasonality==='medium'?' selected':'') + '>Средняя</option>' +
+            '<option value="high"' + (d.seasonality==='high'?' selected':'') + '>Высокая</option>' +
+            '<option value="peak"' + (d.seasonality==='peak'?' selected':'') + '>Пик</option>' +
+        '</select></td>' +
+        '<td><button onclick="deleteSpRow(' + origIdx + ')" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:1.1em" title="Удалить">🗑</button></td>' +
+        '</tr>';
+    }).join('');
+}
+
+function applySpFilters() { renderSpTable(spData); }
+
+function onSpFieldChange(el) {
+    var idx = parseInt(el.dataset.idx);
+    var field = el.dataset.field;
+    spData[idx][field] = el.type === 'number' ? parseFloat(el.value) || 0 : el.value;
+    spChanged.add(idx);
+    document.getElementById('sp-save-all-btn').style.display = spChanged.size ? 'inline-block' : 'none';
+    // Пересчитать %
+    var d = spData[idx];
+    d.pct_complete = d.plan_value > 0 ? (d.actual_value / d.plan_value * 100) : 0;
+    renderSpTable(spData);
+}
+
+function onSpRowCheck(el) {
+    var idx = parseInt(el.dataset.idx);
+    if (el.checked) spSelected.add(idx); else spSelected.delete(idx);
+    updateSpBulkBar();
+}
+
+function toggleAllSpRows(checked) {
+    spSelected.clear();
+    if (checked) spData.forEach(function(_, i) { spSelected.add(i); });
+    document.querySelectorAll('.sp-row-check').forEach(function(cb) { cb.checked = checked; });
+    updateSpBulkBar();
+}
+
+function updateSpBulkBar() {
+    var bar = document.getElementById('sp-bulk-bar');
+    var count = spSelected.size;
+    bar.style.display = count > 0 ? 'flex' : 'none';
+    document.getElementById('sp-bulk-count').textContent = 'Выделено: ' + count;
+    document.getElementById('sp-selected-info').style.display = count > 0 ? 'inline' : 'none';
+    document.getElementById('sp-selected-count').textContent = count;
+}
+
+function applySpBulkEdit() {
+    var field = document.getElementById('sp-bulk-field').value;
+    var value = document.getElementById('sp-bulk-value').value;
+    if (!field || !value) return;
+    spSelected.forEach(function(idx) {
+        spData[idx][field] = field === 'seasonality' || field === 'plan_type' ? value : parseFloat(value) || 0;
+        spData[idx].pct_complete = spData[idx].plan_value > 0 ? (spData[idx].actual_value / spData[idx].plan_value * 100) : 0;
+        spChanged.add(idx);
+    });
+    document.getElementById('sp-save-all-btn').style.display = 'inline-block';
+    renderSpTable(spData);
+}
+
+function clearSpBulkSelection() {
+    spSelected.clear();
+    document.getElementById('sp-check-all').checked = false;
+    document.querySelectorAll('.sp-row-check').forEach(function(cb) { cb.checked = false; });
+    updateSpBulkBar();
+}
+
+async function saveAllSpChanges() {
+    if (!ORG_ID || !spChanged.size) return;
+    var updates = [];
+    spChanged.forEach(function(idx) {
+        var d = spData[idx];
+        if (d.id) {
+            updates.push(fetch('/api/v1/nl/sales-plans/' + d.id + '?org_id=' + ORG_ID, {
+                method:'PUT', headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},
+                body: JSON.stringify({plan_value:d.plan_value, actual_value:d.actual_value, sales_temp:d.sales_temp, seasonality:d.seasonality, plan_type:d.plan_type})
+            }));
+        }
+    });
+    try {
+        await Promise.all(updates);
+        spChanged.clear();
+        document.getElementById('sp-save-all-btn').style.display = 'none';
+        loadSalesPlans();
+        alert('✅ Сохранено ' + updates.length + ' записей');
+    } catch(e) { alert('Ошибка: ' + e.message); }
+}
+
+async function deleteSpRow(idx) {
+    var d = spData[idx];
+    if (!d.id || !confirm('Удалить план для ' + d.nm_id + '?')) return;
+    try {
+        await fetch('/api/v1/nl/sales-plans/' + d.id + '?org_id=' + ORG_ID, {
+            method:'DELETE', headers:{'Authorization':'Bearer '+TOKEN}
+        });
+        spData.splice(idx, 1);
+        renderSpTable(spData);
+    } catch(e) { alert('Ошибка: ' + e.message); }
+}
+
+function openSpAddModal() {
+    var nmId = prompt('Введите артикул WB:');
+    if (!nmId) return;
+    var period = document.getElementById('sp-period')?.value || new Date().toISOString().substring(0,7) + '-01';
+    var planValue = prompt('План (значение):', '100');
+    if (!planValue) return;
+    var type = confirm('ОК = штуки, Отмена = сумма') ? 'quantity' : 'revenue';
+    fetch('/api/v1/nl/sales-plans?org_id=' + ORG_ID, {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},
+        body: JSON.stringify({nm_id:parseInt(nmId), period:period, plan_type:type, plan_value:parseFloat(planValue), actual_value:0, seasonality:'medium'})
+    }).then(function(r) {
+        if (r.ok) { loadSalesPlans(); } else { r.text().then(function(t) { alert('Ошибка: ' + t); }); }
+    }).catch(function(e) { alert('Ошибка: ' + e.message); });
+}
+
+function openSpBatchModal() {
+    var nmIds = prompt('Введите артикулы WB через запятую:');
+    if (!nmIds) return;
+    var period = document.getElementById('sp-period')?.value || new Date().toISOString().substring(0,7) + '-01';
+    var planValue = prompt('План на каждый товар:', '100');
+    if (!planValue) return;
+    var type = confirm('ОК = штуки, Отмена = сумма') ? 'quantity' : 'revenue';
+    var items = nmIds.split(',').map(function(nm) {
+        return {nm_id:parseInt(nm.trim()), period:period, plan_type:type, plan_value:parseFloat(planValue), actual_value:0, seasonality:'medium'};
+    }).filter(function(it) { return !isNaN(it.nm_id); });
+    if (!items.length) { alert('Нет валидных артикулов'); return; }
+    fetch('/api/v1/nl/sales-plans/batch?org_id=' + ORG_ID, {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},
+        body: JSON.stringify(items)
+    }).then(function(r) {
+        if (r.ok) { loadSalesPlans(); alert('✅ Добавлено ' + items.length + ' планов'); }
+        else { r.text().then(function(t) { alert('Ошибка: ' + t); }); }
+    }).catch(function(e) { alert('Ошибка: ' + e.message); });
+}
+
 
 async function loadRefData() {
     if (!ORG_ID) { document.getElementById('ref-body').innerHTML = '<tr><td colspan="13" class="empty">Нет данных. Добавьте WB API ключ в настройках.</td></tr>'; return; }
