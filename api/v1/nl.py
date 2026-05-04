@@ -1054,7 +1054,7 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
     """Себестоимость товаров"""
     from sqlalchemy import text
     result = await db.execute(text(
-        "SELECT cp.id, cp.nm_id, cp.barcode, cp.vendor_code, cp.size_name, "
+        "SELECT cp.id, cp.entity_id, cp.nm_id, cp.barcode, cp.vendor_code, cp.size_name, "
         "cp.cost_price, cp.purchase_cost, cp.logistics_cost, cp.packaging_cost, "
         "cp.other_costs, cp.vat, cp.valid_from, cp.valid_to, cp.source, cp.notes, "
         "cp.product_class, cp.brand, cp.tax_system, cp.tax_rate, cp.vat_rate, "
@@ -1063,19 +1063,19 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
         "WHERE cp.organization_id = :org AND (cp.valid_to IS NULL OR cp.valid_to >= CURRENT_DATE) "
         "ORDER BY cp.nm_id, cp.valid_from DESC"
     ), {"org": org_id})
-    return [{"id": str(r[0]), "nm_id": r[1], "barcode": r[2], "vendor_code": r[3],
-             "size_name": r[4], "cost_price": float(r[5]) if r[5] else 0,
-             "purchase_cost": float(r[6]) if r[6] else None,
-             "logistics_cost": float(r[7]) if r[7] else None,
-             "packaging_cost": float(r[8]) if r[8] else None,
-             "other_costs": float(r[9]) if r[9] else None,
-             "vat": float(r[10]) if r[10] else 0,
-             "valid_from": str(r[11]), "valid_to": str(r[12]) if r[12] else None,
-             "source": r[13], "notes": r[14],
-             "product_class": r[15], "brand": r[16],
-             "tax_system": r[17], "tax_rate": float(r[18]) if r[18] else None,
-             "vat_rate": float(r[19]) if r[19] else None,
-             "product_name": r[20]} for r in result.all()]
+    return [{"id": str(r[0]), "entity_id": str(r[1]) if r[1] else None, "nm_id": r[2], "barcode": r[3], "vendor_code": r[4],
+             "size_name": r[5], "cost_price": float(r[6]) if r[6] else 0,
+             "purchase_cost": float(r[7]) if r[7] else None,
+             "logistics_cost": float(r[8]) if r[8] else None,
+             "packaging_cost": float(r[9]) if r[9] else None,
+             "other_costs": float(r[10]) if r[10] else None,
+             "vat": float(r[11]) if r[11] else 0,
+             "valid_from": str(r[12]), "valid_to": str(r[13]) if r[13] else None,
+             "source": r[14], "notes": r[15],
+             "product_class": r[16], "brand": r[17],
+             "tax_system": r[18], "tax_rate": float(r[19]) if r[19] else None,
+             "vat_rate": float(r[20]) if r[20] else None,
+             "product_name": r[21]} for r in result.all()]
 
 
 @router.post("/api/v1/nl/cost-prices")
@@ -2110,12 +2110,12 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 <div style="overflow-x:auto">
 <table id="cost-table" style="font-size:.82em"><thead><tr>
-<th>Фото</th><th>Арт WB</th><th>Арт продавца</th><th>Товар</th><th>Баркод</th>
+<th>Фото</th><th>Арт WB</th><th>Арт продавца</th><th>Размер</th><th>Товар</th><th>Баркод</th>
 <th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th>
 <th>Себестоимость ₽</th><th>НДС %</th><th>Дата начала</th>
 <th>Класс товара</th><th>Бренд</th><th>Налог. система</th><th>Ставка налога %</th><th>НДС ставка %</th>
 </tr></thead>
-<tbody id="cost-body"><tr><td colspan="17" class="empty">Загрузка...</td></tr></tbody></table>
+<tbody id="cost-body"><tr><td colspan="18" class="empty">Загрузка...</td></tr></tbody></table>
 </div>
 <div style="margin-top:12px;display:flex;gap:16px;font-size:.85em" id="cost-summary"></div>
 </div>
@@ -2811,7 +2811,7 @@ async function loadCostPrices() {
         // Load products from latest tech_status date
         const datesRes = await fetch('/api/v1/nl/dates?org_id=' + ORG_ID);
         const dates = datesRes.ok ? await datesRes.json() : [];
-        if (!dates.length) { document.getElementById('cost-body').innerHTML = '<tr><td colspan="12" class="empty">Нет данных</td></tr>'; return; }
+        if (!dates.length) { document.getElementById('cost-body').innerHTML = '<tr><td colspan="18" class="empty">Нет данных</td></tr>'; return; }
         
         const prodsRes = await fetch('/api/v1/nl/control?org_id=' + ORG_ID + '&target_date=' + dates[0]);
         if (!prodsRes.ok) return;
@@ -2823,7 +2823,7 @@ async function loadCostPrices() {
         const costMap = {};
         if (costRes.ok) {
             const costs = await costRes.json();
-            costs.forEach(c => { costMap[c.nm_id] = c; });
+            costs.forEach(c => { if (c.entity_id) costMap[c.entity_id] = c; else costMap[c.nm_id] = c; });
         }
         
         // Filter by search
@@ -2843,7 +2843,7 @@ async function loadCostPrices() {
         
         const tbody = document.getElementById('cost-body');
         tbody.innerHTML = products.map(p => {
-            const c = costMap[p.nm_id] || {};
+            const c = costMap[p.entity_id] || costMap[p.nm_id] || {};
             const purchase = c.purchase_cost || '';
             const logistics = c.logistics_cost || '';
             const packaging = c.packaging_cost || '';
@@ -2854,10 +2854,11 @@ async function loadCostPrices() {
             if (costPrice) { totalCost += parseFloat(costPrice); filled++; }
             
             const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/');
-            return '<tr data-nm="' + p.nm_id + '" data-barcode="' + (p.barcode||'') + '" data-vc="' + esc(p.vendor_code||'') + '">' +
+            return '<tr data-nm="' + p.nm_id + '" data-entity-id="' + (p.entity_id||'') + '" data-barcode="' + (p.barcode||'') + '" data-vc="' + esc(p.vendor_code||'') + '">' +
                 '<td>' + (thumb ? '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
                 '<td>' + p.nm_id + '</td>' +
                 '<td>' + esc(p.vendor_code||'') + '</td>' +
+                '<td>' + esc(p.size_name||'—') + '</td>' +
                 '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name||'') + '">' + esc(p.product_name||'') + '</td>' +
                 '<td style="font-size:.8em">' + (p.barcode||'') + '</td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + purchase + '" style="width:70px" placeholder="0"></td>' +
@@ -2890,6 +2891,7 @@ async function saveAllCostPrices() {
         if (!costInput || !costInput.value) continue;
         const data = {
             nm_id: parseInt(row.dataset.nm),
+            entity_id: row.dataset.entityId || undefined,
             barcode: row.dataset.barcode,
             vendor_code: row.dataset.vc,
             purchase_cost: parseFloat(row.querySelector('[data-field="purchase"]')?.value || '0'),

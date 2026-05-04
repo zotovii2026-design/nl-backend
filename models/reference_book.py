@@ -42,7 +42,6 @@ class ReferenceBook(Base):
     logistics_cost = Column(Numeric(10, 2), nullable=True)          # Логистика (до склада)
     other_costs = Column(Numeric(10, 2), nullable=True)             # Прочие расходы
     extra_costs = Column(Numeric(10, 2), nullable=True)             # Доп. затраты
-    extra_costs = Column(Numeric(10, 2), nullable=True)             # Доп. затраты
     vat = Column(Numeric(10, 2), default=0)                         # НДС (руб)
 
     # === МАРКЕТПЛЕЙС ===
