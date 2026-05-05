@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import date as date_type
-from sqlalchemy import Column, String, DateTime, Integer, Numeric, Date, func, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, String, DateTime, Integer, Numeric, Date, func, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from core.database import Base
@@ -75,6 +75,15 @@ class ReferenceBook(Base):
     product_class = Column(String(100), nullable=True)              # AABBCC класс
     brand = Column(String(200), nullable=True)                      # Бренд
     product_status = Column(String(50), nullable=True)              # Статус товара
+
+    # === РНП ===
+    in_promo = Column(Boolean, nullable=True, default=False)                     # В акции (да/нет)
+    ad_shows_organic = Column(Integer, nullable=True)                            # Показы органика (заглушка)
+    ad_shows_paid = Column(Integer, nullable=True)                               # Показы рекламные
+    ad_strategy = Column(String(200), nullable=True)                             # Стратегия РК (ручной)
+    tags = Column(Text, nullable=True)                                           # Теги/вехи
+    rating_reviews = Column(Numeric(3, 2), nullable=True)                        # Рейтинг по отзывам (заглушка)
+    localization_pct = Column(String(50), nullable=True)
 
     # === ПРОЧЕЕ ===
     valid_from = Column(Date, nullable=False, server_default=func.current_date())  # Действует с

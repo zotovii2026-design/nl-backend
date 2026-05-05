@@ -673,6 +673,400 @@ async def import_reference_excel(org_id: str, request: Request, db: AsyncSession
 
 
 
+
+# === РНП — API эндпоинт ===
+# Вставить в api/v1/nl.py перед @router.get("/nl/register"...)
+
+@router.get("/api/v1/nl/rnp")
+async def get_rnp(
+    org_id: str,
+    month: Optional[str] = None,  # YYYY-MM (например 2026-05)
+    sort_by: Optional[str] = "orders_revenue",  # orders_revenue, roi, buyout_pct
+    filter_status: Optional[str] = None,
+    search: Optional[str] = None,
+    use_buyout_pct: bool = False,  # чекбокс "Учесть % выкупа"
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    РНП — Раздел Нормативных Показателей.
+    Данные за месяц: каждая карточка = строка, дни = столбцы.
+    """
+    from datetime import datetime as dt_mod
+    import calendar
+    import decimal
+
+    from models.product_entity import ProductEntity
+    # Парсим месяц
+    if month:
+        year, mon = month.split("-")
+        year, mon = int(year), int(mon)
+    else:
+        today = date.today()
+        year, mon = today.year, today.month
+
+    first_day = date(year, mon, 1)
+    last_day = date(year, mon, calendar.monthrange(year, mon)[1])
+    today = date.today()
+    days_in_month = calendar.monthrange(year, mon)[1]
+
+    # 1. Список дней месяца (по убыванию)
+    day_list = []
+    d = min(last_day, today)
+    while d >= first_day:
+        day_list.append(d)
+        d -= timedelta(days=1)
+
+    from models.product_entity import ProductEntity
+
+    # 2. Получаем entity_id -> размер
+    ent_result = await db.execute(
+        select(ProductEntity.id, ProductEntity.size_name, ProductEntity.nm_id)
+        .where(ProductEntity.organization_id == org_id)
+    )
+    size_map = {str(r[0]): r[1] for r in ent_result.all()}
+
+    # 3. Справочник (reference_book) — последние записи по entity
+    ref_result = await db.execute(text(
+        "SELECT DISTINCT ON (entity_id) entity_id, nm_id, cost_price, purchase_cost, "
+        "packaging_cost, logistics_cost, other_costs, extra_costs, vat, "
+        "mp_base_pct, mp_correction_pct, tax_system, tax_rate, vat_rate, "
+        "product_class, brand, product_status, "
+        "in_promo, ad_shows_organic, ad_shows_paid, ad_strategy, tags, rating_reviews, localization_pct "
+        "FROM reference_book "
+        "WHERE organization_id = :org AND entity_id IS NOT NULL "
+        "AND (valid_to IS NULL OR valid_to >= :fd) "
+        "ORDER BY entity_id, valid_from DESC"
+    ), {"org": org_id, "fd": first_day})
+    ref_map = {}  # entity_id -> dict
+    ref_map_nm = {}  # nm_id -> dict (fallback)
+    for r in ref_result.all():
+        d_item = {
+            "cost_price": float(r[2]) if r[2] else 0,
+            "purchase_cost": float(r[3]) if r[3] else 0,
+            "packaging_cost": float(r[4]) if r[4] else 0,
+            "logistics_cost": float(r[5]) if r[5] else 0,
+            "other_costs": float(r[6]) if r[6] else 0,
+            "extra_costs": float(r[7]) if r[7] else 0,
+            "vat": float(r[8]) if r[8] else 0,
+            "mp_base_pct": float(r[9]) if r[9] else 0,
+            "mp_correction_pct": float(r[10]) if r[10] else 0,
+            "tax_system": r[11] or "",
+            "tax_rate": float(r[12]) if r[12] else 0,
+            "vat_rate": float(r[13]) if r[13] else 0,
+            "product_class": r[14] or "",
+            "brand": r[15] or "",
+            "product_status": r[16] or "",
+            "in_promo": bool(r[17]) if r[17] is not None else False,
+            "ad_shows_organic": int(r[18]) if r[18] else None,
+            "ad_shows_paid": int(r[19]) if r[19] else None,
+            "ad_strategy": r[20] or "",
+            "tags": r[21] or "",
+            "rating_reviews": float(r[22]) if r[22] else None,
+            "localization_pct": r[23] or "",
+        }
+        if r[0]:
+            ref_map[str(r[0])] = d_item
+        if r[1]:
+            ref_map_nm[r[1]] = d_item
+
+    def get_ref(eid, nm):
+        return ref_map.get(eid, ref_map_nm.get(nm, {
+            "cost_price": 0, "purchase_cost": 0, "packaging_cost": 0,
+            "logistics_cost": 0, "other_costs": 0, "extra_costs": 0, "vat": 0,
+            "mp_base_pct": 0, "mp_correction_pct": 0, "tax_system": "",
+            "tax_rate": 0, "vat_rate": 0, "product_class": "", "brand": "",
+            "product_status": "", "in_promo": False, "ad_shows_organic": None,
+            "ad_shows_paid": None, "ad_strategy": "", "tags": "",
+            "rating_reviews": None, "localization_pct": "",
+        }))
+
+    # 4. WB тарифы — последние по nm_id
+    snap_result = await db.execute(text(
+        "SELECT DISTINCT ON (nm_id) nm_id, logistics_tariff, storage_tariff, "
+        "commission_pct, buyout_pct_fact, price_retail, price_with_spp, spp_pct "
+        "FROM wb_tariff_snapshot "
+        "WHERE organization_id = :org "
+        "ORDER BY nm_id, target_date DESC"
+    ), {"org": org_id})
+    snap_map = {}
+    for r in snap_result.all():
+        snap_map[r[0]] = {
+            "logistics_tariff": float(r[1]) if r[1] else 0,
+            "storage_tariff": float(r[2]) if r[2] else 0,
+            "commission_pct": float(r[3]) if r[3] else 0,
+            "buyout_pct_fact": float(r[4]) if r[4] else 0,
+            "price_retail": float(r[5]) if r[5] else 0,
+            "price_with_spp": float(r[6]) if r[6] else 0,
+            "spp_pct": float(r[7]) if r[7] else 0,
+        }
+
+    def get_snap(nm):
+        return snap_map.get(nm, {
+            "logistics_tariff": 0, "storage_tariff": 0,
+            "commission_pct": 0, "buyout_pct_fact": 0,
+            "price_retail": 0, "price_with_spp": 0, "spp_pct": 0,
+        })
+
+    # 5. План продаж
+    plan_result = await db.execute(text(
+        "SELECT entity_id, plan_type, plan_value "
+        "FROM sales_plans "
+        "WHERE organization_id = :org AND period = :period"
+    ), {"org": org_id, "period": first_day})
+    plan_map = {}  # entity_id -> {quantity: X, revenue: Y}
+    for r in plan_result.all():
+        eid = str(r[0]) if r[0] else None
+        if not eid:
+            continue
+        if eid not in plan_map:
+            plan_map[eid] = {"quantity": 0, "revenue": 0}
+        ptype = str(r[1]) if r[1] else "quantity"
+        plan_map[eid][ptype] = float(r[2]) if r[2] else 0
+
+    # 6. tech_status за весь месяц — агрегация по entity_id + target_date
+    ts_result = await db.execute(text(
+        "SELECT entity_id, target_date, nm_id, vendor_code, product_name, photo_main, barcode, "
+        "orders_count, buyouts_count, returns_count, stock_qty, "
+        "price, price_discount, price_spp, ad_cost, impressions, clicks, tariff "
+        "FROM tech_status "
+        "WHERE organization_id = :org AND target_date BETWEEN :fd AND :ld "
+        "AND entity_id IS NOT NULL "
+        "ORDER BY entity_id, target_date DESC"
+    ), {"org": org_id, "fd": first_day, "ld": last_day})
+    ts_rows = ts_result.all()
+
+    # Группируем по entity_id
+    from collections import defaultdict
+    entities_data = defaultdict(lambda: {"days": {}, "last_row": None})
+    for r in ts_rows:
+        eid = str(r[0])
+        tdate = r[1]
+        entities_data[eid]["days"][str(tdate)] = {
+            "date": str(tdate),
+            "orders_count": int(r[7]) if r[7] else 0,
+            "buyouts_count": int(r[8]) if r[8] else 0,
+            "returns_count": int(r[9]) if r[9] else 0,
+            "stock_qty": int(r[10]) if r[10] else 0,
+            "price": float(r[11]) if r[11] else 0,
+            "price_discount": float(r[12]) if r[12] else 0,
+            "price_spp": float(r[13]) if r[13] else 0,
+            "ad_cost": float(r[14]) if r[14] else 0,
+            "impressions": int(r[15]) if r[15] else 0,
+            "clicks": int(r[16]) if r[16] else 0,
+            "tariff": float(r[17]) if r[17] else 0,
+        }
+        # Сохраняем последнюю строку для идентификации
+        if entities_data[eid]["last_row"] is None:
+            entities_data[eid]["last_row"] = r
+
+    # 7. Собираем результат
+    def safe_f(v): return float(v) if v is not None else 0
+    def safe_i(v): return int(v) if v is not None else 0
+
+    products = []
+    for eid, edata in entities_data.items():
+        last = edata["last_row"]
+        if not last:
+            continue
+        nm = last[2]
+        ref = get_ref(eid, nm)
+        snap = get_snap(nm)
+        plan = plan_map.get(eid, {"quantity": 0, "revenue": 0})
+
+        # Фильтр поиска
+        if search:
+            vc = str(last[3] or "")
+            pn = str(last[4] or "")
+            if not (search.lower() in vc.lower() or search.lower() in pn.lower() or (search.isdigit() and int(search) == nm)):
+                continue
+
+        # Фильтр по статусу
+        if filter_status and ref["product_status"] != filter_status:
+            continue
+
+        # Последний сток
+        last_day_key = max(edata["days"].keys()) if edata["days"] else None
+        last_day_data = edata["days"].get(last_day_key, {})
+        current_stock = last_day_data.get("stock_qty", 0)
+
+        # Сумма за месяц
+        total_orders = sum(d["orders_count"] for d in edata["days"].values())
+        total_buyouts = sum(d["buyouts_count"] for d in edata["days"].values())
+        total_ad_cost = sum(d["ad_cost"] for d in edata["days"].values())
+        total_orders_revenue = sum(d["orders_count"] * d["price_discount"] for d in edata["days"].values())
+        total_buyouts_revenue = sum(d["buyouts_count"] * d["price_discount"] for d in edata["days"].values())
+
+        # Себестоимость единицы
+        total_cost = ref["cost_price"] + ref["purchase_cost"] + ref["packaging_cost"] + ref["logistics_cost"] + ref["other_costs"] + ref["extra_costs"] + ref["vat"]
+
+        # Комиссия МП
+        mp_pct = (ref["mp_base_pct"] or snap["commission_pct"]) + ref["mp_correction_pct"]
+
+        # Маржа до ДРР (на выкуп)
+        commission = total_buyouts_revenue * mp_pct / 100 if total_buyouts_revenue else 0
+        logistics = snap["logistics_tariff"] * total_buyouts
+        margin_before_drr = total_buyouts_revenue - (total_cost * total_buyouts) - commission - logistics
+
+        # Прибыль расчёт
+        profit_calc = margin_before_drr - total_ad_cost
+
+        # Маржа с ДРР
+        margin_with_drr = profit_calc
+
+        # ДРР
+        drr = round(total_ad_cost / total_orders_revenue * 100, 2) if total_orders_revenue else 0
+
+        # КРРР
+        krrr = round(margin_with_drr / margin_before_drr * 100, 1) if margin_before_drr else 0
+
+        # Себестоимость остатков
+        cost_of_stock = round(total_cost * current_stock, 2)
+
+        # % выкупа
+        buyout_pct = snap["buyout_pct_fact"] or 0
+
+        # План / факт / % выполнения
+        plan_val = plan.get("revenue", 0) or plan.get("quantity", 0)
+        days_passed = len(edata["days"])
+        daily_norm = round(plan_val / days_in_month, 2) if days_in_month else 0
+        pct_complete = round(total_orders_revenue / (daily_norm * days_passed) * 100, 1) if daily_norm and days_passed else 0
+
+        # «Хватит на» дней
+        avg_orders_day = total_orders / days_passed if days_passed else 0
+        if use_buyout_pct and buyout_pct > 0:
+            effective_demand = avg_orders_day * buyout_pct / 100
+        else:
+            effective_demand = avg_orders_day
+        enough_days = round(current_stock / effective_demand, 1) if effective_demand > 0 else 999
+
+        # ROI
+        total_invested = total_cost * (total_orders if not use_buyout_pct else total_buyouts)
+        roi = round(total_buyouts_revenue / total_invested * 100 - 100, 1) if total_invested else 0
+
+        # CPL
+        total_clicks = sum(d["clicks"] for d in edata["days"].values())
+        cpl = round(total_clicks / total_orders, 2) if total_orders else 0
+
+        # CTR
+        total_impressions = sum(d["impressions"] for d in edata["days"].values())
+        ctr = round(total_clicks / total_impressions * 100, 2) if total_impressions else 0
+
+        # Дни для столбцов (по убыванию)
+        day_columns = []
+        for day in day_list:
+            dk = str(day)
+            dd = edata["days"].get(dk, {
+                "date": dk, "orders_count": 0, "buyouts_count": 0,
+                "returns_count": 0, "stock_qty": 0, "price": 0,
+                "price_discount": 0, "price_spp": 0, "ad_cost": 0,
+                "impressions": 0, "clicks": 0, "tariff": 0,
+            })
+            o_rev = dd["orders_count"] * dd["price_discount"]
+            b_rev = dd["buyouts_count"] * dd["price_discount"]
+            dd_comm = b_rev * mp_pct / 100 if b_rev else 0
+            dd_logist = snap["logistics_tariff"] * dd["buyouts_count"]
+            dd_margin_before = b_rev - (total_cost * dd["buyouts_count"]) - dd_comm - dd_logist
+            dd_profit = dd_margin_before - dd["ad_cost"]
+            dd_margin_with = dd_profit
+            dd_drr = round(dd["ad_cost"] / o_rev * 100, 2) if o_rev else 0
+
+            day_columns.append({
+                "date": dk,
+                "orders_count": dd["orders_count"],
+                "orders_revenue": round(o_rev, 2),
+                "buyouts_count": dd["buyouts_count"],
+                "buyouts_revenue": round(b_rev, 2),
+                "ad_cost": round(dd["ad_cost"], 2),
+                "drr": dd_drr,
+                "margin_before_drr": round(dd_margin_before, 2),
+                "profit_calc": round(dd_profit, 2),
+                "margin_with_drr": round(dd_margin_with, 2),
+            })
+
+        products.append({
+            "entity_id": eid,
+            "nm_id": nm,
+            "vendor_code": last[3] or "",
+            "product_name": last[4] or "",
+            "photo_main": last[5] or "",
+            "barcode": last[6] or "",
+            "size_name": size_map.get(eid, ""),
+            # Справочник
+            "brand": ref["brand"],
+            "product_status": ref["product_status"],
+            "product_class": ref["product_class"],
+            "in_promo": ref["in_promo"],
+            "ad_strategy": ref["ad_strategy"],
+            "tags": ref["tags"],
+            "rating_reviews": ref["rating_reviews"],
+            "localization_pct": ref["localization_pct"],
+            "ad_shows_organic": ref["ad_shows_organic"],
+            "ad_shows_paid": ref["ad_shows_paid"],
+            # Цены
+            "price_retail": snap["price_retail"],
+            "price_with_spp": snap["price_with_spp"],
+            "spp_pct": snap["spp_pct"],
+            "buyout_pct": buyout_pct,
+            # Себестоимость
+            "cost_price": ref["cost_price"],
+            "cost_of_stock": cost_of_stock,
+            # План
+            "plan_value": plan_val,
+            "daily_norm": daily_norm,
+            "pct_complete": pct_complete,
+            # Итоги за месяц
+            "total_orders": total_orders,
+            "total_orders_revenue": round(total_orders_revenue, 2),
+            "total_buyouts": total_buyouts,
+            "total_buyouts_revenue": round(total_buyouts_revenue, 2),
+            "total_ad_cost": round(total_ad_cost, 2),
+            "drr": drr,
+            "margin_before_drr": round(margin_before_drr, 2),
+            "profit_calc": round(profit_calc, 2),
+            "margin_with_drr": round(margin_with_drr, 2),
+            "krrr": krrr,
+            "roi": roi,
+            "cpl": cpl,
+            "ctr": ctr,
+            "enough_days": enough_days,
+            "current_stock": current_stock,
+            # Дни
+            "days": day_columns,
+        })
+
+    # Сортировка
+    sort_key_map = {
+        "orders_revenue": lambda x: x["total_orders_revenue"],
+        "roi": lambda x: x["roi"],
+        "buyout_pct": lambda x: x["buyout_pct"],
+    }
+    sort_fn = sort_key_map.get(sort_by, sort_key_map["orders_revenue"])
+    products.sort(key=sort_fn, reverse=True)
+
+    # Сводка по всем карточкам
+    summary = {
+        "total_orders": sum(p["total_orders"] for p in products),
+        "total_orders_revenue": round(sum(p["total_orders_revenue"] for p in products), 2),
+        "total_buyouts": sum(p["total_buyouts"] for p in products),
+        "total_buyouts_revenue": round(sum(p["total_buyouts_revenue"] for p in products), 2),
+        "total_ad_cost": round(sum(p["total_ad_cost"] for p in products), 2),
+        "total_drr": round(
+            sum(p["total_ad_cost"] for p in products) / sum(p["total_orders_revenue"] for p in products) * 100, 2
+        ) if sum(p["total_orders_revenue"] for p in products) else 0,
+        "total_margin_before_drr": round(sum(p["margin_before_drr"] for p in products), 2),
+        "total_profit_calc": round(sum(p["profit_calc"] for p in products), 2),
+        "total_margin_with_drr": round(sum(p["margin_with_drr"] for p in products), 2),
+        "total_products": len(products),
+        "total_stock": sum(p["current_stock"] for p in products),
+    }
+
+    return {
+        "month": f"{year}-{mon:02d}",
+        "days_in_month": days_in_month,
+        "day_list": [str(d) for d in day_list],
+        "summary": summary,
+        "products": products,
+    }
 @router.get("/nl/register", response_class=HTMLResponse)
 async def nl_register_page():
     html = """<!DOCTYPE html>
@@ -912,67 +1306,6 @@ async def add_operating_expense(data: dict, org_id: str, db: AsyncSession = Depe
     """Добавить операционный расход"""
     # TODO: сохранить в БД
     return {"ok": True}
-
-
-@router.get("/api/v1/nl/rnp")
-async def get_rnp(org_id: str, days: str = "10", search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    """РНП — Рука на пульсе: агрегация за N дней"""
-    from sqlalchemy import func
-    import decimal
-    n_days = int(days) if days.isdigit() else 10
-    start = date.today() - timedelta(days=n_days)
-
-    query = select(
-        TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name,
-        func.sum(TechStatus.orders_count).label("orders"),
-        func.sum(TechStatus.buyouts_count).label("buyouts"),
-        func.sum(TechStatus.returns_count).label("returns"),
-        func.sum(TechStatus.stock_qty).label("stock"),
-        func.sum(TechStatus.ad_cost).label("ad_cost"),
-        func.avg(TechStatus.price_discount).label("avg_price"),
-        func.avg(TechStatus.tariff).label("avg_tariff"),
-    ).where(
-        TechStatus.organization_id == org_id,
-        TechStatus.target_date >= start
-    ).group_by(TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name)
-
-    if search:
-        query = query.where(
-            (TechStatus.vendor_code.ilike(f"%{search}%")) |
-            (TechStatus.product_name.ilike(f"%{search}%"))
-        )
-
-    result = await db.execute(query.order_by(func.sum(TechStatus.orders_count).desc().nullslast()))
-
-    def sf(v): return float(v) if v and not isinstance(v, decimal.Decimal) else (float(v) if isinstance(v, decimal.Decimal) else 0)
-    def si(v): return int(v) if v else 0
-
-    products = []
-    for r in result.all():
-        orders = si(r[3])
-        buyouts = si(r[4])
-        returns = si(r[5])
-        stock = si(r[6])
-        ad_cost = sf(r[7])
-        avg_price = sf(r[8])
-        avg_tariff = sf(r[9])
-        revenue = avg_price * buyouts
-        commission = revenue * (avg_tariff / 100) if revenue and avg_tariff else 0
-        expenses = commission + ad_cost
-        margin = revenue - expenses
-        products.append({
-            "nm_id": r[0], "vendor_code": r[1], "product_name": r[2],
-            "orders": orders, "buyouts": buyouts, "returns": returns,
-            "buyout_pct": round(buyouts/orders*100,1) if orders else 0,
-            "revenue": round(revenue,2), "expenses": round(expenses,2),
-            "margin": round(margin,2),
-            "margin_per_unit": round(margin/buyouts,2) if buyouts else 0,
-            "profitability": round(margin/revenue*100,1) if revenue else 0,
-            "stock": stock,
-            "turnover": round(buyouts / stock * n_days, 1) if stock else 0,
-        })
-
-    return {"days": n_days, "count": len(products), "products": products}
 
 
 @router.get("/api/v1/nl/opiu")
@@ -2504,6 +2837,40 @@ th.sortable:hover { background: rgba(255,255,255,0.15); }
 th.sortable::after { content: ' ↕'; font-size: 0.7em; opacity: 0.5; }
 th.sortable.asc::after { content: ' ↑'; opacity: 1; }
 th.sortable.desc::after { content: ' ↓'; opacity: 1; }
+
+.rnp-wrap{font-size:.78em;background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:hidden;border:1px solid #eee;margin-bottom:14px}
+.rnp-table-wrap{overflow-x:auto}
+.rnp-table{border-collapse:collapse;width:max-content;min-width:100%}
+.rnp-table th,.rnp-table td{border:1px solid #eee;padding:3px 6px;white-space:nowrap;vertical-align:top;font-size:.78em}
+.rnp-table thead th{background:#f8f9fa;font-weight:600;position:sticky;top:0;z-index:2}
+.rnp-table thead th.sticky-col{position:sticky;z-index:3}
+.rnp-table tbody td.sticky-col{position:sticky;background:#fff;z-index:1}
+.rnp-table .row-label{color:#888;font-weight:500;min-width:120px;max-width:160px;overflow:hidden;text-overflow:ellipsis}
+.rnp-table .val-cell{text-align:right;min-width:80px}
+.rnp-table .day-header{text-align:center;font-weight:700;color:#6c5ce7;font-size:.85em;background:#f0eeff}
+.rnp-table .day-header.today{background:#6c5ce7;color:#fff}
+.rnp-table .val-cell.today{background:#faf8ff}
+.rnp-table .section-title{font-weight:700;font-size:.85em;color:#333;background:#f8f9fa;padding:6px 8px}
+.rnp-table .card-divider td{background:#f0f0f0;height:4px;padding:0;border:none}
+.rnp-card-photo{width:50px;height:50px;border-radius:4px;overflow:hidden}
+.rnp-card-photo img{width:100%;height:100%;object-fit:cover}
+.rnp-card-info{min-width:140px;max-width:180px}
+.rnp-card-nm{font-weight:700;color:#6c5ce7;font-size:.9em}
+.rnp-card-name{font-weight:600;font-size:.82em;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rnp-card-detail{color:#999;font-size:.78em}
+.rnp-card-krrr{font-weight:700;font-size:.95em}
+.rnp-header-table{border-collapse:collapse;width:max-content;min-width:100%}
+.rnp-header-table th,.rnp-header-table td{border:1px solid #eee;padding:4px 6px;white-space:nowrap;font-size:.78em}
+.rnp-header-table .row-label{color:#888;font-weight:500;min-width:120px}
+.rnp-header-table .val-cell{text-align:right;min-width:80px}
+.rnp-header-table .day-header{text-align:center;font-weight:700;color:#6c5ce7;font-size:.85em;background:#f0eeff}
+.rnp-header-table .day-header.today{background:#6c5ce7;color:#fff}
+.rnp-header-table .section-title{font-weight:700;font-size:.85em;color:#333;background:#f8f9fa;padding:6px 8px}
+.rnp-ctrl{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.rnp-ctrl select,.rnp-ctrl input{border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em}
+.rnp-summary-bar{display:flex;gap:16px;margin-bottom:12px;font-size:.85em;flex-wrap:wrap;background:#fff;padding:12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.rnp-pos{color:#00b894}.rnp-neg{color:#e74c3c}
+
 </style>
 </head>
 <body>
@@ -2702,24 +3069,18 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
 
 <div id="page-rnp" class="page-section">
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-<select id="rnp-days" onchange="loadRnp()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<option value="7">7 дней</option><option value="10" selected>10 дней</option><option value="14">14 дней</option><option value="30">30 дней</option>
+<div class="rnp-ctrl">
+<select id="rnp-month" onchange="loadRnp()"></select>
+<label style="font-size:.85em;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="rnp-buyout-pct" onchange="loadRnp()"> Учесть % выкупа</label>
+<select id="rnp-sort" onchange="loadRnp()">
+<option value="orders_revenue">Сортировка: Заказы, руб</option><option value="roi">ROI</option><option value="buyout_pct">% выкупа</option>
 </select>
+<input type="text" id="rnp-search" placeholder="🔍 Поиск" style="width:200px" oninput="loadRnp()">
 <button class="btn" onclick="loadRnp()" style="padding:6px 14px;font-size:.85em">🔄</button>
-<input type="text" id="rnp-search" placeholder="🔍 Поиск" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:200px" oninput="loadRnp()">
 </div>
-<div style="overflow-x:auto">
-<table id="rnp-table" style="font-size:.82em">
-<thead><tr>
-<th>Арт продавца</th><th>Арт WB</th><th>Товар</th>
-<th>Продажи шт</th><th>Выкупы шт</th><th>Возвраты шт</th><th>% выкупа</th>
-<th>Выручка</th><th>Расходы</th><th>Маржа</th><th>Маржа/ед</th><th>Рентабельность</th>
-<th>Остаток</th><th>Оборачиваемость</th>
-</tr></thead>
-<tbody id="rnp-body"><tr><td colspan="14" class="empty">Нажмите обновить</td></tr></tbody>
-</table>
-</div>
+<div id="rnp-summary" class="rnp-summary-bar"></div>
+<div id="rnp-header-wrap" style="margin-bottom:8px"></div>
+<div id="rnp-cards" style="font-size:.82em"></div>
 <div style="margin-top:12px;font-size:.85em;color:#999" id="rnp-count"></div>
 </div>
 
@@ -3247,6 +3608,7 @@ async function showApp() {
             loadStats();
             loadOpiu();
             loadAnalytics();
+            initRnpMonths();
             loadRnp();
             
             loadWarehouses();
@@ -4365,29 +4727,211 @@ async function loadOpEx() {
     } catch(e) { console.error('loadOpEx', e); }
 }
 
+function initRnpMonths() {
+    var sel = document.getElementById("rnp-month");
+    if (!sel) return;
+    if (sel.options.length > 0) return;
+    var now = new Date();
+    for (var i = 0; i < 6; i++) {
+        var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        var val = d.getFullYear() + "-" + ("0" + (d.getMonth()+1)).slice(-2);
+        var label = d.toLocaleDateString("ru-RU", {month:"long", year:"numeric"});
+        var opt = document.createElement("option");
+        opt.value = val; opt.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+        if (i === 0) opt.selected = true;
+        sel.appendChild(opt);
+    }
+}
 async function loadRnp() {
     if (!ORG_ID) return;
-    const days = document.getElementById('rnp-days')?.value || '10';
-    const search = document.getElementById('rnp-search')?.value || '';
+    var monthSel = document.getElementById('rnp-month');
+    var month = monthSel ? monthSel.value : '';
+    var sort = document.getElementById('rnp-sort')?.value || 'orders_revenue';
+    var search = document.getElementById('rnp-search')?.value || '';
+    var ubp = document.getElementById('rnp-buyout-pct')?.checked ? '1' : '0';
+    if (!month) return;
     try {
-        const res = await fetch('/api/v1/nl/rnp?org_id=' + ORG_ID + '&days=' + days + (search ? '&search=' + encodeURIComponent(search) : ''));
-        if (!res.ok) { document.getElementById('rnp-body').innerHTML = '<tr><td colspan="14" class="empty">Ошибка</td></tr>'; return; }
-        const data = await res.json();
-        const prods = data.products || [];
-        document.getElementById('rnp-count').textContent = prods.length + ' товаров за ' + data.days + ' дней';
-        if (!prods.length) { document.getElementById('rnp-body').innerHTML = '<tr><td colspan="14" class="empty">Нет данных</td></tr>'; return; }
-        const fmt = (v,s) => { if (v==null) return '—'; return Number(v).toLocaleString('ru-RU',{maximumFractionDigits:2})+(s||''); };
-        document.getElementById('rnp-body').innerHTML = prods.map(p =>
-            '<tr>' +
-            '<td>' + esc(p.vendor_code||'') + '</td><td>' + (p.nm_id||'') + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.product_name||'') + '</td>' +
-            '<td>' + p.orders + '</td><td>' + p.buyouts + '</td><td>' + p.returns + '</td><td>' + p.buyout_pct + '%</td>' +
-            '<td>' + fmt(p.revenue) + '</td><td>' + fmt(p.expenses) + '</td>' +
-            '<td style="color:' + (p.margin>=0?'#00b894':'#e74c3c') + '">' + fmt(p.margin) + '</td>' +
-            '<td>' + fmt(p.margin_per_unit) + '</td><td>' + p.profitability + '%</td>' +
-            '<td>' + p.stock + '</td><td>' + p.turnover + '</td></tr>'
-        ).join('');
-    } catch(e) { console.error('loadRnp', e); }
+        var url = '/api/v1/nl/rnp?org_id=' + ORG_ID + '&month=' + month + '&sort_by=' + sort + '&use_buyout_pct=' + ubp;
+        if (search) url += '&search=' + encodeURIComponent(search);
+        var res = await fetch(url);
+        if (!res.ok) { document.getElementById('rnp-cards').innerHTML = '<div class="empty">Ошибка ' + res.status + '</div>'; return; }
+        var data = await res.json();
+        var prods = data.products || [];
+        var days = data.day_list || [];
+        var s = data.summary || {};
+
+        // Сводка
+        document.getElementById('rnp-summary').innerHTML =
+            '<div><b>Товаров:</b> ' + s.total_products + '</div>' +
+            '<div><b>Заказы:</b> ' + s.total_orders + ' шт / ' + fmtR(s.total_orders_revenue) + ' ₽</div>' +
+            '<div><b>Выкупы:</b> ' + s.total_buyouts + ' шт / ' + fmtR(s.total_buyouts_revenue) + ' ₽</div>' +
+            '<div><b>Реклама:</b> ' + fmtR(s.total_ad_cost) + ' ₽</div>' +
+            '<div><b>ДРР:</b> ' + s.total_drr + '%</div>' +
+            '<div><b>Маржа до ДРР:</b> ' + fmtR(s.total_margin_before_drr) + ' ₽</div>' +
+            '<div><b>Прибыль расч:</b> ' + fmtR(s.total_profit_calc) + ' ₽</div>' +
+            '<div><b>Маржа с ДРР:</b> ' + fmtR(s.total_margin_with_drr) + ' ₽</div>' +
+            '<div><b>Остатки:</b> ' + s.total_stock + ' шт</div>';
+        document.getElementById('rnp-count').textContent = prods.length + ' товаров | ' + data.month;
+        if (!prods.length) { document.getElementById('rnp-cards').innerHTML = '<div class="empty">Нет данных</div>'; return; }
+
+        // Считаем summary по дням
+        var todayStr = new Date().toISOString().substring(0, 10);
+        var sumDays = {};
+        for (var di = 0; di < days.length; di++) {
+            sumDays[days[di]] = {orders_count:0,orders_revenue:0,buyouts_count:0,buyouts_revenue:0,ad_cost:0,profit_calc:0,margin_with_drr:0,margin_before_drr:0,drr:0};
+        }
+        for (var pi = 0; pi < prods.length; pi++) {
+            var pd = prods[pi].days || [];
+            for (var dj = 0; dj < pd.length; dj++) {
+                var dk = pd[dj].date;
+                if (sumDays[dk]) {
+                    sumDays[dk].orders_count += pd[dj].orders_count || 0;
+                    sumDays[dk].orders_revenue += pd[dj].orders_revenue || 0;
+                    sumDays[dk].buyouts_count += pd[dj].buyouts_count || 0;
+                    sumDays[dk].buyouts_revenue += pd[dj].buyouts_revenue || 0;
+                    sumDays[dk].ad_cost += pd[dj].ad_cost || 0;
+                    sumDays[dk].profit_calc += pd[dj].profit_calc || 0;
+                    sumDays[dk].margin_with_drr += pd[dj].margin_with_drr || 0;
+                    sumDays[dk].margin_before_drr += pd[dj].margin_before_drr || 0;
+                }
+            }
+        }
+
+        // Рисуем шапку-сводку (таблица 1)
+        var hhtml = '<div class="rnp-wrap" style="overflow-x:auto"><table class="rnp-header-table"><thead><tr>';
+        hhtml += '<th class="row-label" style="min-width:140px">Показатель</th>';
+        hhtml += '<th class="val-cell" style="min-width:90px">Итого</th>';
+        for (var hi = 0; hi < days.length; hi++) {
+            var dShort = days[hi].substring(5);
+            hhtml += '<th class="day-header' + (days[hi] === todayStr ? ' today' : '') + '">' + dShort + '</th>';
+        }
+        hhtml += '</tr></thead><tbody>';
+
+        // Строки шапки
+        var hrows = [
+            {label:'Заказы, Σ ₽', key:'orders_revenue', fmt:1},
+            {label:'Заказы, кол', key:'orders_count', fmt:0},
+            {label:'Выкупы, Σ ₽', key:'buyouts_revenue', fmt:1},
+            {label:'Выкупы, кол', key:'buyouts_count', fmt:0},
+            {label:'Рекл. бюджет, ₽', key:'ad_cost', fmt:1},
+            {label:'Маржа до ДРР, ₽', key:'margin_before_drr', fmt:1},
+            {label:'Маржа с ДРР, ₽', key:'margin_with_drr', fmt:1},
+            {label:'Прибыль расчёт, ₽', key:'profit_calc', fmt:1},
+        ];
+        for (var ri = 0; ri < hrows.length; ri++) {
+            var r = hrows[ri];
+            hhtml += '<tr><td class="row-label">' + r.label + '</td>';
+            var totalV = 0;
+            for (var tdi = 0; tdi < days.length; tdi++) { totalV += (sumDays[days[tdi]][r.key] || 0); }
+            hhtml += '<td class="val-cell"><b>' + (r.fmt ? fmtR(totalV) : totalV) + '</b></td>';
+            for (var ci = 0; ci < days.length; ci++) {
+                var cv = sumDays[days[ci]][r.key] || 0;
+                var cls = 'val-cell' + (days[ci] === todayStr ? ' today' : '');
+                var color = r.key === 'margin_with_drr' || r.key === 'profit_calc' || r.key === 'margin_before_drr' ? (cv >= 0 ? ' class="' + cls + '" style="color:#00b894"' : ' class="' + cls + '" style="color:#e74c3c"') : ' class="' + cls + '"';
+                hhtml += '<td' + color + '>' + (r.fmt ? fmtR(cv) : cv) + '</td>';
+            }
+            hhtml += '</tr>';
+        }
+        hhtml += '</tbody></table></div>';
+        document.getElementById('rnp-header-wrap').innerHTML = hhtml;
+
+        // Рисуем карточки (таблица 2)
+        var html = '<div class="rnp-wrap"><div class="rnp-table-wrap"><table class="rnp-table"><thead><tr>';
+        html += '<th class="sticky-col" style="min-width:140px;left:0">Карточка</th>';
+        html += '<th class="sticky-col" style="min-width:90px;left:140px">За 30 дн</th>';
+        html += '<th class="sticky-col" style="min-width:90px;left:230px">План/Факт</th>';
+        for (var dhi = 0; dhi < days.length; dhi++) {
+            var dS = days[dhi].substring(5);
+            html += '<th class="day-header' + (days[dhi] === todayStr ? ' today' : '') + '">' + dS + '</th>';
+        }
+        html += '</tr></thead><tbody>';
+
+        for (var i = 0; i < prods.length; i++) {
+            var p = prods[i];
+            var mc = p.margin_with_drr >= 0 ? '#00b894' : '#e74c3c';
+            var pDays = p.days || [];
+            var daysMap = {};
+            for (var j = 0; j < pDays.length; j++) { daysMap[pDays[j].date] = pDays[j]; }
+
+            // Фотография + информация
+            var photoHtml = '';
+            if (p.photo_main) photoHtml = '<img src="' + esc(p.photo_main) + '">';
+            else photoHtml = '📦';
+            var cardInfo = '<div class="rnp-card-photo">' + photoHtml + '</div>';
+            cardInfo += '<div class="rnp-card-nm">' + (p.nm_id||'') + '</div>';
+            cardInfo += '<div class="rnp-card-name" title="' + esc(p.product_name||'') + '">' + esc((p.product_name||'').substring(0,35)) + '</div>';
+            cardInfo += '<div class="rnp-card-detail">' + esc(p.product_class||'') + '</div>';
+            cardInfo += '<div class="rnp-card-detail">' + esc(p.brand||'') + '</div>';
+            cardInfo += '<div class="rnp-card-detail">' + esc(p.vendor_code||'') + (p.size_name ? ' / ' + esc(p.size_name) : '') + '</div>';
+            cardInfo += '<div class="rnp-card-detail">' + esc(p.tags||'') + '</div>';
+            cardInfo += '<div class="rnp-card-detail">Ост: ' + (p.current_stock||0) + ' (хватит ' + (p.enough_days||0) + 'д)</div>';
+            cardInfo += '<div class="rnp-card-krrr" style="color:' + mc + '">КРРР: ' + (p.krrr||0) + '%</div>';
+
+            // За 30 дней
+            var m30 = '';
+            m30 += '<div>Зак: <b>' + fmtR(p.total_orders_revenue) + '₽</b></div>';
+            m30 += '<div>     ' + (p.total_orders||0) + ' шт</div>';
+            m30 += '<div>Вык: <b>' + fmtR(p.total_buyouts_revenue) + '₽</b></div>';
+            m30 += '<div>     ' + (p.total_buyouts||0) + ' шт</div>';
+            m30 += '<div>%Вык: ' + (p.buyout_pct||0) + '%</div>';
+            m30 += '<div>М.ДРР: <span style="color:' + mc + '">' + fmtR(p.margin_with_drr) + '₽</span></div>';
+            m30 += '<div>М.до: ' + fmtR(p.margin_before_drr) + '₽</div>';
+            m30 += '<div>Рекл: ' + fmtR(p.total_ad_cost) + '₽</div>';
+            m30 += '<div>ДРР: ' + (p.drr||0) + '%</div>';
+            m30 += '<div>CTR: ' + (p.ctr||0) + '% / CPL: ' + fmtR(p.cpl) + '</div>';
+            m30 += '<div>Рейтинг: ' + (p.rating_reviews != null ? p.rating_reviews : '-') + '</div>';
+
+            // План/Факт
+            var pf = '';
+            pf += '<div>План: ' + fmtR(p.plan_value) + '</div>';
+            pf += '<div>%Вып: <span style="color:' + (p.pct_complete >= 100 ? '#00b894' : p.pct_complete >= 70 ? '#fdcb6e' : '#e74c3c') + '">' + (p.pct_complete||0) + '%</span></div>';
+            pf += '<div>Ф/д: ' + fmtR(p.daily_norm) + '</div>';
+            pf += '<div>Ц.СПП: ' + fmtR(p.price_retail) + '₽</div>';
+            pf += '<div>Ц+СПП: ' + fmtR(p.price_with_spp) + '₽</div>';
+            pf += '<div>СПП%: ' + (p.spp_pct||0) + '%</div>';
+            pf += '<div>Акция: ' + (p.in_promo ? '✅' : '-') + '</div>';
+            pf += '<div>ROI: ' + (p.roi||0) + '%</div>';
+            pf += '<div>Сб.ост: ' + fmtR(p.cost_of_stock) + '₽</div>';
+
+            html += '<tr>';
+            html += '<td class="sticky-col" style="left:0">' + cardInfo + '</td>';
+            html += '<td class="sticky-col" style="left:140px">' + m30 + '</td>';
+            html += '<td class="sticky-col" style="left:230px">' + pf + '</td>';
+
+            // Дни
+            for (var di = 0; di < days.length; di++) {
+                var dd = daysMap[days[di]] || {};
+                var dmc = (dd.margin_with_drr||0) >= 0 ? '#00b894' : '#e74c3c';
+                var cls = 'val-cell' + (days[di] === todayStr ? ' today' : '');
+                html += '<td class="' + cls + '">';
+                html += '<div>Зак <b>' + fmtR(dd.orders_revenue) + '</b></div>';
+                html += '<div style="color:#aaa">' + (dd.orders_count||0) + ' шт</div>';
+                html += '<div>Вык <b>' + fmtR(dd.buyouts_revenue) + '</b></div>';
+                html += '<div style="color:#aaa">' + (dd.buyouts_count||0) + ' шт</div>';
+                html += '<div>М.ДРР <span style="color:' + dmc + '">' + fmtR(dd.margin_with_drr) + '</span></div>';
+                html += '<div>ДРР ' + (dd.drr||0) + '%</div>';
+                html += '</td>';
+            }
+            html += '</tr>';
+
+            // Разделитель между карточками
+            html += '<tr class="card-divider"><td colspan="' + (3 + days.length) + '"></td></tr>';
+        }
+
+        html += '</tbody></table></div></div>';
+        document.getElementById('rnp-cards').innerHTML = html;
+
+        // Синхронизация горизонтального скролла шапки и карточек
+        var headerWrap = document.getElementById('rnp-header-wrap');
+        var cardsWrap = document.querySelector('.rnp-table-wrap');
+        if (headerWrap && cardsWrap) {
+            cardsWrap.addEventListener('scroll', function() { headerWrap.scrollLeft = cardsWrap.scrollLeft; });
+            headerWrap.addEventListener('scroll', function() { cardsWrap.scrollLeft = headerWrap.scrollLeft; });
+        }
+
+    } catch(e) { console.error('loadRnp', e); document.getElementById('rnp-cards').innerHTML = '<div class="empty">Ошибка: '+esc(e.message)+'</div>'; }
 }
+function fmtR(v) { if (v==null||v===0) return '—'; return Number(v).toLocaleString('ru-RU',{maximumFractionDigits:0}); }
 
 // ─── ПЛАН ПРОДАЖ ─────────────────────────────────────────
 var spData = [];
