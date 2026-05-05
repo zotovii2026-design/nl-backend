@@ -419,6 +419,27 @@ async def _do_parse_raw(sf):
                             "entity_id": entity_id,
                         }
 
+        # --- Fallback: подтянуть фото из product_entities ---
+        keys_without_photo = [k for k, v in product_map.items() if not v.get('photo')]
+        if keys_without_photo:
+            for k in keys_without_photo:
+                eid = product_map[k].get('entity_id')
+                nm = product_map[k].get('nm_id')
+                async with sf() as db:
+                    if eid:
+                        result = await db.execute(text(
+                            'SELECT photo_main FROM product_entities WHERE id = :val LIMIT 1'
+                        ), {'val': eid})
+                    elif nm:
+                        result = await db.execute(text(
+                            'SELECT photo_main FROM product_entities WHERE nm_id = :val AND organization_id = :org LIMIT 1'
+                        ), {'val': nm, 'org': org_id})
+                    else:
+                        continue
+                    row = result.first()
+                    if row and row[0]:
+                        product_map[k]['photo'] = row[0]
+
         # --- orders (по entity_id) ---
         async with sf() as db:
             result = await db.execute(text("""

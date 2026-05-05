@@ -2505,7 +2505,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "nm_id": nm_id,
             "vendor_code": vendor_code,
             "product_name": product_name,
-            "photo": photo.replace("/hq/", "/c246x328/") if photo else "",
+            "photo": photo.replace("/hq/", "/c246x328/").replace("/big/", "/c246x328/").replace("/tm/", "/c246x328/") if photo else "",
             "barcode": main_barcode,
             "size_name": size_map_ue.get(entity_id, "") if entity_id else "",
             "sku": f"{vendor_code}_{main_barcode}" if vendor_code else str(nm_id),
@@ -3686,7 +3686,7 @@ async function loadStats() {
             const avgRating = items.reduce((s,p) => s + (p.rating||0), 0) / items.length;
             const avgPrice = items[0].price || 0;
             const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions * 100).toFixed(1) + '%' : '—';
-            const thumb = (items[0].photo_main || '').replace('/hq/', '/c246x328/');
+            const thumb = (items[0].photo_main || '').replace('/hq/', '/c246x328/').replace('/big/', '/c246x328/').replace('/tm/', '/c246x328/');
             const stockColor = totalStock <= 0 ? '#e74c3c' : totalStock <= 5 ? '#e17055' : '';
             
             if (hasSizes) {
@@ -4156,7 +4156,7 @@ async function loadAnalytics() {
         const fmt = (v, s) => { if (v == null) return '—'; return Number(v).toLocaleString('ru-RU', {maximumFractionDigits:2}) + (s || ''); };
         const size = parseInt(document.getElementById('analytics-pagesize')?.value || '25');
         document.getElementById('analytics-body').innerHTML = prods.slice(0, size).map(p => {
-            const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/');
+            const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/').replace('/big/', '/c246x328/').replace('/tm/', '/c246x328/');
             return '<tr>' +
             '<td>' + (thumb ? '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
             '<td>' + esc(p.vendor_code || '') + '</td>' +
@@ -4399,7 +4399,7 @@ function applyCostFilters() {
             const costPrice = c.cost_price || '';
             if (costPrice) { totalCost += parseFloat(costPrice); filled++; }
             
-            const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/');
+            const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/').replace('/big/', '/c246x328/').replace('/tm/', '/c246x328/');
             return '<tr data-nm="' + p.nm_id + '" data-entity-id="' + (p.entity_id||'') + '" data-barcode="' + (p.barcode||'') + '" data-vc="' + esc(p.vendor_code||'') + '">' +
                 '<td>' + (thumb ? '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
                 '<td>' + p.nm_id + '</td>' +
@@ -5019,7 +5019,7 @@ function renderSpTable(data) {
     var seasonLabel = {low:'Низкая',medium:'Средняя',high:'Высокая',peak:'Пик'};
     var typeLabel = {quantity:'шт',revenue:'₽'};
     body.innerHTML = filtered.map(function(d, i) {
-        var thumb = (d.photo_main||'').replace('/hq/','/c246x328/');
+        var thumb = (d.photo_main||'').replace('/hq/','/c246x328/').replace('/big/','/c246x328/').replace('/tm/','/c246x328/');
         var pct = d.pct_complete || 0;
         var statusColor = pct >= 90 ? '#00b894' : (pct >= 70 ? '#fdcb6e' : '#e17055');
         var statusIcon = pct >= 90 ? '🟢' : (pct >= 70 ? '🟡' : '🔴');
@@ -5194,7 +5194,7 @@ async function loadRefData() {
     if (!products.length) { tbody.innerHTML = '<tr><td colspan="13" class="empty">Нет товаров на эту дату. Подключите WB API ключ и дождитесь синхронизации.</td></tr>'; return; }
     products.forEach(p => {
         const ref = refMap[p.nm_id] || {};
-        const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/');
+        const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/').replace('/big/', '/c246x328/').replace('/tm/', '/c246x328/');
         const img = thumb ? '<img class="photo" src="' + thumb + '" loading="lazy">' : '📦';
         const tr = document.createElement('tr');
         tr.innerHTML =
@@ -5375,7 +5375,7 @@ async function loadControl() {
     const tbody = document.getElementById('ctrl-body');
     if (!data.products.length) { tbody.innerHTML = '<tr><td colspan="15" class="empty">Нет данных</td></tr>'; return; }
     tbody.innerHTML = data.products.map(p => {
-        const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/');
+        const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/').replace('/big/', '/c246x328/').replace('/tm/', '/c246x328/');
         const img = thumb ? '<img class="photo" src="' + thumb + '" loading="lazy">' : '📦';
         const ctr = p.impressions > 0 ? (p.clicks / p.impressions * 100).toFixed(1) + '%' : '—';
         const stockColor = p.stock_qty <= 0 ? '#e74c3c' : p.stock_qty <= 5 ? '#e17055' : '#00b894';
