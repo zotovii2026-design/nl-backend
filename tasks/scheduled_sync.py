@@ -705,6 +705,7 @@ async def _do_parse_raw(sf):
                         warehouse_name=", ".join(skinfo.get("warehouses", set())) if skinfo.get("warehouses") else None,
                         price=_price if _price else None,
                         price_discount=_price_discount if _price_discount else None,
+                        price_spp=_price_discount if _price_discount else None,
                         row_status="active",
                         is_final="no",
                         last_sync_at=datetime.utcnow(),
@@ -724,6 +725,7 @@ async def _do_parse_raw(sf):
                             "nm_id": ins.excluded.nm_id,
                             "price": ins.excluded.price,
                             "price_discount": ins.excluded.price_discount,
+                            "price_spp": ins.excluded.price_spp,
                             "last_sync_at": datetime.utcnow(),
                             "updated_at": datetime.utcnow(),
                         }
