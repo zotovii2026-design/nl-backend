@@ -361,6 +361,72 @@ async def _do_adverts(sf):
     return results
 
 
+@shared_task(name="wb.sched.prices")
+def sched_prices():
+    """Синхронизация цен товаров из WB Marketplace API"""
+    return _run(_do_prices)
+
+
+async def _do_prices(sf):
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
+        return {"status": "skipped", "reason": "no_keys"}
+    results = {}
+    for org_id, api_key in all_keys:
+        try:
+            async with WBApiClient(api_key) as client:
+                prices_data = await client.get_all_prices()
+                items = prices_data if isinstance(prices_data, list) else prices_data.get("items", [])
+                count = len(items)
+
+                # Сохраняем в raw_api_data
+                async with sf() as db:
+                    await _save_raw(db, org_id, "prices", date.today(), items, count=count)
+
+                # Обновляем цены в tech_status (цены в копейках, переводим в рубли)
+                async with sf() as db:
+                    updated = 0
+                    for item in items:
+                        nm_id = item.get("nmID") or item.get("nmId") or item.get("nm_id")
+                        if not nm_id:
+                            continue
+                        # Цена на уровне nm (может быть 0 если размерные цены)
+                        nm_price = float(item.get("price") or 0) / 100
+                        discount = float(item.get("discount") or 0)
+                        club_discount = float(item.get("clubDiscount") or 0)
+                        
+                        # Если есть размеры — берём цену из первого размера
+                        sizes = item.get("sizes") or []
+                        if sizes:
+                            size_price = float(sizes[0].get("price") or 0) / 100
+                            size_discounted = float(sizes[0].get("discountedPrice") or 0) / 100
+                            price = size_discounted if size_discounted > 0 else (size_price if size_price > 0 else nm_price)
+                        else:
+                            price = nm_price
+                        
+                        if not price:
+                            continue
+                        
+                        price_with_spp = round(price * (1 - discount / 100), 2) if discount > 0 else price
+                        
+                        await db.execute(text("""
+                            UPDATE tech_status 
+                            SET price = :price, price_spp = :spp, price_discount = :spp
+                            WHERE organization_id = :org AND nm_id = :nm 
+                            AND target_date = CURRENT_DATE
+                        """), {"price": price, "spp": price_with_spp, "org": org_id, "nm": int(nm_id)})
+                        updated += 1
+                    await db.commit()
+                    logger.info(f"[sched] prices updated {updated} records in tech_status")
+
+                logger.info(f"[sched] prices org={org_id}: {count} items")
+                results[org_id[:8]] = {"status": "ok", "count": count}
+        except Exception as e:
+            logger.error(f"[sched] prices error org={org_id}: {e}")
+            results[org_id[:8]] = {"status": "error", "error": str(e)}
+    return results
+
+
 @shared_task(name="wb.sched.warehouses")
 def sched_warehouses():
     """Справочник складов"""

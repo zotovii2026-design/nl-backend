@@ -9,6 +9,7 @@ class WBApiClient:
     # Правильные WB API URL для разных категорий данных
     CONTENT_URL = "https://content-api.wildberries.ru"
     MARKETPLACE_URL = "https://marketplace-api.wildberries.ru"
+    PRICES_URL = "https://discounts-prices-api.wildberries.ru"
     STATISTICS_URL = "https://statistics-api.wildberries.ru"
 
     def __init__(self, api_key: str):
@@ -319,6 +320,57 @@ class WBApiClient:
                 return data
             return result.get("items", [])
         return []
+
+
+    async def get_prices(self, limit: int = 1000, offset: int = 0) -> list:
+        """
+        Получение товаров с ценами через Marketplace API.
+        GET /api/v2/list/goods/filter
+        """
+        params = {"limit": limit, "offset": offset}
+        response = await self.client.get(
+            f"{self.PRICES_URL}/api/v2/list/goods/filter",
+            params=params
+        )
+        response.raise_for_status()
+        result = response.json()
+        if isinstance(result, dict):
+            data = result.get("data", {})
+            if isinstance(data, dict):
+                items = data.get("listGoods", [])
+                total = data.get("total", 0)
+                return {"items": items, "total": total}
+            if isinstance(data, list):
+                return {"items": data, "total": len(data)}
+        return {"items": result if isinstance(result, list) else [], "total": 0}
+
+    async def get_all_prices(self) -> list:
+        """Получение цен всех товаров с пагинацией"""
+        import logging
+        _log = logging.getLogger(__name__)
+
+        all_items = []
+        offset = 0
+        limit = 1000
+        max_pages = 20
+
+        for page in range(max_pages):
+            result = await self.get_prices(limit=limit, offset=offset)
+            items = result.get("items", [])
+            total = result.get("total", 0)
+
+            if not items:
+                break
+
+            all_items.extend(items)
+            _log.info(f"[prices] page {page+1}: {len(items)} items, total {total}")
+
+            offset += limit
+            if offset >= total:
+                break
+
+        _log.info(f"[prices] done: {len(all_items)} items with prices")
+        return all_items
 
 
 async def get_wb_client(api_key: str) -> WBApiClient:
