@@ -26,6 +26,42 @@ import uuid
 logger = logging.getLogger(__name__)
 
 PAUSE_SEC = 30
+RETRY_DELAYS = [30, 60, 120]  # exponential backoff for 429
+
+
+async def _fetch_with_retry(coro_factory, label="", max_retries=3):
+    """Retry async call on 429 with exponential backoff.
+    coro_factory should be a callable returning an awaitable (e.g. lambda: client.get_sales(...))
+    """
+    import httpx
+    last_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            result = coro_factory()
+            # Handle both coroutine and direct result
+            if asyncio.iscoroutine(result):
+                result = await result
+            return result
+        except httpx.HTTPStatusError as e:
+            last_exc = e
+            if e.response.status_code == 429 and attempt < max_retries:
+                delay = RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)]
+                logger.warning(f"[retry] {label} got 429, waiting {delay}s (attempt {attempt+1}/{max_retries})")
+                await asyncio.sleep(delay)
+            else:
+                raise
+        except Exception as e:
+            # Check if it's a 429 wrapped in a generic exception
+            import httpx as _httpx
+            if hasattr(e, 'response') and hasattr(e.response, 'status_code') and e.response.status_code == 429:
+                last_exc = e
+                if attempt < max_retries:
+                    delay = RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)]
+                    logger.warning(f"[retry] {label} got 429 (wrapped), waiting {delay}s (attempt {attempt+1}/{max_retries})")
+                    await asyncio.sleep(delay)
+                    continue
+            raise
+    raise last_exc
 
 
 def _make_session():
@@ -162,7 +198,7 @@ async def _do_sales(sf):
                 for i in range(2):
                     target = date.today() - timedelta(days=i)
                     try:
-                        sales = await client.get_sales(date_from=target.isoformat())
+                        sales = await _fetch_with_retry(lambda: client.get_sales(date_from=target.isoformat()), label=f"sales/{target}")
                         data = sales if isinstance(sales, list) else {"response": sales}
                         count = len(sales) if isinstance(sales, list) else 0
 
@@ -201,7 +237,7 @@ async def _do_orders(sf):
                 for i in range(2):
                     target = date.today() - timedelta(days=i)
                     try:
-                        orders = await client.get_orders(date_from=target.isoformat())
+                        orders = await _fetch_with_retry(lambda: client.get_orders(date_from=target.isoformat()), label=f"orders/{target}")
                         data = orders if isinstance(orders, list) else {"response": orders}
                         count = len(orders) if isinstance(orders, list) else 0
 
@@ -836,6 +872,7 @@ def sched_commission():
 
 async def _do_commission(sf):
     """Сохраняет маппинг subjectID -> commission в raw_api_data"""
+    results = {}
     info = await _get_first_key(sf)
     if not info:
         return {"status": "skipped", "reason": "no_keys"}
@@ -852,7 +889,7 @@ async def _do_commission(sf):
         )
         if resp.status_code != 200:
             logger.error(f"[commission] API error: {resp.status_code} {resp.text[:200]}")
-            results[org_id[:8]] = {"status": "error", "code": resp.status_code}
+            return {"status": "error", "code": resp.status_code}
 
         data = resp.json()
         report = data.get("report", [])
@@ -1099,7 +1136,7 @@ async def _do_tariff_snapshot(sf):
                         logger.error(f"[tariff_snapshot] upsert error nm={nm_id}: {e}")
 
             logger.info(f"[tariff_snapshot] done: {results}")
-            results[org_id[:8]] = {"status": "ok", "data": results}
+            results[org_id[:8]] = {"status": "ok", "total": results.get("total", 0)}
 
         except Exception as e:
             logger.error(f"[sched] error org={org_id}: {e}")
