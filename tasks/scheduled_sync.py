@@ -483,7 +483,42 @@ async def _do_parse_raw(sf):
                             "photo": photos[0].get("hq", photos[0].get("tm", photos[0].get("big", ""))) if photos else "",
                             "nm_id": int(nm),
                             "entity_id": entity_id,
+                            "vendor_code": c.get("vendorCode", "") or "",
+                            "barcodes": [bc for sz_inner in (c.get("sizes") or []) for bc in (sz_inner.get("skus") or [])],
                         }
+
+        # --- Fallback: подтянуть vendor_code из product_entities ---
+        for k, v in product_map.items():
+            if not v.get('vendor_code'):
+                eid = v.get('entity_id')
+                nm = v.get('nm_id')
+                async with sf() as db:
+                    if eid:
+                        result = await db.execute(text(
+                            'SELECT vendor_code FROM product_entities WHERE id = :val LIMIT 1'
+                        ), {'val': eid})
+                    elif nm:
+                        result = await db.execute(text(
+                            'SELECT vendor_code FROM product_entities WHERE nm_id = :val AND organization_id = :org LIMIT 1'
+                        ), {'val': nm, 'org': org_id})
+                    else:
+                        continue
+                    row = result.first()
+                    if row and row[0]:
+                        v['vendor_code'] = row[0]
+
+        # --- Fallback: подтянуть barcode из entity_barcodes ---
+        for k, v in product_map.items():
+            if not v.get('barcodes'):
+                eid = v.get('entity_id')
+                if eid:
+                    async with sf() as db:
+                        result = await db.execute(text(
+                            'SELECT barcode FROM entity_barcodes WHERE entity_id = :eid AND is_active = true LIMIT 1'
+                        ), {'eid': eid})
+                        row = result.first()
+                        if row and row[0]:
+                            v['barcodes'] = [row[0]]
 
         # --- Fallback: подтянуть фото из product_entities ---
         keys_without_photo = [k for k, v in product_map.items() if not v.get('photo')]
@@ -635,6 +670,16 @@ async def _do_parse_raw(sf):
                 if wh:
                     stock_map[key]["warehouses"].add(wh)
 
+        # --- Цены из tariff_snapshot (для товаров без orders/sales) ---
+        async with sf() as db:
+            price_result = await db.execute(text("""
+                SELECT DISTINCT ON (nm_id) nm_id, price_retail, price_with_spp
+                FROM wb_tariff_snapshot
+                WHERE organization_id = :org
+                ORDER BY nm_id, target_date DESC
+            """), {"org": org_id})
+            tariff_prices = {r[0]: {"price": float(r[1]) if r[1] else 0, "price_spp": float(r[2]) if r[2] else 0} for r in price_result.all()}
+
         # --- Собираем уникальные ключи ---
         all_keys = set(orders_map.keys()) | set(sales_map.keys())
         all_entity_or_nm = set()
@@ -684,9 +729,10 @@ async def _do_parse_raw(sf):
                 skinfo = stock_map.get(key, {})
 
                 async with sf() as db:
-                    # Определяем цену: приоритет sales (фактическая цена выкупа), затем orders
-                    _price = sinfo.get("price", 0) or oinfo.get("price", 0) or 0
-                    _price_discount = sinfo.get("price_discount", 0) or oinfo.get("price_discount", 0) or 0
+                    # Определяем цену: приоритет sales, затем orders, затем tariff_snapshot
+                    _tariff_price = tariff_prices.get(n_id, {}) if n_id else {}
+                    _price = sinfo.get("price", 0) or oinfo.get("price", 0) or _tariff_price.get("price", 0)
+                    _price_discount = sinfo.get("price_discount", 0) or oinfo.get("price_discount", 0) or _tariff_price.get("price_spp", 0)
                     ins = pg_insert(TechStatus)
                     stmt = ins.values(
                         id=str(uuid.uuid4()),
@@ -695,8 +741,8 @@ async def _do_parse_raw(sf):
                         nm_id=n_id,
                         entity_id=e_id,
                         product_name=pinfo.get("name", ""),
-                        vendor_code=oinfo.get("vendor_code", ""),
-                        barcode=oinfo.get("barcode", "") or (pinfo.get("barcodes") or [""])[0],
+                        vendor_code=oinfo.get("vendor_code", "") or pinfo.get("vendor_code", ""),
+                        barcode=oinfo.get("barcode", "") or pinfo.get("barcodes", [""])[0] if pinfo.get("barcodes") else "",
                         photo_main=pinfo.get("photo", ""),
                         orders_count=oinfo.get("count", 0),
                         buyouts_count=sinfo.get("buyouts", 0),
@@ -765,6 +811,11 @@ async def _do_parse_raw(sf):
             e_id = None
             n_id = key if isinstance(key, int) else None
 
+        # Цены из tariff_snapshot для товаров без активности
+        _tp = tariff_prices.get(n_id, {}) if n_id else {}
+        _tp_price = _tp.get("price", 0)
+        _tp_spp = _tp.get("price_spp", 0)
+        
         async with sf() as db:
             ins = pg_insert(TechStatus)
             stmt = ins.values(
@@ -774,8 +825,12 @@ async def _do_parse_raw(sf):
                 nm_id=n_id,
                 entity_id=e_id,
                 product_name=pinfo.get("name", ""),
-                vendor_code="",
+                vendor_code=pinfo.get("vendor_code", ""),
+                barcode=pinfo.get("barcodes", [""])[0] if pinfo.get("barcodes") else "",
                 photo_main=pinfo.get("photo", ""),
+                price=_tp_price if _tp_price else None,
+                price_discount=_tp_spp if _tp_spp else None,
+                price_spp=_tp_spp if _tp_spp else None,
                 orders_count=0,
                 buyouts_count=0,
                 returns_count=0,
@@ -789,8 +844,13 @@ async def _do_parse_raw(sf):
                 constraint="tech_status_org_date_entity_key",
                 set_={
                     "product_name": ins.excluded.product_name,
+                    "vendor_code": ins.excluded.vendor_code,
+                    "barcode": ins.excluded.barcode,
                     "photo_main": ins.excluded.photo_main,
                     "nm_id": ins.excluded.nm_id,
+                    "price": ins.excluded.price,
+                    "price_discount": ins.excluded.price_discount,
+                    "price_spp": ins.excluded.price_spp,
                     "last_sync_at": datetime.utcnow(),
                     "updated_at": datetime.utcnow(),
                 }

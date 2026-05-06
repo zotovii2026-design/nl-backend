@@ -15,6 +15,12 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     beat_schedule={
+        # --- Основной цикл: синк → parse_raw ---
+        # Parse raw 2 раза в час: после синков данные сразу попадают в tech_status
+        "parse-raw-frequent": {
+            "task": "wb.sched.parse_raw",
+            "schedule": 1800,  # каждые 30 мин
+        },
         "sync-ad-stats-daily": {
             "task": "wb.sched.ad_stats",
             "schedule": 86400,  # раз в сутки
