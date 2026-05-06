@@ -52,18 +52,27 @@ def _run(coro):
     return asyncio.run(wrapper())
 
 
-async def _get_first_key(sf) -> Optional[tuple]:
-    """Получить org_id + рабочий API ключ (personal_token приоритет)"""
+async def _get_all_keys(sf) -> list:
+    """Получить все org_id + рабочие API ключи"""
     async with sf() as db:
-        result = await db.execute(select(WbApiKey).limit(1))
-        key_rec = result.scalar_one_or_none()
-        if not key_rec:
-            return None
-        if key_rec.personal_token:
-            decrypted = decrypt_data(key_rec.personal_token)
-            return (str(key_rec.organization_id), decrypted)
-        decrypted = decrypt_data(key_rec.api_key)
-        return (str(key_rec.organization_id), decrypted)
+        result = await db.execute(select(WbApiKey))
+        key_recs = result.scalars().all()
+        if not key_recs:
+            return []
+        keys = []
+        for key_rec in key_recs:
+            if key_rec.personal_token:
+                decrypted = decrypt_data(key_rec.personal_token)
+            else:
+                decrypted = decrypt_data(key_rec.api_key)
+            keys.append((str(key_rec.organization_id), decrypted))
+        return keys
+
+
+async def _get_first_key(sf) -> Optional[tuple]:
+    """Backward compat — returns first key"""
+    keys = await _get_all_keys(sf)
+    return keys[0] if keys else None
 
 
 async def _save_raw(db, org_id, method, target, response, count=None, status="ok", error=None):
@@ -99,37 +108,43 @@ def sched_products():
 
 
 async def _do_products(sf):
-    info = await _get_first_key(sf)
-    if not info:
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
         return {"status": "skipped", "reason": "no_keys"}
-    org_id, api_key = info
-
-    async with WBApiClient(api_key) as client:
-        cards = await client.get_all_cards()
-        count = len(cards)
-        today = date.today()
-
-        async with sf() as db:
-            await _save_raw(db, org_id, "products", today, cards, count=count)
-
-        archive = sum(1 for c in cards if c.get("isArchive", False))
-        active = count - archive
-        async with sf() as db:
-            await _save_raw(db, org_id, "products_stats", today,
-                            {"total": count, "archive": archive, "active": active}, count=count)
-
-    # Синхронизация сущностей из карточек
-    entity_result = None
-    async with sf() as db:
+    results = {}
+    for org_id, api_key in all_keys:
         try:
-            entity_result = await sync_entities_from_raw(db, org_id, today)
+            async with WBApiClient(api_key) as client:
+                cards = await client.get_all_cards()
+                count = len(cards)
+                today = date.today()
+
+                async with sf() as db:
+                    await _save_raw(db, org_id, "products", today, cards, count=count)
+
+                archive = sum(1 for c in cards if c.get("isArchive", False))
+                active = count - archive
+                async with sf() as db:
+                    await _save_raw(db, org_id, "products_stats", today,
+                                    {"total": count, "archive": archive, "active": active}, count=count)
+
+            # Синхронизация сущностей из карточек
+            entity_result = None
+            async with sf() as db:
+                try:
+                    entity_result = await sync_entities_from_raw(db, org_id, today)
+                except Exception as e:
+                    logger.error(f"[sched] entity_sync error: {e}")
+
+            logger.info(f"[sched] products: {count} cards, entities: {entity_result}")
+            results[org_id[:8]] = {"status": "ok", "cards": count, "entities": entity_result}
+
+
         except Exception as e:
-            logger.error(f"[sched] entity_sync error: {e}")
+            logger.error(f"[sched] products error org={org_id}: {e}")
+            results[org_id[:8]] = {"status": "error", "error": str(e)}
 
-    logger.info(f"[sched] products: {count} cards, entities: {entity_result}")
-    return {"status": "ok", "cards": count, "entities": entity_result}
-
-
+    return results
 @shared_task(name="wb.sched.sales")
 def sched_sales():
     """Продажи за вчера и сегодня"""
@@ -137,34 +152,38 @@ def sched_sales():
 
 
 async def _do_sales(sf):
-    info = await _get_first_key(sf)
-    if not info:
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
         return {"status": "skipped", "reason": "no_keys"}
-    org_id, api_key = info
-
     results = {}
-    async with WBApiClient(api_key) as client:
-        for i in range(2):
-            target = date.today() - timedelta(days=i)
-            try:
-                sales = await client.get_sales(date_from=target.isoformat())
-                data = sales if isinstance(sales, list) else {"response": sales}
-                count = len(sales) if isinstance(sales, list) else 0
+    for org_id, api_key in all_keys:
+        try:
+            async with WBApiClient(api_key) as client:
+                for i in range(2):
+                    target = date.today() - timedelta(days=i)
+                    try:
+                        sales = await client.get_sales(date_from=target.isoformat())
+                        data = sales if isinstance(sales, list) else {"response": sales}
+                        count = len(sales) if isinstance(sales, list) else 0
 
-                async with sf() as db:
-                    await _save_raw(db, org_id, "sales", target, data, count=count)
+                        async with sf() as db:
+                            await _save_raw(db, org_id, "sales", target, data, count=count)
 
-                results[str(target)] = count
-                if i == 0:
-                    await asyncio.sleep(PAUSE_SEC)
-            except Exception as e:
-                logger.error(f"[sched] sales {target}: {e}")
-                results[str(target)] = f"error: {e}"
+                        results[str(target)] = count
+                        if i == 0:
+                            await asyncio.sleep(PAUSE_SEC)
+                    except Exception as e:
+                        logger.error(f"[sched] sales {target}: {e}")
+                        results[str(target)] = f"error: {e}"
 
-    logger.info(f"[sched] sales: {results}")
-    return {"status": "ok", "results": results}
+            logger.info(f"[sched] sales org={org_id}: {results}")
 
 
+        except Exception as e:
+            logger.error(f"[sched] sales error org={org_id}: {e}")
+            results[org_id[:8]] = {"status": "error", "error": str(e)}
+
+    return results
 @shared_task(name="wb.sched.orders")
 def sched_orders():
     """Заказы за вчера и сегодня"""
@@ -172,34 +191,38 @@ def sched_orders():
 
 
 async def _do_orders(sf):
-    info = await _get_first_key(sf)
-    if not info:
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
         return {"status": "skipped", "reason": "no_keys"}
-    org_id, api_key = info
-
     results = {}
-    async with WBApiClient(api_key) as client:
-        for i in range(2):
-            target = date.today() - timedelta(days=i)
-            try:
-                orders = await client.get_orders(date_from=target.isoformat())
-                data = orders if isinstance(orders, list) else {"response": orders}
-                count = len(orders) if isinstance(orders, list) else 0
+    for org_id, api_key in all_keys:
+        try:
+            async with WBApiClient(api_key) as client:
+                for i in range(2):
+                    target = date.today() - timedelta(days=i)
+                    try:
+                        orders = await client.get_orders(date_from=target.isoformat())
+                        data = orders if isinstance(orders, list) else {"response": orders}
+                        count = len(orders) if isinstance(orders, list) else 0
 
-                async with sf() as db:
-                    await _save_raw(db, org_id, "orders", target, data, count=count)
+                        async with sf() as db:
+                            await _save_raw(db, org_id, "orders", target, data, count=count)
 
-                results[str(target)] = count
-                if i == 0:
-                    await asyncio.sleep(PAUSE_SEC)
-            except Exception as e:
-                logger.error(f"[sched] orders {target}: {e}")
-                results[str(target)] = f"error: {e}"
+                        results[str(target)] = count
+                        if i == 0:
+                            await asyncio.sleep(PAUSE_SEC)
+                    except Exception as e:
+                        logger.error(f"[sched] orders {target}: {e}")
+                        results[str(target)] = f"error: {e}"
 
-    logger.info(f"[sched] orders: {results}")
-    return {"status": "ok", "results": results}
+            logger.info(f"[sched] orders org={org_id}: {results}")
 
 
+        except Exception as e:
+            logger.error(f"[sched] orders error org={org_id}: {e}")
+            results[org_id[:8]] = {"status": "error", "error": str(e)}
+
+    return results
 @shared_task(name="wb.sched.stocks")
 def sched_stocks():
     """Остатки на сегодня"""
@@ -207,28 +230,34 @@ def sched_stocks():
 
 
 async def _do_stocks(sf):
-    info = await _get_first_key(sf)
-    if not info:
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
         return {"status": "skipped", "reason": "no_keys"}
-    org_id, api_key = info
-
-    today = date.today()
-    async with WBApiClient(api_key) as client:
+    results = {}
+    for org_id, api_key in all_keys:
+        today = date.today()
         try:
-            stocks = await client.get_stocks_api(date_from=today.isoformat())
-            data = stocks if isinstance(stocks, list) else {"response": stocks}
-            count = len(stocks) if isinstance(stocks, list) else 0
+            async with WBApiClient(api_key) as client:
+                try:
+                    stocks = await client.get_stocks_api(date_from=today.isoformat())
+                    data = stocks if isinstance(stocks, list) else {"response": stocks}
+                    count = len(stocks) if isinstance(stocks, list) else 0
 
-            async with sf() as db:
-                await _save_raw(db, org_id, "stocks", today, data, count=count)
+                    async with sf() as db:
+                        await _save_raw(db, org_id, "stocks", today, data, count=count)
 
-            logger.info(f"[sched] stocks: {count} records")
-            return {"status": "ok", "stocks": count}
+                    logger.info(f"[sched] stocks org={org_id}: {count} records")
+                    results[org_id[:8]] = {"status": "ok", "stocks": count}
+                except Exception as e:
+                    logger.error(f"[sched] stocks error org={org_id}: {e}")
+                    results[org_id[:8]] = {"status": "error", "error": str(e)}
+
+
         except Exception as e:
-            logger.error(f"[sched] stocks: {e}")
-            return {"status": "error", "error": str(e)}
+            logger.error(f"[sched] stocks error org={org_id}: {e}")
+            results[org_id[:8]] = {"status": "error", "error": str(e)}
 
-
+    return results
 @shared_task(name="wb.sched.tariffs")
 def sched_tariffs():
     """Тарифы складов на сегодня"""
@@ -261,7 +290,7 @@ async def _do_tariffs(sf):
             except Exception as e:
                 logger.error(f"[sched] tariffs_{tariff_type}: {e}")
                 results[tariff_type] = f"error: {e}"
-        return {"status": results}
+        results[org_id[:8]] = {"status": results}
 
 
 @shared_task(name="wb.sched.adverts")
@@ -288,11 +317,11 @@ async def _do_adverts(sf):
             async with sf() as db:
                 await _save_raw(db, org_id, "adverts", today, data)
 
-            logger.info("[sched] adverts: ok")
-            return {"status": "ok"}
+            logger.info(f"[sched] adverts org={org_id}: ok")
+            results[org_id[:8]] = {"status": "ok"}
         except Exception as e:
-            logger.error(f"[sched] adverts: {e}")
-            return {"status": "error", "error": str(e)}
+            logger.error(f"[sched] adverts error org={org_id}: {e}")
+            results[org_id[:8]] = {"status": "error", "error": str(e)}
 
 
 @shared_task(name="wb.sched.warehouses")
@@ -316,7 +345,7 @@ async def _do_warehouses(sf):
             resp.raise_for_status()
             warehouses = resp.json()
             if not isinstance(warehouses, list):
-                return {"status": "ok", "count": 0}
+                results[org_id[:8]] = {"status": "ok", "count": 0}
 
             async with sf() as db:
                 for wh in warehouses:
@@ -336,10 +365,10 @@ async def _do_warehouses(sf):
                 await db.commit()
 
             logger.info(f"[sched] warehouses: {len(warehouses)}")
-            return {"status": "ok", "count": len(warehouses)}
+            results[org_id[:8]] = {"status": "ok", "count": len(warehouses)}
         except Exception as e:
             logger.error(f"[sched] warehouses: {e}")
-            return {"status": "error", "error": str(e)}
+            results[org_id[:8]] = {"status": "error", "error": str(e)}
 
 
 @shared_task(name="wb.sched.parse_raw")
@@ -823,7 +852,7 @@ async def _do_commission(sf):
         )
         if resp.status_code != 200:
             logger.error(f"[commission] API error: {resp.status_code} {resp.text[:200]}")
-            return {"status": "error", "code": resp.status_code}
+            results[org_id[:8]] = {"status": "error", "code": resp.status_code}
 
         data = resp.json()
         report = data.get("report", [])
@@ -832,7 +861,7 @@ async def _do_commission(sf):
         async with sf() as db:
             await _save_raw(db, org_id, "tariffs_commission", today, data, count=len(report))
 
-        return {"status": "ok", "subjects": len(report)}
+        results[org_id[:8]] = {"status": "ok", "subjects": len(report)}
 
 @shared_task(name="wb.sched.tariff_snapshot")
 def sched_tariff_snapshot():
@@ -842,231 +871,238 @@ def sched_tariff_snapshot():
 
 async def _do_tariff_snapshot(sf):
     """Заполняет wb_tariff_snapshot из уже собранных raw_api_data + tech_status"""
-    info = await _get_first_key(sf)
-    if not info:
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
         return {"status": "skipped", "reason": "no_keys"}
-    org_id, api_key = info
-    today = date.today()
+    results = {}
+    for org_id, api_key in all_keys:
+        today = date.today()
+        try:
+            import json as _json
+            from models.wb_tariff_snapshot import WbTariffSnapshot
 
-    import json as _json
-    from models.wb_tariff_snapshot import WbTariffSnapshot
+            results = {"tariffs": 0, "adverts": 0, "buyout": 0, "total": 0}
 
-    results = {"tariffs": 0, "adverts": 0, "buyout": 0, "total": 0}
+            # 0b. Загружаем цены из stocks (Price + Discount -> price_retail, price_with_spp)
+            prices_by_nm = {}  # nm_id -> {price_retail, price_with_spp}
 
-    # 0b. Загружаем цены из stocks (Price + Discount -> price_retail, price_with_spp)
-    prices_by_nm = {}  # nm_id -> {price_retail, price_with_spp}
-
-    async with sf() as db:
-        stocks_result = await db.execute(
-            text("SELECT raw_response FROM raw_api_data "
-                 "WHERE organization_id = :org AND api_method = 'stocks' "
-                 "ORDER BY target_date DESC LIMIT 1"),
-            {"org": org_id}
-        )
-        stocks_row = stocks_result.first()
-        if stocks_row and stocks_row[0]:
-            try:
-                sdata = stocks_row[0] if isinstance(stocks_row[0], list) else _json.loads(stocks_row[0])
-                items = sdata if isinstance(sdata, list) else sdata.get("response", sdata.get("data", []))
-                if isinstance(items, list):
-                    for s in items:
-                        nm = int(s.get("nmId", 0))
-                        price = float(s.get("Price", 0) or 0)
-                        discount = float(s.get("Discount", 0) or 0)
-                        if nm and price:
-                            price_with_spp = round(price * (1 - discount / 100), 2)
-                            # Берём максимальную цену (может быть несколько записей для одного nm)
-                            if nm not in prices_by_nm or price > prices_by_nm[nm]["price_retail"]:
-                                prices_by_nm[nm] = {"price_retail": price, "price_with_spp": price_with_spp}
-                logger.info(f"[tariff_snapshot] loaded {len(prices_by_nm)} prices from stocks")
-            except Exception as e:
-                logger.error(f"[tariff_snapshot] stocks prices parse error: {e}")
-
-    # 1. Извлекаем тарифы (логистика + хранение) из raw_api_data
-    logistics_avg = 0
-    storage_avg = 0
-    # 0. Загружаем комиссии по subjectID из raw_api_data
-    commission_rates = {}  # subjectID -> paidStorageKgvp (ФБО)
-    products_subjects = {}  # nm_id -> subjectID
-
-    async with sf() as db:
-        comm_result = await db.execute(
-            text("SELECT raw_response FROM raw_api_data "
-                 "WHERE organization_id = :org AND api_method = 'tariffs_commission' "
-                 "ORDER BY target_date DESC LIMIT 1"),
-            {"org": org_id}
-        )
-        comm_row = comm_result.first()
-        if comm_row and comm_row[0]:
-            try:
-                cdata = comm_row[0] if isinstance(comm_row[0], dict) else _json.loads(comm_row[0])
-                for item in cdata.get("report", []):
-                    sid = item.get("subjectID")
-                    pct = item.get("paidStorageKgvp")  # ФБО комиссия
-                    if sid and pct is not None:
-                        commission_rates[sid] = float(pct)
-                logger.info(f"[tariff_snapshot] loaded {len(commission_rates)} commission rates")
-            except Exception as e:
-                logger.error(f"[tariff_snapshot] commission parse error: {e}")
-
-        # Загружаем subjectID для продуктов
-        subj_result = await db.execute(
-            text("SELECT raw_response FROM raw_api_data "
-                 "WHERE organization_id = :org AND api_method = 'products' "
-                 "ORDER BY target_date DESC LIMIT 1"),
-            {"org": org_id}
-        )
-        subj_row = subj_result.first()
-        if subj_row and subj_row[0]:
-            try:
-                pdata = subj_row[0] if isinstance(subj_row[0], list) else _json.loads(subj_row[0])
-                items = pdata if isinstance(pdata, list) else pdata.get("response", pdata.get("data", []))
-                if isinstance(items, list):
-                    for p in items:
-                        nm = p.get("nmID")
-                        sid = p.get("subjectID")
-                        if nm and sid:
-                            products_subjects[int(nm)] = int(sid)
-                logger.info(f"[tariff_snapshot] loaded {len(products_subjects)} product subjects")
-            except Exception as e:
-                logger.error(f"[tariff_snapshot] products subject parse error: {e}")
-
-    async with sf() as db:
-        box_result = await db.execute(
-            text("SELECT raw_response FROM raw_api_data "
-                 "WHERE organization_id = :org AND api_method IN ('tariffs', 'tariffs_box') "
-                 "ORDER BY target_date DESC LIMIT 1"),
-            {"org": org_id}
-        )
-        box_row = box_result.first()
-        if box_row and box_row[0]:
-            try:
-                tdata = box_row[0] if isinstance(box_row[0], dict) else _json.loads(box_row[0])
-                warehouses = tdata.get("response", {}).get("data", {}).get("warehouseList", [])
-                target_wh = ["Коледино", "Краснодар", "Казань"]
-                delivery_vals = []
-                storage_vals = []
-                for wh in warehouses:
-                    name = wh.get("warehouseName", "")
-                    if any(t in name for t in target_wh):
-                        db_val = wh.get("boxDeliveryBase", "0")
-                        sb_val = wh.get("boxStorageBase", "0")
-                        try: delivery_vals.append(float(str(db_val).replace(",", ".")))
-                        except: pass
-                        try: storage_vals.append(float(str(sb_val).replace(",", ".")))
-                        except: pass
-                logistics_avg = sum(delivery_vals) / len(delivery_vals) if delivery_vals else 0
-                storage_avg = sum(storage_vals) / len(storage_vals) if storage_vals else 0
-                results["tariffs"] = len(delivery_vals)
-            except Exception as e:
-                logger.error(f"[tariff_snapshot] tariffs parse error: {e}")
-
-    # 2. Рекламные расходы по nm_id из ad_stats + ad_campaigns
-    ad_by_nm = {}
-    async with sf() as db:
-        ad_result = await db.execute(
-            text(r"""
-                WITH camp_nm AS (
-                    SELECT wb_campaign_id,
-                           (regexp_match(name, '^\s*(\d+)'))[1]::int as nm_id
-                    FROM ad_campaigns
-                    WHERE organization_id = :org AND name ~ '^\s*\d+'
+            async with sf() as db:
+                stocks_result = await db.execute(
+                    text("SELECT raw_response FROM raw_api_data "
+                         "WHERE organization_id = :org AND api_method = 'stocks' "
+                         "ORDER BY target_date DESC LIMIT 1"),
+                    {"org": org_id}
                 )
-                SELECT c.nm_id, SUM(a.spent)::numeric(10,2) as total_spent
-                FROM camp_nm c
-                JOIN ad_stats a ON a.wb_campaign_id = c.wb_campaign_id
-                    AND a.organization_id = :org
-                    AND a.stat_date >= CURRENT_DATE - INTERVAL '30 days'
-                GROUP BY c.nm_id
-            """),
-            {"org": org_id}
-        )
-        for r in ad_result.all():
-            ad_by_nm[int(r[0])] = float(r[1] or 0)
-        results["adverts"] = len(ad_by_nm)
+                stocks_row = stocks_result.first()
+                if stocks_row and stocks_row[0]:
+                    try:
+                        sdata = stocks_row[0] if isinstance(stocks_row[0], list) else _json.loads(stocks_row[0])
+                        items = sdata if isinstance(sdata, list) else sdata.get("response", sdata.get("data", []))
+                        if isinstance(items, list):
+                            for s in items:
+                                nm = int(s.get("nmId", 0))
+                                price = float(s.get("Price", 0) or 0)
+                                discount = float(s.get("Discount", 0) or 0)
+                                if nm and price:
+                                    price_with_spp = round(price * (1 - discount / 100), 2)
+                                    # Берём максимальную цену (может быть несколько записей для одного nm)
+                                    if nm not in prices_by_nm or price > prices_by_nm[nm]["price_retail"]:
+                                        prices_by_nm[nm] = {"price_retail": price, "price_with_spp": price_with_spp}
+                        logger.info(f"[tariff_snapshot] loaded {len(prices_by_nm)} prices from stocks")
+                    except Exception as e:
+                        logger.error(f"[tariff_snapshot] stocks prices parse error: {e}")
 
-    # 3. % выкупа из tech_status (последние 30 дней)
-    buyout_map = {}
-    async with sf() as db:
-        buyout_result = await db.execute(
-            text("""
-                SELECT nm_id,
-                       SUM(COALESCE(buyouts_count, 0)) as buyouts,
-                       SUM(COALESCE(orders_count, 0)) as orders
-                FROM tech_status
-                WHERE organization_id = :org AND target_date >= CURRENT_DATE - INTERVAL '30 days'
-                GROUP BY nm_id
-            """),
-            {"org": org_id}
-        )
-        for r in buyout_result.all():
-            b = float(r[1] or 0)
-            o = float(r[2] or 0)
-            buyout_map[r[0]] = round(b / o * 100, 1) if o > 0 else 0
-        results["buyout"] = len(buyout_map)
+            # 1. Извлекаем тарифы (логистика + хранение) из raw_api_data
+            logistics_avg = 0
+            storage_avg = 0
+            # 0. Загружаем комиссии по subjectID из raw_api_data
+            commission_rates = {}  # subjectID -> paidStorageKgvp (ФБО)
+            products_subjects = {}  # nm_id -> subjectID
 
-    # 4. Список nm_id из product_entities
-    entities = {}
-    async with sf() as db:
-        ent_result = await db.execute(
-            text("SELECT id, nm_id FROM product_entities WHERE organization_id = :org"),
-            {"org": org_id}
-        )
-        for r in ent_result.all():
-            nm = r[1]
-            if nm not in entities:
-                entities[nm] = []
-            entities[nm].append(r[0])
+            async with sf() as db:
+                comm_result = await db.execute(
+                    text("SELECT raw_response FROM raw_api_data "
+                         "WHERE organization_id = :org AND api_method = 'tariffs_commission' "
+                         "ORDER BY target_date DESC LIMIT 1"),
+                    {"org": org_id}
+                )
+                comm_row = comm_result.first()
+                if comm_row and comm_row[0]:
+                    try:
+                        cdata = comm_row[0] if isinstance(comm_row[0], dict) else _json.loads(comm_row[0])
+                        for item in cdata.get("report", []):
+                            sid = item.get("subjectID")
+                            pct = item.get("paidStorageKgvp")  # ФБО комиссия
+                            if sid and pct is not None:
+                                commission_rates[sid] = float(pct)
+                        logger.info(f"[tariff_snapshot] loaded {len(commission_rates)} commission rates")
+                    except Exception as e:
+                        logger.error(f"[tariff_snapshot] commission parse error: {e}")
 
-    # 4b. Маппинг nm_id -> commission_pct
-    commission_pct_map = {}
-    for nm_id in entities:
-        sid = products_subjects.get(nm_id)
-        if sid and sid in commission_rates:
-            commission_pct_map[nm_id] = commission_rates[sid]
+                # Загружаем subjectID для продуктов
+                subj_result = await db.execute(
+                    text("SELECT raw_response FROM raw_api_data "
+                         "WHERE organization_id = :org AND api_method = 'products' "
+                         "ORDER BY target_date DESC LIMIT 1"),
+                    {"org": org_id}
+                )
+                subj_row = subj_result.first()
+                if subj_row and subj_row[0]:
+                    try:
+                        pdata = subj_row[0] if isinstance(subj_row[0], list) else _json.loads(subj_row[0])
+                        items = pdata if isinstance(pdata, list) else pdata.get("response", pdata.get("data", []))
+                        if isinstance(items, list):
+                            for p in items:
+                                nm = p.get("nmID")
+                                sid = p.get("subjectID")
+                                if nm and sid:
+                                    products_subjects[int(nm)] = int(sid)
+                        logger.info(f"[tariff_snapshot] loaded {len(products_subjects)} product subjects")
+                    except Exception as e:
+                        logger.error(f"[tariff_snapshot] products subject parse error: {e}")
 
-    # 5. Записываем в wb_tariff_snapshot
-    for nm_id, entity_ids in entities.items():
-        eid = entity_ids[0] if entity_ids else None
+            async with sf() as db:
+                box_result = await db.execute(
+                    text("SELECT raw_response FROM raw_api_data "
+                         "WHERE organization_id = :org AND api_method IN ('tariffs', 'tariffs_box') "
+                         "ORDER BY target_date DESC LIMIT 1"),
+                    {"org": org_id}
+                )
+                box_row = box_result.first()
+                if box_row and box_row[0]:
+                    try:
+                        tdata = box_row[0] if isinstance(box_row[0], dict) else _json.loads(box_row[0])
+                        warehouses = tdata.get("response", {}).get("data", {}).get("warehouseList", [])
+                        target_wh = ["Коледино", "Краснодар", "Казань"]
+                        delivery_vals = []
+                        storage_vals = []
+                        for wh in warehouses:
+                            name = wh.get("warehouseName", "")
+                            if any(t in name for t in target_wh):
+                                db_val = wh.get("boxDeliveryBase", "0")
+                                sb_val = wh.get("boxStorageBase", "0")
+                                try: delivery_vals.append(float(str(db_val).replace(",", ".")))
+                                except: pass
+                                try: storage_vals.append(float(str(sb_val).replace(",", ".")))
+                                except: pass
+                        logistics_avg = sum(delivery_vals) / len(delivery_vals) if delivery_vals else 0
+                        storage_avg = sum(storage_vals) / len(storage_vals) if storage_vals else 0
+                        results["tariffs"] = len(delivery_vals)
+                    except Exception as e:
+                        logger.error(f"[tariff_snapshot] tariffs parse error: {e}")
 
-        async with sf() as db:
-            ins = pg_insert(WbTariffSnapshot).values(
-                organization_id=org_id,
-                entity_id=eid,
-                nm_id=nm_id,
-                target_date=today,
-                logistics_tariff=round(logistics_avg, 2) if logistics_avg else None,
-                logistics_base=round(logistics_avg, 2) if logistics_avg else None,
-                storage_tariff=round(storage_avg, 4) if storage_avg else None,
-                storage_base=round(storage_avg, 4) if storage_avg else None,
-                commission_pct=commission_pct_map.get(nm_id),
-                price_retail=prices_by_nm.get(nm_id, {}).get("price_retail"),
-                price_with_spp=prices_by_nm.get(nm_id, {}).get("price_with_spp"),
-                ad_cost_fact=ad_by_nm.get(nm_id, 0) if ad_by_nm.get(nm_id, 0) > 0 else None,
-                buyout_pct_fact=buyout_map.get(nm_id),
-            )
-            stmt = ins.on_conflict_do_update(
-                constraint="wb_tariff_snapshot_org_nm_date_key",
-                set_={
-                    "logistics_tariff": ins.excluded.logistics_tariff,
-                    "logistics_base": ins.excluded.logistics_base,
-                    "storage_tariff": ins.excluded.storage_tariff,
-                    "storage_base": ins.excluded.storage_base,
-                    "ad_cost_fact": ins.excluded.ad_cost_fact,
-                    "buyout_pct_fact": ins.excluded.buyout_pct_fact,
-                    "commission_pct": ins.excluded.commission_pct,
-                    "price_retail": ins.excluded.price_retail,
-                    "price_with_spp": ins.excluded.price_with_spp,
-                    "fetched_at": datetime.utcnow(),
-                }
-            )
-            try:
-                await db.execute(stmt)
-                await db.commit()
-                results["total"] += 1
-            except Exception as e:
-                await db.rollback()
-                logger.error(f"[tariff_snapshot] upsert error nm={nm_id}: {e}")
+            # 2. Рекламные расходы по nm_id из ad_stats + ad_campaigns
+            ad_by_nm = {}
+            async with sf() as db:
+                ad_result = await db.execute(
+                    text(r"""
+                        WITH camp_nm AS (
+                            SELECT wb_campaign_id,
+                                   (regexp_match(name, '^\s*(\d+)'))[1]::int as nm_id
+                            FROM ad_campaigns
+                            WHERE organization_id = :org AND name ~ '^\s*\d+'
+                        )
+                        SELECT c.nm_id, SUM(a.spent)::numeric(10,2) as total_spent
+                        FROM camp_nm c
+                        JOIN ad_stats a ON a.wb_campaign_id = c.wb_campaign_id
+                            AND a.organization_id = :org
+                            AND a.stat_date >= CURRENT_DATE - INTERVAL '30 days'
+                        GROUP BY c.nm_id
+                    """),
+                    {"org": org_id}
+                )
+                for r in ad_result.all():
+                    ad_by_nm[int(r[0])] = float(r[1] or 0)
+                results["adverts"] = len(ad_by_nm)
 
-    logger.info(f"[tariff_snapshot] done: {results}")
-    return {"status": "ok", "results": results}
+            # 3. % выкупа из tech_status (последние 30 дней)
+            buyout_map = {}
+            async with sf() as db:
+                buyout_result = await db.execute(
+                    text("""
+                        SELECT nm_id,
+                               SUM(COALESCE(buyouts_count, 0)) as buyouts,
+                               SUM(COALESCE(orders_count, 0)) as orders
+                        FROM tech_status
+                        WHERE organization_id = :org AND target_date >= CURRENT_DATE - INTERVAL '30 days'
+                        GROUP BY nm_id
+                    """),
+                    {"org": org_id}
+                )
+                for r in buyout_result.all():
+                    b = float(r[1] or 0)
+                    o = float(r[2] or 0)
+                    buyout_map[r[0]] = round(b / o * 100, 1) if o > 0 else 0
+                results["buyout"] = len(buyout_map)
+
+            # 4. Список nm_id из product_entities
+            entities = {}
+            async with sf() as db:
+                ent_result = await db.execute(
+                    text("SELECT id, nm_id FROM product_entities WHERE organization_id = :org"),
+                    {"org": org_id}
+                )
+                for r in ent_result.all():
+                    nm = r[1]
+                    if nm not in entities:
+                        entities[nm] = []
+                    entities[nm].append(r[0])
+
+            # 4b. Маппинг nm_id -> commission_pct
+            commission_pct_map = {}
+            for nm_id in entities:
+                sid = products_subjects.get(nm_id)
+                if sid and sid in commission_rates:
+                    commission_pct_map[nm_id] = commission_rates[sid]
+
+            # 5. Записываем в wb_tariff_snapshot
+            for nm_id, entity_ids in entities.items():
+                eid = entity_ids[0] if entity_ids else None
+
+                async with sf() as db:
+                    ins = pg_insert(WbTariffSnapshot).values(
+                        organization_id=org_id,
+                        entity_id=eid,
+                        nm_id=nm_id,
+                        target_date=today,
+                        logistics_tariff=round(logistics_avg, 2) if logistics_avg else None,
+                        logistics_base=round(logistics_avg, 2) if logistics_avg else None,
+                        storage_tariff=round(storage_avg, 4) if storage_avg else None,
+                        storage_base=round(storage_avg, 4) if storage_avg else None,
+                        commission_pct=commission_pct_map.get(nm_id),
+                        price_retail=prices_by_nm.get(nm_id, {}).get("price_retail"),
+                        price_with_spp=prices_by_nm.get(nm_id, {}).get("price_with_spp"),
+                        ad_cost_fact=ad_by_nm.get(nm_id, 0) if ad_by_nm.get(nm_id, 0) > 0 else None,
+                        buyout_pct_fact=buyout_map.get(nm_id),
+                    )
+                    stmt = ins.on_conflict_do_update(
+                        constraint="wb_tariff_snapshot_org_nm_date_key",
+                        set_={
+                            "logistics_tariff": ins.excluded.logistics_tariff,
+                            "logistics_base": ins.excluded.logistics_base,
+                            "storage_tariff": ins.excluded.storage_tariff,
+                            "storage_base": ins.excluded.storage_base,
+                            "ad_cost_fact": ins.excluded.ad_cost_fact,
+                            "buyout_pct_fact": ins.excluded.buyout_pct_fact,
+                            "commission_pct": ins.excluded.commission_pct,
+                            "price_retail": ins.excluded.price_retail,
+                            "price_with_spp": ins.excluded.price_with_spp,
+                            "fetched_at": datetime.utcnow(),
+                        }
+                    )
+                    try:
+                        await db.execute(stmt)
+                        await db.commit()
+                        results["total"] += 1
+                    except Exception as e:
+                        await db.rollback()
+                        logger.error(f"[tariff_snapshot] upsert error nm={nm_id}: {e}")
+
+            logger.info(f"[tariff_snapshot] done: {results}")
+            results[org_id[:8]] = {"status": "ok", "data": results}
+
+        except Exception as e:
+            logger.error(f"[sched] error org={org_id}: {e}")
+            results[org_id[:8]] = {"status": "error", "error": str(e)}
+
+    return results

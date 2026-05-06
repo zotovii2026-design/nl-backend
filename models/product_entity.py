@@ -27,6 +27,19 @@ class ProductEntity(Base):
     product_name = Column(String(500), nullable=True)            # Название товара
     photo_main = Column(String(500), nullable=True)              # Главное фото
 
+    # Данные из WB Content API
+    brand = Column(String(200), nullable=True)                   # Бренд
+    subject_name = Column(String(300), nullable=True)            # Категория (предмет)
+    tnved = Column(String(50), nullable=True)                    # Код ТНВЭД
+    color = Column(String(200), nullable=True)                   # Цвет
+    weight = Column(Integer, nullable=True)                      # Вес брутто (г)
+    width = Column(Integer, nullable=True)                       # Ширина (см)
+    height = Column(Integer, nullable=True)                      # Высота (см)
+    length = Column(Integer, nullable=True)                      # Длина (см)
+    chrt_id = Column(Integer, nullable=True)                     # ID размера (chart)
+    need_kiz = Column(Boolean, nullable=True)                    # Требуется маркировка
+    kiz_marked = Column(Boolean, nullable=True)                  # Промаркирован
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

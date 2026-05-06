@@ -68,6 +68,31 @@ async def sync_entities_from_raw(db: AsyncSession, org_id: str, today: date = No
         if photos:
             photo_main = photos[0].get("big", "") or photos[0].get("small", "")
 
+        # Новые поля из WB Content API
+        brand = card.get("brand", "") or ""
+        subject_name = card.get("subjectName", "") or ""
+        need_kiz = card.get("needKiz", False)
+        kiz_marked = card.get("kizMarked", False)
+
+        # Габариты
+        dims = card.get("dimensions") or {}
+        weight = dims.get("weightBrutto")
+        width = dims.get("width")
+        height = dims.get("height")
+        length = dims.get("length")
+
+        # Характеристики → ТНВЭД, Цвет
+        characteristics = card.get("characteristics", [])
+        tnved = ""
+        color = ""
+        for ch in characteristics:
+            ch_name = ch.get("name", "")
+            ch_values = ch.get("value", [])
+            if ch_name == "ТНВЭД" and ch_values:
+                tnved = ch_values[0]
+            elif ch_name == "Цвет" and ch_values:
+                color = ", ".join(ch_values)
+
         sizes = card.get("sizes", [])
         if not sizes:
             # Карточка без размеров — создаём одну сущность
@@ -79,6 +104,7 @@ async def sync_entities_from_raw(db: AsyncSession, org_id: str, today: date = No
                 or size_obj.get("techSize")
                 or "ONE SIZE"
             )
+            chrt_id = size_obj.get("chrtID")
             skus = size_obj.get("skus", [])
 
             # Upsert сущность
@@ -119,6 +145,17 @@ async def sync_entities_from_raw(db: AsyncSession, org_id: str, today: date = No
                     size_name=size_name,
                     product_name=title,
                     photo_main=photo_main,
+                    brand=brand or None,
+                    subject_name=subject_name or None,
+                    tnved=tnved or None,
+                    color=color or None,
+                    weight=weight,
+                    width=width,
+                    height=height,
+                    length=length,
+                    chrt_id=chrt_id,
+                    need_kiz=need_kiz,
+                    kiz_marked=kiz_marked,
                 )
                 db.add(entity)
                 await db.flush()
@@ -128,6 +165,17 @@ async def sync_entities_from_raw(db: AsyncSession, org_id: str, today: date = No
                 entity.vendor_code = vendor_code
                 entity.product_name = title
                 entity.photo_main = photo_main
+                entity.brand = brand or None
+                entity.subject_name = subject_name or None
+                entity.tnved = tnved or None
+                entity.color = color or None
+                entity.weight = weight
+                entity.width = width
+                entity.height = height
+                entity.length = length
+                entity.chrt_id = chrt_id
+                entity.need_kiz = need_kiz
+                entity.kiz_marked = kiz_marked
                 entities_updated += 1
 
             all_active_entity_ids.add(str(entity.id))
