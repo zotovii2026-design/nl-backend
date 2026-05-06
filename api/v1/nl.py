@@ -1,3 +1,4 @@
+import uuid
 """API для справочного листа, авторизации и фронтенд НЛ"""
 from fastapi import APIRouter, Depends, Query, Request, HTTPException, status
 from fastapi.responses import HTMLResponse
@@ -1640,6 +1641,51 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
         await db.execute(text(f"UPDATE reference_book SET {set_clauses} WHERE id = :rid"), updates)
         stats["updated"] += 1
 
+    # --- Шаг 2: Создать записи для entities без справочника ---
+    existing_entities = set()
+    for r in refs:
+        if r[1]:
+            existing_entities.add(str(r[1]))
+    
+    all_entities = await db.execute(text(
+        "SELECT id, nm_id, size_name, brand FROM product_entities WHERE organization_id = :org"
+    ), {"org": org_id})
+    
+    created_count = 0
+    for ent in all_entities.all():
+        eid = str(ent[0])
+        if eid in existing_entities:
+            continue
+        nm_id = ent[1]
+        snap = snap_by_entity.get(eid) or snap_by_nm.get(nm_id)
+        
+        ins = pg_insert(ReferenceBook)
+        vals = {
+            "id": str(uuid.uuid4()),
+            "organization_id": org_id,
+            "nm_id": nm_id,
+            "entity_id": eid,
+            "size_name": ent[2] or "",
+            "brand": ent[3] or "",
+            "valid_from": date.today(),
+            "mp_base_pct": float(snap["commission_pct"]) if snap and snap.get("commission_pct") else None,
+            "logistics_cost": float(snap["logistics_tariff"]) if snap and snap.get("logistics_tariff") else None,
+            "storage_pct": float(snap["storage_tariff"]) if snap and snap.get("storage_tariff") else None,
+            "price_before_spp_plan": float(snap["price_retail"]) if snap and snap.get("price_retail") else None,
+            "price_before_spp_change": float(snap["price_with_spp"]) if snap and snap.get("price_with_spp") else None,
+            "buyout_niche_pct": float(snap["buyout_pct_fact"]) if snap and snap.get("buyout_pct_fact") else None,
+        }
+        stmt = ins.values(**vals).on_conflict_do_nothing(
+            constraint="reference_book_org_entity_vf_key"
+        )
+        try:
+            await db.execute(stmt)
+            created_count += 1
+        except Exception:
+            await db.rollback()
+    
+    stats["created"] = created_count
+    
     await db.commit()
     _log.info(f"[auto_fill] org={org_id}: {stats}")
     return {"ok": True, "stats": stats}
@@ -1650,13 +1696,14 @@ async def get_fbo_needs(org_id: str, days: int = 14, db: AsyncSession = Depends(
     """Расчёт потребности FBO: остатки + темп заказов по складам"""
     from sqlalchemy import text
 
-    # 1) Остатки по складам (из wb_stocks)
+    # 1) Остатки по складам (из tech_status — последний snapshot)
     stocks_result = await db.execute(text("""
-        SELECT s.nm_id, s.warehouse_name, s.warehouse_id,
-               SUM(s.quantity) as qty, SUM(s.quantity_full) as qty_full
-        FROM wb_stocks s
-        WHERE s.organization_id = :org
-        GROUP BY s.nm_id, s.warehouse_name, s.warehouse_id
+        SELECT ts.nm_id, ts.warehouse_name, 0 as warehouse_id,
+               ts.stock_qty as qty, ts.stock_qty as qty_full
+        FROM tech_status ts
+        WHERE ts.organization_id = :org
+          AND ts.target_date = (SELECT MAX(target_date) FROM tech_status WHERE organization_id = :org)
+          AND ts.entity_id IS NOT NULL
     """), {"org": org_id})
     stocks = stocks_result.all()
 
