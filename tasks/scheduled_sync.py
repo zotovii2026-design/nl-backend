@@ -336,28 +336,29 @@ def sched_adverts():
 
 
 async def _do_adverts(sf):
-    info = await _get_first_key(sf)
-    if not info:
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
         return {"status": "skipped", "reason": "no_keys"}
-    org_id, api_key = info
+    results = {}
+    for org_id, api_key in all_keys:
+        today = date.today()
+        async with WBApiClient(api_key) as client:
+            try:
+                resp = await client.client.get(
+                    "https://advert-api.wildberries.ru/adv/v1/promotion/count"
+                )
+                resp.raise_for_status()
+                data = resp.json()
 
-    today = date.today()
-    async with WBApiClient(api_key) as client:
-        try:
-            resp = await client.client.get(
-                "https://advert-api.wildberries.ru/adv/v1/promotion/count"
-            )
-            resp.raise_for_status()
-            data = resp.json()
+                async with sf() as db:
+                    await _save_raw(db, org_id, "adverts", today, data)
 
-            async with sf() as db:
-                await _save_raw(db, org_id, "adverts", today, data)
-
-            logger.info(f"[sched] adverts org={org_id}: ok")
-            results[org_id[:8]] = {"status": "ok"}
-        except Exception as e:
-            logger.error(f"[sched] adverts error org={org_id}: {e}")
-            results[org_id[:8]] = {"status": "error", "error": str(e)}
+                logger.info(f"[sched] adverts org={org_id}: ok")
+                results[org_id[:8]] = {"status": "ok"}
+            except Exception as e:
+                logger.error(f"[sched] adverts error org={org_id}: {e}")
+                results[org_id[:8]] = {"status": "error", "error": str(e)}
+    return results
 
 
 @shared_task(name="wb.sched.warehouses")
@@ -536,9 +537,16 @@ async def _do_parse_raw(sf):
 
                 key = (td, entity_id or nm)
                 if key not in orders_map:
-                    orders_map[key] = {"count": 0, "revenue": 0, "vendor_code": "", "barcode": barcode, "entity_id": entity_id, "nm_id": nm}
+                    orders_map[key] = {"count": 0, "revenue": 0, "vendor_code": "", "barcode": barcode, "entity_id": entity_id, "nm_id": nm, "price": 0, "price_discount": 0}
                 orders_map[key]["count"] += 1
                 orders_map[key]["revenue"] += float(o.get("totalPrice") or o.get("price") or 0)
+                # Собираем цены — берём последнюю ненулевую
+                tp = float(o.get("totalPrice") or 0)
+                pd = float(o.get("priceWithDisc") or 0)
+                if tp > 0:
+                    orders_map[key]["price"] = tp
+                if pd > 0:
+                    orders_map[key]["price_discount"] = pd
                 if not orders_map[key]["vendor_code"]:
                     orders_map[key]["vendor_code"] = str(o.get("supplierArticle", "") or "")
                 # Если нашли entity_id позже — обновляем
@@ -575,9 +583,16 @@ async def _do_parse_raw(sf):
 
                 key = (td, entity_id or nm)
                 if key not in sales_map:
-                    sales_map[key] = {"buyouts": 0, "returns": 0, "revenue": 0, "entity_id": entity_id, "nm_id": nm}
+                    sales_map[key] = {"buyouts": 0, "returns": 0, "revenue": 0, "entity_id": entity_id, "nm_id": nm, "price": 0, "price_discount": 0}
                 sale_id = str(s.get("saleID", "") or "")
                 price = float(s.get("forPay") or s.get("totalPrice") or 0)
+                # Собираем цены из sales
+                tp = float(s.get("totalPrice") or 0)
+                pd = float(s.get("priceWithDisc") or 0)
+                if tp > 0:
+                    sales_map[key]["price"] = tp
+                if pd > 0:
+                    sales_map[key]["price_discount"] = pd
                 if "R" in sale_id and not sale_id.startswith("S"):
                     sales_map[key]["returns"] += 1
                     sales_map[key]["revenue"] -= price
@@ -669,6 +684,9 @@ async def _do_parse_raw(sf):
                 skinfo = stock_map.get(key, {})
 
                 async with sf() as db:
+                    # Определяем цену: приоритет sales (фактическая цена выкупа), затем orders
+                    _price = sinfo.get("price", 0) or oinfo.get("price", 0) or 0
+                    _price_discount = sinfo.get("price_discount", 0) or oinfo.get("price_discount", 0) or 0
                     ins = pg_insert(TechStatus)
                     stmt = ins.values(
                         id=str(uuid.uuid4()),
@@ -685,6 +703,8 @@ async def _do_parse_raw(sf):
                         returns_count=sinfo.get("returns", 0),
                         stock_qty=skinfo.get("qty", 0),
                         warehouse_name=", ".join(skinfo.get("warehouses", set())) if skinfo.get("warehouses") else None,
+                        price=_price if _price else None,
+                        price_discount=_price_discount if _price_discount else None,
                         row_status="active",
                         is_final="no",
                         last_sync_at=datetime.utcnow(),
@@ -702,6 +722,8 @@ async def _do_parse_raw(sf):
                             "stock_qty": ins.excluded.stock_qty,
                             "warehouse_name": ins.excluded.warehouse_name,
                             "nm_id": ins.excluded.nm_id,
+                            "price": ins.excluded.price,
+                            "price_discount": ins.excluded.price_discount,
                             "last_sync_at": datetime.utcnow(),
                             "updated_at": datetime.utcnow(),
                         }
