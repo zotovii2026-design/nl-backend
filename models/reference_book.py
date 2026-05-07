@@ -68,13 +68,45 @@ class ReferenceBook(Base):
 
     # === НАЛОГИ ===
     tax_system = Column(String(20), nullable=True)                  # Налоговая: usn / osn / usn_dr
-    tax_rate = Column(Numeric(5, 2), nullable=True)                 # Ставка налога %
-    vat_rate = Column(Numeric(5, 2), nullable=True)                 # Ставка НДС %
 
     # === КЛАССИФИКАЦИЯ ===
     product_class = Column(String(100), nullable=True)              # AABBCC класс
     brand = Column(String(200), nullable=True)                      # Бренд
     product_status = Column(String(50), nullable=True)              # Статус товара
+
+    # === СЕЗОННОСТЬ (индекс по месяцам) ===
+    season_jan = Column(Numeric(5, 2), nullable=True)
+    season_feb = Column(Numeric(5, 2), nullable=True)
+    season_mar = Column(Numeric(5, 2), nullable=True)
+    season_apr = Column(Numeric(5, 2), nullable=True)
+    season_may = Column(Numeric(5, 2), nullable=True)
+    season_jun = Column(Numeric(5, 2), nullable=True)
+    season_jul = Column(Numeric(5, 2), nullable=True)
+    season_aug = Column(Numeric(5, 2), nullable=True)
+    season_sep = Column(Numeric(5, 2), nullable=True)
+    season_oct = Column(Numeric(5, 2), nullable=True)
+    season_nov = Column(Numeric(5, 2), nullable=True)
+    season_dec = Column(Numeric(5, 2), nullable=True)
+
+    # === ГАБАРИТЫ ПЛАН (ручной ввод) ===
+    plan_length = Column(Numeric(8, 2), nullable=True)              # Длина, см
+    plan_width = Column(Numeric(8, 2), nullable=True)               # Ширина, см
+    plan_height = Column(Numeric(8, 2), nullable=True)              # Высота, см
+    plan_volume = Column(Numeric(8, 2), nullable=True)              # Объём, литр
+    plan_weight = Column(Numeric(8, 2), nullable=True)              # Вес, гр
+
+    # === СКОРОСТЬ ДОСТАВАЕМОСТИ ===
+    delivery_days_to_seller = Column(Integer, nullable=True)        # От закупа до склада поставщика (дни)
+    delivery_days_to_mp = Column(Integer, nullable=True)            # От склада поставщика до МП (дни)
+
+    # === ТОП ЗАПРОСЫ ПЛАНИРУЕМЫЕ ===
+    top_query_1 = Column(String(200), nullable=True)
+    top_query_2 = Column(String(200), nullable=True)
+    top_query_3 = Column(String(200), nullable=True)
+
+    # === ОТГРУЗКА ===
+    shipment_method = Column(String(50), nullable=True)             # Приоритетный способ отгрузки
+    fbs_warehouse = Column(String(200), nullable=True)              # Склад отгрузки FBS
 
     # === РНП ===
     in_promo = Column(Boolean, nullable=True, default=False)                     # В акции (да/нет)
