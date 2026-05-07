@@ -682,6 +682,7 @@ async def import_reference_excel(org_id: str, request: Request, db: AsyncSession
 async def get_rnp(
     org_id: str,
     month: Optional[str] = None,  # YYYY-MM (например 2026-05)
+    days: Optional[int] = None,   # Количество дней назад (30, 60, 90)
     sort_by: Optional[str] = "orders_revenue",  # orders_revenue, roi, buyout_pct
     filter_status: Optional[str] = None,
     search: Optional[str] = None,
@@ -697,20 +698,21 @@ async def get_rnp(
     import decimal
 
     from models.product_entity import ProductEntity
-    # Парсим месяц
+    # Период: N дней назад до сегодня, или выбранный месяц
+    today = date.today()
     if month:
         year, mon = month.split("-")
         year, mon = int(year), int(mon)
+        first_day = date(year, mon, 1)
+        last_day = date(year, mon, calendar.monthrange(year, mon)[1])
+        days_in_month = calendar.monthrange(year, mon)[1]
     else:
-        today = date.today()
-        year, mon = today.year, today.month
+        num_days = days if days else 90
+        last_day = today
+        first_day = today - timedelta(days=num_days - 1)
+        days_in_month = num_days
 
-    first_day = date(year, mon, 1)
-    last_day = date(year, mon, calendar.monthrange(year, mon)[1])
-    today = date.today()
-    days_in_month = calendar.monthrange(year, mon)[1]
-
-    # 1. Список дней месяца (по убыванию)
+    # 1. Список дней (по убыванию)
     day_list = []
     d = min(last_day, today)
     while d >= first_day:
@@ -1061,8 +1063,9 @@ async def get_rnp(
         "total_stock": sum(p["current_stock"] for p in products),
     }
 
+    period_label = f"{year}-{mon:02d}" if month else f"{first_day} — {last_day}"
     return {
-        "month": f"{year}-{mon:02d}",
+        "month": period_label,
         "days_in_month": days_in_month,
         "day_list": [str(d) for d in day_list],
         "summary": summary,
@@ -2888,13 +2891,13 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 .rnp-wrap{font-size:.78em;background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:hidden;border:1px solid #eee;margin-bottom:14px}
 .rnp-table-wrap{overflow-x:auto}
 .rnp-table{border-collapse:collapse;width:max-content;min-width:100%}
-.rnp-table th,.rnp-table td{border:1px solid #eee;padding:3px 6px;white-space:nowrap;vertical-align:top;font-size:.78em}
+.rnp-table th,.rnp-table td{border:1px solid #eee;padding:5px 8px;white-space:nowrap;vertical-align:top;font-size:.8em}
 .rnp-table thead th{background:#f8f9fa;font-weight:600;position:sticky;top:0;z-index:2}
 .rnp-table thead th.sticky-col{position:sticky;z-index:3}
 .rnp-table tbody td.sticky-col{position:sticky;background:#fff;z-index:1}
 .rnp-table .row-label{color:#888;font-weight:500;min-width:120px;max-width:160px;overflow:hidden;text-overflow:ellipsis}
-.rnp-table .val-cell{text-align:right;min-width:80px}
-.rnp-table .day-header{text-align:center;font-weight:700;color:#6c5ce7;font-size:.85em;background:#f0eeff}
+.rnp-table .val-cell{text-align:right;min-width:95px}
+.rnp-table .day-header{text-align:center;font-weight:700;color:#6c5ce7;font-size:.85em;background:#f0eeff;min-width:85px}
 .rnp-table .day-header.today{background:#6c5ce7;color:#fff}
 .rnp-table .val-cell.today{background:#faf8ff}
 .rnp-table .section-title{font-weight:700;font-size:.85em;color:#333;background:#f8f9fa;padding:6px 8px}
@@ -2907,10 +2910,10 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 .rnp-card-detail{color:#999;font-size:.78em}
 .rnp-card-krrr{font-weight:700;font-size:.95em}
 .rnp-header-table{border-collapse:collapse;width:max-content;min-width:100%}
-.rnp-header-table th,.rnp-header-table td{border:1px solid #eee;padding:4px 6px;white-space:nowrap;font-size:.78em}
+.rnp-header-table th,.rnp-header-table td{border:1px solid #eee;padding:5px 8px;white-space:nowrap;font-size:.8em}
 .rnp-header-table .row-label{color:#888;font-weight:500;min-width:120px}
-.rnp-header-table .val-cell{text-align:right;min-width:80px}
-.rnp-header-table .day-header{text-align:center;font-weight:700;color:#6c5ce7;font-size:.85em;background:#f0eeff}
+.rnp-header-table .val-cell{text-align:right;min-width:95px}
+.rnp-header-table .day-header{text-align:center;font-weight:700;color:#6c5ce7;font-size:.85em;background:#f0eeff;min-width:85px}
 .rnp-header-table .day-header.today{background:#6c5ce7;color:#fff}
 .rnp-header-table .section-title{font-weight:700;font-size:.85em;color:#333;background:#f8f9fa;padding:6px 8px}
 .rnp-ctrl{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
@@ -3117,7 +3120,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
 <div id="page-rnp" class="page-section">
 <div class="rnp-ctrl">
-<select id="rnp-month" onchange="loadRnp()"></select>
+<select id="rnp-month" onchange="loadRnp()" style="min-width:130px"></select>
 <label style="font-size:.85em;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="rnp-buyout-pct" onchange="loadRnp()"> Учесть % выкупа</label>
 <select id="rnp-sort" onchange="loadRnp()">
 <option value="orders_revenue">Сортировка: Заказы, руб</option><option value="roi">ROI</option><option value="buyout_pct">% выкупа</option>
@@ -4775,30 +4778,46 @@ async function loadOpEx() {
 }
 
 function initRnpMonths() {
+    // Period selector now: dropdown with presets
     var sel = document.getElementById("rnp-month");
     if (!sel) return;
     if (sel.options.length > 0) return;
     var now = new Date();
+    var presets = [
+        {label: "90 дней", value: ""},
+        {label: "60 дней", value: "60"},
+        {label: "30 дней", value: "30"},
+    ];
+    // Add last 6 months as options
     for (var i = 0; i < 6; i++) {
         var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         var val = d.getFullYear() + "-" + ("0" + (d.getMonth()+1)).slice(-2);
         var label = d.toLocaleDateString("ru-RU", {month:"long", year:"numeric"});
+        presets.push({label: label.charAt(0).toUpperCase() + label.slice(1), value: val});
+    }
+    for (var j = 0; j < presets.length; j++) {
         var opt = document.createElement("option");
-        opt.value = val; opt.textContent = label.charAt(0).toUpperCase() + label.slice(1);
-        if (i === 0) opt.selected = true;
+        opt.value = presets[j].value;
+        opt.textContent = presets[j].label;
+        if (j === 0) opt.selected = true;
         sel.appendChild(opt);
     }
 }
 async function loadRnp() {
     if (!ORG_ID) return;
     var monthSel = document.getElementById('rnp-month');
-    var month = monthSel ? monthSel.value : '';
+    var selVal = monthSel ? monthSel.value : '';
     var sort = document.getElementById('rnp-sort')?.value || 'orders_revenue';
     var search = document.getElementById('rnp-search')?.value || '';
     var ubp = document.getElementById('rnp-buyout-pct')?.checked ? '1' : '0';
-    if (!month) return;
     try {
-        var url = '/api/v1/nl/rnp?org_id=' + ORG_ID + '&month=' + month + '&sort_by=' + sort + '&use_buyout_pct=' + ubp;
+        var url = '/api/v1/nl/rnp?org_id=' + ORG_ID + '&sort_by=' + sort + '&use_buyout_pct=' + ubp;
+        // Если выбран месяц (YYYY-MM), передаём month; если дни — передаём days
+        if (selVal && selVal.indexOf('-') > 0 && !/^\d+$/.test(selVal)) {
+            url += '&month=' + selVal;
+        } else if (selVal && /^\d+$/.test(selVal)) {
+            url += '&days=' + selVal;
+        }
         if (search) url += '&search=' + encodeURIComponent(search);
         var res = await fetch(url);
         if (!res.ok) { document.getElementById('rnp-cards').innerHTML = '<div class="empty">Ошибка ' + res.status + '</div>'; return; }
@@ -4818,7 +4837,7 @@ async function loadRnp() {
             '<div><b>Прибыль расч:</b> ' + fmtR(s.total_profit_calc) + ' ₽</div>' +
             '<div><b>Маржа с ДРР:</b> ' + fmtR(s.total_margin_with_drr) + ' ₽</div>' +
             '<div><b>Остатки:</b> ' + s.total_stock + ' шт</div>';
-        document.getElementById('rnp-count').textContent = prods.length + ' товаров | ' + data.month;
+        document.getElementById('rnp-count').textContent = prods.length + ' товаров | ' + (data.month || '') + ' | ' + days.length + ' дней';
         if (!prods.length) { document.getElementById('rnp-cards').innerHTML = '<div class="empty">Нет данных</div>'; return; }
 
         // Считаем summary по дням
@@ -4884,9 +4903,9 @@ async function loadRnp() {
 
         // Рисуем карточки (таблица 2)
         var html = '<div class="rnp-wrap"><div class="rnp-table-wrap"><table class="rnp-table"><thead><tr>';
-        html += '<th class="sticky-col" style="min-width:140px;left:0">Карточка</th>';
-        html += '<th class="sticky-col" style="min-width:90px;left:140px">За 30 дн</th>';
-        html += '<th class="sticky-col" style="min-width:90px;left:230px">План/Факт</th>';
+        html += '<th class="sticky-col" style="min-width:160px;left:0">Карточка</th>';
+        html += '<th class="sticky-col" style="min-width:100px;left:160px">За период</th>';
+        html += '<th class="sticky-col" style="min-width:100px;left:260px">План/Факт</th>';
         for (var dhi = 0; dhi < days.length; dhi++) {
             var dS = days[dhi].substring(5);
             html += '<th class="day-header' + (days[dhi] === todayStr ? ' today' : '') + '">' + dS + '</th>';
@@ -4943,8 +4962,8 @@ async function loadRnp() {
 
             html += '<tr>';
             html += '<td class="sticky-col" style="left:0">' + cardInfo + '</td>';
-            html += '<td class="sticky-col" style="left:140px">' + m30 + '</td>';
-            html += '<td class="sticky-col" style="left:230px">' + pf + '</td>';
+            html += '<td class="sticky-col" style="left:160px">' + m30 + '</td>';
+            html += '<td class="sticky-col" style="left:260px">' + pf + '</td>';
 
             // Дни
             for (var di = 0; di < days.length; di++) {

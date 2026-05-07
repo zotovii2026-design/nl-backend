@@ -14,6 +14,7 @@ celery_app_new = Celery(
         "tasks.wb_sync",
         "tasks.daily_sync",
         "tasks.scheduled_sync",
+        "tasks.ad_sync",
     ]
 )
 
@@ -81,6 +82,13 @@ celery_app_new.conf.update(
         },
 
         # --- Каждый час --- Цены из WB discounts-prices-api v2 ---
+        # --- 21:00 MSK --- Рекламная статистика ---
+        "ad-stats-daily": {
+            "task": "wb.sched.ad_stats",
+            "schedule": crontab(hour=18, minute=0),   # UTC 18:00 = MSK 21:00
+            "kwargs": {"days_back": 1},
+        },
+
         "hourly-prices": {
             "task": "wb.sched.prices",
             "schedule": crontab(minute=30),   # каждый час в :30
