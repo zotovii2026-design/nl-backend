@@ -509,7 +509,7 @@ async def _do_parse_raw(sf):
 
     total = 0
     for org_id in org_ids:
-        # --- Загружаем маппинг entity_id по (nm_id, size_name) ---
+        logger.info(f"[parse_raw] processing org={org_id[:8]}")
         async with sf() as db:
             result = await db.execute(text("""
                 SELECT id, nm_id, size_name FROM product_entities WHERE organization_id = :org
@@ -545,7 +545,8 @@ async def _do_parse_raw(sf):
 
         product_map = {}
         if prod_row and prod_row[0]:
-            cards = prod_row[0] if isinstance(prod_row[0], list) else []
+            cards = prod_row[0] if isinstance(prod_row[0], list) else (prod_row[0].get("cards", []) if isinstance(prod_row[0], dict) else [])
+            logger.info(f"[parse_raw] org={org_id[:8]}: products raw type={type(prod_row[0]).__name__}, cards_count={len(cards)}")
             for c in cards:
                 if not isinstance(c, dict):
                     continue
@@ -568,6 +569,7 @@ async def _do_parse_raw(sf):
                             "barcodes": [bc for sz_inner in (c.get("sizes") or []) for bc in (sz_inner.get("skus") or [])],
                         }
 
+        logger.info(f"[parse_raw] org={org_id[:8]}: product_map built with {len(product_map)} entries")
         # --- Fallback: подтянуть vendor_code из product_entities ---
         for k, v in product_map.items():
             if not v.get('vendor_code'):
@@ -777,6 +779,7 @@ async def _do_parse_raw(sf):
             if eid not in all_entity_or_nm and nm not in all_entity_or_nm:
                 all_entity_or_nm.add(eid)
 
+        logger.info(f"[parse_raw] org={org_id[:8]}: starting upsert, all_entity_or_nm={len(all_entity_or_nm)}, all_keys={len(all_keys)}")
         # --- Upsert в tech_status ---
         for key in all_entity_or_nm:
             pinfo = product_map.get(key, {})
@@ -869,6 +872,9 @@ async def _do_parse_raw(sf):
     entities_with_data = set()
     for td, ek in all_keys:
         entities_with_data.add(ek)
+    no_activity_count = sum(1 for k in all_entity_or_nm if k not in entities_with_data)
+    logger.info(f"[parse_raw] org={org_id[:8]}: no-activity items={no_activity_count}, entities_with_data={len(entities_with_data)}")
+    logger.info(f"[parse_raw] org={org_id[:8]}: product_map={len(product_map)}, all_keys={len(all_keys)}, all_entity_or_nm={len(all_entity_or_nm)}, entities_with_data={len(entities_with_data)}")
     
     for key in all_entity_or_nm:
         if key in entities_with_data:
@@ -943,6 +949,8 @@ async def _do_parse_raw(sf):
             except Exception as exc:
                 await db.rollback()
                 logger.error(f"[parse_raw] upsert no-activity error for entity={e_id}, nm={n_id}: {exc}")
+
+
 
     # Финальный коммит не нужен — каждый upsert коммитится отдельно
 

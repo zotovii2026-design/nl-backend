@@ -79,5 +79,11 @@ celery_app_new.conf.update(
             "task": "wb.sched.tariff_snapshot",
             "schedule": crontab(hour=20, minute=0),   # UTC 20:00 = MSK 23:00
         },
+
+        # --- Каждый час --- Цены из WB discounts-prices-api v2 ---
+        "hourly-prices": {
+            "task": "wb.sched.prices",
+            "schedule": crontab(minute=30),   # каждый час в :30
+        },
     },
 )
