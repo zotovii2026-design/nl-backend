@@ -148,7 +148,7 @@ async def get_reference(org_id: str, target_date: Optional[str] = None, db: Asyn
     from sqlalchemy import text
     sql = (
         "SELECT nm_id, vendor_code, cost_price, purchase_cost as purchase_price, packaging_cost, "
-        "logistics_cost, other_costs, notes, product_class, brand, tax_system, tax_rate, vat_rate, "
+        "logistics_cost, other_costs, notes, product_class, brand, tax_system, 0 as tax_rate, 0 as vat_rate, "
         "valid_from FROM reference_book "
         "WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
     )
@@ -471,7 +471,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
 
     # Себестоимость и справочник
     ref_result = await db.execute(text(
-        "SELECT entity_id, nm_id, cost_price, product_class, brand, tax_system, tax_rate, vat_rate "
+        "SELECT entity_id, nm_id, cost_price, product_class, brand, tax_system, 0 as tax_rate, 0 as vat_rate "
         "FROM reference_book WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
     ), {"org": org_id})
     ref_by_entity = {}
@@ -732,7 +732,7 @@ async def get_rnp(
     ref_result = await db.execute(text(
         "SELECT DISTINCT ON (entity_id) entity_id, nm_id, cost_price, purchase_cost, "
         "packaging_cost, logistics_cost, other_costs, extra_costs, vat, "
-        "mp_base_pct, mp_correction_pct, tax_system, tax_rate, vat_rate, "
+        "mp_base_pct, mp_correction_pct, tax_system, 0 as tax_rate, 0 as vat_rate, "
         "product_class, brand, product_status, "
         "in_promo, ad_shows_organic, ad_shows_paid, ad_strategy, tags, rating_reviews, localization_pct "
         "FROM reference_book "
@@ -1963,7 +1963,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs, extra_costs, vat, "
             "mp_base_pct, mp_correction_pct, fulfillment_model, storage_pct, buyout_niche_pct, "
             "price_before_spp_plan, price_before_spp_change, change_date, wb_club_discount_pct, ad_plan_rub, "
-            "product_class, brand, product_status, tax_system, tax_rate, vat_rate, notes, "
+            "product_class, brand, product_status, tax_system, notes, "
             "valid_from, source) "
             "VALUES (:org, :nm, :bc, :vc, :sz, :eid, "
             ":cp, :pc, :lc, :pk, :oc, :ec, :vat, "
@@ -2487,7 +2487,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
     cost_result = await db.execute(
         sql_text("""
             SELECT entity_id, nm_id, cost_price, purchase_cost, logistics_cost, packaging_cost,
-            other_costs, vat, product_class, brand, tax_system, tax_rate, vat_rate as cost_vat_rate
+            other_costs, vat, product_class, brand, tax_system, 0 as tax_rate, 0 as cost_vat_rate
             FROM reference_book WHERE organization_id = :org 
             AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
             ORDER BY entity_id NULLS LAST, valid_from DESC
