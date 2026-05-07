@@ -4902,7 +4902,8 @@ async function loadRnp() {
 
             // Фотография + информация
             var photoHtml = '';
-            if (p.photo_main) photoHtml = '<img src="' + esc(p.photo_main) + '">';
+            var thumbUrl = (p.photo_main || '').replace('/hq/', '/c246x328/').replace('/big/', '/c246x328/').replace('/tm/', '/c246x328/');
+            if (thumbUrl) photoHtml = '<img src="' + esc(thumbUrl) + '">'; 
             else photoHtml = '📦';
             var cardInfo = '<div class="rnp-card-photo">' + photoHtml + '</div>';
             cardInfo += '<div class="rnp-card-nm">' + (p.nm_id||'') + '</div>';

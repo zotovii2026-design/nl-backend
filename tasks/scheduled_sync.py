@@ -26,38 +26,52 @@ import uuid
 logger = logging.getLogger(__name__)
 
 PAUSE_SEC = 30
-RETRY_DELAYS = [30, 60, 120]  # exponential backoff for 429
+RETRY_DELAYS = [30, 60, 120]  # base delays for exponential backoff
+
+
+def _get_retry_delay(attempt: int, response=None) -> float:
+    """Вычислить задержку с учётом Retry-After + jitter."""
+    import random
+    base = RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)]
+    # Проверяем Retry-After заголовок от WB
+    if response is not None:
+        ra = response.headers.get("retry-after") or response.headers.get("Retry-After")
+        if ra:
+            try:
+                server_delay = float(ra)
+                base = max(base, server_delay)
+            except ValueError:
+                pass
+    # Jitter ±20% чтобы параллельные задачи не стучали одновременно
+    jitter = base * 0.2 * (random.random() * 2 - 1)
+    return max(1.0, base + jitter)
 
 
 async def _fetch_with_retry(coro_factory, label="", max_retries=3):
-    """Retry async call on 429 with exponential backoff.
-    coro_factory should be a callable returning an awaitable (e.g. lambda: client.get_sales(...))
-    """
+    """Retry async call on 429 с Retry-After + jitter."""
     import httpx
     last_exc = None
     for attempt in range(max_retries + 1):
         try:
             result = coro_factory()
-            # Handle both coroutine and direct result
             if asyncio.iscoroutine(result):
                 result = await result
             return result
         except httpx.HTTPStatusError as e:
             last_exc = e
             if e.response.status_code == 429 and attempt < max_retries:
-                delay = RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)]
-                logger.warning(f"[retry] {label} got 429, waiting {delay}s (attempt {attempt+1}/{max_retries})")
+                delay = _get_retry_delay(attempt, e.response)
+                logger.warning(f"[retry] {label} 429 (attempt {attempt+1}/{max_retries}), waiting {delay:.1f}s [Retry-After: {e.response.headers.get('retry-after', 'none')}]")
                 await asyncio.sleep(delay)
             else:
                 raise
         except Exception as e:
-            # Check if it's a 429 wrapped in a generic exception
-            import httpx as _httpx
-            if hasattr(e, 'response') and hasattr(e.response, 'status_code') and e.response.status_code == 429:
+            resp = getattr(e, 'response', None)
+            if resp is not None and getattr(resp, 'status_code', None) == 429:
                 last_exc = e
                 if attempt < max_retries:
-                    delay = RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)]
-                    logger.warning(f"[retry] {label} got 429 (wrapped), waiting {delay}s (attempt {attempt+1}/{max_retries})")
+                    delay = _get_retry_delay(attempt, resp)
+                    logger.warning(f"[retry] {label} 429 wrapped (attempt {attempt+1}/{max_retries}), waiting {delay:.1f}s")
                     await asyncio.sleep(delay)
                     continue
             raise
@@ -440,6 +454,7 @@ async def _do_warehouses(sf):
     org_id, api_key = info
 
     from models.raw_data import WarehouseRef
+    results = {}
     async with WBApiClient(api_key) as client:
         try:
             resp = await client.client.get(
@@ -448,7 +463,7 @@ async def _do_warehouses(sf):
             resp.raise_for_status()
             warehouses = resp.json()
             if not isinstance(warehouses, list):
-                results[org_id[:8]] = {"status": "ok", "count": 0}
+                return {"status": "ok", "count": 0}
 
             async with sf() as db:
                 for wh in warehouses:
@@ -469,10 +484,10 @@ async def _do_warehouses(sf):
 
             logger.info(f"[sched] warehouses: {len(warehouses)}")
             results[org_id[:8]] = {"status": "ok", "count": len(warehouses)}
+            return results
         except Exception as e:
             logger.error(f"[sched] warehouses: {e}")
-            results[org_id[:8]] = {"status": "error", "error": str(e)}
-
+            return {"status": "error", "error": str(e)}
 
 @shared_task(name="wb.sched.parse_raw")
 def sched_parse_raw():
