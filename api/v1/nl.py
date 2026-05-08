@@ -599,95 +599,6 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
     }
 
 
-@router.post("/api/v1/nl/reference/import")
-async def import_reference_excel(org_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    """Импорт себестоимости из Excel/CSV файла"""
-    from fastapi import UploadFile, File
-    import io
-    import csv
-
-    content_type = request.headers.get("content-type", "")
-
-    # Читаем тело
-    body = await request.body()
-
-    try:
-        # Попробуем openpyxl для .xlsx
-        try:
-            from openpyxl import load_workbook
-            wb = load_workbook(io.BytesIO(body), read_only=True)
-            ws = wb.active
-            rows = list(ws.iter_rows(min_row=2, values_only=True))  # skip header
-        except Exception:
-            # Fallback: CSV
-            text = body.decode("utf-8-sig")
-            reader = csv.reader(io.StringIO(text), delimiter=";", quotechar='"')
-            rows = list(reader)[1:]  # skip header
-
-        imported = 0
-        for row in rows:
-            if not row or not row[0]:
-                continue
-            try:
-                nm_id = int(row[0])
-            except (ValueError, TypeError):
-                continue
-
-            def parse_float(v, idx):
-                try:
-                    val = row[idx] if idx < len(row) else None
-                    if val is None or val == '' or val == '-':
-                        return None
-                    return float(str(val).replace(",", ".").replace(" ", "").replace("₽", ""))
-                except (ValueError, TypeError, IndexError):
-                    return None
-
-            def parse_str(v, idx):
-                try:
-                    return str(row[idx]).strip() if idx < len(row) and row[idx] else None
-                except (IndexError, TypeError):
-                    return None
-
-            vendor_code = parse_str(row, 1)
-            product_name = parse_str(row, 2)
-            target_date_str = parse_str(row, 3)
-            cost_price = parse_float(row, 4)
-            purchase_price = parse_float(row, 5)
-            packaging_cost = parse_float(row, 6)
-            logistics_cost = parse_float(row, 7)
-            other_costs = parse_float(row, 8)
-            notes = parse_str(row, 9)
-
-            from datetime import datetime as dt_mod
-            t_date = dt_mod.strptime(target_date_str, "%Y-%m-%d").date() if target_date_str else date.today()
-
-            ins = pg_insert(ReferenceBook).values(
-                organization_id=org_id, nm_id=nm_id, vendor_code=vendor_code,
-                valid_from=t_date,
-                cost_price=cost_price, purchase_cost=purchase_price,
-                packaging_cost=packaging_cost, logistics_cost=logistics_cost,
-                other_costs=other_costs, notes=notes,
-            )
-            stmt = ins.on_conflict_do_update(
-                constraint="reference_book_org_entity_vf_key",
-                set_={
-                    "vendor_code": ins.excluded.vendor_code,
-                    "cost_price": ins.excluded.cost_price,
-                    "purchase_cost": ins.excluded.purchase_cost,
-                    "packaging_cost": ins.excluded.packaging_cost,
-                    "logistics_cost": ins.excluded.logistics_cost,
-                    "other_costs": ins.excluded.other_costs,
-                    "notes": ins.excluded.notes,
-                    "updated_at": date.today(),
-                }
-            )
-            await db.execute(stmt)
-            imported += 1
-
-        await db.commit()
-        return {"status": "ok", "imported": imported}
-    except Exception as e:
-        raise HTTPException(400, f"Ошибка импорта: {str(e)}")
 
 # ─── FRONTEND ──────────────────────────────────────────────
 
@@ -1940,7 +1851,7 @@ async def get_fbo_needs(org_id: str, days: int = 14, db: AsyncSession = Depends(
 
 @router.post("/api/v1/nl/cost-prices/upload")
 async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    """Загрузка справочника из Excel/CSV"""
+    """Загрузка справочника из Excel/CSV — полная версия со всеми колонками"""
     import io, csv
     from sqlalchemy import text
     body = await request.body()
@@ -1974,6 +1885,14 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             v = row.get(k)
             if v and str(v).strip(): return str(v).strip()
         return None
+    def pd(row, *keys):
+        """Parse date from row (YYYY-MM-DD string to date object)"""
+        s = ps(row, *keys)
+        if not s: return None
+        try:
+            from datetime import datetime as _dt
+            return _dt.strptime(s, "%Y-%m-%d").date()
+        except: return None
     
     updated = 0
     for row in rows:
@@ -1992,12 +1911,14 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
         ent_row = ent_q.first()
         eid = str(ent_row[0]) if ent_row else None
         
-        # Собираем все поля
+        # Собираем все поля — полная версия справочника
         params = {
             "org": org_id, "nm": nm,
             "bc": ps(row, "Баркод", "barcode"),
             "vc": ps(row, "Арт продавца", "vendor_code"),
             "sz": size_name, "eid": eid,
+            # Себестоимость
+            # Себестоимость
             "cp": pf(row, "Себестоимость", "cost_price"),
             "pc": pf(row, "Закупка", "purchase_cost"),
             "lc": pf(row, "Логистика", "logistics_cost"),
@@ -2005,43 +1926,86 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "oc": pf(row, "Прочее", "other_costs"),
             "ec": pf(row, "Доп. затраты", "extra_costs"),
             "vat": pf(row, "НДС руб", "vat"),
+            "minp": pf(row, "Мин. цена", "min_price"),
+            # МП/Комиссия
             "mpb": pf(row, "Баз. % МП", "mp_base_pct"),
             "mpc": pf(row, "Корр. % МП", "mp_correction_pct"),
             "ffm": ps(row, "ФБО/ФБС", "fulfillment_model") or "fbo",
             "stp": pf(row, "% хранения", "storage_pct"),
             "bnp": pf(row, "% выкупа ниши", "buyout_niche_pct"),
+            # Цены
             "pspp": pf(row, "Цена до СПП план", "price_before_spp_plan"),
             "psppc": pf(row, "Цена до СПП к изм.", "price_before_spp_change"),
-            "cdate": ps(row, "Дата правок", "change_date"),
+            "cdate": pd(row, "Дата правок", "change_date"),
             "wbcd": pf(row, "Скидка WB Клуб %", "wb_club_discount_pct"),
+            # Реклама
             "adpr": pf(row, "Реклама план", "ad_plan_rub"),
+            # Классификация
             "pcls": ps(row, "Класс товара", "product_class"),
             "brand": ps(row, "Бренд", "brand"),
             "pstatus": ps(row, "Статус товара", "product_status"),
+            # Налоги
             "tsys": ps(row, "Налог. система", "tax_system"),
-            "trate": pf(row, "Ставка налога %", "tax_rate"),
-            "vrate": pf(row, "НДС ставка %", "vat_rate"),
+            # Сезонность (12 месяцев)
+            "sjan": pf(row, "Сезон янв", "season_jan"),
+            "sfeb": pf(row, "Сезон фев", "season_feb"),
+            "smar": pf(row, "Сезон мар", "season_mar"),
+            "sapr": pf(row, "Сезон апр", "season_apr"),
+            "smay": pf(row, "Сезон май", "season_may"),
+            "sjun": pf(row, "Сезон июн", "season_jun"),
+            "sjul": pf(row, "Сезон июл", "season_jul"),
+            "saug": pf(row, "Сезон авг", "season_aug"),
+            "ssep": pf(row, "Сезон сен", "season_sep"),
+            "soct": pf(row, "Сезон окт", "season_oct"),
+            "snov": pf(row, "Сезон ноя", "season_nov"),
+            "sdec": pf(row, "Сезон дек", "season_dec"),
+            # Габариты ПЛАН
+            "plen": pf(row, "План длина", "plan_length"),
+            "pwid": pf(row, "План ширина", "plan_width"),
+            "phei": pf(row, "План высота", "plan_height"),
+            "pvol": pf(row, "План объём", "plan_volume"),
+            "pwgt": pf(row, "План вес", "plan_weight"),
+            # Доставка
+            "ddts": pf(row, "Доставка до склада (дни)", "delivery_days_to_seller"),
+            "ddmp": pf(row, "Доставка до МП (дни)", "delivery_days_to_mp"),
+            # ТОП запросы
+            "tq1": ps(row, "ТОП запрос 1", "top_query_1"),
+            "tq2": ps(row, "ТОП запрос 2", "top_query_2"),
+            "tq3": ps(row, "ТОП запрос 3", "top_query_3"),
+            # Отгрузка
+            "shm": ps(row, "Способ отгрузки", "shipment_method"),
+            "fbsw": ps(row, "Склад FBS", "fbs_warehouse"),
+            # Прочее
             "notes": ps(row, "Заметки", "notes"),
         }
         
         await db.execute(text(
-            "INSERT INTO reference_book (organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
-            "subject_id, subject_name, "
-            "cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs, extra_costs, vat, "
+            "INSERT INTO reference_book ("
+            "organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
+            "cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs, extra_costs, vat, min_price, "
             "mp_base_pct, mp_correction_pct, fulfillment_model, storage_pct, buyout_niche_pct, "
             "price_before_spp_plan, price_before_spp_change, change_date, wb_club_discount_pct, ad_plan_rub, "
-            "product_class, brand, product_status, tax_system, notes, "
-            "valid_from, source) "
-            "VALUES (:org, :nm, :bc, :vc, :sz, :eid, "
-            ":cp, :pc, :lc, :pk, :oc, :ec, :vat, "
+            "product_class, brand, product_status, tax_system, "
+            "season_jan, season_feb, season_mar, season_apr, season_may, season_jun, "
+            "season_jul, season_aug, season_sep, season_oct, season_nov, season_dec, "
+            "plan_length, plan_width, plan_height, plan_volume, plan_weight, "
+            "delivery_days_to_seller, delivery_days_to_mp, "
+            "top_query_1, top_query_2, top_query_3, "
+            "shipment_method, fbs_warehouse, "
+            "notes, valid_from, source) "
+            "VALUES ("
+            ":org, :nm, :bc, :vc, :sz, :eid, "
+            ":cp, :pc, :lc, :pk, :oc, :ec, :vat, :minp, "
             ":mpb, :mpc, :ffm, :stp, :bnp, "
             ":pspp, :psppc, :cdate, :wbcd, :adpr, "
-            ":pcls, :brand, :pstatus, :tsys, :trate, :vrate, :notes, "
-        "NULL, NULL, "
-            "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, "
-        "NULL, NULL, NULL, NULL, NULL, NULL, NULL, "
-        "NULL, NULL, NULL, NULL, NULL, "
-        "CURRENT_DATE, 'excel') "
+            ":pcls, :brand, :pstatus, :tsys, "
+            ":sjan, :sfeb, :smar, :sapr, :smay, :sjun, "
+            ":sjul, :saug, :ssep, :soct, :snov, :sdec, "
+            ":plen, :pwid, :phei, :pvol, :pwgt, "
+            ":ddts, :ddmp, "
+            ":tq1, :tq2, :tq3, "
+            ":shm, :fbsw, "
+            ":notes, CURRENT_DATE, 'excel') "
             "ON CONFLICT (organization_id, entity_id, valid_from) DO UPDATE SET "
             "barcode = COALESCE(EXCLUDED.barcode, reference_book.barcode), "
             "vendor_code = COALESCE(EXCLUDED.vendor_code, reference_book.vendor_code), "
@@ -2052,6 +2016,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "other_costs = COALESCE(EXCLUDED.other_costs, reference_book.other_costs), "
             "extra_costs = COALESCE(EXCLUDED.extra_costs, reference_book.extra_costs), "
             "vat = COALESCE(EXCLUDED.vat, reference_book.vat), "
+            "min_price = COALESCE(EXCLUDED.min_price, reference_book.min_price), "
             "mp_base_pct = COALESCE(EXCLUDED.mp_base_pct, reference_book.mp_base_pct), "
             "mp_correction_pct = COALESCE(EXCLUDED.mp_correction_pct, reference_book.mp_correction_pct), "
             "fulfillment_model = COALESCE(EXCLUDED.fulfillment_model, reference_book.fulfillment_model), "
@@ -2066,10 +2031,30 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "brand = COALESCE(EXCLUDED.brand, reference_book.brand), "
             "product_status = COALESCE(EXCLUDED.product_status, reference_book.product_status), "
             "tax_system = COALESCE(EXCLUDED.tax_system, reference_book.tax_system), "
-            "tax_rate = COALESCE(EXCLUDED.tax_rate, reference_book.tax_rate), "
-            "vat_rate = COALESCE(EXCLUDED.vat_rate, reference_book.vat_rate), "
-            "subject_id = COALESCE(EXCLUDED.subject_id, reference_book.subject_id), "
-            "subject_name = COALESCE(EXCLUDED.subject_name, reference_book.subject_name), "
+            "season_jan = COALESCE(EXCLUDED.season_jan, reference_book.season_jan), "
+            "season_feb = COALESCE(EXCLUDED.season_feb, reference_book.season_feb), "
+            "season_mar = COALESCE(EXCLUDED.season_mar, reference_book.season_mar), "
+            "season_apr = COALESCE(EXCLUDED.season_apr, reference_book.season_apr), "
+            "season_may = COALESCE(EXCLUDED.season_may, reference_book.season_may), "
+            "season_jun = COALESCE(EXCLUDED.season_jun, reference_book.season_jun), "
+            "season_jul = COALESCE(EXCLUDED.season_jul, reference_book.season_jul), "
+            "season_aug = COALESCE(EXCLUDED.season_aug, reference_book.season_aug), "
+            "season_sep = COALESCE(EXCLUDED.season_sep, reference_book.season_sep), "
+            "season_oct = COALESCE(EXCLUDED.season_oct, reference_book.season_oct), "
+            "season_nov = COALESCE(EXCLUDED.season_nov, reference_book.season_nov), "
+            "season_dec = COALESCE(EXCLUDED.season_dec, reference_book.season_dec), "
+            "plan_length = COALESCE(EXCLUDED.plan_length, reference_book.plan_length), "
+            "plan_width = COALESCE(EXCLUDED.plan_width, reference_book.plan_width), "
+            "plan_height = COALESCE(EXCLUDED.plan_height, reference_book.plan_height), "
+            "plan_volume = COALESCE(EXCLUDED.plan_volume, reference_book.plan_volume), "
+            "plan_weight = COALESCE(EXCLUDED.plan_weight, reference_book.plan_weight), "
+            "delivery_days_to_seller = COALESCE(EXCLUDED.delivery_days_to_seller, reference_book.delivery_days_to_seller), "
+            "delivery_days_to_mp = COALESCE(EXCLUDED.delivery_days_to_mp, reference_book.delivery_days_to_mp), "
+            "top_query_1 = COALESCE(EXCLUDED.top_query_1, reference_book.top_query_1), "
+            "top_query_2 = COALESCE(EXCLUDED.top_query_2, reference_book.top_query_2), "
+            "top_query_3 = COALESCE(EXCLUDED.top_query_3, reference_book.top_query_3), "
+            "shipment_method = COALESCE(EXCLUDED.shipment_method, reference_book.shipment_method), "
+            "fbs_warehouse = COALESCE(EXCLUDED.fbs_warehouse, reference_book.fbs_warehouse), "
             "notes = COALESCE(EXCLUDED.notes, reference_book.notes), "
             "source = EXCLUDED.source"
         ), params)
@@ -4836,7 +4821,6 @@ async function uploadCostExcel(input) {
     } catch(e) { alert('Ошибка: ' + e.message); }
     input.value = '';
 }
-
 function exportCostTemplate() {
     const rows = document.querySelectorAll('#cost-body tr[data-nm]');
     const hdr = 'Арт WB;Арт продавца;Баркод;Название;Размер;' +
@@ -4845,8 +4829,14 @@ function exportCostTemplate() {
         'Цена до СПП план;Цена до СПП к изм.;Дата правок;Скидка WB Клуб %;' +
         'Реклама план;' +
         'Класс товара;Бренд;Статус товара;' +
-        'Налог. система;Ставка налога %;НДС ставка %;' +
-        'Дата начала;Заметки';
+        'Налог. система;' +
+        'Сезон янв;Сезон фев;Сезон мар;Сезон апр;Сезон май;Сезон июн;' +
+        'Сезон июл;Сезон авг;Сезон сен;Сезон окт;Сезон ноя;Сезон дек;' +
+        'План длина;План ширина;План высота;План объём;План вес;' +
+        'Доставка до склада (дни);Доставка до МП (дни);' +
+        'ТОП запрос 1;ТОП запрос 2;ТОП запрос 3;' +
+        'Способ отгрузки;Склад FBS;' +
+        'Заметки';
     let csv = hdr;
     if (rows.length) {
         csv += String.fromCharCode(10);
@@ -4863,8 +4853,14 @@ function exportCostTemplate() {
                 gv('price_before_spp_plan'), gv('price_before_spp_change'), gv('change_date'), gv('wb_club_discount_pct'),
                 gv('ad_plan_rub'),
                 gv('product_class'), gv('brand'), gv('product_status'),
-                gv('tax_system'), gv('tax_rate'), gv('vat_rate'),
-                gv('valid_from'), gv('notes')
+                gv('tax_system'),
+                gv('season_jan'), gv('season_feb'), gv('season_mar'), gv('season_apr'), gv('season_may'), gv('season_jun'),
+                gv('season_jul'), gv('season_aug'), gv('season_sep'), gv('season_oct'), gv('season_nov'), gv('season_dec'),
+                gv('plan_length'), gv('plan_width'), gv('plan_height'), gv('plan_volume'), gv('plan_weight'),
+                gv('delivery_days_to_seller'), gv('delivery_days_to_mp'),
+                gv('top_query_1'), gv('top_query_2'), gv('top_query_3'),
+                gv('shipment_method'), gv('fbs_warehouse'),
+                gv('notes')
             ];
             csv += cols.join(';') + String.fromCharCode(10);
         });
@@ -4875,6 +4871,7 @@ function exportCostTemplate() {
     a.download = 'template_spravochnik.csv';
     a.click();
     URL.revokeObjectURL(a.href);
+}
 }
 
 async function loadWarehouses() {
@@ -5628,54 +5625,6 @@ loadDates = async function() {
     syncCtrlDates();
     return result;
 };
-
-// ─── EXCEL IMPORT/EXPORT ──────────────────────────────────
-
-async function importExcel(input) {
-    if (!input.files.length) return;
-    const file = input.files[0];
-    const dateVal = document.getElementById('ref-date').value;
-    const fd = new FormData();
-    fd.append('file', file);
-    const res = await fetch('/api/v1/nl/reference/import?org_id=' + ORG_ID, {
-        method: 'POST',
-        body: file,
-        headers: {'X-Filename': file.name, 'X-Target-Date': dateVal}
-    });
-    if (res.ok) {
-        const data = await res.json();
-        alert('Импортировано: ' + data.imported + ' строк');
-        loadRefData();
-    } else {
-        const err = await res.json();
-        alert('Ошибка: ' + err.detail);
-    }
-    input.value = '';
-}
-
-function exportExcel() {
-    // Генерируем CSV шаблон с текущими товарами
-    const rows = document.querySelectorAll('#ref-body tr');
-    rows.forEach(row => {
-        const cells = row.querySelectorAll('td');
-        if (cells.length < 3) return;
-        const nmId = cells[1].textContent.trim();
-        const vc = cells[2].textContent.trim();
-        const name = cells[3].textContent.trim();
-        const dateVal = document.getElementById('ref-date').value;
-        const inputs = row.querySelectorAll('input');
-        let costs = [];
-        inputs.forEach(inp => {
-            if (inp.dataset.field === 'notes') costs.push(inp.value);
-            else if (inp.type === 'number') costs.push(inp.value);
-        });
-        if (nmId) csv += nmId + ';' + vc + ';' + name + ';' + dateVal + ';' + costs.join(';') + String.fromCharCode(10);
-    });
-    const blob = new Blob(['\ufeff' + csv], {type: 'text/csv;charset=utf-8'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'reference_template.csv'; a.click();
-    URL.revokeObjectURL(url);
 }
 
 // Auto-login
