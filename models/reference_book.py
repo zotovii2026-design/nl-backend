@@ -35,6 +35,10 @@ class ReferenceBook(Base):
     vendor_code = Column(String(100), nullable=True)               # Арт поставщика
     size_name = Column(String(50), nullable=True)                   # Размер
 
+    # === КАТЕГОРИЯ WB ===
+    subject_id = Column(Integer, nullable=True)                      # ID категории WB (subjectID)
+    subject_name = Column(String(200), nullable=True)                # Название категории WB (subjectName)
+
     # === СЕБЕСТОИМОСТЬ ===
     cost_price = Column(Numeric(12, 2), default=0)                  # Себестоимость
     purchase_cost = Column(Numeric(12, 2), nullable=True)           # Закупочная цена

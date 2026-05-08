@@ -147,7 +147,7 @@ async def get_reference(org_id: str, target_date: Optional[str] = None, db: Asyn
     from datetime import datetime as dt
     from sqlalchemy import text
     sql = (
-        "SELECT nm_id, vendor_code, cost_price, purchase_cost as purchase_price, packaging_cost, "
+        "SELECT nm_id, vendor_code, subject_id, subject_name, cost_price, purchase_cost as purchase_price, packaging_cost, "
         "logistics_cost, other_costs, notes, product_class, brand, tax_system, 0 as tax_rate, 0 as vat_rate, "
         "valid_from FROM reference_book "
         "WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
@@ -744,7 +744,7 @@ async def get_rnp(
         "SELECT DISTINCT ON (entity_id) entity_id, nm_id, cost_price, purchase_cost, "
         "packaging_cost, logistics_cost, other_costs, extra_costs, vat, "
         "mp_base_pct, mp_correction_pct, tax_system, 0 as tax_rate, 0 as vat_rate, "
-        "product_class, brand, product_status, "
+        "product_class, brand, product_status, subject_id, subject_name, "
         "in_promo, ad_shows_organic, ad_shows_paid, ad_strategy, tags, rating_reviews, localization_pct "
         "FROM reference_book "
         "WHERE organization_id = :org AND entity_id IS NOT NULL "
@@ -770,13 +770,15 @@ async def get_rnp(
             "product_class": r[14] or "",
             "brand": r[15] or "",
             "product_status": r[16] or "",
-            "in_promo": bool(r[17]) if r[17] is not None else False,
-            "ad_shows_organic": int(r[18]) if r[18] else None,
-            "ad_shows_paid": int(r[19]) if r[19] else None,
-            "ad_strategy": r[20] or "",
-            "tags": r[21] or "",
-            "rating_reviews": float(r[22]) if r[22] else None,
-            "localization_pct": r[23] or "",
+            "subject_id": r[17],
+            "subject_name": r[18] or "",
+            "in_promo": bool(r[19]) if r[19] is not None else False,
+            "ad_shows_organic": int(r[20]) if r[20] else None,
+            "ad_shows_paid": int(r[21]) if r[21] else None,
+            "ad_strategy": r[22] or "",
+            "tags": r[23] or "",
+            "rating_reviews": float(r[24]) if r[24] else None,
+            "localization_pct": r[25] or "",
         }
         if r[0]:
             ref_map[str(r[0])] = d_item
@@ -1513,6 +1515,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         entity_id = str(ent_row[0]) if ent_row else None
     await db.execute(text(
         "INSERT INTO reference_book (organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
+        "subject_id, subject_name, "
         "cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs, extra_costs, vat, min_price, "
         "mp_base_pct, mp_correction_pct, fulfillment_model, storage_pct, "
         "buyout_niche_pct, "
@@ -1526,6 +1529,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "shipment_method, fbs_warehouse, "
         "valid_from, source, notes) "
         "VALUES (:org, :nm, :bc, :vc, :sz, :eid, "
+        ":subid, :subn, "
         ":cp, :pc, :lc, :pk, :oc, :ec, :vat, :minp, "
         ":mpb, :mpc, :ffm, :stp, "
         ":bnp, "
@@ -1562,9 +1566,11 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "delivery_days_to_seller = EXCLUDED.delivery_days_to_seller, delivery_days_to_mp = EXCLUDED.delivery_days_to_mp, " +
         "top_query_1 = EXCLUDED.top_query_1, top_query_2 = EXCLUDED.top_query_2, top_query_3 = EXCLUDED.top_query_3, " +
         "shipment_method = EXCLUDED.shipment_method, fbs_warehouse = EXCLUDED.fbs_warehouse, " 
+        "subject_id = EXCLUDED.subject_id, subject_name = EXCLUDED.subject_name, "
         "source = EXCLUDED.source, notes = EXCLUDED.notes"
     ), {"org": org_id, "nm": nm_id, "bc": data.get("barcode"), "vc": data.get("vendor_code"),
         "sz": data.get("size_name"), "eid": entity_id,
+        "subid": data.get("subject_id"), "subn": data.get("subject_name"),
         "cp": cost, "pc": data.get("purchase_cost"),
         "lc": data.get("logistics_cost"), "pk": data.get("packaging_cost"),
         "oc": data.get("other_costs"), "ec": data.get("extra_costs"), "vat": data.get("vat", 0), "minp": data.get("min_price"),
@@ -1701,7 +1707,7 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
             existing_entities.add(str(r[1]))
     
     all_entities = await db.execute(text(
-        "SELECT id, nm_id, size_name, brand FROM product_entities WHERE organization_id = :org"
+        "SELECT pe.id, pe.nm_id, pe.size_name, pe.brand, pe.subject_id, pe.subject_name FROM product_entities pe WHERE pe.organization_id = :org"
     ), {"org": org_id})
     
     created_count = 0
@@ -1720,6 +1726,8 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
             "entity_id": eid,
             "size_name": ent[2] or "",
             "brand": ent[3] or "",
+            "subject_id": ent[4],
+            "subject_name": ent[5] or "",
             "valid_from": date.today(),
             "mp_base_pct": float(snap["commission_pct"]) if snap and snap.get("commission_pct") else None,
             "logistics_cost": float(snap["logistics_tariff"]) if snap and snap.get("logistics_tariff") else None,
@@ -1983,6 +1991,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
         
         await db.execute(text(
             "INSERT INTO reference_book (organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
+            "subject_id, subject_name, "
             "cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs, extra_costs, vat, "
             "mp_base_pct, mp_correction_pct, fulfillment_model, storage_pct, buyout_niche_pct, "
             "price_before_spp_plan, price_before_spp_change, change_date, wb_club_discount_pct, ad_plan_rub, "
@@ -1993,7 +2002,8 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             ":mpb, :mpc, :ffm, :stp, :bnp, "
             ":pspp, :psppc, :cdate, :wbcd, :adpr, "
             ":pcls, :brand, :pstatus, :tsys, :trate, :vrate, :notes, "
-        "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, "
+        "NULL, NULL, "
+            "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, "
         "NULL, NULL, NULL, NULL, NULL, NULL, NULL, "
         "NULL, NULL, NULL, NULL, NULL, "
         "CURRENT_DATE, 'excel') "
@@ -2023,6 +2033,8 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "tax_system = COALESCE(EXCLUDED.tax_system, reference_book.tax_system), "
             "tax_rate = COALESCE(EXCLUDED.tax_rate, reference_book.tax_rate), "
             "vat_rate = COALESCE(EXCLUDED.vat_rate, reference_book.vat_rate), "
+            "subject_id = COALESCE(EXCLUDED.subject_id, reference_book.subject_id), "
+            "subject_name = COALESCE(EXCLUDED.subject_name, reference_book.subject_name), "
             "notes = COALESCE(EXCLUDED.notes, reference_book.notes), "
             "source = EXCLUDED.source"
         ), params)

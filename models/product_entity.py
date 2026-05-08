@@ -29,6 +29,7 @@ class ProductEntity(Base):
 
     # Данные из WB Content API
     brand = Column(String(200), nullable=True)                   # Бренд
+    subject_id = Column(Integer, nullable=True)                     # ID категории WB (subjectID)
     subject_name = Column(String(300), nullable=True)            # Категория (предмет)
     tnved = Column(String(50), nullable=True)                    # Код ТНВЭД
     color = Column(String(200), nullable=True)                   # Цвет

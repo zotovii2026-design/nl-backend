@@ -70,6 +70,7 @@ async def sync_entities_from_raw(db: AsyncSession, org_id: str, today: date = No
 
         # Новые поля из WB Content API
         brand = card.get("brand", "") or ""
+        subject_id = card.get("subjectID") or None
         subject_name = card.get("subjectName", "") or ""
         need_kiz = card.get("needKiz", False)
         kiz_marked = card.get("kizMarked", False)
@@ -146,6 +147,7 @@ async def sync_entities_from_raw(db: AsyncSession, org_id: str, today: date = No
                     product_name=title,
                     photo_main=photo_main,
                     brand=brand or None,
+                    subject_id=subject_id,
                     subject_name=subject_name or None,
                     tnved=tnved or None,
                     color=color or None,
@@ -166,6 +168,7 @@ async def sync_entities_from_raw(db: AsyncSession, org_id: str, today: date = No
                 entity.product_name = title
                 entity.photo_main = photo_main
                 entity.brand = brand or None
+                entity.subject_id = subject_id
                 entity.subject_name = subject_name or None
                 entity.tnved = tnved or None
                 entity.color = color or None
