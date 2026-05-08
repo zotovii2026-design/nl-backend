@@ -521,6 +521,13 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
     def _get_snap(nm):
         return snap_by_nm_ts.get(nm, {"logistics_tariff":0,"storage_tariff":0,"commission_pct":0,"buyout_pct_fact":0})
 
+    # subject_map for product display
+    _subj_result = await db.execute(
+        select(ProductEntity.id, ProductEntity.subject_name)
+        .where(ProductEntity.organization_id == org_id)
+    )
+    subject_map = {str(r[0]): r[1] or "" for r in _subj_result.all()}
+
     def _calc_unit(price_disc, ad_cost, ref, snap):
         """Упрощённый расчёт юнитки для ТС"""
         p = float(price_disc or 0)
@@ -580,6 +587,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
                 "tariff": safe_float(r[15]),
                 "barcode": r[16] or "",
                 "size_name": size_map.get(str(r[0]), "") if r[0] else "",
+                "subject_name": subject_map.get(str(r[0]), "") if r[0] else "",
                 **(dims_map.get(str(r[0]), {}) if r[0] else {}),
             },
             **{k: v for k, v in _get_ref(str(r[0]) if r[0] else "", r[1]).items()},
@@ -734,10 +742,11 @@ async def get_rnp(
 
     # 2. Получаем entity_id -> размер
     ent_result = await db.execute(
-        select(ProductEntity.id, ProductEntity.size_name, ProductEntity.nm_id)
+        select(ProductEntity.id, ProductEntity.size_name, ProductEntity.nm_id, ProductEntity.subject_name)
         .where(ProductEntity.organization_id == org_id)
     )
-    size_map = {str(r[0]): r[1] for r in ent_result.all()}
+    _ent_rows = ent_result.all()
+    size_map = {str(r[0]): r[1] for r in _ent_rows}
 
     # 3. Справочник (reference_book) — последние записи по entity
     ref_result = await db.execute(text(
@@ -753,6 +762,8 @@ async def get_rnp(
     ), {"org": org_id, "fd": first_day})
     ref_map = {}  # entity_id -> dict
     ref_map_nm = {}  # nm_id -> dict (fallback)
+    import logging as _log2
+    _l = _log2.getLogger(__name__)
     for r in ref_result.all():
         d_item = {
             "cost_price": float(r[2]) if r[2] else 0,
@@ -784,6 +795,7 @@ async def get_rnp(
             ref_map[str(r[0])] = d_item
         if r[1]:
             ref_map_nm[r[1]] = d_item
+    print(f"[CONTROL-DEBUG] ref_map size={len(ref_map)}, sample={list(ref_map.values())[0] if ref_map else None}")
 
     def get_ref(eid, nm):
         return ref_map.get(eid, ref_map_nm.get(nm, {
@@ -1636,11 +1648,30 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
         if nm_id:
             snap_by_nm[nm_id] = data
 
+    # Загружаем subject_id/subject_name из product_entities для auto_fill
+    subj_result = await db.execute(text(
+        "SELECT id::text, subject_id, subject_name FROM product_entities WHERE organization_id = :org AND subject_id IS NOT NULL"
+    ), {"org": org_id})
+    subj_map = {}
+    for sr in subj_result.all():
+        subj_map[sr[0]] = {"subject_id": sr[1], "subject_name": sr[2]}
+
+    # Добавляем subject данные в snapshots
+    for eid_str, snap in snap_by_entity.items():
+        if eid_str in subj_map:
+            snap["subject_id"] = subj_map[eid_str]["subject_id"]
+            snap["subject_name"] = subj_map[eid_str]["subject_name"]
+    for nm, snap in snap_by_nm.items():
+        # Попробуем найти entity по nm
+        for eid_str, sm in subj_map.items():
+            pass  # entity map более точный
+
     # Загружаем текущий справочник
     ref_result = await db.execute(text("""
         SELECT id, entity_id, nm_id,
                mp_base_pct, logistics_cost, storage_pct,
-               price_before_spp_plan, buyout_niche_pct, ad_plan_rub
+               price_before_spp_plan, buyout_niche_pct, ad_plan_rub,
+               subject_id, subject_name
         FROM reference_book
         WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
     """), {"org": org_id})
@@ -1654,6 +1685,8 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
         "price_before_spp_plan": "price_retail",
         "buyout_niche_pct": "buyout_pct_fact",
         "ad_plan_rub": "ad_cost_fact",
+        "subject_id": "subject_id",
+        "subject_name": "subject_name",
     }
 
     for r in refs:
@@ -1668,6 +1701,8 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
             "price_before_spp_plan": r[6],
             "buyout_niche_pct": r[7],
             "ad_plan_rub": r[8],
+            "subject_id": r[9],
+            "subject_name": r[10],
         }
 
         # Ищем snapshot: сначала по entity_id, потом по nm_id
@@ -3248,7 +3283,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div style="overflow-x:auto;position:relative">
 <table id="cost-table" style="font-size:.82em"><thead><tr>
 <th style="position:sticky;left:0;z-index:2;background:#fff"><input type="checkbox" id="cost-check-all" onchange="toggleAllCostRows(this.checked)" style="cursor:pointer"></th>
-<th>Фото</th><th>Арт WB</th><th>Арт продавца</th><th>Размер</th><th>Товар</th><th>Баркод</th>
+<th>Фото</th><th>Арт WB</th><th>Арт продавца</th><th>Размер</th><th>Товар</th><th>Категория</th><th>Баркод</th>
 <th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th><th>Доп. затраты ₽</th>
 <th>Себестоимость ₽</th><th>Мин. цена ₽</th><th>НДС руб</th>
 <th>Баз. % МП</th><th>Корр. % МП</th><th>ФБО/ФБС</th><th>% хранения</th><th>% выкупа ниши</th>
@@ -4538,6 +4573,7 @@ function applyCostFilters() {
                 '<td>' + esc(p.vendor_code||'') + '</td>' +
                 '<td>' + esc(p.size_name||'—') + '</td>' +
                 '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name||'') + '">' + esc(p.product_name||'') + '</td>' +
+                '<td style="font-size:.8em;color:#636e72" title="' + esc(p.subject_name||'') + '">' + esc(p.subject_name||'') + '</td>' +
                 '<td style="font-size:.8em">' + (p.barcode||'') + '</td>' +
                 // Себестоимость
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +

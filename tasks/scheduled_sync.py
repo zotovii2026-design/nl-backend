@@ -1149,27 +1149,15 @@ async def _do_tariff_snapshot(sf):
                     except Exception as e:
                         logger.error(f"[tariff_snapshot] commission parse error: {e}")
 
-                # Загружаем subjectID для продуктов
+                # Загружаем subjectID из product_entities (надёжнее, чем из raw кэша)
                 subj_result = await db.execute(
-                    text("SELECT raw_response FROM raw_api_data "
-                         "WHERE organization_id = :org AND api_method = 'products' "
-                         "ORDER BY target_date DESC LIMIT 1"),
+                    text("SELECT DISTINCT nm_id, subject_id FROM product_entities "
+                         "WHERE organization_id = :org AND subject_id IS NOT NULL"),
                     {"org": org_id}
                 )
-                subj_row = subj_result.first()
-                if subj_row and subj_row[0]:
-                    try:
-                        pdata = subj_row[0] if isinstance(subj_row[0], list) else _json.loads(subj_row[0])
-                        items = pdata if isinstance(pdata, list) else pdata.get("response", pdata.get("data", []))
-                        if isinstance(items, list):
-                            for p in items:
-                                nm = p.get("nmID")
-                                sid = p.get("subjectID")
-                                if nm and sid:
-                                    products_subjects[int(nm)] = int(sid)
-                        logger.info(f"[tariff_snapshot] loaded {len(products_subjects)} product subjects")
-                    except Exception as e:
-                        logger.error(f"[tariff_snapshot] products subject parse error: {e}")
+                for r in subj_result.all():
+                    products_subjects[int(r[0])] = int(r[1])
+                logger.info(f"[tariff_snapshot] loaded {len(products_subjects)} product subjects from product_entities")
 
             async with sf() as db:
                 box_result = await db.execute(
