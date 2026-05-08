@@ -1,7 +1,7 @@
 """Модели сущностей товаров — стабильные слоты размеров с историей ШК"""
 import uuid
 from datetime import date as date_type
-from sqlalchemy import Column, String, DateTime, Integer, Boolean, Date, func, ForeignKey, UniqueConstraint, Text
+from sqlalchemy import Column, String, DateTime, Integer, Float, Boolean, Date, func, ForeignKey, UniqueConstraint, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from core.database import Base
@@ -32,10 +32,10 @@ class ProductEntity(Base):
     subject_name = Column(String(300), nullable=True)            # Категория (предмет)
     tnved = Column(String(50), nullable=True)                    # Код ТНВЭД
     color = Column(String(200), nullable=True)                   # Цвет
-    weight = Column(Integer, nullable=True)                      # Вес брутто (г)
-    width = Column(Integer, nullable=True)                       # Ширина (см)
-    height = Column(Integer, nullable=True)                      # Высота (см)
-    length = Column(Integer, nullable=True)                      # Длина (см)
+    weight = Column(Float, nullable=True)                      # Вес брутто (кг)
+    width = Column(Float, nullable=True)                       # Ширина (см)
+    height = Column(Float, nullable=True)                      # Высота (см)
+    length = Column(Float, nullable=True)                      # Длина (см)
     chrt_id = Column(Integer, nullable=True)                     # ID размера (chart)
     need_kiz = Column(Boolean, nullable=True)                    # Требуется маркировка
     kiz_marked = Column(Boolean, nullable=True)                  # Промаркирован

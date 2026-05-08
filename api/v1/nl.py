@@ -457,14 +457,24 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
         .order_by(TechStatus.orders_count.desc().nullslast())
     )
 
-    # Маппинг entity_id -> size_name
+    # Маппинг entity_id -> size_name + Д×Ш×В, вес, объём (факт)
     from models.product_entity import ProductEntity
     ent_result = await db.execute(
-        select(ProductEntity.id, ProductEntity.size_name).where(
+        select(ProductEntity.id, ProductEntity.size_name,
+               ProductEntity.length, ProductEntity.width, ProductEntity.height,
+               ProductEntity.weight).where(
             ProductEntity.organization_id == org_id
         )
     )
-    size_map = {str(r[0]): r[1] for r in ent_result.all()}
+    _ent_rows = ent_result.all()
+    size_map = {str(r[0]): r[1] for r in _ent_rows}
+    dims_map = {}
+    for r in _ent_rows:
+        eid = str(r[0])
+        l, w, h = r[2], r[3], r[4]
+        wt = r[5]
+        vol = round((l * w * h) / 1000, 2) if l and w and h else None
+        dims_map[eid] = {"length": l, "width": w, "height": h, "weight": wt, "volume": vol}
 
     # --- Юнит Экономика для ТС ---
     from sqlalchemy import text
@@ -570,6 +580,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
                 "tariff": safe_float(r[15]),
                 "barcode": r[16] or "",
                 "size_name": size_map.get(str(r[0]), "") if r[0] else "",
+                **(dims_map.get(str(r[0]), {}) if r[0] else {}),
             },
             **{k: v for k, v in _get_ref(str(r[0]) if r[0] else "", r[1]).items()},
             **{f"snap_{k}": v for k, v in _get_snap(r[1]).items()},
