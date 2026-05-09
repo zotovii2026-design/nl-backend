@@ -4865,13 +4865,12 @@ function exportCostTemplate() {
             csv += cols.join(';') + String.fromCharCode(10);
         });
     }
-    const blob = new Blob(['' + csv], {type: 'text/csv;charset=utf-8'});
+    const blob = new Blob(['﻿' + csv], {type: 'text/csv;charset=utf-8'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'template_spravochnik.csv';
     a.click();
     URL.revokeObjectURL(a.href);
-}
 }
 
 async function loadWarehouses() {
@@ -5625,7 +5624,6 @@ loadDates = async function() {
     syncCtrlDates();
     return result;
 };
-}
 
 // Auto-login
 try {
