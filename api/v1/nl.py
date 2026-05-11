@@ -230,7 +230,7 @@ async def get_products(org_id: str, target_date: Optional[str] = None, db: Async
 
     # Получаем маппинг entity_id → size_name
     ent_result = await db.execute(
-        select(ProductEntity.id, ProductEntity.size_name).where(
+        select(ProductEntity.id, ProductEntity.size_name, ProductEntity.subject_name).where(
             ProductEntity.organization_id == org_id
         )
     )
@@ -2612,11 +2612,11 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
     # Маппинг entity_id → size_name
     from models.product_entity import ProductEntity
     ent_result = await db.execute(
-        select(ProductEntity.id, ProductEntity.size_name).where(
+        select(ProductEntity.id, ProductEntity.size_name, ProductEntity.subject_name).where(
             ProductEntity.organization_id == org_id
         )
     )
-    size_map_ue = {str(r[0]): r[1] for r in ent_result.all()}
+    size_map_ue = {str(r[0]): {"size_name": r[1], "subject_name": r[2]} for r in ent_result.all()}
 
     for p in products:
         entity_id = str(p[0]) if p[0] else None
@@ -2642,7 +2642,8 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "product_name": product_name,
             "photo": photo.replace("/hq/", "/c246x328/").replace("/big/", "/c246x328/").replace("/tm/", "/c246x328/") if photo else "",
             "barcode": main_barcode,
-            "size_name": size_map_ue.get(entity_id, "") if entity_id else "",
+            "size_name": size_map_ue.get(entity_id, {}).get("size_name", "") if entity_id else "",
+            "subject_name": size_map_ue.get(entity_id, {}).get("subject_name", "") or cost.get("subject_name", ""),
             "sku": f"{vendor_code}_{main_barcode}" if vendor_code else str(nm_id),
 
             # Из справочника / себестоимости
@@ -3275,7 +3276,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th>Цена до СПП план ₽</th><th>Цена до СПП к изм. ₽</th><th>Дата правок</th><th>Скидка WB Клуб %</th>
 <th>Реклама план ₽</th>
 <th>Срок поставки (дни)</th><th>Мин. партия FBO</th>
-<th>Класс товара</th><th>Бренд</th><th>Статус товара</th>
+<th>Класс товара</th><th>Бренд</th>
+<th>Категория</th><th>Статус товара</th>
 <th>Налог. система</th>
 <th>Сез. янв</th><th>Сез. фев</th><th>Сез. мар</th><th>Сез. апр</th><th>Сез. май</th><th>Сез. июн</th><th>Сез. июл</th><th>Сез. авг</th><th>Сез. сен</th><th>Сез. окт</th><th>Сез. ноя</th><th>Сез. дек</th>
 <th>ПЛАН Д&#215;Ш&#215;В</th><th>ПЛАН объём</th><th>ПЛАН вес</th>
@@ -3606,6 +3608,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th style="min-width:140px">Название</th>
 <th>Класс</th>
 <th>Бренд</th>
+<th>Категория</th>
 <th>Себест. ₽</th>
 <th>Доп. затраты</th>
 <th style="background:#f0f0ff">Баз. % МП</th>
@@ -3645,7 +3648,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th style="background:#f0e8ff">ROI изм.</th>
 <th>Тариф тип</th>
 </tr></thead>
-<tbody id="ue-body"><tr><td colspan="44" class="empty">Нажмите обновить</td></tr></tbody></table>
+<tbody id="ue-body"><tr><td colspan="45" class="empty">Нажмите обновить</td></tr></tbody></table>
 </div>
 <div style="margin-top:12px;display:flex;gap:16px;font-size:.85em;flex-wrap:wrap" id="ue-summary"></div>
 </div>
@@ -5839,6 +5842,7 @@ async function loadUnitEcon() {
                 '<td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name || '') + '">' + esc(p.product_name || '') + '</td>' +
                 '<td>' + esc(p.product_class || '') + '</td>' +
                 '<td>' + esc(p.brand || '') + '</td>' +
+                '<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.subject_name || '') + '">' + esc(p.subject_name || '') + '</td>' +
                 '<td>' + fmt(p.cost_price) + '</td>' +
                 '<td><input type="number" class="ue-input" data-field="extra_costs" value="' + (p.extra_costs || '') + '" style="width:60px" placeholder="0"></td>' +
                 '<td style="background:#f0f0ff">' + fmtI(p.mp_base_pct) + '</td>' +
@@ -5918,10 +5922,10 @@ async function saveAllUnitEcon() {
 
 function exportUnitEcon() {
     if (!ueData.length) return;
-    let csv = 'Арт WB;Арт продавца;Название;Класс;Бренд;Себестоимость;Доп затраты;Баз % МП;Корр % МП;Итог % МП;% выкупа ниши;% выкупа факт;Лог тариф;Лог факт;Хран тариф;Хран факт;Эквайринг;Приёмка;Налог %;НДС %;Налог руб;Рекл факт;Рекл план;Цена до СПП;СПП %;Цена с СПП;Скидка ВБ Клуб %;Расходы;Прибыль;Маржа %;ROI %;На Р/С;Цена план;Расходы план;Прибыль план;Маржа план %;ROI план %;На Р/С план;Дата правок;Цена к изм;Прибыль изм;ROI изм;Тариф тип';
+    let csv = 'Арт WB;Арт продавца;Название;Класс;Бренд;Категория;Себестоимость;Доп затраты;Баз % МП;Корр % МП;Итог % МП;% выкупа ниши;% выкупа факт;Лог тариф;Лог факт;Хран тариф;Хран факт;Эквайринг;Приёмка;Налог %;НДС %;Налог руб;Рекл факт;Рекл план;Цена до СПП;СПП %;Цена с СПП;Скидка ВБ Клуб %;Расходы;Прибыль;Маржа %;ROI %;На Р/С;Цена план;Расходы план;Прибыль план;Маржа план %;ROI план %;На Р/С план;Дата правок;Цена к изм;Прибыль изм;ROI изм;Тариф тип';
     csv += String.fromCharCode(10);
     ueData.forEach(p => {
-        csv += [p.nm_id, p.vendor_code, p.product_name, p.product_class, p.brand,
+        csv += [p.nm_id, p.vendor_code, p.product_name, p.product_class, p.brand, p.subject_name,
             p.cost_price, p.extra_costs, p.mp_base_pct, p.mp_correction_pct, p.mp_total_pct,
             p.buyout_niche_pct, p.buyout_fact_pct, p.logistics_tariff, p.logistics_actual,
             p.storage_tariff, p.storage_actual, (p.price_with_spp*0.015).toFixed(2), p.acceptance_avg,
