@@ -1923,14 +1923,12 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
         if not nm: continue
         nm = int(nm)
         
-        # Определяем entity_id
+        # entity_id: первый попавшийся для nm_id (не ключ больше)
         eid = None
-        size_name = ps(row, "Размер", "size_name")
         ent_q = await db.execute(text(
             "SELECT pe.id FROM product_entities pe "
-            "WHERE pe.organization_id = :org AND pe.nm_id = :nm "
-            "ORDER BY CASE WHEN pe.size_name = :sz THEN 0 ELSE 1 END LIMIT 1"
-        ), {"org": org_id, "nm": nm, "sz": size_name or ""})
+            "WHERE pe.organization_id = :org AND pe.nm_id = :nm LIMIT 1"
+        ), {"org": org_id, "nm": nm})
         ent_row = ent_q.first()
         eid = str(ent_row[0]) if ent_row else None
         
@@ -1998,6 +1996,9 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             # Отгрузка
             "shm": ps(row, "Способ отгрузки", "shipment_method"),
             "fbsw": ps(row, "Склад FBS", "fbs_warehouse"), "rrc": pf(row, "РРЦ", "rrc_price"),
+            # subject_id/name (из product_entities, но можно передать в файле)
+            "subid": int(row.get("subject_id")) if row.get("subject_id") and str(row.get("subject_id")).strip().isdigit() else None,
+            "subn": ps(row, "Категория", "subject_name"),
             # Прочее
             "notes": ps(row, "Заметки", "notes"),
         }
@@ -2005,6 +2006,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
         await db.execute(text(
             "INSERT INTO reference_book ("
             "organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
+            "subject_id, subject_name, "
             "cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs, extra_costs, vat, min_price, "
             "mp_base_pct, mp_correction_pct, fulfillment_model, storage_pct, buyout_niche_pct, "
             "price_before_spp_plan, price_before_spp_change, change_date, wb_club_discount_pct, ad_plan_rub, "
@@ -2018,6 +2020,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "notes, valid_from, source) "
             "VALUES ("
             ":org, :nm, :bc, :vc, :sz, :eid, "
+            ":subid, :subn, "
             ":cp, :pc, :lc, :pk, :oc, :ec, :vat, :minp, "
             ":mpb, :mpc, :ffm, :stp, :bnp, "
             ":pspp, :psppc, :cdate, :wbcd, :adpr, "
@@ -2079,6 +2082,8 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "shipment_method = COALESCE(EXCLUDED.shipment_method, reference_book.shipment_method), "
             "fbs_warehouse = COALESCE(EXCLUDED.fbs_warehouse, reference_book.fbs_warehouse), rrc_price = COALESCE(EXCLUDED.rrc_price, reference_book.rrc_price), "
             "notes = COALESCE(EXCLUDED.notes, reference_book.notes), "
+            "subject_id = COALESCE(EXCLUDED.subject_id, reference_book.subject_id), "
+            "subject_name = COALESCE(EXCLUDED.subject_name, reference_book.subject_name), "
             "source = EXCLUDED.source"
         ), params)
         updated += 1
