@@ -516,7 +516,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
             }
 
     def _get_ref(eid, nm):
-        return ref_by_entity.get(eid, ref_by_nm.get(nm, {"cost_price":0,"product_class":"","brand":"","tax_system":"","tax_rate":0,"vat_rate":0}))
+        return ref_by_nm.get(nm, ref_by_entity.get(eid, {"cost_price":0,"product_class":"","brand":"","tax_system":"","tax_rate":0,"vat_rate":0}))
 
     def _get_snap(nm):
         return snap_by_nm_ts.get(nm, {"logistics_tariff":0,"storage_tariff":0,"commission_pct":0,"buyout_pct_fact":0})
@@ -709,7 +709,7 @@ async def get_rnp(
     print(f"[CONTROL-DEBUG] ref_map size={len(ref_map)}, sample={list(ref_map.values())[0] if ref_map else None}")
 
     def get_ref(eid, nm):
-        return ref_map.get(eid, ref_map_nm.get(nm, {
+        return ref_map_nm.get(nm, ref_map.get(eid, {
             "cost_price": 0, "purchase_cost": 0, "packaging_cost": 0,
             "logistics_cost": 0, "other_costs": 0, "extra_costs": 0, "vat": 0,
             "mp_base_pct": 0, "mp_correction_pct": 0, "tax_system": "",
@@ -1827,7 +1827,7 @@ async def get_fbo_needs(org_id: str, days: int = 14, db: AsyncSession = Depends(
 
         qty = stock_map.get(key, {}).get("qty", 0)
         qty_full = stock_map.get(key, {}).get("qty_full", 0)
-        ref = ref_by_entity.get(eid, ref_by_nm.get(nm_id, {}))
+        ref = ref_by_nm.get(nm_id, ref_by_entity.get(eid, {}))
         supply_days = ref.get("supply_days") or 5
         min_batch = ref.get("min_batch_fbo") or 1
 
@@ -2662,7 +2662,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         if search_q and search_q not in str(nm_id) and search_q not in product_name.lower() and search_q not in vendor_code.lower():
             continue
 
-        cost = cost_by_entity.get(entity_id, cost_by_nm.get(nm_id, {}))
+        cost = cost_by_nm.get(nm_id, cost_by_entity.get(entity_id, {}))
         ue = ue_by_entity.get(entity_id, ue_by_nm_bc.get((nm_id, main_barcode), ue_by_nm_bc.get((nm_id, ""), {})))
 
         item = {
