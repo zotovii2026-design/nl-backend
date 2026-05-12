@@ -3280,14 +3280,14 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th>Статус товара</th>
 <th>Налог. система</th>
 <th>Сез. янв</th><th>Сез. фев</th><th>Сез. мар</th><th>Сез. апр</th><th>Сез. май</th><th>Сез. июн</th><th>Сез. июл</th><th>Сез. авг</th><th>Сез. сен</th><th>Сез. окт</th><th>Сез. ноя</th><th>Сез. дек</th>
-<th>ПЛАН Д</th><th>ПЛАН Ш</th><th>ПЛАН В</th><th>ПЛАН объём</th><th>ПЛАН вес</th>
+<th>ПЛАН Д&#215;Ш&#215;В</th><th>ПЛАН объём</th><th>ПЛАН вес</th>
 <th>ФАКТ Д&#215;Ш&#215;В</th><th>ФАКТ объём</th><th>ФАКТ вес</th>
 <th>Дост. до склада</th><th>Дост. до МП</th>
 <th>ТОП запр. 1</th><th>ТОП запр. 2</th><th>ТОП запр. 3</th>
 <th>Отгрузка</th><th>Склад FBS</th>
 <th>Дата начала</th><th>Заметки</th>
 </tr></thead>
-<tbody id="cost-body"><tr><td colspan="37" class="empty">Загрузка...</td></tr></tbody></table>
+<tbody id="cost-body"><tr><td colspan="35" class="empty">Загрузка...</td></tr></tbody></table>
 </div>
 
 <!-- Плавающая панель массовых действий -->
@@ -4302,11 +4302,11 @@ async function loadAnalytics() {
     const search = document.getElementById('analytics-search')?.value || '';
     try {
         const res = await fetch('/api/v1/nl/analytics?org_id=' + ORG_ID + '&target_date=' + dateVal + (search ? '&search=' + encodeURIComponent(search) : ''));
-        if (!res.ok) { document.getElementById('analytics-body').innerHTML = '<tr><td colspan="37" class="empty">Ошибка загрузки</td></tr>'; return; }
+        if (!res.ok) { document.getElementById('analytics-body').innerHTML = '<tr><td colspan="35" class="empty">Ошибка загрузки</td></tr>'; return; }
         const data = await res.json();
         const prods = data.products || [];
         document.getElementById('analytics-count').textContent = prods.length + ' товаров';
-        if (!prods.length) { document.getElementById('analytics-body').innerHTML = '<tr><td colspan="37" class="empty">Нет данных</td></tr>'; return; }
+        if (!prods.length) { document.getElementById('analytics-body').innerHTML = '<tr><td colspan="35" class="empty">Нет данных</td></tr>'; return; }
         const fmt = (v, s) => { if (v == null) return '—'; return Number(v).toLocaleString('ru-RU', {maximumFractionDigits:2}) + (s || ''); };
         const size = parseInt(document.getElementById('analytics-pagesize')?.value || '25');
         document.getElementById('analytics-body').innerHTML = prods.slice(0, size).map(p => {
@@ -4448,28 +4448,12 @@ async function exportOpiu() { alert('В разработке'); }
 let _costProducts = [];
 let _costMap = {};
 
-function calcPlanVol(el) {
-  var row = el.closest('tr');
-  if (!row) return;
-  var l = parseFloat(row.querySelector('[data-field="plan_length"]')?.value) || 0;
-  var w = parseFloat(row.querySelector('[data-field="plan_width"]')?.value) || 0;
-  var h = parseFloat(row.querySelector('[data-field="plan_height"]')?.value) || 0;
-  var volCell = row.querySelector('.plan-vol-cell');
-  if (volCell) {
-    if (l > 0 && w > 0 && h > 0) {
-      volCell.textContent = ((l * w * h) / 1000);
-    } else {
-      volCell.innerHTML = String.fromCharCode(8212);
-    }
-  }
-}
-
 async function loadCostPrices() {
     if (!ORG_ID) return;
     try {
         const datesRes = await fetch('/api/v1/nl/dates?org_id=' + ORG_ID);
         const dates = datesRes.ok ? await datesRes.json() : [];
-        if (!dates.length) { document.getElementById('cost-body').innerHTML = '<tr><td colspan="37" class="empty">Нет данных</td></tr>'; return; }
+        if (!dates.length) { document.getElementById('cost-body').innerHTML = '<tr><td colspan="35" class="empty">Нет данных</td></tr>'; return; }
         
         const prodsRes = await fetch('/api/v1/nl/control?org_id=' + ORG_ID + '&target_date=' + dates[0]);
         if (!prodsRes.ok) return;
@@ -4623,11 +4607,9 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="season_oct" value="' + (c.season_oct||'') + '" style="width:42px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="season_nov" value="' + (c.season_nov||'') + '" style="width:42px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="season_dec" value="' + (c.season_dec||'') + '" style="width:42px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="plan_length" value="' + (c.plan_length||'') + '" style="width:50px" placeholder="-" step="0.1" min="0" oninput="calcPlanVol(this)"></td>' +
-                '<td><input type="number" class="cost-input" data-field="plan_width" value="' + (c.plan_width||'') + '" style="width:50px" placeholder="-" step="0.1" min="0" oninput="calcPlanVol(this)"></td>' +
-                '<td><input type="number" class="cost-input" data-field="plan_height" value="' + (c.plan_height||'') + '" style="width:50px" placeholder="-" step="0.1" min="0" oninput="calcPlanVol(this)"></td>' +
-                '<td class="plan-vol-cell" style="color:#666">' + (c.plan_volume ? parseFloat(c.plan_volume) : String.fromCharCode(8212)) + '</td>' +
-                '<td><input type="number" class="cost-input" data-field="plan_weight" value="' + (c.plan_weight||'') + '" style="width:55px" placeholder="-" step="1" min="0"></td>' +
+                '<td style="white-space:nowrap;font-size:.78em">' + (c.plan_length||String.fromCharCode(8212)) + String.fromCharCode(215) + (c.plan_width||String.fromCharCode(8212)) + String.fromCharCode(215) + (c.plan_height||String.fromCharCode(8212)) + '</td>' +
+                '<td>' + (c.plan_volume||String.fromCharCode(8212)) + '</td>' +
+                '<td>' + (c.plan_weight||String.fromCharCode(8212)) + '</td>' +
                 '<td style="white-space:nowrap;font-size:.78em;color:#666">' + (p.length||String.fromCharCode(8212)) + String.fromCharCode(215) + (p.width||String.fromCharCode(8212)) + String.fromCharCode(215) + (p.height||String.fromCharCode(8212)) + '</td>' +
                 '<td style="color:#666">' + (p.volume||String.fromCharCode(8212)) + '</td>' +
                 '<td style="color:#666">' + (p.weight||String.fromCharCode(8212)) + '</td>' +
@@ -4809,7 +4791,7 @@ async function saveAllCostPrices() {
             product_status: gv('product_status', ''),
             // Налоги
             tax_system: gv('tax_system', ''),
-            tax_rate: 0,  season_jan: gv('season_jan'), season_feb: gv('season_feb'), season_mar: gv('season_mar'), season_apr: gv('season_apr'), season_may: gv('season_may'), season_jun: gv('season_jun'), season_jul: gv('season_jul'), season_aug: gv('season_aug'), season_sep: gv('season_sep'), season_oct: gv('season_oct'), season_nov: gv('season_nov'), season_dec: gv('season_dec'), plan_length: gv('plan_length'), plan_width: gv('plan_width'), plan_height: gv('plan_height'), plan_volume: (function(){var l=parseFloat(gv('plan_length'))||0,w=parseFloat(gv('plan_width'))||0,h=parseFloat(gv('plan_height'))||0;return(l>0&&w>0&&h>0)?((l*w*h)/1000):null})(), plan_weight: gv('plan_weight'), delivery_days_to_seller: gv('delivery_days_to_seller'), delivery_days_to_mp: gv('delivery_days_to_mp'), top_query_1: gv('top_query_1'), top_query_2: gv('top_query_2'), top_query_3: gv('top_query_3'), shipment_method: gv('shipment_method'), fbs_warehouse: gv('fbs_warehouse'),
+            tax_rate: 0,  season_jan: gv('season_jan'), season_feb: gv('season_feb'), season_mar: gv('season_mar'), season_apr: gv('season_apr'), season_may: gv('season_may'), season_jun: gv('season_jun'), season_jul: gv('season_jul'), season_aug: gv('season_aug'), season_sep: gv('season_sep'), season_oct: gv('season_oct'), season_nov: gv('season_nov'), season_dec: gv('season_dec'), plan_length: gv('plan_length'), plan_width: gv('plan_width'), plan_height: gv('plan_height'), plan_volume: gv('plan_volume'), plan_weight: gv('plan_weight'), delivery_days_to_seller: gv('delivery_days_to_seller'), delivery_days_to_mp: gv('delivery_days_to_mp'), top_query_1: gv('top_query_1'), top_query_2: gv('top_query_2'), top_query_3: gv('top_query_3'), shipment_method: gv('shipment_method'), fbs_warehouse: gv('fbs_warehouse'),
             vat_rate: parseFloat(gv('vat_rate')),
             // Прочее
             valid_from: gv('valid_from', new Date().toISOString().split('T')[0]),
@@ -4879,7 +4861,7 @@ function exportCostTemplate() {
                 gv('tax_system'),
                 gv('season_jan'), gv('season_feb'), gv('season_mar'), gv('season_apr'), gv('season_may'), gv('season_jun'),
                 gv('season_jul'), gv('season_aug'), gv('season_sep'), gv('season_oct'), gv('season_nov'), gv('season_dec'),
-                gv('plan_length'), gv('plan_width'), gv('plan_height'), (function(){var l=parseFloat(gv('plan_length'))||0,w=parseFloat(gv('plan_width'))||0,h=parseFloat(gv('plan_height'))||0;return(l>0&&w>0&&h>0)?((l*w*h)/1000):''})(), gv('plan_weight'),
+                gv('plan_length'), gv('plan_width'), gv('plan_height'), gv('plan_volume'), gv('plan_weight'),
                 gv('delivery_days_to_seller'), gv('delivery_days_to_mp'),
                 gv('top_query_1'), gv('top_query_2'), gv('top_query_3'),
                 gv('shipment_method'), gv('fbs_warehouse'),

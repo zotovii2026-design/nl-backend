@@ -48,6 +48,7 @@ class ReferenceBook(Base):
     extra_costs = Column(Numeric(10, 2), nullable=True)             # Доп. затраты
     vat = Column(Numeric(10, 2), default=0)                         # НДС (руб)
     min_price = Column(Numeric(12, 2), nullable=True)                # Минимальная цена продажи
+    rrc_price = Column(Numeric(12, 2), nullable=True)                # РРЦ (рекомендованная розничная цена)
 
     # === МАРКЕТПЛЕЙС ===
     mp_base_pct = Column(Numeric(5, 2), nullable=True)              # Базовый % МП
