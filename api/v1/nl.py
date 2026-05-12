@@ -1669,23 +1669,25 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
         await db.execute(text(f"UPDATE reference_book SET {set_clauses} WHERE id = :rid"), updates)
         stats["updated"] += 1
 
-    # --- Шаг 2: Создать записи для entities без справочника ---
-    existing_entities = set()
+    # --- Шаг 2: Создать записи для nm_id без справочника ---
+    existing_nms = set()
     for r in refs:
-        if r[1]:
-            existing_entities.add(str(r[1]))
+        if r[2]:
+            existing_nms.add(r[2])
     
     all_entities = await db.execute(text(
         "SELECT pe.id, pe.nm_id, pe.size_name, pe.brand, pe.subject_id, pe.subject_name FROM product_entities pe WHERE pe.organization_id = :org"
     ), {"org": org_id})
     
     created_count = 0
+    seen_nms = set()
     for ent in all_entities.all():
-        eid = str(ent[0])
-        if eid in existing_entities:
-            continue
         nm_id = ent[1]
-        snap = snap_by_entity.get(eid) or snap_by_nm.get(nm_id)
+        if nm_id in existing_nms or nm_id in seen_nms:
+            continue
+        seen_nms.add(nm_id)
+        eid = str(ent[0])
+        snap = snap_by_nm.get(nm_id)
         
         ins = pg_insert(ReferenceBook)
         vals = {
@@ -1706,7 +1708,7 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
             "buyout_niche_pct": float(snap["buyout_pct_fact"]) if snap and snap.get("buyout_pct_fact") else None,
         }
         stmt = ins.values(**vals).on_conflict_do_nothing(
-            constraint="reference_book_org_entity_vf_key"
+            constraint="reference_book_org_nm_vf_key"
         )
         try:
             await db.execute(stmt)
