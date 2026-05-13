@@ -36,7 +36,8 @@ class WbTariffSnapshot(Base):
     discount_pct = Column(Numeric(5, 2), nullable=True)          # Скидка %
 
     # Комиссия МП
-    commission_pct = Column(Numeric(5, 2), nullable=True)        # % комиссии МП (из тарифов)
+    commission_pct = Column(Numeric(5, 2), nullable=True)        # % комиссии ФБО (Склад WB)
+    commission_fbs_pct = Column(Numeric(5, 2), nullable=True)    # % комиссии ФБС (Маркетплейс)
 
     # Логистика
     logistics_tariff = Column(Numeric(10, 2), nullable=True)     # Тариф логистики (среднее 3 склада)

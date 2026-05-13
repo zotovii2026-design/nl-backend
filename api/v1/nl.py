@@ -1544,6 +1544,36 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
     return {"ok": True}
 
 
+
+@router.get("/api/v1/nl/commission-rate")
+async def get_commission_rate(org_id: str, subject_id: int, model: str = "fbo", db: AsyncSession = Depends(get_db)):
+    """Получить комиссию МП по subject_id и модели (fbo/fbs)"""
+    from sqlalchemy import text
+    import json as _json, logging
+    _log = logging.getLogger(__name__)
+    
+    # Ищем комиссии по любому org_id (WB отдаёт единый справочник)
+    result = await db.execute(text(
+        "SELECT raw_response FROM raw_api_data "
+        "WHERE api_method = 'tariffs_commission' "
+        "ORDER BY target_date DESC LIMIT 1"
+    ))
+    row = result.first()
+    if not row or not row[0]:
+        return {"commission_pct": None, "source": "no_data"}
+    
+    cdata = row[0] if isinstance(row[0], dict) else _json.loads(row[0])
+    for item in cdata.get("report", []):
+        if item.get("subjectID") == subject_id:
+            if model == "fbs":
+                pct = item.get("kgvpMarketplace")  # FBS = Маркетплейс
+            else:
+                pct = item.get("paidStorageKgvp")  # FBO = Склад WB
+            return {"commission_pct": float(pct) if pct else None, "source": "api", "model": model}
+    
+    return {"commission_pct": None, "source": "subject_not_found"}
+
+
 @router.post("/api/v1/nl/cost-prices/auto-fill")
 async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
     """Автозаполнение справочника из wb_tariff_snapshot (только пустые поля)"""
@@ -2534,7 +2564,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
 
     # 3) Ручные вводы Юнит Экономики — по entity_id, fallback nm_id+barcode
     ue_result = await db.execute(
-        sql_text("SELECT entity_id, nm_id, mp_correction_pct, buyout_niche_pct, extra_costs, ad_plan_rub, price_before_spp_plan, price_before_spp_change, change_date, fulfillment_model, wb_club_discount_pct, storage_pct, product_status FROM reference_book WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE) ORDER BY valid_from DESC"),
+        sql_text("SELECT entity_id, nm_id, mp_correction_pct, buyout_niche_pct, extra_costs, ad_plan_rub, price_before_spp_plan, price_before_spp_change, change_date, fulfillment_model, wb_club_discount_pct, storage_pct, product_status, mp_base_pct FROM reference_book WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE) ORDER BY valid_from DESC"),
         {"org": org_id}
     )
     ue_rows = ue_result.all()
@@ -2546,6 +2576,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         "price_before_spp_plan": r[6], "price_before_spp_change": r[7],
         "change_date": r[8], "tariff_type": r[9],
         "wb_club_discount_pct": r[10],
+        "mp_base_pct": r[13],
     }
     for r in ue_rows:
         eid = str(r[0]) if r[0] else None
@@ -2615,7 +2646,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         sql_text("""
             SELECT nm_id, logistics_tariff, storage_tariff, ad_cost_fact,
                    buyout_pct_fact, commission_pct, price_retail, price_with_spp,
-                   spp_pct
+                   spp_pct, commission_fbs_pct
             FROM wb_tariff_snapshot
             WHERE organization_id = :org
             ORDER BY target_date DESC
@@ -2634,6 +2665,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
                 "price_retail": float(r[6]) if r[6] else 0,
                 "price_with_spp": float(r[7]) if r[7] else 0,
                 "spp_pct": float(r[8]) if r[8] else 0,
+                "commission_fbs_pct": float(r[9]) if r[9] else 0,
             }
 
     # 8) Собираем результат
@@ -2690,7 +2722,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "vat_rate": float(cost.get("vat_rate") or 0),
 
             # Из wb_tariff_snapshot (автоподтяжка)
-            "mp_base_pct": (snap_by_nm.get(nm_id, {})).get("commission_pct") or float(p[8] or 0),  # комиссия из snapshot, fallback tech_status
+            "mp_base_pct": (lambda _s=snap_by_nm.get(nm_id,{}), _u=ue, _p=p: (float(_u.get("mp_base_pct") or 0) if _u.get("mp_base_pct") else ((_s.get("commission_fbs_pct") if (_u.get("tariff_type") or "fbo") == "fbs" else _s.get("commission_pct")) or float(_p[8] or 0))))(),
             "buyout_fact_pct": snap_by_nm.get(nm_id, {}).get("buyout_pct_fact", 0),
             "logistics_tariff": snap_by_nm.get(nm_id, {}).get("logistics_tariff", 0),
             "logistics_actual": 0,  # Будет из финотчётов
@@ -3286,7 +3318,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Фильтры по столбцам -->
 <div id="cost-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
 <label style="color:#666;font-weight:600">Фильтры:</label>
-<select id="flt-fulfillment" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">ФБО/ФБС: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
+<select id="flt-fulfillment" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
 <select id="flt-tax-system" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Налог. система: все</option><option value="usn">УСН</option><option value="usn_dr">Доходы-Расходы</option><option value="osn">ОСН</option></select>
 <select id="flt-product-class" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option></select>
 <select id="flt-brand" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
@@ -3301,9 +3333,10 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <table id="cost-table" style="font-size:.82em"><thead><tr>
 <th style="position:sticky;left:0;z-index:2;background:#fff"><input type="checkbox" id="cost-check-all" onchange="toggleAllCostRows(this.checked)" style="cursor:pointer"></th>
 <th>Статус товара</th><th>Класс товара</th><th>Бренд</th><th>Фото</th><th>Категория</th><th>Арт продавца</th><th>Баркод</th><th>Размер</th><th>Арт WB</th><th>Товар</th>
+<th>Отгрузка</th>
 <th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th><th>Доп. затраты ₽</th>
 <th>Себестоимость ₽</th><th>Мин. цена ₽</th><th>НДС руб</th>
-<th>Баз. % МП</th><th>Корр. % МП</th><th>ФБО/ФБС</th><th>% хранения</th><th>% выкупа ниши</th>
+<th>Баз. % МП</th><th>Корр. % МП</th><th>% хранения</th><th>% выкупа ниши</th>
 <th>Цена до СПП план ₽</th><th>Цена до СПП к изм. ₽</th><th>Дата правок</th><th>Скидка WB Клуб %</th><th>РРЦ ₽</th>
 <th>Реклама план ₽</th>
 <th>Срок поставки (дни)</th><th>Мин. партия FBO</th>
@@ -3314,7 +3347,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th>ФАКТ Д&#215;Ш&#215;В</th><th>ФАКТ объём</th><th>ФАКТ вес</th>
 <th>Дост. до склада</th><th>Дост. до МП</th>
 <th>ТОП запр. 1</th><th>ТОП запр. 2</th><th>ТОП запр. 3</th>
-<th>Отгрузка</th><th>Склад FBS</th>
+<th>Склад FBS</th>
 <th>Дата начала</th><th>Заметки</th>
 </tr></thead>
 <tbody id="cost-body"><tr><td colspan="37" class="empty">Загрузка...</td></tr></tbody></table>
@@ -3338,7 +3371,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <optgroup label="МП / Комиссия">
 <option value="mp_base_pct">Баз. % МП</option>
 <option value="mp_correction_pct">Корр. % МП</option>
-<option value="fulfillment_model">ФБО/ФБС</option>
+<option value="fulfillment_model">Отгрузка</option>
 <option value="storage_pct">% хранения</option>
 <option value="buyout_niche_pct">% выкупа ниши</option>
 </optgroup>
@@ -3369,7 +3402,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <option value="delivery_days_to_seller">До склада (дн)</option><option value="delivery_days_to_mp">До МП (дн)</option>
 </optgroup>
 <optgroup label="Запросы/отгрузка">
-<option value="top_query_1">ТОП запрос 1</option><option value="top_query_2">ТОП запрос 2</option><option value="top_query_3">ТОП запрос 3</option><option value="shipment_method">Способ отгрузки</option><option value="fbs_warehouse">Склад FBS</option>
+<option value="top_query_1">ТОП запрос 1</option><option value="top_query_2">ТОП запрос 2</option><option value="top_query_3">ТОП запрос 3</option><option value="fbs_warehouse">Склад FBS</option>
 </optgroup>
 <optgroup label="Прочее">
 <option value="valid_from">Дата начала</option>
@@ -4635,6 +4668,7 @@ function applyCostFilters() {
                 '<td>' + (hasSizes ? esc(sizeListText) : esc(p.size_name||'') || String.fromCharCode(8212)) + '</td>' +
                 '<td><b>' + nmId + '</b>' + sizesBadge + '</td>' +
                 '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name||'') + '">' + esc(p.product_name||'') + '</td>' +
+                '<td><select class="cost-input" data-field="fulfillment_model" style="width:60px;font-size:.8em" onchange="onShipmentChange(this)"><option value="fbo"' + (c.fulfillment_model!=='fbs'?' selected':'') + '>ФБО</option><option value="fbs"' + (c.fulfillment_model==='fbs'?' selected':'') + '>ФБС</option></select></td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +
@@ -4645,7 +4679,7 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="vat" value="' + (c.vat||'') + '" style="width:50px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="mp_base_pct" value="' + (c.mp_base_pct||'') + '" style="width:60px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="mp_correction_pct" value="' + (c.mp_correction_pct||'') + '" style="width:60px" placeholder="0"></td>' +
-                '<td><select class="cost-input" data-field="fulfillment_model" style="width:60px;font-size:.8em"><option value="fbo"' + (c.fulfillment_model!=='fbs'?' selected':'') + '>ФБО</option><option value="fbs"' + (c.fulfillment_model==='fbs'?' selected':'') + '>ФБС</option></select></td>' +
+                
                 '<td><input type="number" class="cost-input" data-field="storage_pct" value="' + (c.storage_pct||'') + '" style="width:60px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="buyout_niche_pct" value="' + (c.buyout_niche_pct||'') + '" style="width:60px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="price_before_spp_plan" value="' + (c.price_before_spp_plan||'') + '" style="width:80px" placeholder="0"></td>' +
@@ -4682,7 +4716,7 @@ function applyCostFilters() {
                 '<td><input type="text" class="cost-input" data-field="top_query_1" value="' + esc(c.top_query_1||'') + '" style="width:80px" placeholder="-"></td>' +
                 '<td><input type="text" class="cost-input" data-field="top_query_2" value="' + esc(c.top_query_2||'') + '" style="width:80px" placeholder="-"></td>' +
                 '<td><input type="text" class="cost-input" data-field="top_query_3" value="' + esc(c.top_query_3||'') + '" style="width:80px" placeholder="-"></td>' +
-                '<td><select class="cost-input" data-field="shipment_method" style="width:80px;font-size:.8em"><option value="">-</option><option value="fbo"' + (c.shipment_method==='fbo'?' selected':'') + '>ФБО</option><option value="fbs"' + (c.shipment_method==='fbs'?' selected':'') + '>ФБС</option><option value="mixed"' + (c.shipment_method==='mixed'?' selected':'') + '>Смешанный</option></select></td>' +
+                
                 '<td><input type="text" class="cost-input" data-field="fbs_warehouse" value="' + esc(c.fbs_warehouse||'') + '" style="width:80px" placeholder="-"></td>' +
                 '<td><input type="date" class="cost-input" data-field="valid_from" value="' + (c.valid_from||new Date().toISOString().split('T')[0]) + '" style="width:110px;font-size:.8em"></td>' +
                 '<td><input type="text" class="cost-input" data-field="notes" value="' + esc(c.notes||'') + '" style="width:100px" placeholder="-"></td>' +
@@ -4697,6 +4731,7 @@ function applyCostFilters() {
                         '<td style="color:#6c5ce7;font-weight:500">' + esc(sizeLabel) + '</td>' +
                         '<td></td><td></td>' +
                         '<td style="font-size:.7em;color:#999">' + esc(s.barcodes||'') + '</td>' +
+                        '<td></td>' +
                         '<td colspan="29" style="color:#999;font-size:.75em">' + String.fromCharCode(8592) + ' ' + esc(s.entity_id||'') + '</td>' +
                         '</tr>';
                 });
@@ -4709,6 +4744,53 @@ function applyCostFilters() {
             '<span>' + String.fromCharCode(128176) + ' Заполнено: <strong>' + filled + '/' + order.length + '</strong></span>' +
             '<span>' + String.fromCharCode(128202) + ' Сумма себестоимости: <strong>' + totalCost.toLocaleString('ru-RU') + ' ' + String.fromCharCode(8381) + '</strong></span>' +
             (filled > 0 ? '<span>' + String.fromCharCode(128208) + ' Средняя: <strong>' + Math.round(totalCost/filled).toLocaleString('ru-RU') + ' ' + String.fromCharCode(8381) + '</strong></span>' : '');
+}
+
+
+function onShipmentChange(sel) {
+    var row = sel.closest('tr');
+    var nmId = row.getAttribute('data-nm');
+    console.log('[shipment] change nmId=', nmId, 'value=', sel.value);
+    if (!nmId) return;
+    
+    // Try _costMap first (number key), then string key
+    var c = _costMap[nmId] || _costMap[parseInt(nmId)];
+    console.log('[shipment] _costMap entry=', c ? 'found (subject_id=' + c.subject_id + ')' : 'NOT FOUND');
+    
+    // Fallback: find subject_id from _costProducts
+    var subjectId = null;
+    if (c && c.subject_id) {
+        subjectId = c.subject_id;
+    } else {
+        for (var i = 0; i < _costProducts.length; i++) {
+            if (String(_costProducts[i].nm_id) === String(nmId)) {
+                subjectId = _costProducts[i].subject_id;
+                break;
+            }
+        }
+    }
+    
+    if (!subjectId) {
+        console.log('[shipment] No subject_id for nm_id', nmId);
+        return;
+    }
+    
+    var model = sel.value;
+    var mpInput = row.querySelector('input[data-field="mp_base_pct"]');
+    var url = '/api/v1/nl/commission-rate?org_id=' + encodeURIComponent(ORG_ID) + '&subject_id=' + subjectId + '&model=' + model;
+    console.log('[shipment] fetching', url);
+    
+    fetch(url)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            console.log('[shipment] response', data);
+            if (data.commission_pct !== null && data.commission_pct !== undefined && mpInput) {
+                mpInput.value = data.commission_pct;
+                mpInput.style.background = '#d4edda';
+                setTimeout(function() { mpInput.style.background = ''; }, 1500);
+            }
+        })
+        .catch(function(e) { console.error('[shipment] error', e); });
 }
 
 function toggleCostGroup(row) {
@@ -4833,8 +4915,8 @@ async function saveAllCostPrices() {
     const rows = document.querySelectorAll('#cost-body tr[data-nm]');
     let saved = 0;
     for (const row of rows) {
-        const costInput = row.querySelector('[data-field="cost_price"]');
-        if (!costInput || !costInput.value) continue;
+        // Сохраняем все строки (не только с себестоимостью)
+        
         const gv = (field, def='0') => row.querySelector('[data-field="' + field + '"]')?.value || def;
         const data = {
             nm_id: parseInt(row.dataset.nm),
@@ -4847,7 +4929,7 @@ async function saveAllCostPrices() {
             packaging_cost: parseFloat(gv('packaging')),
             other_costs: parseFloat(gv('other')),
             extra_costs: parseFloat(gv('extra_costs')),
-            cost_price: costInput ? (parseFloat(costInput.value) || 0) : 0,
+            cost_price: parseFloat(gv('cost_price')) || 0,
             min_price: parseFloat(gv('min_price')) || null,
             vat: parseFloat(gv('vat')),
             // МП / Комиссия
@@ -4919,9 +5001,9 @@ async function uploadCostExcel(input) {
 }
 function exportCostTemplate() {
     const rows = document.querySelectorAll('#cost-body tr[data-nm]');
-    const hdr = 'Арт WB;Арт продавца;Баркод;Название;Размер;' +
+    const hdr = 'Арт WB;Арт продавца;Баркод;Название;Размер;Отгрузка;' +
         'Закупка;Логистика;Упаковка;Прочее;Доп. затраты;Себестоимость;Мин. цена;НДС руб;' +
-        'Баз. % МП;Корр. % МП;ФБО/ФБС;% хранения;% выкупа ниши;' +
+        'Баз. % МП;Корр. % МП;% хранения;% выкупа ниши;' +
         'Цена до СПП план;Цена до СПП к изм.;Дата правок;Скидка WB Клуб %;РРЦ;' +
         'Реклама план;' +
         'Класс товара;Бренд;Статус товара;' +
@@ -4931,7 +5013,7 @@ function exportCostTemplate() {
         'План длина;План ширина;План высота;План объём;План вес;' +
         'Доставка до склада (дни);Доставка до МП (дни);' +
         'ТОП запрос 1;ТОП запрос 2;ТОП запрос 3;' +
-        'Способ отгрузки;Склад FBS;' +
+        'Склад FBS;' +
         'Заметки';
     let csv = hdr;
     if (rows.length) {
@@ -5938,7 +6020,7 @@ async function loadUnitEcon() {
                 '<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.subject_name || '') + '">' + esc(p.subject_name || '') + '</td>' +
                 '<td>' + fmt(p.cost_price) + '</td>' +
                 '<td><input type="number" class="ue-input" data-field="extra_costs" value="' + (p.extra_costs || '') + '" style="width:60px" placeholder="0"></td>' +
-                '<td style="background:#f0f0ff">' + fmtI(p.mp_base_pct) + '</td>' +
+                '<td style="background:#f0f0ff">' + (p.mp_base_pct != null ? p.mp_base_pct.toFixed(1) : '—') + '</td>' +
                 '<td style="background:#f0f0ff"><input type="number" class="ue-input" data-field="mp_correction_pct" value="' + (p.mp_correction_pct || '') + '" style="width:50px" step="0.1" placeholder="0"></td>' +
                 '<td style="background:#f0f0ff;font-weight:600">' + fmtI(p.mp_total_pct) + '</td>' +
                 '<td style="background:#f0f0ff"><input type="number" class="ue-input" data-field="buyout_niche_pct" value="' + (p.buyout_niche_pct || '') + '" style="width:50px" placeholder="0"></td>' +

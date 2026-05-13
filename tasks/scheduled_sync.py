@@ -1126,7 +1126,7 @@ async def _do_tariff_snapshot(sf):
             logistics_avg = 0
             storage_avg = 0
             # 0. Загружаем комиссии по subjectID из raw_api_data
-            commission_rates = {}  # subjectID -> paidStorageKgvp (ФБО)
+            commission_rates = {}  # subjectID -> {fbo: paidStorageKgvp, fbs: kgvpMarketplace}
             products_subjects = {}  # nm_id -> subjectID
 
             async with sf() as db:
@@ -1142,10 +1142,11 @@ async def _do_tariff_snapshot(sf):
                         cdata = comm_row[0] if isinstance(comm_row[0], dict) else _json.loads(comm_row[0])
                         for item in cdata.get("report", []):
                             sid = item.get("subjectID")
-                            pct = item.get("paidStorageKgvp")  # ФБО комиссия
-                            if sid and pct is not None:
-                                commission_rates[sid] = float(pct)
-                        logger.info(f"[tariff_snapshot] loaded {len(commission_rates)} commission rates")
+                            fbo_pct = item.get("paidStorageKgvp")   # ФБО (Склад WB)
+                            fbs_pct = item.get("kgvpMarketplace")   # ФБС (Маркетплейс)
+                            if sid:
+                                commission_rates[sid] = {"fbo": float(fbo_pct) if fbo_pct else None, "fbs": float(fbs_pct) if fbs_pct else None}
+                        logger.info(f"[tariff_snapshot] loaded {len(commission_rates)} commission rates (FBO+FBS)")
                     except Exception as e:
                         logger.error(f"[tariff_snapshot] commission parse error: {e}")
 
@@ -1267,7 +1268,8 @@ async def _do_tariff_snapshot(sf):
                         logistics_base=round(logistics_avg, 2) if logistics_avg else None,
                         storage_tariff=round(storage_avg, 4) if storage_avg else None,
                         storage_base=round(storage_avg, 4) if storage_avg else None,
-                        commission_pct=commission_pct_map.get(nm_id),
+                        commission_pct=commission_pct_map.get(nm_id, {}).get("fbo") if isinstance(commission_pct_map.get(nm_id), dict) else commission_pct_map.get(nm_id),
+                        commission_fbs_pct=commission_pct_map.get(nm_id, {}).get("fbs") if isinstance(commission_pct_map.get(nm_id), dict) else None,
                         price_retail=prices_by_nm.get(nm_id, {}).get("price_retail"),
                         price_with_spp=prices_by_nm.get(nm_id, {}).get("price_with_spp"),
                         ad_cost_fact=ad_by_nm.get(nm_id, 0) if ad_by_nm.get(nm_id, 0) > 0 else None,
@@ -1283,6 +1285,7 @@ async def _do_tariff_snapshot(sf):
                             "ad_cost_fact": ins.excluded.ad_cost_fact,
                             "buyout_pct_fact": ins.excluded.buyout_pct_fact,
                             "commission_pct": ins.excluded.commission_pct,
+                            "commission_fbs_pct": ins.excluded.commission_fbs_pct,
                             "price_retail": ins.excluded.price_retail,
                             "price_with_spp": ins.excluded.price_with_spp,
                             "fetched_at": datetime.utcnow(),
