@@ -383,10 +383,10 @@ async def nl_delete_wb_key(key_id: str, org_id: str, db: AsyncSession = Depends(
 
 @router.get("/api/v1/nl/fbs-warehouses")
 async def get_fbs_warehouses(org_id: str, db: AsyncSession = Depends(get_db)):
-    """Список складов FBS отгрузки из WB API (кэш 24ч)"""
+    """Список складов FBS + СЦ(СГТ) + КГТ+ из WB API (кэш 24ч)"""
     import json, time
     from models.organization import WbApiKey
-    cache_key = "fbs_wh_cache_" + org_id
+    cache_key = "fbs_wh_v2_" + org_id
     cache_file = "/tmp/" + cache_key + ".json"
     try:
         with open(cache_file, "r") as f:
@@ -405,12 +405,29 @@ async def get_fbs_warehouses(org_id: str, db: AsyncSession = Depends(get_db)):
     try:
         from services.wb_api.client import WBApiClient
         async with WBApiClient(token) as client:
-            warehouses = await client.get_fbs_warehouses()
+            all_offices = await client.get_all_offices()
     except Exception as e:
         raise HTTPException(502, f"WB API error: {e}")
+    # Группируем по cargoType: 1=склад, 2=СЦ(СГТ), 3=КГТ+
+    type_names = {1: "Склад", 2: "СЦ", 3: "КГТ+"}
+    merged = []
+    seen_ids = set()
+    for ct in [1, 2, 3]:
+        items = [o for o in all_offices if o.get("cargoType") == ct]
+        for o in items:
+            if o["id"] not in seen_ids:
+                seen_ids.add(o["id"])
+                merged.append({
+                    "id": o["id"],
+                    "name": o["name"],
+                    "address": o.get("address", ""),
+                    "city": o.get("city", ""),
+                    "type": type_names.get(ct, "?"),
+                    "cargoType": ct,
+                })
     with open(cache_file, "w") as f:
-        json.dump({"ts": time.time(), "data": warehouses}, f, ensure_ascii=False)
-    return warehouses
+        json.dump({"ts": time.time(), "data": merged}, f, ensure_ascii=False)
+    return merged
 
 @router.get("/api/v1/nl/dates")
 async def get_available_dates(org_id: str, db: AsyncSession = Depends(get_db)):
@@ -4712,7 +4729,7 @@ function applyCostFilters() {
                 '<td><b>' + nmId + '</b>' + sizesBadge + '</td>' +
                 '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name||'') + '">' + esc(p.product_name||'') + '</td>' +
                 '<td><select class="cost-input" data-field="fulfillment_model" style="width:60px;font-size:.8em" onchange="onShipmentChange(this)"><option value="fbo"' + (c.fulfillment_model!=='fbs'?' selected':'') + '>ФБО</option><option value="fbs"' + (c.fulfillment_model==='fbs'?' selected':'') + '>ФБС</option></select></td>' +
-                '<td><select class="cost-input" data-field="fbs_warehouse" style="width:120px;font-size:.8em"><option value="">-</option>' + FBS_WAREHOUSES.map(function(w) { return '<option value="' + esc(w.name) + '"' + (c.fbs_warehouse===w.name?' selected':'') + ' title="' + esc(w.address||'') + '">' + esc(w.name) + '</option>'; }).join('') + '</select></td>' +
+                '<td><select class="cost-input" data-field="fbs_warehouse" style="width:140px;font-size:.8em"><option value="">-</option>' + (function(){var g={};FBS_WAREHOUSES.forEach(function(w){var t=w.type||"Склад";if(!g[t])g[t]=[];g[t].push(w);});var h="";["Склад","СЦ","КГТ+"].forEach(function(t){if(g[t]){h+="<optgroup label='"+t+" ("+g[t].length+")'>";g[t].forEach(function(w){h+="<option value='"+esc(w.name)+"'"+(c.fbs_warehouse===w.name?" selected":"")+" title='"+esc(w.address||"")+"'>"+esc(w.name)+"</option>";});h+="</optgroup>";}});return h;})() + '</select></td>' +
                 '<td><input type="number" class="cost-input" data-field="cost_price" value="' + costPrice + '" style="width:80px;font-weight:600" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
