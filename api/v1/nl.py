@@ -3289,7 +3289,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <select id="flt-tax-system" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Налог. система: все</option><option value="usn">УСН</option><option value="usn_dr">Доходы-Расходы</option><option value="osn">ОСН</option></select>
 <select id="flt-product-class" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option></select>
 <select id="flt-brand" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
-<select id="flt-product-status" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option></select>
+<select id="flt-product-status" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется к запуску</option></select>
 <select id="flt-has-cost" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
 <input type="text" id="cost-search" placeholder="🔍 Поиск по названию/артикулу" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
 <button onclick="clearCostFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сбросить</button>
@@ -3299,7 +3299,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div style="overflow-x:auto;position:relative">
 <table id="cost-table" style="font-size:.82em"><thead><tr>
 <th style="position:sticky;left:0;z-index:2;background:#fff"><input type="checkbox" id="cost-check-all" onchange="toggleAllCostRows(this.checked)" style="cursor:pointer"></th>
-<th>Фото</th><th>Арт WB</th><th>Арт продавца</th><th>Размер</th><th>Товар</th><th>Категория</th><th>Баркод</th>
+<th>Фото</th><th>Статус товара</th><th>Арт WB</th><th>Арт продавца</th><th>Размер</th><th>Товар</th><th>Категория</th><th>Баркод</th>
 <th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th><th>Доп. затраты ₽</th>
 <th>Себестоимость ₽</th><th>Мин. цена ₽</th><th>НДС руб</th>
 <th>Баз. % МП</th><th>Корр. % МП</th><th>ФБО/ФБС</th><th>% хранения</th><th>% выкупа ниши</th>
@@ -3307,7 +3307,6 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th>Реклама план ₽</th>
 <th>Срок поставки (дни)</th><th>Мин. партия FBO</th>
 <th>Класс товара</th><th>Бренд</th>
-<th>Статус товара</th>
 <th>Налог. система</th>
 <th>Сез. янв</th><th>Сез. фев</th><th>Сез. мар</th><th>Сез. апр</th><th>Сез. май</th><th>Сез. июн</th><th>Сез. июл</th><th>Сез. авг</th><th>Сез. сен</th><th>Сез. окт</th><th>Сез. ноя</th><th>Сез. дек</th>
 <th>ПЛАН Д</th><th>ПЛАН Ш</th><th>ПЛАН В</th><th>ПЛАН объём</th><th>ПЛАН вес</th>
@@ -4541,7 +4540,7 @@ function populateCostFilterOptions() {
     };
     fillSel('flt-product-class', classes);
     fillSel('flt-brand', brands);
-    fillSel('flt-product-status', statuses);
+    // product_status filter is now static with predefined values
 }
 
 function clearCostFilters() {
@@ -4626,6 +4625,7 @@ function applyCostFilters() {
             html += '<tr data-nm="' + nmId + '" class="' + rowClass + '"' + clickAttr + ' style="' + bgStyle + '">' +
                 '<td style="position:sticky;left:0;z-index:1;background:' + (hasSizes ? '#f8f9ff' : '#fff') + '"><input type="checkbox" class="cost-row-check" onchange="updateBulkBar()" style="cursor:pointer"' + (hasSizes ? ' onclick="event.stopPropagation()"' : '') + '></td>' +
                 '<td>' + (thumb ? '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
+                '<td style="' + (c.product_status==='Новинка'?'background:#d4edda':c.product_status==='Выводим'?'background:#f8d7da':c.product_status==='ТОП (А)'?'background:#cce5ff':c.product_status==='Двигаем (В)'?'background:#fff3cd':c.product_status==='Категория С'?'background:#e2e3e5':c.product_status==='Планируется к запуску'?'background:#e2d9f3':'') + '"><select class="cost-input" data-field="product_status" style="width:110px;font-size:.85em;border:none;background:transparent;padding:2px">' + '<option value="">-</option>'+'<option value="Новинка"' + (c.product_status==='Новинка'?' selected':'') + '>🟢 Новинка</option>'+'<option value="Выводим"' + (c.product_status==='Выводим'?' selected':'') + '>🔴 Выводим</option>'+'<option value="ТОП (А)"' + (c.product_status==='ТОП (А)'?' selected':'') + '>🔵 ТОП (А)</option>'+'<option value="Двигаем (В)"' + (c.product_status==='Двигаем (В)'?' selected':'') + '>🟡 Двигаем (В)</option>'+'<option value="Категория С"' + (c.product_status==='Категория С'?' selected':'') + '>⚪ Категория С</option>'+'<option value="Планируется к запуску"' + (c.product_status==='Планируется к запуску'?' selected':'') + '>🟣 Планируется к запуску</option>' + '</select></td>' +
                 '<td><b>' + nmId + '</b>' + sizesBadge + '</td>' +
                 '<td>' + esc(p.vendor_code||'') + '</td>' +
                 '<td>' + (hasSizes ? esc(sizeListText) : esc(p.size_name||'') || String.fromCharCode(8212)) + '</td>' +
@@ -4655,7 +4655,6 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="min_batch_fbo" value="' + (c.min_batch_fbo||'') + '" style="width:80px" placeholder="1" min="1"></td>' +
                 '<td><input type="text" class="cost-input" data-field="product_class" value="' + esc(c.product_class||'') + '" style="width:70px" placeholder="-"></td>' +
                 '<td><input type="text" class="cost-input" data-field="brand" value="' + esc(c.brand||'') + '" style="width:80px" placeholder="-"></td>' +
-                '<td><input type="text" class="cost-input" data-field="product_status" value="' + esc(c.product_status||'') + '" style="width:80px" placeholder="-"></td>' +
                 '<td><select class="cost-input" data-field="tax_system" style="width:90px;font-size:.8em"><option value="">-</option><option value="usn"' + (c.tax_system==='usn'?' selected':'') + '>УСН</option><option value="usn_dr"' + (c.tax_system==='usn_dr'?' selected':'') + '>Доходы-Расходы</option><option value="osn"' + (c.tax_system==='osn'?' selected':'') + '>ОСН</option></select></td>' +
                 '<td><input type="number" class="cost-input" data-field="season_jan" value="' + (c.season_jan||'') + '" style="width:42px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="season_feb" value="' + (c.season_feb||'') + '" style="width:42px" placeholder="0"></td>' +
@@ -4693,7 +4692,7 @@ function applyCostFilters() {
                 sizes.forEach(s => {
                     const sizeLabel = s.size_name && s.size_name !== '0' && s.size_name !== 'ONE SIZE' ? s.size_name : String.fromCharCode(8212);
                     html += '<tr class="cost-group-child" style="display:none;font-size:.85em">' +
-                        '<td></td><td></td><td></td><td></td>' +
+                        '<td></td><td></td><td></td><td></td><td></td>' +
                         '<td style="color:#6c5ce7;font-weight:500">' + esc(sizeLabel) + '</td>' +
                         '<td></td><td></td>' +
                         '<td style="font-size:.7em;color:#999">' + esc(s.barcodes||'') + '</td>' +
@@ -4834,7 +4833,7 @@ async function saveAllCostPrices() {
     let saved = 0;
     for (const row of rows) {
         const costInput = row.querySelector('[data-field="cost_price"]');
-        if (!costInput || !costInput.value) continue;
+        // Don't skip — status-only edits should work too
         const gv = (field, def='0') => row.querySelector('[data-field="' + field + '"]')?.value || def;
         const data = {
             nm_id: parseInt(row.dataset.nm),
@@ -4847,7 +4846,7 @@ async function saveAllCostPrices() {
             packaging_cost: parseFloat(gv('packaging')),
             other_costs: parseFloat(gv('other')),
             extra_costs: parseFloat(gv('extra_costs')),
-            cost_price: parseFloat(costInput.value),
+            cost_price: costInput ? (parseFloat(costInput.value) || 0) : 0,
             min_price: parseFloat(gv('min_price')) || null,
             vat: parseFloat(gv('vat')),
             // МП / Комиссия
@@ -4885,12 +4884,17 @@ async function saveAllCostPrices() {
             source: 'manual'
         };
         try {
-            await fetch('/api/v1/nl/cost-prices?org_id=' + ORG_ID, {
+            const resp = await fetch('/api/v1/nl/cost-prices?org_id=' + ORG_ID, {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(data)
             });
-            saved++;
-        } catch(e) { console.error('save error', e); }
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                console.error('save error nm=' + nm_id, resp.status, err);
+            } else {
+                saved++;
+            }
+        } catch(e) { console.error('save error nm=' + nm_id, e); }
     }
     alert('Сохранено: ' + saved + ' записей');
     loadCostPrices();
