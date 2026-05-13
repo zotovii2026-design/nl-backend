@@ -1370,8 +1370,9 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
         "cp.product_status, "
         "cp.valid_from, cp.valid_to, cp.source, cp.notes, "
         "cp.product_class, cp.brand, cp.tax_system, cp.season_jan, cp.season_feb, cp.season_mar, cp.season_apr, cp.season_may, cp.season_jun, cp.season_jul, cp.season_aug, cp.season_sep, cp.season_oct, cp.season_nov, cp.season_dec, cp.plan_length, cp.plan_width, cp.plan_height, cp.plan_volume, cp.plan_weight, cp.delivery_days_to_seller, cp.delivery_days_to_mp, cp.top_query_1, cp.top_query_2, cp.top_query_3, cp.shipment_method, cp.fbs_warehouse, cp.rrc_price, "
-        "cp.subject_id, cp.subject_name, "
+        "COALESCE(cp.subject_id, pe_sub.subject_id) as subject_id, COALESCE(NULLIF(cp.subject_name,''), pe_sub.subject_name) as subject_name, "
         "ts.product_name FROM reference_book cp "
+        "LEFT JOIN (SELECT DISTINCT nm_id, subject_id, subject_name FROM product_entities WHERE organization_id = :org) pe_sub ON cp.nm_id = pe_sub.nm_id "
         "LEFT JOIN (SELECT DISTINCT nm_id, product_name FROM tech_status WHERE organization_id = :org) ts ON cp.nm_id = ts.nm_id "
         "WHERE cp.organization_id = :org AND (cp.valid_to IS NULL OR cp.valid_to >= CURRENT_DATE) "
         "ORDER BY cp.nm_id, cp.valid_from DESC"
@@ -3299,14 +3300,14 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div style="overflow-x:auto;position:relative">
 <table id="cost-table" style="font-size:.82em"><thead><tr>
 <th style="position:sticky;left:0;z-index:2;background:#fff"><input type="checkbox" id="cost-check-all" onchange="toggleAllCostRows(this.checked)" style="cursor:pointer"></th>
-<th>Фото</th><th>Статус товара</th><th>Арт WB</th><th>Арт продавца</th><th>Размер</th><th>Товар</th><th>Категория</th><th>Баркод</th>
+<th>Статус товара</th><th>Класс товара</th><th>Бренд</th><th>Фото</th><th>Категория</th><th>Арт продавца</th><th>Баркод</th><th>Размер</th><th>Арт WB</th><th>Товар</th>
 <th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th><th>Доп. затраты ₽</th>
 <th>Себестоимость ₽</th><th>Мин. цена ₽</th><th>НДС руб</th>
 <th>Баз. % МП</th><th>Корр. % МП</th><th>ФБО/ФБС</th><th>% хранения</th><th>% выкупа ниши</th>
 <th>Цена до СПП план ₽</th><th>Цена до СПП к изм. ₽</th><th>Дата правок</th><th>Скидка WB Клуб %</th><th>РРЦ ₽</th>
 <th>Реклама план ₽</th>
 <th>Срок поставки (дни)</th><th>Мин. партия FBO</th>
-<th>Класс товара</th><th>Бренд</th>
+
 <th>Налог. система</th>
 <th>Сез. янв</th><th>Сез. фев</th><th>Сез. мар</th><th>Сез. апр</th><th>Сез. май</th><th>Сез. июн</th><th>Сез. июл</th><th>Сез. авг</th><th>Сез. сен</th><th>Сез. окт</th><th>Сез. ноя</th><th>Сез. дек</th>
 <th>ПЛАН Д</th><th>ПЛАН Ш</th><th>ПЛАН В</th><th>ПЛАН объём</th><th>ПЛАН вес</th>
@@ -4624,14 +4625,16 @@ function applyCostFilters() {
             
             html += '<tr data-nm="' + nmId + '" class="' + rowClass + '"' + clickAttr + ' style="' + bgStyle + '">' +
                 '<td style="position:sticky;left:0;z-index:1;background:' + (hasSizes ? '#f8f9ff' : '#fff') + '"><input type="checkbox" class="cost-row-check" onchange="updateBulkBar()" style="cursor:pointer"' + (hasSizes ? ' onclick="event.stopPropagation()"' : '') + '></td>' +
-                '<td>' + (thumb ? '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
                 '<td style="' + (c.product_status==='Новинка'?'background:#d4edda':c.product_status==='Выводим'?'background:#f8d7da':c.product_status==='ТОП (А)'?'background:#cce5ff':c.product_status==='Двигаем (В)'?'background:#fff3cd':c.product_status==='Категория С'?'background:#e2e3e5':c.product_status==='Планируется к запуску'?'background:#e2d9f3':'') + '"><select class="cost-input" data-field="product_status" style="width:110px;font-size:.85em;border:none;background:transparent;padding:2px">' + '<option value="">-</option>'+'<option value="Новинка"' + (c.product_status==='Новинка'?' selected':'') + '>🟢 Новинка</option>'+'<option value="Выводим"' + (c.product_status==='Выводим'?' selected':'') + '>🔴 Выводим</option>'+'<option value="ТОП (А)"' + (c.product_status==='ТОП (А)'?' selected':'') + '>🔵 ТОП (А)</option>'+'<option value="Двигаем (В)"' + (c.product_status==='Двигаем (В)'?' selected':'') + '>🟡 Двигаем (В)</option>'+'<option value="Категория С"' + (c.product_status==='Категория С'?' selected':'') + '>⚪ Категория С</option>'+'<option value="Планируется к запуску"' + (c.product_status==='Планируется к запуску'?' selected':'') + '>🟣 Планируется к запуску</option>' + '</select></td>' +
-                '<td><b>' + nmId + '</b>' + sizesBadge + '</td>' +
-                '<td>' + esc(p.vendor_code||'') + '</td>' +
-                '<td>' + (hasSizes ? esc(sizeListText) : esc(p.size_name||'') || String.fromCharCode(8212)) + '</td>' +
-                '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name||'') + '">' + esc(p.product_name||'') + '</td>' +
+                '<td><input type="text" class="cost-input" data-field="product_class" value="' + esc(c.product_class||'') + '" style="width:70px" placeholder="-"></td>' +
+                '<td><input type="text" class="cost-input" data-field="brand" value="' + esc(c.brand||'') + '" style="width:80px" placeholder="-"></td>' +
+                '<td>' + (thumb ? '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
                 '<td style="font-size:.8em;color:#636e72" title="' + esc(c.subject_name||'') + '">' + esc(c.subject_name||'') + '</td>' +
+                '<td>' + esc(p.vendor_code||'') + '</td>' +
                 '<td style="font-size:.8em">' + esc(barcodeText || p.barcode||'') + '</td>' +
+                '<td>' + (hasSizes ? esc(sizeListText) : esc(p.size_name||'') || String.fromCharCode(8212)) + '</td>' +
+                '<td><b>' + nmId + '</b>' + sizesBadge + '</td>' +
+                '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name||'') + '">' + esc(p.product_name||'') + '</td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +
@@ -4653,8 +4656,6 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="ad_plan_rub" value="' + (c.ad_plan_rub||'') + '" style="width:80px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="supply_days" value="' + (c.supply_days||'') + '" style="width:80px" placeholder="5" min="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="min_batch_fbo" value="' + (c.min_batch_fbo||'') + '" style="width:80px" placeholder="1" min="1"></td>' +
-                '<td><input type="text" class="cost-input" data-field="product_class" value="' + esc(c.product_class||'') + '" style="width:70px" placeholder="-"></td>' +
-                '<td><input type="text" class="cost-input" data-field="brand" value="' + esc(c.brand||'') + '" style="width:80px" placeholder="-"></td>' +
                 '<td><select class="cost-input" data-field="tax_system" style="width:90px;font-size:.8em"><option value="">-</option><option value="usn"' + (c.tax_system==='usn'?' selected':'') + '>УСН</option><option value="usn_dr"' + (c.tax_system==='usn_dr'?' selected':'') + '>Доходы-Расходы</option><option value="osn"' + (c.tax_system==='osn'?' selected':'') + '>ОСН</option></select></td>' +
                 '<td><input type="number" class="cost-input" data-field="season_jan" value="' + (c.season_jan||'') + '" style="width:42px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="season_feb" value="' + (c.season_feb||'') + '" style="width:42px" placeholder="0"></td>' +
@@ -4692,7 +4693,7 @@ function applyCostFilters() {
                 sizes.forEach(s => {
                     const sizeLabel = s.size_name && s.size_name !== '0' && s.size_name !== 'ONE SIZE' ? s.size_name : String.fromCharCode(8212);
                     html += '<tr class="cost-group-child" style="display:none;font-size:.85em">' +
-                        '<td></td><td></td><td></td><td></td><td></td>' +
+                        '<td></td><td></td><td></td><td></td><td></td><td></td><td></td>' +
                         '<td style="color:#6c5ce7;font-weight:500">' + esc(sizeLabel) + '</td>' +
                         '<td></td><td></td>' +
                         '<td style="font-size:.7em;color:#999">' + esc(s.barcodes||'') + '</td>' +
@@ -4833,7 +4834,7 @@ async function saveAllCostPrices() {
     let saved = 0;
     for (const row of rows) {
         const costInput = row.querySelector('[data-field="cost_price"]');
-        // Don't skip — status-only edits should work too
+        if (!costInput || !costInput.value) continue;
         const gv = (field, def='0') => row.querySelector('[data-field="' + field + '"]')?.value || def;
         const data = {
             nm_id: parseInt(row.dataset.nm),
