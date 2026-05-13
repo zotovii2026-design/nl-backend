@@ -322,6 +322,57 @@ async def nl_create_org(data: dict, token: str = Query(""), db: AsyncSession = D
     return {"id": str(org.id), "name": org.name}
 
 
+
+@router.get("/api/v1/nl/tax-settings")
+async def get_tax_settings(org_id: str, db: AsyncSession = Depends(get_db)):
+    """Налоговые настройки кабинета"""
+    from models.organization import Organization
+    result = await db.execute(
+        select(Organization).where(Organization.id == org_id)
+    )
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(404, "Организация не найдена")
+    return {
+        "tax_system": org.tax_system or "",
+        "tax_rate": float(org.tax_rate) if org.tax_rate else None,
+        "vat_type": org.vat_type or "нет"
+    }
+
+
+@router.post("/api/v1/nl/tax-settings")
+async def save_tax_settings(data: dict, org_id: str, db: AsyncSession = Depends(get_db)):
+    """Сохранить налоговые настройки кабинета"""
+    from models.organization import Organization
+    result = await db.execute(
+        select(Organization).where(Organization.id == org_id)
+    )
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(404, "Организация не найдена")
+    
+    allowed_systems = ["УСН Доходы", "УСН Доходы-Расходы", "ОСНО", "АУСН Доходы", "АУСН Доходы-Расходы"]
+    ts = data.get("tax_system", "")
+    if ts and ts not in allowed_systems:
+        raise HTTPException(400, f"Недопустимый вид налогообложения. Допустимые: {', '.join(allowed_systems)}")
+    
+    allowed_vat = ["нет", "5%", "7%"]
+    vt = data.get("vat_type", "нет")
+    if vt and vt not in allowed_vat:
+        raise HTTPException(400, f"Недопустимый НДС. Допустимые: {', '.join(allowed_vat)}")
+    
+    org.tax_system = ts if ts else None
+    org.tax_rate = float(data["tax_rate"]) if data.get("tax_rate") else None
+    org.vat_type = vt if vt else "нет"
+    await db.commit()
+    
+    return {
+        "tax_system": org.tax_system or "",
+        "tax_rate": float(org.tax_rate) if org.tax_rate else None,
+        "vat_type": org.vat_type or "нет"
+    }
+
+
 @router.get("/api/v1/nl/wb-keys")
 async def nl_wb_keys(org_id: str, db: AsyncSession = Depends(get_db)):
     """Список WB API ключей организации"""
@@ -3352,6 +3403,32 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <input type="text" id="cp-article" placeholder="Артикул" oninput="loadCostPrices()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:120px">
 </div>
 
+
+<!-- Налоговые настройки кабинета -->
+<div id="tax-settings-panel" style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding:12px 16px;background:#fff;border:1px solid #e0e0e0;border-radius:8px;flex-wrap:wrap">
+<div style="display:flex;align-items:center;gap:8px">
+<label style="font-size:.85em;color:#333;font-weight:600;white-space:nowrap">Вид налогообложения</label>
+<select id="tax-system-select" onchange="onTaxSystemChange()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 10px;font-size:.9em;min-width:180px">
+<option value="">— не выбрано —</option>
+<option value="УСН Доходы">УСН "Доходы"</option>
+<option value="УСН Доходы-Расходы">УСН "Доходы-Расходы"</option>
+<option value="ОСНО">ОСНО</option>
+<option value="АУСН Доходы">АУСН "Доходы"</option>
+<option value="АУСН Доходы-Расходы">АУСН "Доходы-Расходы"</option>
+</select>
+<input type="number" id="tax-rate-input" placeholder="% ставки" step="0.01" min="0" max="100" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 10px;font-size:.9em;width:80px">
+</div>
+<div style="display:flex;align-items:center;gap:8px;margin-left:24px">
+<label style="font-size:.85em;color:#333;font-weight:600;white-space:nowrap">НДС от дохода</label>
+<select id="vat-type-select" onchange="onTaxSettingsChange()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 10px;font-size:.9em;min-width:100px">
+<option value="нет">нет</option>
+<option value="5%">5%</option>
+<option value="7%">7%</option>
+</select>
+</div>
+<button class="btn" onclick="saveTaxSettings()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff;margin-left:auto">💾 Сохранить</button>
+</div>
+
 <!-- Панель действий -->
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
 <button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить Excel</button>
@@ -3387,6 +3464,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th style="position:relative">Себестоимость ₽<span onclick="showCostInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
 <th style="position:relative">Доп расходы ₽<span onclick="showExtraCostsInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
 <th style="position:relative">Себестоимость итого ₽<span onclick="showTotalCostInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
+<th id="tax-col-header" style="background:#f0f1f5">Налог, %<br><span id="tax-col-subheader" style="font-size:.8em;color:#666;font-weight:400">—</span></th>
 <th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th><th>Мин. цена ₽</th><th>НДС руб</th>
 <th>Баз. % МП</th><th>Корр. % МП</th><th>% хранения</th><th>% выкупа ниши</th>
 <th>Цена до СПП план ₽</th><th>Цена до СПП к изм. ₽</th><th>Дата правок</th><th>Скидка WB Клуб %</th><th>РРЦ ₽</th>
@@ -3859,6 +3937,7 @@ function toggleGroup(tr) {
 let TOKEN = localStorage.getItem('nl_token');
 let ORG_ID = new URL(location).searchParams.get('org') || localStorage.getItem('nl_org_id');
 let FBS_WAREHOUSES = [];
+let _taxSettings = {tax_system: '', tax_rate: null, vat_type: 'нет'};
 async function loadFbsWarehouses() {
     try {
         const r = await fetch('/api/v1/nl/fbs-warehouses?org_id=' + ORG_ID);
@@ -4587,6 +4666,74 @@ function calcPlanVol(el) {
   }
 }
 
+
+// === Налоговые настройки кабинета ===
+async function loadTaxSettings() {
+    if (!ORG_ID) return;
+    try {
+        const r = await fetch('/api/v1/nl/tax-settings?org_id=' + ORG_ID);
+        if (r.ok) {
+            _taxSettings = await r.json();
+            document.getElementById('tax-system-select').value = _taxSettings.tax_system || '';
+            document.getElementById('tax-rate-input').value = _taxSettings.tax_rate != null ? _taxSettings.tax_rate : '';
+            document.getElementById('vat-type-select').value = _taxSettings.vat_type || 'нет';
+            updateTaxColHeader();
+        }
+    } catch(e) { console.error('loadTaxSettings', e); }
+}
+
+function onTaxSystemChange() {
+    updateTaxColHeader();
+}
+
+function onTaxSettingsChange() {
+    updateTaxColHeader();
+}
+
+function updateTaxColHeader() {
+    const ts = document.getElementById('tax-system-select').value;
+    const tr = document.getElementById('tax-rate-input').value;
+    const sub = document.getElementById('tax-col-subheader');
+    if (sub) sub.textContent = ts ? ts + (tr ? ' ' + tr + '%' : '') : '—';
+}
+
+async function saveTaxSettings() {
+    if (!ORG_ID) return;
+    const data = {
+        tax_system: document.getElementById('tax-system-select').value,
+        tax_rate: document.getElementById('tax-rate-input').value || null,
+        vat_type: document.getElementById('vat-type-select').value || 'нет'
+    };
+    try {
+        const r = await fetch('/api/v1/nl/tax-settings?org_id=' + ORG_ID, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        if (r.ok) {
+            _taxSettings = await r.json();
+            updateTaxColHeader();
+            applyCostFilters(); // перерисовать таблицу с новыми данными
+            showToast('Налоговые настройки сохранены');
+        } else {
+            const err = await r.json();
+            showToast('Ошибка: ' + (err.detail || r.status), 'error');
+        }
+    } catch(e) {
+        console.error('saveTaxSettings', e);
+        showToast('Ошибка сохранения', 'error');
+    }
+}
+
+
+function showToast(msg, type) {
+    var el = document.createElement('div');
+    el.textContent = msg;
+    el.style.cssText = 'position:fixed;bottom:20px;right:20px;padding:12px 20px;border-radius:8px;color:#fff;font-size:.9em;z-index:9999;animation:fadeInUp .3s;' + (type==='error'?'background:#e74c3c':'background:#00b894');
+    document.body.appendChild(el);
+    setTimeout(function(){ el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(function(){ el.remove(); }, 300); }, 2500);
+}
+
 async function loadCostPrices() {
     console.log("[CP] ORG_ID=", ORG_ID);
     loadFbsWarehouses();
@@ -4737,6 +4884,7 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="cost_price" value="' + costPrice + '" style="width:80px;font-weight:600" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="extra_costs" value="' + (c.extra_costs||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="text" class="cost-input" data-field="total_cost" value="' + ((parseFloat(costPrice)||0)+(parseFloat(c.extra_costs)||0)).toFixed(2) + '" style="width:80px;font-weight:600;background:#f0f0f0" readonly></td>' +
+                '<td class="tax-cell" style="text-align:center;font-size:.85em;color:#6c5ce7;font-weight:600;background:#f8f7ff">' + (_taxSettings.tax_system ? _taxSettings.tax_system + ' ' + (_taxSettings.tax_rate || '') + '%' : String.fromCharCode(8212)) + '</td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +

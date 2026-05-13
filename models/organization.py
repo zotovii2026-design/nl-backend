@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, String, DateTime, func, ForeignKey, Text
+from sqlalchemy import Column, String, DateTime, func, ForeignKey, Text, Numeric
 from sqlalchemy.dialects.postgresql import UUID, ENUM
 from sqlalchemy.orm import relationship
 from core.database import Base
@@ -45,6 +45,12 @@ class Organization(Base):
     subscription_tier = Column(ENUM(SubscriptionTier), default=SubscriptionTier.TRIAL)
     subscription_status = Column(ENUM(SubscriptionStatus), default=SubscriptionStatus.ACTIVE)
     wb_seller_id = Column(String(20), nullable=True)  # ID магазина WB (oid из JWT)
+
+    # === НАЛОГОВЫЕ НАСТРОЙКИ (на весь кабинет) ===
+    tax_system = Column(String(50), nullable=True)    # УСН Доходы / УСН Доходы-Расходы / ОСНО / АУСН Доходы / АУСН Доходы-Расходы
+    tax_rate = Column(Numeric(5, 2), nullable=True)   # % ставки налога
+    vat_type = Column(String(10), nullable=True)      # НДС от дохода: нет / 5% / 7%
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
