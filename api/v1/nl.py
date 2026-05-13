@@ -380,6 +380,38 @@ async def nl_delete_wb_key(key_id: str, org_id: str, db: AsyncSession = Depends(
 
 
 
+
+@router.get("/api/v1/nl/fbs-warehouses")
+async def get_fbs_warehouses(org_id: str, db: AsyncSession = Depends(get_db)):
+    """Список складов FBS отгрузки из WB API (кэш 24ч)"""
+    import json, time
+    from models.organization import WbApiKey
+    cache_key = "fbs_wh_cache_" + org_id
+    cache_file = "/tmp/" + cache_key + ".json"
+    try:
+        with open(cache_file, "r") as f:
+            cache = json.load(f)
+            if time.time() - cache["ts"] < 86400:
+                return cache["data"]
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        pass
+    result = await db.execute(
+        select(WbApiKey).where(WbApiKey.organization_id == org_id)
+    )
+    key_rec = result.scalar_one_or_none()
+    if not key_rec or not key_rec.personal_token:
+        return []
+    token = decrypt_data(key_rec.personal_token)
+    try:
+        from services.wb_api.client import WBApiClient
+        async with WBApiClient(token) as client:
+            warehouses = await client.get_fbs_warehouses()
+    except Exception as e:
+        raise HTTPException(502, f"WB API error: {e}")
+    with open(cache_file, "w") as f:
+        json.dump({"ts": time.time(), "data": warehouses}, f, ensure_ascii=False)
+    return warehouses
+
 @router.get("/api/v1/nl/dates")
 async def get_available_dates(org_id: str, db: AsyncSession = Depends(get_db)):
     """Доступные даты в ТС"""
@@ -2028,7 +2060,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "tq3": ps(row, "ТОП запрос 3", "top_query_3"),
             # Отгрузка
             "shm": ps(row, "Способ отгрузки", "shipment_method"),
-            "fbsw": ps(row, "Склад FBS", "fbs_warehouse"), "rrc": pf(row, "РРЦ", "rrc_price"),
+            "fbsw": ps(row, "Склад отгрузки FBS", "fbs_warehouse"), "rrc": pf(row, "РРЦ", "rrc_price"),
             # subject_id/name (из product_entities, но можно передать в файле)
             "subid": int(row.get("subject_id")) if row.get("subject_id") and str(row.get("subject_id")).strip().isdigit() else None,
             "subn": ps(row, "Категория", "subject_name"),
@@ -3334,8 +3366,9 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th style="position:sticky;left:0;z-index:2;background:#fff"><input type="checkbox" id="cost-check-all" onchange="toggleAllCostRows(this.checked)" style="cursor:pointer"></th>
 <th>Статус товара</th><th>Класс товара</th><th>Бренд</th><th>Фото</th><th>Категория</th><th>Арт продавца</th><th>Баркод</th><th>Размер</th><th>Арт WB</th><th>Товар</th>
 <th>Отгрузка</th>
-<th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th><th>Доп. затраты ₽</th>
-<th>Себестоимость ₽</th><th>Мин. цена ₽</th><th>НДС руб</th>
+<th>Склад отгрузки FBS</th>
+<th style="position:relative">Себестоимость ₽<span onclick="showCostInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
+<th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th><th>Доп. затраты ₽</th><th>Мин. цена ₽</th><th>НДС руб</th>
 <th>Баз. % МП</th><th>Корр. % МП</th><th>% хранения</th><th>% выкупа ниши</th>
 <th>Цена до СПП план ₽</th><th>Цена до СПП к изм. ₽</th><th>Дата правок</th><th>Скидка WB Клуб %</th><th>РРЦ ₽</th>
 <th>Реклама план ₽</th>
@@ -3347,10 +3380,9 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th>ФАКТ Д&#215;Ш&#215;В</th><th>ФАКТ объём</th><th>ФАКТ вес</th>
 <th>Дост. до склада</th><th>Дост. до МП</th>
 <th>ТОП запр. 1</th><th>ТОП запр. 2</th><th>ТОП запр. 3</th>
-<th>Склад FBS</th>
 <th>Дата начала</th><th>Заметки</th>
 </tr></thead>
-<tbody id="cost-body"><tr><td colspan="37" class="empty">Загрузка...</td></tr></tbody></table>
+<tbody id="cost-body"><tr><td colspan="38" class="empty">Загрузка...</td></tr></tbody></table>
 </div>
 
 <!-- Плавающая панель массовых действий -->
@@ -3402,7 +3434,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <option value="delivery_days_to_seller">До склада (дн)</option><option value="delivery_days_to_mp">До МП (дн)</option>
 </optgroup>
 <optgroup label="Запросы/отгрузка">
-<option value="top_query_1">ТОП запрос 1</option><option value="top_query_2">ТОП запрос 2</option><option value="top_query_3">ТОП запрос 3</option><option value="fbs_warehouse">Склад FBS</option>
+<option value="top_query_1">ТОП запрос 1</option><option value="top_query_2">ТОП запрос 2</option><option value="top_query_3">ТОП запрос 3</option><option value="fbs_warehouse">Склад отгрузки FBS</option>
 </optgroup>
 <optgroup label="Прочее">
 <option value="valid_from">Дата начала</option>
@@ -3806,7 +3838,14 @@ function toggleGroup(tr) {
 }
 
 let TOKEN = localStorage.getItem('nl_token');
-let ORG_ID = localStorage.getItem('nl_org_id');
+let ORG_ID = new URL(location).searchParams.get('org') || localStorage.getItem('nl_org_id');
+let FBS_WAREHOUSES = [];
+async function loadFbsWarehouses() {
+    try {
+        const r = await fetch('/api/v1/nl/fbs-warehouses?org_id=' + ORG_ID);
+        if (r.ok) FBS_WAREHOUSES = await r.json();
+    } catch(e) { console.warn('FBS warehouses load failed', e); }
+}
 
 function showRegister() {
     document.getElementById('auth-login').style.display = 'none';
@@ -4528,7 +4567,9 @@ function calcPlanVol(el) {
 }
 
 async function loadCostPrices() {
-    if (!ORG_ID) return;
+    console.log("[CP] ORG_ID=", ORG_ID);
+    loadFbsWarehouses();
+    if (!ORG_ID) { console.warn("[CP] No ORG_ID"); return; }
     try {
         const datesRes = await fetch('/api/v1/nl/dates?org_id=' + ORG_ID);
         const dates = datesRes.ok ? await datesRes.json() : [];
@@ -4538,6 +4579,7 @@ async function loadCostPrices() {
         if (!prodsRes.ok) return;
         const prodsData = await prodsRes.json();
         _costProducts = prodsData.products || [];
+        console.log("[CP] products:", _costProducts.length, "dates:", dates.length);
         
         const costRes = await fetch('/api/v1/nl/cost-prices?org_id=' + ORG_ID);
         _costMap = {};
@@ -4552,6 +4594,7 @@ async function loadCostPrices() {
         
         // Заполнить фильтры-дропдауны уникальными значениями
         populateCostFilterOptions();
+        console.log("[CP] costMap:", Object.keys(_costMap).length);
         applyCostFilters();
     } catch(e) { console.error('loadCostPrices', e); }
 }
@@ -4669,12 +4712,13 @@ function applyCostFilters() {
                 '<td><b>' + nmId + '</b>' + sizesBadge + '</td>' +
                 '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name||'') + '">' + esc(p.product_name||'') + '</td>' +
                 '<td><select class="cost-input" data-field="fulfillment_model" style="width:60px;font-size:.8em" onchange="onShipmentChange(this)"><option value="fbo"' + (c.fulfillment_model!=='fbs'?' selected':'') + '>ФБО</option><option value="fbs"' + (c.fulfillment_model==='fbs'?' selected':'') + '>ФБС</option></select></td>' +
+                '<td><select class="cost-input" data-field="fbs_warehouse" style="width:120px;font-size:.8em"><option value="">-</option>' + FBS_WAREHOUSES.map(function(w) { return '<option value="' + esc(w.name) + '"' + (c.fbs_warehouse===w.name?' selected':'') + ' title="' + esc(w.address||'') + '">' + esc(w.name) + '</option>'; }).join('') + '</select></td>' +
+                '<td><input type="number" class="cost-input" data-field="cost_price" value="' + costPrice + '" style="width:80px;font-weight:600" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="other" value="' + (c.other_costs||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="extra_costs" value="' + (c.extra_costs||'') + '" style="width:70px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="cost_price" value="' + costPrice + '" style="width:80px;font-weight:600" placeholder="0"></td>' +
                 '<td style="position:relative"><input type="number" class="cost-input" data-field="min_price" value="' + (c.min_price||'') + '" style="width:80px' + (c.min_price ? '' : ';color:#888;font-style:italic') + '" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="vat" value="' + (c.vat||'') + '" style="width:50px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="mp_base_pct" value="' + (c.mp_base_pct||'') + '" style="width:60px" placeholder="0"></td>' +
@@ -4717,7 +4761,6 @@ function applyCostFilters() {
                 '<td><input type="text" class="cost-input" data-field="top_query_2" value="' + esc(c.top_query_2||'') + '" style="width:80px" placeholder="-"></td>' +
                 '<td><input type="text" class="cost-input" data-field="top_query_3" value="' + esc(c.top_query_3||'') + '" style="width:80px" placeholder="-"></td>' +
                 
-                '<td><input type="text" class="cost-input" data-field="fbs_warehouse" value="' + esc(c.fbs_warehouse||'') + '" style="width:80px" placeholder="-"></td>' +
                 '<td><input type="date" class="cost-input" data-field="valid_from" value="' + (c.valid_from||new Date().toISOString().split('T')[0]) + '" style="width:110px;font-size:.8em"></td>' +
                 '<td><input type="text" class="cost-input" data-field="notes" value="' + esc(c.notes||'') + '" style="width:100px" placeholder="-"></td>' +
                 '</tr>';
@@ -4746,6 +4789,21 @@ function applyCostFilters() {
             (filled > 0 ? '<span>' + String.fromCharCode(128208) + ' Средняя: <strong>' + Math.round(totalCost/filled).toLocaleString('ru-RU') + ' ' + String.fromCharCode(8381) + '</strong></span>' : '');
 }
 
+
+
+function showCostInfo(el) {
+    var existing = document.getElementById('cost-info-popup');
+    if (existing) { existing.remove(); return; }
+    var popup = document.createElement('div');
+    popup.id = 'cost-info-popup';
+    popup.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border:1px solid #ddd;border-radius:8px;padding:16px 20px;box-shadow:0 4px 24px rgba(0,0,0,.18);z-index:9999;max-width:400px;font:6px Arial;line-height:1.6;color:#333';
+    popup.innerHTML = '<div style="font-size:7px;font-weight:600;margin-bottom:6px;color:#6c5ce7">ℹ️ Себестоимость</div>' +
+        '<div style="font-size:6px">В колонке себестоимости указывается закупочная цена + все затраты на данный товар, напр, доставка до склада, упаковка, маркировка, фулфилмент.</div>' +
+        '<div style="font-size:5px;margin-top:8px;color:#999">Ввод: ручной или через загрузочный лист. Считается в рублях.</div>' +
+        '<div style="margin-top:8px;text-align:right"><button onclick="this.parentNode.parentNode.remove()" style="font:6px Arial;background:#6c5ce7;color:#fff;border:none;border-radius:4px;padding:3px 10px;cursor:pointer">Закрыть</button></div>';
+    document.body.appendChild(popup);
+    popup.addEventListener('click', function(e) { if (e.target === popup) popup.remove(); });
+}
 
 function onShipmentChange(sel) {
     var row = sel.closest('tr');
@@ -5013,7 +5071,7 @@ function exportCostTemplate() {
         'План длина;План ширина;План высота;План объём;План вес;' +
         'Доставка до склада (дни);Доставка до МП (дни);' +
         'ТОП запрос 1;ТОП запрос 2;ТОП запрос 3;' +
-        'Склад FBS;' +
+        'Склад отгрузки FBS;' +
         'Заметки';
     let csv = hdr;
     if (rows.length) {

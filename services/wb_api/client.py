@@ -322,6 +322,20 @@ class WBApiClient:
         return []
 
 
+
+    async def get_fbs_warehouses(self) -> list:
+        """Получение списка складов для FBS отгрузки.
+        GET /api/v3/passes/offices
+        Требует Personal token.
+        """
+        response = await self.client.get(
+            f"{self.MARKETPLACE_URL}/api/v3/passes/offices"
+        )
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, list):
+            return data
+        return data.get("data", [])
     async def get_prices(self, limit: int = 1000, offset: int = 0) -> list:
         """
         Получение товаров с ценами через Marketplace API.
