@@ -2027,7 +2027,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "lc": pf(row, "Логистика", "logistics_cost"),
             "pk": pf(row, "Упаковка", "packaging_cost"),
             "oc": pf(row, "Прочее", "other_costs"),
-            "ec": pf(row, "Доп. затраты", "extra_costs"),
+            "ec": pf(row, "Доп расходы", "extra_costs"),
             "vat": pf(row, "НДС руб", "vat"),
             "minp": pf(row, "Мин. цена", "min_price"),
             # МП/Комиссия
@@ -3385,7 +3385,9 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th>Отгрузка</th>
 <th>Склад отгрузки FBS</th>
 <th style="position:relative">Себестоимость ₽<span onclick="showCostInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
-<th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th><th>Доп. затраты ₽</th><th>Мин. цена ₽</th><th>НДС руб</th>
+<th style="position:relative">Доп расходы ₽<span onclick="showExtraCostsInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
+<th style="position:relative">Себестоимость итого ₽<span onclick="showTotalCostInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
+<th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th><th>Мин. цена ₽</th><th>НДС руб</th>
 <th>Баз. % МП</th><th>Корр. % МП</th><th>% хранения</th><th>% выкупа ниши</th>
 <th>Цена до СПП план ₽</th><th>Цена до СПП к изм. ₽</th><th>Дата правок</th><th>Скидка WB Клуб %</th><th>РРЦ ₽</th>
 <th>Реклама план ₽</th>
@@ -3412,7 +3414,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <option value="logistics_cost">Логистика ₽</option>
 <option value="packaging_cost">Упаковка ₽</option>
 <option value="other_costs">Прочее ₽</option>
-<option value="extra_costs">Доп. затраты ₽</option>
+<option value="extra_costs">Доп расходы ₽</option>
 <option value="cost_price">Себестоимость ₽</option>
 <option value="min_price">Мин. цена ₽</option>
 <option value="vat">НДС руб</option>
@@ -3722,7 +3724,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th>Бренд</th>
 <th>Категория</th>
 <th>Себест. ₽</th>
-<th>Доп. затраты</th>
+<th>Доп расходы</th>
 <th style="background:#f0f0ff">Баз. % МП</th>
 <th style="background:#f0f0ff">Корр. % МП</th>
 <th style="background:#f0f0ff">Итог. % МП</th>
@@ -4082,6 +4084,8 @@ function navTo(name, el) {
     // Update top-bar filters visibility
     var topFilters = document.getElementById('top-filters');
     if (topFilters) topFilters.style.display = (name === 'stats' || name === 'analytics' || name === 'rnp' || name === 'opiu') ? 'flex' : 'none';
+    // Cleanup popups
+    if (typeof cleanupCostPopups === 'function') cleanupCostPopups();
     // Load data for the tab
     if (name === 'stats') loadStats();
     else if (name === 'analytics') loadAnalytics();
@@ -4731,11 +4735,12 @@ function applyCostFilters() {
                 '<td><select class="cost-input" data-field="fulfillment_model" style="width:60px;font-size:.8em" onchange="onShipmentChange(this)"><option value="fbo"' + (c.fulfillment_model!=='fbs'?' selected':'') + '>ФБО</option><option value="fbs"' + (c.fulfillment_model==='fbs'?' selected':'') + '>ФБС</option></select></td>' +
                 '<td><select class="cost-input" data-field="fbs_warehouse" style="width:140px;font-size:.8em"><option value="">-</option>' + (function(){var g={};FBS_WAREHOUSES.forEach(function(w){var t=w.type||"Склад";if(!g[t])g[t]=[];g[t].push(w);});var h="";["Склад","СЦ","КГТ+"].forEach(function(t){if(g[t]){h+="<optgroup label='"+t+" ("+g[t].length+")'>";g[t].forEach(function(w){h+="<option value='"+esc(w.name)+"'"+(c.fbs_warehouse===w.name?" selected":"")+" title='"+esc(w.address||"")+"'>"+esc(w.name)+"</option>";});h+="</optgroup>";}});return h;})() + '</select></td>' +
                 '<td><input type="number" class="cost-input" data-field="cost_price" value="' + costPrice + '" style="width:80px;font-weight:600" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="extra_costs" value="' + (c.extra_costs||'') + '" style="width:70px" placeholder="0"></td>' +
+                '<td><input type="text" class="cost-input" data-field="total_cost" value="' + ((parseFloat(costPrice)||0)+(parseFloat(c.extra_costs)||0)).toFixed(2) + '" style="width:80px;font-weight:600;background:#f0f0f0" readonly></td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="other" value="' + (c.other_costs||'') + '" style="width:70px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="extra_costs" value="' + (c.extra_costs||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td style="position:relative"><input type="number" class="cost-input" data-field="min_price" value="' + (c.min_price||'') + '" style="width:80px' + (c.min_price ? '' : ';color:#888;font-style:italic') + '" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="vat" value="' + (c.vat||'') + '" style="width:50px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="mp_base_pct" value="' + (c.mp_base_pct||'') + '" style="width:60px" placeholder="0"></td>' +
@@ -4792,7 +4797,7 @@ function applyCostFilters() {
                         '<td></td><td></td>' +
                         '<td style="font-size:.7em;color:#999">' + esc(s.barcodes||'') + '</td>' +
                         '<td></td>' +
-                        '<td colspan="29" style="color:#999;font-size:.75em">' + String.fromCharCode(8592) + ' ' + esc(s.entity_id||'') + '</td>' +
+                        '<td colspan="30" style="color:#999;font-size:.75em">' + String.fromCharCode(8592) + ' ' + esc(s.entity_id||'') + '</td>' +
                         '</tr>';
                 });
             }
@@ -4808,6 +4813,16 @@ function applyCostFilters() {
 
 
 
+
+// Автоудаление зависших попапов
+function cleanupCostPopups() {
+    ['cost-info-popup','extra-costs-info-popup','total-cost-info-popup'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.remove();
+    });
+}
+document.addEventListener('DOMContentLoaded', cleanupCostPopups);
+
 function showCostInfo(el) {
     var existing = document.getElementById('cost-info-popup');
     if (existing) { existing.remove(); return; }
@@ -4821,6 +4836,46 @@ function showCostInfo(el) {
     document.body.appendChild(popup);
     popup.addEventListener('click', function(e) { if (e.target === popup) popup.remove(); });
 }
+
+
+function showExtraCostsInfo(el) {
+    var existing = document.getElementById('extra-costs-info-popup');
+    if (existing) { existing.remove(); return; }
+    var popup = document.createElement('div');
+    popup.id = 'extra-costs-info-popup';
+    popup.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border:1px solid #ddd;border-radius:8px;padding:16px 20px;box-shadow:0 4px 24px rgba(0,0,0,.18);z-index:9999;max-width:400px;font:6px Arial;line-height:1.6;color:#333';
+    popup.innerHTML = '<div style="font-size:7px;font-weight:600;margin-bottom:6px;color:#6c5ce7">ℹ️ Доп расходы</div>' +
+        '<div style="font-size:6px">Все дополнительные расходы, которые не учтены в Себестоимости. Считается в рублях.</div>' +
+        '<div style="margin-top:8px;text-align:right"><button onclick="this.parentNode.parentNode.remove()" style="font:6px Arial;background:#6c5ce7;color:#fff;border:none;border-radius:4px;padding:3px 10px;cursor:pointer">Закрыть</button></div>';
+    document.body.appendChild(popup);
+    popup.addEventListener('click', function(e) { if (e.target === popup) popup.remove(); });
+}
+
+function showTotalCostInfo(el) {
+    var existing = document.getElementById('total-cost-info-popup');
+    if (existing) { existing.remove(); return; }
+    var popup = document.createElement('div');
+    popup.id = 'total-cost-info-popup';
+    popup.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border:1px solid #ddd;border-radius:8px;padding:16px 20px;box-shadow:0 4px 24px rgba(0,0,0,.18);z-index:9999;max-width:400px;font:6px Arial;line-height:1.6;color:#333';
+    popup.innerHTML = '<div style="font-size:7px;font-weight:600;margin-bottom:6px;color:#6c5ce7">ℹ️ Себестоимость итого</div>' +
+        '<div style="font-size:6px">Сумма колонок «Себестоимость» и «Доп расходы». Автоматический расчёт. Считается в рублях.</div>' +
+        '<div style="margin-top:8px;text-align:right"><button onclick="this.parentNode.parentNode.remove()" style="font:6px Arial;background:#6c5ce7;color:#fff;border:none;border-radius:4px;padding:3px 10px;cursor:pointer">Закрыть</button></div>';
+    document.body.appendChild(popup);
+    popup.addEventListener('click', function(e) { if (e.target === popup) popup.remove(); });
+}
+
+
+// Автопересчёт Себестоимость итого
+document.addEventListener('input', function(e) {
+    if (e.target.matches('[data-field="cost_price"], [data-field="extra_costs"]')) {
+        var row = e.target.closest('tr');
+        if (!row) return;
+        var cp = parseFloat(row.querySelector('[data-field="cost_price"]')?.value) || 0;
+        var ec = parseFloat(row.querySelector('[data-field="extra_costs"]')?.value) || 0;
+        var tc = row.querySelector('[data-field="total_cost"]');
+        if (tc) tc.value = (cp + ec).toFixed(2);
+    }
+});
 
 function onShipmentChange(sel) {
     var row = sel.closest('tr');
@@ -5077,7 +5132,7 @@ async function uploadCostExcel(input) {
 function exportCostTemplate() {
     const rows = document.querySelectorAll('#cost-body tr[data-nm]');
     const hdr = 'Арт WB;Арт продавца;Баркод;Название;Размер;Отгрузка;' +
-        'Закупка;Логистика;Упаковка;Прочее;Доп. затраты;Себестоимость;Мин. цена;НДС руб;' +
+        'Доп расходы;Себестоимость итого;Закупка;Логистика;Упаковка;Прочее;Мин. цена;НДС руб;' +
         'Баз. % МП;Корр. % МП;% хранения;% выкупа ниши;' +
         'Цена до СПП план;Цена до СПП к изм.;Дата правок;Скидка WB Клуб %;РРЦ;' +
         'Реклама план;' +
@@ -5101,7 +5156,7 @@ function exportCostTemplate() {
             const size = row.querySelector('td:nth-child(4)')?.textContent || '';
             const gv = (f) => row.querySelector('[data-field="' + f + '"]')?.value || '';
             const cols = [nm, vc, bc, '"' + name + '"', size,
-                gv('purchase'), gv('logistics'), gv('packaging'), gv('other'), gv('extra_costs'), gv('cost_price'), gv('min_price'), gv('vat'),
+                gv('extra_costs'), (parseFloat(gv('cost_price'))+parseFloat(gv('extra_costs'))).toFixed(2), gv('purchase'), gv('logistics'), gv('packaging'), gv('other'), gv('min_price'), gv('vat'),
                 gv('mp_base_pct'), gv('mp_correction_pct'), gv('fulfillment_model'), gv('storage_pct'), gv('buyout_niche_pct'),
                 gv('price_before_spp_plan'), gv('price_before_spp_change'), gv('change_date'), gv('wb_club_discount_pct'), gv('rrc_price'),
                 gv('ad_plan_rub'),
@@ -6172,7 +6227,7 @@ async function saveAllUnitEcon() {
 
 function exportUnitEcon() {
     if (!ueData.length) return;
-    let csv = 'Арт WB;Арт продавца;Название;Класс;Бренд;Категория;Себестоимость;Доп затраты;Баз % МП;Корр % МП;Итог % МП;% выкупа ниши;% выкупа факт;Лог тариф;Лог факт;Хран тариф;Хран факт;Эквайринг;Приёмка;Налог %;НДС %;Налог руб;Рекл факт;Рекл план;Цена до СПП;СПП %;Цена с СПП;Скидка ВБ Клуб %;Расходы;Прибыль;Маржа %;ROI %;На Р/С;Цена план;Расходы план;Прибыль план;Маржа план %;ROI план %;На Р/С план;Дата правок;Цена к изм;Прибыль изм;ROI изм;Тариф тип';
+    let csv = 'Арт WB;Арт продавца;Название;Класс;Бренд;Категория;Себестоимость;Доп расходы;Баз % МП;Корр % МП;Итог % МП;% выкупа ниши;% выкупа факт;Лог тариф;Лог факт;Хран тариф;Хран факт;Эквайринг;Приёмка;Налог %;НДС %;Налог руб;Рекл факт;Рекл план;Цена до СПП;СПП %;Цена с СПП;Скидка ВБ Клуб %;Расходы;Прибыль;Маржа %;ROI %;На Р/С;Цена план;Расходы план;Прибыль план;Маржа план %;ROI план %;На Р/С план;Дата правок;Цена к изм;Прибыль изм;ROI изм;Тариф тип';
     csv += String.fromCharCode(10);
     ueData.forEach(p => {
         csv += [p.nm_id, p.vendor_code, p.product_name, p.product_class, p.brand, p.subject_name,
