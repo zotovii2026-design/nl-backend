@@ -2088,7 +2088,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "mpc": pf(row, "Корр. % МП", "mp_correction_pct"),
             "ffm": ps(row, "ФБО/ФБС", "fulfillment_model") or "fbo",
             "stp": pf(row, "% хранения", "storage_pct"),
-            "bnp": pf(row, "% выкупа ниши", "buyout_niche_pct"),
+            "bnp": pf(row, "% выкупа по категории", "buyout_niche_pct"),
             # Цены
             "pspp": pf(row, "Цена до СПП план", "price_before_spp_plan"),
             "psppc": pf(row, "Цена до СПП к изм.", "price_before_spp_change"),
@@ -3473,7 +3473,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th colspan="12" style="background:#fff8e1;text-align:center;font-size:.85em">Коэффициент сезонности</th>
 <th colspan="3" style="background:#e8eaf6;text-align:center;font-size:.85em">ТОП запросы, ПЛАН</th>
 <th rowspan="2">Закупка ₽</th><th rowspan="2">Логистика ₽</th><th rowspan="2">Упаковка ₽</th><th rowspan="2">Прочее ₽</th><th rowspan="2">Мин. цена ₽</th><th rowspan="2">НДС руб</th>
-<th rowspan="2">Баз. % МП</th><th rowspan="2">Корр. % МП</th><th rowspan="2">% хранения</th><th rowspan="2">% выкупа ниши</th>
+<th rowspan="2">Баз. % МП</th><th rowspan="2">Корр. % МП</th><th rowspan="2">% хранения</th><th rowspan="2">% выкупа по категории</th>
 <th rowspan="2">Цена до СПП план ₽</th><th rowspan="2">Цена до СПП к изм. ₽</th><th rowspan="2">Дата правок</th><th rowspan="2">Скидка WB Клуб %</th><th rowspan="2">РРЦ ₽</th>
 <th rowspan="2">Реклама план ₽</th>
 <th rowspan="2">Срок поставки (дни)</th><th rowspan="2">Мин. партия FBO</th>
@@ -3510,7 +3510,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <option value="mp_correction_pct">Корр. % МП</option>
 <option value="fulfillment_model">Отгрузка</option>
 <option value="storage_pct">% хранения</option>
-<option value="buyout_niche_pct">% выкупа ниши</option>
+<option value="buyout_niche_pct">% выкупа по категории</option>
 </optgroup>
 <optgroup label="Цены">
 <option value="price_before_spp_plan">Цена до СПП план ₽</option>
@@ -3814,7 +3814,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th style="background:#f0f0ff">Баз. % МП</th>
 <th style="background:#f0f0ff">Корр. % МП</th>
 <th style="background:#f0f0ff">Итог. % МП</th>
-<th style="background:#f0f0ff">% выкупа ниши</th>
+<th style="background:#f0f0ff">% выкупа по категории</th>
 <th>% выкупа факт</th>
 <th style="background:#fff3f0">Лог. тариф</th>
 <th style="background:#fff3f0">Лог. факт</th>
@@ -5293,7 +5293,7 @@ function exportCostTemplate() {
     const rows = document.querySelectorAll('#cost-body tr[data-nm]');
     const hdr = 'Арт WB;Арт продавца;Баркод;Название;Размер;Отгрузка;' +
         'Доп расходы;Себестоимость итого;Закупка;Логистика;Упаковка;Прочее;Мин. цена;НДС руб;' +
-        'Баз. % МП;Корр. % МП;% хранения;% выкупа ниши;' +
+        'Баз. % МП;Корр. % МП;% хранения;% выкупа по категории;' +
         'Цена до СПП план;Цена до СПП к изм.;Дата правок;Скидка WB Клуб %;РРЦ;' +
         'Реклама план;' +
         'Класс товара;Бренд;Статус товара;' +
@@ -6387,7 +6387,7 @@ async function saveAllUnitEcon() {
 
 function exportUnitEcon() {
     if (!ueData.length) return;
-    let csv = 'Арт WB;Арт продавца;Название;Класс;Бренд;Категория;Себестоимость;Доп расходы;Баз % МП;Корр % МП;Итог % МП;% выкупа ниши;% выкупа факт;Лог тариф;Лог факт;Хран тариф;Хран факт;Эквайринг;Приёмка;Налог %;НДС %;Налог руб;Рекл факт;Рекл план;Цена до СПП;СПП %;Цена с СПП;Скидка ВБ Клуб %;Расходы;Прибыль;Маржа %;ROI %;На Р/С;Цена план;Расходы план;Прибыль план;Маржа план %;ROI план %;На Р/С план;Дата правок;Цена к изм;Прибыль изм;ROI изм;Тариф тип';
+    let csv = 'Арт WB;Арт продавца;Название;Класс;Бренд;Категория;Себестоимость;Доп расходы;Баз % МП;Корр % МП;Итог % МП;% выкупа по категории;% выкупа факт;Лог тариф;Лог факт;Хран тариф;Хран факт;Эквайринг;Приёмка;Налог %;НДС %;Налог руб;Рекл факт;Рекл план;Цена до СПП;СПП %;Цена с СПП;Скидка ВБ Клуб %;Расходы;Прибыль;Маржа %;ROI %;На Р/С;Цена план;Расходы план;Прибыль план;Маржа план %;ROI план %;На Р/С план;Дата правок;Цена к изм;Прибыль изм;ROI изм;Тариф тип';
     csv += String.fromCharCode(10);
     ueData.forEach(p => {
         csv += [p.nm_id, p.vendor_code, p.product_name, p.product_class, p.brand, p.subject_name,
