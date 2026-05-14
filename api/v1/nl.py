@@ -3478,7 +3478,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th style="position:relative" rowspan="2">Скорость доставаемости, дн<span onclick="showDeliveryInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
 <th rowspan="2">Мин партия/ кратность</th>
 <th rowspan="2">РРЦ</th>
-<th rowspan="2">Закупка ₽</th><th rowspan="2">Логистика ₽</th><th rowspan="2">Упаковка ₽</th><th rowspan="2">Прочее ₽</th><th rowspan="2">Мин. цена ₽</th><th rowspan="2">НДС руб</th>
+<th rowspan="2">Мин. цена</th>
+<th rowspan="2">Закупка ₽</th><th rowspan="2">Логистика ₽</th><th rowspan="2">Упаковка ₽</th><th rowspan="2">Прочее ₽</th><th rowspan="2">НДС руб</th>
 <th rowspan="2">Баз. % МП</th><th rowspan="2">% хранения</th>
 <th rowspan="2">Цена до СПП план ₽</th><th rowspan="2">Цена до СПП к изм. ₽</th><th rowspan="2">Дата правок</th><th rowspan="2">Скидка WB Клуб %</th>
 
@@ -4928,11 +4929,11 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="supply_days" value="' + (c.supply_days||'') + '" style="width:60px" placeholder="5" min="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="min_batch_fbo" value="' + (c.min_batch_fbo||'') + '" style="width:60px" placeholder="1" min="1"></td>' +
                 '<td><input type="number" class="cost-input" data-field="rrc_price" value="' + (c.rrc_price||'') + '" style="width:70px" placeholder="0"></td>' +
+                '<td style="position:relative"><input type="number" class="cost-input" data-field="min_price" value="' + (c.min_price||'') + '" style="width:80px' + (c.min_price ? '' : ';color:#888;font-style:italic') + '" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="other" value="' + (c.other_costs||'') + '" style="width:70px" placeholder="0"></td>' +
-                '<td style="position:relative"><input type="number" class="cost-input" data-field="min_price" value="' + (c.min_price||'') + '" style="width:80px' + (c.min_price ? '' : ';color:#888;font-style:italic') + '" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="vat" value="' + (c.vat||'') + '" style="width:50px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="mp_base_pct" value="' + (c.mp_base_pct||'') + '" style="width:60px" placeholder="0"></td>' +
                 
