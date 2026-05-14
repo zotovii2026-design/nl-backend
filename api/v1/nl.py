@@ -3473,8 +3473,9 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th colspan="12" style="background:#fff8e1;text-align:center;font-size:.85em">Коэффициент сезонности</th>
 <th colspan="3" style="background:#e8eaf6;text-align:center;font-size:.85em">ТОП запросы, ПЛАН</th>
 <th rowspan="2">% выкупа по категории</th>
+<th style="position:relative" rowspan="2">Коррекция к комиссии МП, %<span onclick="showCommCorrInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
 <th rowspan="2">Закупка ₽</th><th rowspan="2">Логистика ₽</th><th rowspan="2">Упаковка ₽</th><th rowspan="2">Прочее ₽</th><th rowspan="2">Мин. цена ₽</th><th rowspan="2">НДС руб</th>
-<th rowspan="2">Баз. % МП</th><th rowspan="2">Корр. % МП</th><th rowspan="2">% хранения</th>
+<th rowspan="2">Баз. % МП</th><th rowspan="2">% хранения</th>
 <th rowspan="2">Цена до СПП план ₽</th><th rowspan="2">Цена до СПП к изм. ₽</th><th rowspan="2">Дата правок</th><th rowspan="2">Скидка WB Клуб %</th><th rowspan="2">РРЦ ₽</th>
 <th rowspan="2">Реклама план ₽</th>
 <th rowspan="2">Срок поставки (дни)</th><th rowspan="2">Мин. партия FBO</th>
@@ -4919,6 +4920,7 @@ function applyCostFilters() {
                 '<td><input type="text" class="cost-input" data-field="top_query_2" value="' + esc(c.top_query_2||'') + '" style="width:80px;background:#ede7f6" placeholder="-"></td>' +
                 '<td><input type="text" class="cost-input" data-field="top_query_3" value="' + esc(c.top_query_3||'') + '" style="width:80px;background:#ede7f6" placeholder="-"></td>' +
                 '<td><input type="number" class="cost-input" data-field="buyout_niche_pct" value="' + (c.buyout_niche_pct||'') + '" style="width:60px" placeholder="0"></td>' +
+                '<td><input type="number" class="cost-input" data-field="mp_correction_pct" value="' + (c.mp_correction_pct||'') + '" style="width:60px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +
@@ -4926,7 +4928,6 @@ function applyCostFilters() {
                 '<td style="position:relative"><input type="number" class="cost-input" data-field="min_price" value="' + (c.min_price||'') + '" style="width:80px' + (c.min_price ? '' : ';color:#888;font-style:italic') + '" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="vat" value="' + (c.vat||'') + '" style="width:50px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="mp_base_pct" value="' + (c.mp_base_pct||'') + '" style="width:60px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="mp_correction_pct" value="' + (c.mp_correction_pct||'') + '" style="width:60px" placeholder="0"></td>' +
                 
                 '<td><input type="number" class="cost-input" data-field="storage_pct" value="' + (c.storage_pct||'') + '" style="width:60px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="price_before_spp_plan" value="' + (c.price_before_spp_plan||'') + '" style="width:80px" placeholder="0"></td>' +
@@ -5016,6 +5017,17 @@ function showTotalCostInfo(el) {
     var existing = document.getElementById('total-cost-info-popup');
     if (existing) { existing.remove(); return; }
     var popup = document.createElement('div');
+function showCommCorrInfo(el) {
+    var existing = document.getElementById('comm-corr-popup');
+    if (existing) { existing.remove(); return; }
+    cleanupCostPopups();
+    var div = document.createElement('div');
+    div.id = 'comm-corr-popup';
+    div.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border:1px solid #6c5ce7;border-radius:8px;padding:16px;z-index:9999;max-width:350px;box-shadow:0 4px 20px rgba(0,0,0,.2);font-family:Arial;font-size:6px;line-height:1.5';
+    div.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:7px">Коррекция к комиссии МП</b><span onclick="this.parentNode.parentNode.remove()" style="cursor:pointer;font-size:9px">✕</span></div><div>Скорректируйте базовый % МП на величину всех опций из Конструктора тарифов. Значения могут быть как со знаком +, так и -.</div>';
+    document.body.appendChild(div);
+}
+
     popup.id = 'total-cost-info-popup';
     popup.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border:1px solid #ddd;border-radius:8px;padding:16px 20px;box-shadow:0 4px 24px rgba(0,0,0,.18);z-index:9999;max-width:400px;font:6px Arial;line-height:1.6;color:#333';
     popup.innerHTML = '<div style="font-size:7px;font-weight:600;margin-bottom:6px;color:#6c5ce7">ℹ️ Себестоимость итого</div>' +
