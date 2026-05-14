@@ -3472,8 +3472,9 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th colspan="3" style="background:#eef0f5;text-align:center;font-size:.85em">Габариты ФАКТ</th>
 <th colspan="12" style="background:#fff8e1;text-align:center;font-size:.85em">Коэффициент сезонности</th>
 <th colspan="3" style="background:#e8eaf6;text-align:center;font-size:.85em">ТОП запросы, ПЛАН</th>
+<th rowspan="2">% выкупа по категории</th>
 <th rowspan="2">Закупка ₽</th><th rowspan="2">Логистика ₽</th><th rowspan="2">Упаковка ₽</th><th rowspan="2">Прочее ₽</th><th rowspan="2">Мин. цена ₽</th><th rowspan="2">НДС руб</th>
-<th rowspan="2">Баз. % МП</th><th rowspan="2">Корр. % МП</th><th rowspan="2">% хранения</th><th rowspan="2">% выкупа по категории</th>
+<th rowspan="2">Баз. % МП</th><th rowspan="2">Корр. % МП</th><th rowspan="2">% хранения</th>
 <th rowspan="2">Цена до СПП план ₽</th><th rowspan="2">Цена до СПП к изм. ₽</th><th rowspan="2">Дата правок</th><th rowspan="2">Скидка WB Клуб %</th><th rowspan="2">РРЦ ₽</th>
 <th rowspan="2">Реклама план ₽</th>
 <th rowspan="2">Срок поставки (дни)</th><th rowspan="2">Мин. партия FBO</th>
@@ -4917,6 +4918,7 @@ function applyCostFilters() {
                 '<td><input type="text" class="cost-input" data-field="top_query_1" value="' + esc(c.top_query_1||'') + '" style="width:80px;background:#ede7f6" placeholder="-"></td>' +
                 '<td><input type="text" class="cost-input" data-field="top_query_2" value="' + esc(c.top_query_2||'') + '" style="width:80px;background:#ede7f6" placeholder="-"></td>' +
                 '<td><input type="text" class="cost-input" data-field="top_query_3" value="' + esc(c.top_query_3||'') + '" style="width:80px;background:#ede7f6" placeholder="-"></td>' +
+                '<td><input type="number" class="cost-input" data-field="buyout_niche_pct" value="' + (c.buyout_niche_pct||'') + '" style="width:60px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +
@@ -4927,7 +4929,6 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="mp_correction_pct" value="' + (c.mp_correction_pct||'') + '" style="width:60px" placeholder="0"></td>' +
                 
                 '<td><input type="number" class="cost-input" data-field="storage_pct" value="' + (c.storage_pct||'') + '" style="width:60px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="buyout_niche_pct" value="' + (c.buyout_niche_pct||'') + '" style="width:60px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="price_before_spp_plan" value="' + (c.price_before_spp_plan||'') + '" style="width:80px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="price_before_spp_change" value="' + (c.price_before_spp_change||'') + '" style="width:80px" placeholder="0"></td>' +
                 '<td><input type="date" class="cost-input" data-field="change_date" value="' + (c.change_date||'') + '" style="width:100px;font-size:.8em"></td>' +
