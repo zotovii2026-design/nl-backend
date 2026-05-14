@@ -3479,9 +3479,11 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th rowspan="2">Мин партия/ кратность</th>
 <th rowspan="2">РРЦ</th>
 <th rowspan="2">Мин. цена</th>
+<th rowspan="2">Дата внесения правок</th>
+
 <th rowspan="2">Закупка ₽</th><th rowspan="2">Логистика ₽</th><th rowspan="2">Упаковка ₽</th><th rowspan="2">Прочее ₽</th><th rowspan="2">НДС руб</th>
 <th rowspan="2">Баз. % МП</th><th rowspan="2">% хранения</th>
-<th rowspan="2">Цена до СПП план ₽</th><th rowspan="2">Цена до СПП к изм. ₽</th><th rowspan="2">Дата правок</th><th rowspan="2">Скидка WB Клуб %</th>
+<th rowspan="2">Цена до СПП план ₽</th><th rowspan="2">Цена до СПП к изм. ₽</th><th rowspan="2">Скидка WB Клуб %</th>
 
 <th rowspan="2">Налог. система</th>
 <th rowspan="2">Дост. до склада</th><th rowspan="2">Дост. до МП</th>
@@ -4930,6 +4932,8 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="min_batch_fbo" value="' + (c.min_batch_fbo||'') + '" style="width:60px" placeholder="1" min="1"></td>' +
                 '<td><input type="number" class="cost-input" data-field="rrc_price" value="' + (c.rrc_price||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td style="position:relative"><input type="number" class="cost-input" data-field="min_price" value="' + (c.min_price||'') + '" style="width:80px' + (c.min_price ? '' : ';color:#888;font-style:italic') + '" placeholder="0"></td>' +
+                '<td><input type="date" class="cost-input" data-field="change_date" value="' + (c.change_date||'') + '" style="width:100px;font-size:.8em"></td>' +
+                '<td><input type="date" class="cost-input" data-field="valid_from" value="' + (c.valid_from||new Date().toISOString().split('T')[0]) + '" style="width:100px;font-size:.8em"></td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +
@@ -4940,7 +4944,6 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="storage_pct" value="' + (c.storage_pct||'') + '" style="width:60px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="price_before_spp_plan" value="' + (c.price_before_spp_plan||'') + '" style="width:80px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="price_before_spp_change" value="' + (c.price_before_spp_change||'') + '" style="width:80px" placeholder="0"></td>' +
-                '<td><input type="date" class="cost-input" data-field="change_date" value="' + (c.change_date||'') + '" style="width:100px;font-size:.8em"></td>' +
                 '<td><input type="number" class="cost-input" data-field="wb_club_discount_pct" value="' + (c.wb_club_discount_pct||'') + '" style="width:60px" placeholder="0"></td>' +
                 '<td><select class="cost-input" data-field="tax_system" style="width:90px;font-size:.8em"><option value="">-</option><option value="usn"' + (c.tax_system==='usn'?' selected':'') + '>УСН</option><option value="usn_dr"' + (c.tax_system==='usn_dr'?' selected':'') + '>Доходы-Расходы</option><option value="osn"' + (c.tax_system==='osn'?' selected':'') + '>ОСН</option></select></td>' +
                 
@@ -4949,7 +4952,6 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="delivery_days_to_mp" value="' + (c.delivery_days_to_mp||'') + '" style="width:55px" placeholder="0" min="0"></td>' +
                 
                 
-                '<td><input type="date" class="cost-input" data-field="valid_from" value="' + (c.valid_from||new Date().toISOString().split('T')[0]) + '" style="width:110px;font-size:.8em"></td>' +
                 '<td><input type="text" class="cost-input" data-field="notes" value="' + esc(c.notes||'') + '" style="width:100px" placeholder="-"></td>' +
                 '</tr>';
             
