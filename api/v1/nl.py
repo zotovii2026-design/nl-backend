@@ -3471,6 +3471,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th colspan="5" style="background:#e8f4e8;text-align:center;font-size:.85em">Габариты ПЛАН</th>
 <th colspan="3" style="background:#eef0f5;text-align:center;font-size:.85em">Габариты ФАКТ</th>
 <th colspan="12" style="background:#fff8e1;text-align:center;font-size:.85em">Коэффициент сезонности</th>
+<th colspan="3" style="background:#e8eaf6;text-align:center;font-size:.85em">ТОП запросы, ПЛАН</th>
 <th rowspan="2">Закупка ₽</th><th rowspan="2">Логистика ₽</th><th rowspan="2">Упаковка ₽</th><th rowspan="2">Прочее ₽</th><th rowspan="2">Мин. цена ₽</th><th rowspan="2">НДС руб</th>
 <th rowspan="2">Баз. % МП</th><th rowspan="2">Корр. % МП</th><th rowspan="2">% хранения</th><th rowspan="2">% выкупа ниши</th>
 <th rowspan="2">Цена до СПП план ₽</th><th rowspan="2">Цена до СПП к изм. ₽</th><th rowspan="2">Дата правок</th><th rowspan="2">Скидка WB Клуб %</th><th rowspan="2">РРЦ ₽</th>
@@ -3478,12 +3479,13 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th rowspan="2">Срок поставки (дни)</th><th rowspan="2">Мин. партия FBO</th>
 <th rowspan="2">Налог. система</th>
 <th rowspan="2">Дост. до склада</th><th rowspan="2">Дост. до МП</th>
-<th rowspan="2">ТОП запр. 1</th><th rowspan="2">ТОП запр. 2</th><th rowspan="2">ТОП запр. 3</th>
+
 <th rowspan="2">Дата начала</th><th rowspan="2">Заметки</th>
 </tr><tr>
 <th style="background:#e8f4e8;font-size:.78em">Длина, см</th><th style="background:#e8f4e8;font-size:.78em">Ширина, см</th><th style="background:#e8f4e8;font-size:.78em">Высота, см</th><th style="background:#e8f4e8;font-size:.78em">Объём, л</th><th style="background:#e8f4e8;font-size:.78em">Вес, гр</th>
 <th style="background:#eef0f5;font-size:.78em">Д×Ш×В</th><th style="background:#eef0f5;font-size:.78em">Объём, л</th><th style="background:#eef0f5;font-size:.78em">Вес</th>
 <th style="background:#fff8e1;font-size:.78em">янв</th><th style="background:#fff8e1;font-size:.78em">фев</th><th style="background:#fff8e1;font-size:.78em">мар</th><th style="background:#fff8e1;font-size:.78em">апр</th><th style="background:#fff8e1;font-size:.78em">май</th><th style="background:#fff8e1;font-size:.78em">июн</th><th style="background:#fff8e1;font-size:.78em">июл</th><th style="background:#fff8e1;font-size:.78em">авг</th><th style="background:#fff8e1;font-size:.78em">сен</th><th style="background:#fff8e1;font-size:.78em">окт</th><th style="background:#fff8e1;font-size:.78em">ноя</th><th style="background:#fff8e1;font-size:.78em">дек</th>
+<th style="background:#e8eaf6;font-size:.78em">1</th><th style="background:#e8eaf6;font-size:.78em">2</th><th style="background:#e8eaf6;font-size:.78em">3</th>
 </tr></thead>
 <tbody id="cost-body"><tr><td colspan="38" class="empty">Загрузка...</td></tr></tbody></table>
 </div>
@@ -4912,6 +4914,9 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="season_oct" value="' + (c.season_oct||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="season_nov" value="' + (c.season_nov||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="season_dec" value="' + (c.season_dec||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
+                '<td><input type="text" class="cost-input" data-field="top_query_1" value="' + esc(c.top_query_1||'') + '" style="width:80px;background:#ede7f6" placeholder="-"></td>' +
+                '<td><input type="text" class="cost-input" data-field="top_query_2" value="' + esc(c.top_query_2||'') + '" style="width:80px;background:#ede7f6" placeholder="-"></td>' +
+                '<td><input type="text" class="cost-input" data-field="top_query_3" value="' + esc(c.top_query_3||'') + '" style="width:80px;background:#ede7f6" placeholder="-"></td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +
@@ -4936,9 +4941,7 @@ function applyCostFilters() {
                 
                 '<td><input type="number" class="cost-input" data-field="delivery_days_to_seller" value="' + (c.delivery_days_to_seller||'') + '" style="width:55px" placeholder="0" min="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="delivery_days_to_mp" value="' + (c.delivery_days_to_mp||'') + '" style="width:55px" placeholder="0" min="0"></td>' +
-                '<td><input type="text" class="cost-input" data-field="top_query_1" value="' + esc(c.top_query_1||'') + '" style="width:80px" placeholder="-"></td>' +
-                '<td><input type="text" class="cost-input" data-field="top_query_2" value="' + esc(c.top_query_2||'') + '" style="width:80px" placeholder="-"></td>' +
-                '<td><input type="text" class="cost-input" data-field="top_query_3" value="' + esc(c.top_query_3||'') + '" style="width:80px" placeholder="-"></td>' +
+                
                 
                 '<td><input type="date" class="cost-input" data-field="valid_from" value="' + (c.valid_from||new Date().toISOString().split('T')[0]) + '" style="width:110px;font-size:.8em"></td>' +
                 '<td><input type="text" class="cost-input" data-field="notes" value="' + esc(c.notes||'') + '" style="width:100px" placeholder="-"></td>' +
