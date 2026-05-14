@@ -3481,20 +3481,13 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th rowspan="2">Мин. цена</th>
 <th rowspan="2">Дата внесения правок</th>
 <th rowspan="2">Дата начала</th>
-<th rowspan="2">Закупка ₽</th><th rowspan="2">Логистика ₽</th><th rowspan="2">Упаковка ₽</th><th rowspan="2">Прочее ₽</th><th rowspan="2">НДС руб</th>
-<th rowspan="2">Баз. % МП</th><th rowspan="2">% хранения</th>
-<th rowspan="2">Цена до СПП план ₽</th><th rowspan="2">Цена до СПП к изм. ₽</th><th rowspan="2">Скидка WB Клуб %</th>
-
-<th rowspan="2">Налог. система</th>
-<th rowspan="2">Дост. до склада</th><th rowspan="2">Дост. до МП</th>
-<th rowspan="2">Заметки</th>
 </tr><tr>
 <th style="background:#e8f4e8;font-size:.78em">Длина, см</th><th style="background:#e8f4e8;font-size:.78em">Ширина, см</th><th style="background:#e8f4e8;font-size:.78em">Высота, см</th><th style="background:#e8f4e8;font-size:.78em">Объём, л</th><th style="background:#e8f4e8;font-size:.78em">Вес, гр</th>
 <th style="background:#eef0f5;font-size:.78em">Д×Ш×В</th><th style="background:#eef0f5;font-size:.78em">Объём, л</th><th style="background:#eef0f5;font-size:.78em">Вес</th>
 <th style="background:#fff8e1;font-size:.78em">янв</th><th style="background:#fff8e1;font-size:.78em">фев</th><th style="background:#fff8e1;font-size:.78em">мар</th><th style="background:#fff8e1;font-size:.78em">апр</th><th style="background:#fff8e1;font-size:.78em">май</th><th style="background:#fff8e1;font-size:.78em">июн</th><th style="background:#fff8e1;font-size:.78em">июл</th><th style="background:#fff8e1;font-size:.78em">авг</th><th style="background:#fff8e1;font-size:.78em">сен</th><th style="background:#fff8e1;font-size:.78em">окт</th><th style="background:#fff8e1;font-size:.78em">ноя</th><th style="background:#fff8e1;font-size:.78em">дек</th>
 <th style="background:#e8eaf6;font-size:.78em">1</th><th style="background:#e8eaf6;font-size:.78em">2</th><th style="background:#e8eaf6;font-size:.78em">3</th>
 </tr></thead>
-<tbody id="cost-body"><tr><td colspan="38" class="empty">Загрузка...</td></tr></tbody></table>
+<tbody id="cost-body"><tr><td colspan="50" class="empty">Загрузка...</td></tr></tbody></table>
 </div>
 
 <!-- Плавающая панель массовых действий -->
@@ -4932,26 +4925,7 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="rrc_price" value="' + (c.rrc_price||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td style="position:relative"><input type="number" class="cost-input" data-field="min_price" value="' + (c.min_price||'') + '" style="width:80px' + (c.min_price ? '' : ';color:#888;font-style:italic') + '" placeholder="0"></td>' +
                 '<td><input type="date" class="cost-input" data-field="change_date" value="' + (c.change_date||'') + '" style="width:100px;font-size:.8em"></td>' +
-                '<td><input type="date" class="cost-input" data-field="valid_from" value="' + (c.valid_from||new Date().toISOString().split('T')[0]) + '" style="width:100px;font-size:.8em"></td>' +
-                '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="other" value="' + (c.other_costs||'') + '" style="width:70px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="vat" value="' + (c.vat||'') + '" style="width:50px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="mp_base_pct" value="' + (c.mp_base_pct||'') + '" style="width:60px" placeholder="0"></td>' +
-                
-                '<td><input type="number" class="cost-input" data-field="storage_pct" value="' + (c.storage_pct||'') + '" style="width:60px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="price_before_spp_plan" value="' + (c.price_before_spp_plan||'') + '" style="width:80px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="price_before_spp_change" value="' + (c.price_before_spp_change||'') + '" style="width:80px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="wb_club_discount_pct" value="' + (c.wb_club_discount_pct||'') + '" style="width:60px" placeholder="0"></td>' +
-                '<td><select class="cost-input" data-field="tax_system" style="width:90px;font-size:.8em"><option value="">-</option><option value="usn"' + (c.tax_system==='usn'?' selected':'') + '>УСН</option><option value="usn_dr"' + (c.tax_system==='usn_dr'?' selected':'') + '>Доходы-Расходы</option><option value="osn"' + (c.tax_system==='osn'?' selected':'') + '>ОСН</option></select></td>' +
-                
-                
-                '<td><input type="number" class="cost-input" data-field="delivery_days_to_seller" value="' + (c.delivery_days_to_seller||'') + '" style="width:55px" placeholder="0" min="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="delivery_days_to_mp" value="' + (c.delivery_days_to_mp||'') + '" style="width:55px" placeholder="0" min="0"></td>' +
-                
-                
-                '<td><input type="text" class="cost-input" data-field="notes" value="' + esc(c.notes||'') + '" style="width:100px" placeholder="-"></td>' +
+                '<td><input type="date" class="cost-input" data-field="valid_from" value="' + (c.valid_from||new Date().toISOString().split('T')[0]) + '" style="width:100px;font-size:.8em"></td>'
                 '</tr>';
             
             // Дочерние строки размеров (скрыты)
@@ -4964,7 +4938,7 @@ function applyCostFilters() {
                         '<td></td><td></td>' +
                         '<td style="font-size:.7em;color:#999">' + esc(s.barcodes||'') + '</td>' +
                         '<td></td><td></td><td></td><td></td><td></td>' +
-                        '<td colspan="48" style="color:#999;font-size:.75em">' + String.fromCharCode(8592) + ' ' + esc(s.entity_id||'') + '</td>' +
+                        '<td colspan="34" style="color:#999;font-size:.75em">' + String.fromCharCode(8592) + ' ' + esc(s.entity_id||'') + '</td>' +
                         '</tr>';
                 });
             }
