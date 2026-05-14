@@ -1469,7 +1469,7 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
         "cp.wb_club_discount_pct, cp.ad_plan_rub, cp.supply_days, cp.min_batch_fbo, "
         "cp.product_status, "
         "cp.valid_from, cp.valid_to, cp.source, cp.notes, "
-        "cp.product_class, cp.brand, cp.tax_system, cp.season_jan, cp.season_feb, cp.season_mar, cp.season_apr, cp.season_may, cp.season_jun, cp.season_jul, cp.season_aug, cp.season_sep, cp.season_oct, cp.season_nov, cp.season_dec, cp.plan_length, cp.plan_width, cp.plan_height, cp.plan_volume, cp.plan_weight, cp.delivery_days_to_seller, cp.delivery_days_to_mp, cp.top_query_1, cp.top_query_2, cp.top_query_3, cp.shipment_method, cp.fbs_warehouse, cp.rrc_price, "
+        "cp.product_class, cp.brand, cp.tax_system, cp.season_jan, cp.season_feb, cp.season_mar, cp.season_apr, cp.season_may, cp.season_jun, cp.season_jul, cp.season_aug, cp.season_sep, cp.season_oct, cp.season_nov, cp.season_dec, cp.plan_length, cp.plan_width, cp.plan_height, cp.plan_volume, cp.plan_weight, cp.delivery_days_to_seller, cp.delivery_days_to_mp, cp.top_query_1, cp.top_query_2, cp.top_query_3, cp.shipment_method, cp.fbs_warehouse, cp.rrc_price, cp.vat_rate, "
         "COALESCE(cp.subject_id, pe_sub.subject_id) as subject_id, COALESCE(NULLIF(cp.subject_name,''), pe_sub.subject_name) as subject_name, "
         "ts.product_name FROM reference_book cp "
         "LEFT JOIN (SELECT DISTINCT nm_id, subject_id, subject_name FROM product_entities WHERE organization_id = :org) pe_sub ON cp.nm_id = pe_sub.nm_id "
@@ -1534,8 +1534,9 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
              "delivery_days_to_seller": int(r[51]) if r[51] else None, "delivery_days_to_mp": int(r[52]) if r[52] else None,
              "top_query_1": r[53], "top_query_2": r[54], "top_query_3": r[55],
              "shipment_method": r[56], "fbs_warehouse": r[57], "rrc_price": float(r[58]) if r[58] else None,
-             "subject_id": r[59], "subject_name": r[60],
-             "product_name": r[61],
+             "vat_rate": float(r[59]) if r[59] else 0,
+             "subject_id": r[60], "subject_name": r[61],
+             "product_name": r[62],
              "sizes": sizes_map.get(r[2], [])
              } for r in rows]
 
@@ -1573,7 +1574,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "plan_length, plan_width, plan_height, plan_volume, plan_weight, "
         "delivery_days_to_seller, delivery_days_to_mp, "
         "top_query_1, top_query_2, top_query_3, "
-        "shipment_method, fbs_warehouse, rrc_price, "
+        "shipment_method, fbs_warehouse, rrc_price, vat_rate, "
         "valid_from, source, notes) "
         "VALUES (:org, :nm, :bc, :vc, :sz, :eid, "
         ":subid, :subn, "
@@ -1587,7 +1588,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         ":pl, :pw, :ph, :pv, :pwg, "
         ":dds, :ddm, "
         ":tq1, :tq2, :tq3, "
-        ":sm, :fw, :rrc, "
+        ":sm, :fw, :rrc, :vr, "
         ":vf, :src, :notes) "
         "ON CONFLICT (organization_id, nm_id, valid_from) DO UPDATE SET "
         "barcode = EXCLUDED.barcode, vendor_code = EXCLUDED.vendor_code, "
@@ -1612,7 +1613,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "plan_volume = EXCLUDED.plan_volume, plan_weight = EXCLUDED.plan_weight, " +
         "delivery_days_to_seller = EXCLUDED.delivery_days_to_seller, delivery_days_to_mp = EXCLUDED.delivery_days_to_mp, " +
         "top_query_1 = EXCLUDED.top_query_1, top_query_2 = EXCLUDED.top_query_2, top_query_3 = EXCLUDED.top_query_3, " +
-        "shipment_method = EXCLUDED.shipment_method, fbs_warehouse = EXCLUDED.fbs_warehouse, rrc_price = EXCLUDED.rrc_price, " 
+        "shipment_method = EXCLUDED.shipment_method, fbs_warehouse = EXCLUDED.fbs_warehouse, rrc_price = EXCLUDED.rrc_price, vat_rate = EXCLUDED.vat_rate, " 
         "subject_id = EXCLUDED.subject_id, subject_name = EXCLUDED.subject_name, "
         "source = EXCLUDED.source, notes = EXCLUDED.notes"
     ), {"org": org_id, "nm": nm_id, "bc": data.get("barcode"), "vc": data.get("vendor_code"),
@@ -1639,6 +1640,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "dds": int(data["delivery_days_to_seller"]) if data.get("delivery_days_to_seller") and str(data["delivery_days_to_seller"]).lstrip('-').isdigit() else None, "ddm": int(data["delivery_days_to_mp"]) if data.get("delivery_days_to_mp") and str(data["delivery_days_to_mp"]).lstrip('-').isdigit() else None,
         "tq1": data.get("top_query_1"), "tq2": data.get("top_query_2"), "tq3": data.get("top_query_3"),
         "sm": data.get("shipment_method"), "fw": data.get("fbs_warehouse"), "rrc": float(data["rrc_price"]) if data.get("rrc_price") is not None and str(data["rrc_price"]) not in ("", "None") else None,
+        "vr": float(data["vat_rate"]) if data.get("vat_rate") is not None and str(data.get("vat_rate")) not in ("", "None") else None,
         "vf": valid_from, "src": data.get("source", "manual"), "notes": data.get("notes")})
     await db.commit()
     return {"ok": True}
@@ -3465,6 +3467,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th style="position:relative">Доп расходы ₽<span onclick="showExtraCostsInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
 <th style="position:relative">Себестоимость итого ₽<span onclick="showTotalCostInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
 <th id="tax-col-header" style="background:#f0f1f5">Налог, %<br><span id="tax-col-subheader" style="font-size:.8em;color:#666;font-weight:400">—</span></th>
+<th style="background:#f0f1f5">НДС от дохода</th>
 <th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th><th>Мин. цена ₽</th><th>НДС руб</th>
 <th>Баз. % МП</th><th>Корр. % МП</th><th>% хранения</th><th>% выкупа ниши</th>
 <th>Цена до СПП план ₽</th><th>Цена до СПП к изм. ₽</th><th>Дата правок</th><th>Скидка WB Клуб %</th><th>РРЦ ₽</th>
@@ -4884,7 +4887,8 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="cost_price" value="' + costPrice + '" style="width:80px;font-weight:600" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="extra_costs" value="' + (c.extra_costs||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="text" class="cost-input" data-field="total_cost" value="' + ((parseFloat(costPrice)||0)+(parseFloat(c.extra_costs)||0)).toFixed(2) + '" style="width:80px;font-weight:600;background:#f0f0f0" readonly></td>' +
-                '<td class="tax-cell" style="text-align:center;font-size:.85em;color:#6c5ce7;font-weight:600;background:#f8f7ff">' + (_taxSettings.tax_system ? _taxSettings.tax_system + ' ' + (_taxSettings.tax_rate || '') + '%' : String.fromCharCode(8212)) + '</td>' +
+                '<td class="tax-cell" style="text-align:center;font-size:.85em;color:#6c5ce7;font-weight:600;background:#f8f7ff">' + (_taxSettings.tax_rate ? _taxSettings.tax_rate + '%' : String.fromCharCode(8212)) + '</td>' +
+                '<td style="text-align:center;background:#f0f1f5"><select class="cost-input" data-field="vat_rate" style="width:80px;font-size:.8em"><option value="нет"' + (c.vat_rate==="нет"||c.vat_rate===0||(!c.vat_rate&&_taxSettings.vat_type!=="5%"&&_taxSettings.vat_type!=="7%")?' selected':'') + '>нет</option><option value="5"' + (c.vat_rate===5||(!c.vat_rate&&_taxSettings.vat_type==="5%")?' selected':'') + '>5%</option><option value="7"' + (c.vat_rate===7||(!c.vat_rate&&_taxSettings.vat_type==="7%")?' selected':'') + '>7%</option></select></td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +
@@ -5238,7 +5242,7 @@ async function saveAllCostPrices() {
             delivery_days_to_seller: parseInt(gv('delivery_days_to_seller')) || null, delivery_days_to_mp: parseInt(gv('delivery_days_to_mp')) || null,
             top_query_1: gv('top_query_1'), top_query_2: gv('top_query_2'), top_query_3: gv('top_query_3'),
             shipment_method: gv('shipment_method'), fbs_warehouse: gv('fbs_warehouse'),
-            vat_rate: parseFloat(gv('vat_rate')),
+            vat_rate: (function(){var v=gv("vat_rate");return v==="нет"||v==="0"?0:parseFloat(v)||0;})(),
             // Прочее
             valid_from: gv('valid_from', new Date().toISOString().split('T')[0]),
             notes: gv('notes', ''),
@@ -5285,7 +5289,7 @@ function exportCostTemplate() {
         'Цена до СПП план;Цена до СПП к изм.;Дата правок;Скидка WB Клуб %;РРЦ;' +
         'Реклама план;' +
         'Класс товара;Бренд;Статус товара;' +
-        'Налог. система;' +
+        'Налог. система;НДС от дохода;' +
         'Сезон янв;Сезон фев;Сезон мар;Сезон апр;Сезон май;Сезон июн;' +
         'Сезон июл;Сезон авг;Сезон сен;Сезон окт;Сезон ноя;Сезон дек;' +
         'План длина;План ширина;План высота;План объём;План вес;' +
@@ -5309,7 +5313,7 @@ function exportCostTemplate() {
                 gv('price_before_spp_plan'), gv('price_before_spp_change'), gv('change_date'), gv('wb_club_discount_pct'), gv('rrc_price'),
                 gv('ad_plan_rub'),
                 gv('product_class'), gv('brand'), gv('product_status'),
-                gv('tax_system'),
+                gv('tax_system'), gv('vat_rate'),
                 gv('season_jan'), gv('season_feb'), gv('season_mar'), gv('season_apr'), gv('season_may'), gv('season_jun'),
                 gv('season_jul'), gv('season_aug'), gv('season_sep'), gv('season_oct'), gv('season_nov'), gv('season_dec'),
                 gv('plan_length'), gv('plan_width'), gv('plan_height'), (function(){var l=parseFloat(gv('plan_length'))||0,w=parseFloat(gv('plan_width'))||0,h=parseFloat(gv('plan_height'))||0;return(l>0&&w>0&&h>0)?((l*w*h)/1000):''})(), gv('plan_weight'),
