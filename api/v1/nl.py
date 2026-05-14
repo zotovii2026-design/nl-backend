@@ -3477,9 +3477,10 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th rowspan="2">Планируемые рекламные расходы, %</th>
 <th style="position:relative" rowspan="2">Скорость доставаемости, дн<span onclick="showDeliveryInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
 <th rowspan="2">Мин партия/ кратность</th>
+<th rowspan="2">РРЦ</th>
 <th rowspan="2">Закупка ₽</th><th rowspan="2">Логистика ₽</th><th rowspan="2">Упаковка ₽</th><th rowspan="2">Прочее ₽</th><th rowspan="2">Мин. цена ₽</th><th rowspan="2">НДС руб</th>
 <th rowspan="2">Баз. % МП</th><th rowspan="2">% хранения</th>
-<th rowspan="2">Цена до СПП план ₽</th><th rowspan="2">Цена до СПП к изм. ₽</th><th rowspan="2">Дата правок</th><th rowspan="2">Скидка WB Клуб %</th><th rowspan="2">РРЦ ₽</th>
+<th rowspan="2">Цена до СПП план ₽</th><th rowspan="2">Цена до СПП к изм. ₽</th><th rowspan="2">Дата правок</th><th rowspan="2">Скидка WB Клуб %</th>
 
 <th rowspan="2">Налог. система</th>
 <th rowspan="2">Дост. до склада</th><th rowspan="2">Дост. до МП</th>
@@ -4926,6 +4927,7 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="ad_plan_rub" value="' + (c.ad_plan_rub||'') + '" style="width:60px" placeholder="0" step="0.1"></td>' +
                 '<td><input type="number" class="cost-input" data-field="supply_days" value="' + (c.supply_days||'') + '" style="width:60px" placeholder="5" min="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="min_batch_fbo" value="' + (c.min_batch_fbo||'') + '" style="width:60px" placeholder="1" min="1"></td>' +
+                '<td><input type="number" class="cost-input" data-field="rrc_price" value="' + (c.rrc_price||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +
@@ -4939,7 +4941,6 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="price_before_spp_change" value="' + (c.price_before_spp_change||'') + '" style="width:80px" placeholder="0"></td>' +
                 '<td><input type="date" class="cost-input" data-field="change_date" value="' + (c.change_date||'') + '" style="width:100px;font-size:.8em"></td>' +
                 '<td><input type="number" class="cost-input" data-field="wb_club_discount_pct" value="' + (c.wb_club_discount_pct||'') + '" style="width:60px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="rrc_price" value="' + (c.rrc_price||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><select class="cost-input" data-field="tax_system" style="width:90px;font-size:.8em"><option value="">-</option><option value="usn"' + (c.tax_system==='usn'?' selected':'') + '>УСН</option><option value="usn_dr"' + (c.tax_system==='usn_dr'?' selected':'') + '>Доходы-Расходы</option><option value="osn"' + (c.tax_system==='osn'?' selected':'') + '>ОСН</option></select></td>' +
                 
                 
