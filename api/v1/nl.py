@@ -3459,28 +3459,30 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Таблица -->
 <div style="overflow-x:auto;position:relative">
 <table id="cost-table" style="font-size:.82em"><thead><tr>
-<th style="position:sticky;left:0;z-index:2;background:#fff"><input type="checkbox" id="cost-check-all" onchange="toggleAllCostRows(this.checked)" style="cursor:pointer"></th>
-<th>Статус товара</th><th>Класс товара</th><th>Бренд</th><th>Фото</th><th>Категория</th><th>Арт продавца</th><th>Баркод</th><th>Размер</th><th>Арт WB</th><th>Товар</th>
-<th>Отгрузка</th>
-<th>Склад отгрузки FBS</th>
-<th style="position:relative">Себестоимость ₽<span onclick="showCostInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
-<th style="position:relative">Доп расходы ₽<span onclick="showExtraCostsInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
-<th style="position:relative">Себестоимость итого ₽<span onclick="showTotalCostInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
-<th id="tax-col-header" style="background:#f0f1f5">Налог, %<br><span id="tax-col-subheader" style="font-size:.8em;color:#666;font-weight:400">—</span></th>
-<th style="background:#f0f1f5">НДС от дохода</th>
-<th>Закупка ₽</th><th>Логистика ₽</th><th>Упаковка ₽</th><th>Прочее ₽</th><th>Мин. цена ₽</th><th>НДС руб</th>
-<th>Баз. % МП</th><th>Корр. % МП</th><th>% хранения</th><th>% выкупа ниши</th>
-<th>Цена до СПП план ₽</th><th>Цена до СПП к изм. ₽</th><th>Дата правок</th><th>Скидка WB Клуб %</th><th>РРЦ ₽</th>
-<th>Реклама план ₽</th>
-<th>Срок поставки (дни)</th><th>Мин. партия FBO</th>
-
-<th>Налог. система</th>
-<th>Сез. янв</th><th>Сез. фев</th><th>Сез. мар</th><th>Сез. апр</th><th>Сез. май</th><th>Сез. июн</th><th>Сез. июл</th><th>Сез. авг</th><th>Сез. сен</th><th>Сез. окт</th><th>Сез. ноя</th><th>Сез. дек</th>
-<th>ПЛАН Д</th><th>ПЛАН Ш</th><th>ПЛАН В</th><th>ПЛАН объём</th><th>ПЛАН вес</th>
-<th>ФАКТ Д&#215;Ш&#215;В</th><th>ФАКТ объём</th><th>ФАКТ вес</th>
-<th>Дост. до склада</th><th>Дост. до МП</th>
-<th>ТОП запр. 1</th><th>ТОП запр. 2</th><th>ТОП запр. 3</th>
-<th>Дата начала</th><th>Заметки</th>
+<th style="position:sticky;left:0;z-index:2;background:#fff" rowspan="2"><input type="checkbox" id="cost-check-all" onchange="toggleAllCostRows(this.checked)" style="cursor:pointer"></th>
+<th rowspan="2">Статус товара</th><th rowspan="2">Класс товара</th><th rowspan="2">Бренд</th><th rowspan="2">Фото</th><th rowspan="2">Категория</th><th rowspan="2">Арт продавца</th><th rowspan="2">Баркод</th><th rowspan="2">Размер</th><th rowspan="2">Арт WB</th><th rowspan="2">Товар</th>
+<th rowspan="2">Отгрузка</th>
+<th rowspan="2">Склад отгрузки FBS</th>
+<th style="position:relative" rowspan="2">Себестоимость ₽<span onclick="showCostInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
+<th style="position:relative" rowspan="2">Доп расходы ₽<span onclick="showExtraCostsInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
+<th style="position:relative" rowspan="2">Себестоимость итого ₽<span onclick="showTotalCostInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
+<th id="tax-col-header" style="background:#f0f1f5" rowspan="2">Налог, %<br><span id="tax-col-subheader" style="font-size:.8em;color:#666;font-weight:400">—</span></th>
+<th style="background:#f0f1f5" rowspan="2">НДС от дохода</th>
+<th colspan="5" style="background:#e8f4e8;text-align:center;font-size:.85em">Габариты ПЛАН</th>
+<th colspan="3" style="background:#eef0f5;text-align:center;font-size:.85em">Габариты ФАКТ</th>
+<th rowspan="2">Закупка ₽</th><th rowspan="2">Логистика ₽</th><th rowspan="2">Упаковка ₽</th><th rowspan="2">Прочее ₽</th><th rowspan="2">Мин. цена ₽</th><th rowspan="2">НДС руб</th>
+<th rowspan="2">Баз. % МП</th><th rowspan="2">Корр. % МП</th><th rowspan="2">% хранения</th><th rowspan="2">% выкупа ниши</th>
+<th rowspan="2">Цена до СПП план ₽</th><th rowspan="2">Цена до СПП к изм. ₽</th><th rowspan="2">Дата правок</th><th rowspan="2">Скидка WB Клуб %</th><th rowspan="2">РРЦ ₽</th>
+<th rowspan="2">Реклама план ₽</th>
+<th rowspan="2">Срок поставки (дни)</th><th rowspan="2">Мин. партия FBO</th>
+<th rowspan="2">Налог. система</th>
+<th rowspan="2">Сез. янв</th><th rowspan="2">Сез. фев</th><th rowspan="2">Сез. мар</th><th rowspan="2">Сез. апр</th><th rowspan="2">Сез. май</th><th rowspan="2">Сез. июн</th><th rowspan="2">Сез. июл</th><th rowspan="2">Сез. авг</th><th rowspan="2">Сез. сен</th><th rowspan="2">Сез. окт</th><th rowspan="2">Сез. ноя</th><th rowspan="2">Сез. дек</th>
+<th rowspan="2">Дост. до склада</th><th rowspan="2">Дост. до МП</th>
+<th rowspan="2">ТОП запр. 1</th><th rowspan="2">ТОП запр. 2</th><th rowspan="2">ТОП запр. 3</th>
+<th rowspan="2">Дата начала</th><th rowspan="2">Заметки</th>
+</tr><tr>
+<th style="background:#e8f4e8;font-size:.78em">Длина, см</th><th style="background:#e8f4e8;font-size:.78em">Ширина, см</th><th style="background:#e8f4e8;font-size:.78em">Высота, см</th><th style="background:#e8f4e8;font-size:.78em">Объём, л</th><th style="background:#e8f4e8;font-size:.78em">Вес, гр</th>
+<th style="background:#eef0f5;font-size:.78em">Д×Ш×В</th><th style="background:#eef0f5;font-size:.78em">Объём, л</th><th style="background:#eef0f5;font-size:.78em">Вес</th>
 </tr></thead>
 <tbody id="cost-body"><tr><td colspan="38" class="empty">Загрузка...</td></tr></tbody></table>
 </div>
@@ -3843,7 +3845,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th style="background:#f0e8ff">ROI изм.</th>
 <th>Тариф тип</th>
 </tr></thead>
-<tbody id="ue-body"><tr><td colspan="45" class="empty">Нажмите обновить</td></tr></tbody></table>
+<tbody id="ue-body"><tr><td colspan="48" class="empty">Нажмите обновить</td></tr></tbody></table>
 </div>
 <div style="margin-top:12px;display:flex;gap:16px;font-size:.85em;flex-wrap:wrap" id="ue-summary"></div>
 </div>
@@ -4889,6 +4891,14 @@ function applyCostFilters() {
                 '<td><input type="text" class="cost-input" data-field="total_cost" value="' + ((parseFloat(costPrice)||0)+(parseFloat(c.extra_costs)||0)).toFixed(2) + '" style="width:80px;font-weight:600;background:#f0f0f0" readonly></td>' +
                 '<td class="tax-cell" style="text-align:center;font-size:.85em;color:#6c5ce7;font-weight:600;background:#f8f7ff">' + (_taxSettings.tax_rate ? _taxSettings.tax_rate + '%' : String.fromCharCode(8212)) + '</td>' +
                 '<td style="text-align:center;background:#f0f1f5"><select class="cost-input" data-field="vat_rate" style="width:80px;font-size:.8em"><option value="нет"' + (c.vat_rate==="нет"||c.vat_rate===0||(!c.vat_rate&&_taxSettings.vat_type!=="5%"&&_taxSettings.vat_type!=="7%")?' selected':'') + '>нет</option><option value="5"' + (c.vat_rate===5||(!c.vat_rate&&_taxSettings.vat_type==="5%")?' selected':'') + '>5%</option><option value="7"' + (c.vat_rate===7||(!c.vat_rate&&_taxSettings.vat_type==="7%")?' selected':'') + '>7%</option></select></td>' +
+                '<td><input type="number" class="cost-input" data-field="plan_length" value="' + (c.plan_length||'') + '" style="width:55px" placeholder="-" step="0.1" min="0" oninput="calcPlanVol(this)"></td>' +
+                '<td><input type="number" class="cost-input" data-field="plan_width" value="' + (c.plan_width||'') + '" style="width:55px" placeholder="-" step="0.1" min="0" oninput="calcPlanVol(this)"></td>' +
+                '<td><input type="number" class="cost-input" data-field="plan_height" value="' + (c.plan_height||'') + '" style="width:55px" placeholder="-" step="0.1" min="0" oninput="calcPlanVol(this)"></td>' +
+                '<td class="plan-vol-cell" style="color:#666">' + (c.plan_volume ? parseFloat(c.plan_volume) : String.fromCharCode(8212)) + '</td>' +
+                '<td><input type="number" class="cost-input" data-field="plan_weight" value="' + (c.plan_weight||'') + '" style="width:55px" placeholder="-" step="1" min="0"></td>' +
+                '<td style="white-space:nowrap;font-size:.78em;color:#666;background:#f5f6fa">' + factDims + '</td>' +
+                '<td style="color:#666;background:#f5f6fa">' + (p.volume||String.fromCharCode(8212)) + '</td>' +
+                '<td style="color:#666;background:#f5f6fa">' + (p.weight||String.fromCharCode(8212)) + '</td>' +
                 '<td><input type="number" class="cost-input" data-field="purchase" value="' + (c.purchase_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="logistics" value="' + (c.logistics_cost||'') + '" style="width:70px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="packaging" value="' + (c.packaging_cost||'') + '" style="width:70px" placeholder="0"></td>' +
@@ -4921,14 +4931,7 @@ function applyCostFilters() {
                 '<td><input type="number" class="cost-input" data-field="season_oct" value="' + (c.season_oct||'') + '" style="width:42px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="season_nov" value="' + (c.season_nov||'') + '" style="width:42px" placeholder="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="season_dec" value="' + (c.season_dec||'') + '" style="width:42px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="plan_length" value="' + (c.plan_length||'') + '" style="width:50px" placeholder="-" step="0.1" min="0" oninput="calcPlanVol(this)"></td>' +
-                '<td><input type="number" class="cost-input" data-field="plan_width" value="' + (c.plan_width||'') + '" style="width:50px" placeholder="-" step="0.1" min="0" oninput="calcPlanVol(this)"></td>' +
-                '<td><input type="number" class="cost-input" data-field="plan_height" value="' + (c.plan_height||'') + '" style="width:50px" placeholder="-" step="0.1" min="0" oninput="calcPlanVol(this)"></td>' +
-                '<td class="plan-vol-cell" style="color:#666">' + (c.plan_volume ? parseFloat(c.plan_volume) : String.fromCharCode(8212)) + '</td>' +
-                '<td><input type="number" class="cost-input" data-field="plan_weight" value="' + (c.plan_weight||'') + '" style="width:55px" placeholder="-" step="1" min="0"></td>' +
-                '<td style="white-space:nowrap;font-size:.78em;color:#666">' + factDims + '</td>' +
-                '<td style="color:#666">' + (p.volume||String.fromCharCode(8212)) + '</td>' +
-                '<td style="color:#666">' + (p.weight||String.fromCharCode(8212)) + '</td>' +
+                
                 '<td><input type="number" class="cost-input" data-field="delivery_days_to_seller" value="' + (c.delivery_days_to_seller||'') + '" style="width:55px" placeholder="0" min="0"></td>' +
                 '<td><input type="number" class="cost-input" data-field="delivery_days_to_mp" value="' + (c.delivery_days_to_mp||'') + '" style="width:55px" placeholder="0" min="0"></td>' +
                 '<td><input type="text" class="cost-input" data-field="top_query_1" value="' + esc(c.top_query_1||'') + '" style="width:80px" placeholder="-"></td>' +
@@ -4948,8 +4951,8 @@ function applyCostFilters() {
                         '<td style="color:#6c5ce7;font-weight:500">' + esc(sizeLabel) + '</td>' +
                         '<td></td><td></td>' +
                         '<td style="font-size:.7em;color:#999">' + esc(s.barcodes||'') + '</td>' +
-                        '<td></td>' +
-                        '<td colspan="30" style="color:#999;font-size:.75em">' + String.fromCharCode(8592) + ' ' + esc(s.entity_id||'') + '</td>' +
+                        '<td></td><td></td><td></td><td></td><td></td>' +
+                        '<td colspan="48" style="color:#999;font-size:.75em">' + String.fromCharCode(8592) + ' ' + esc(s.entity_id||'') + '</td>' +
                         '</tr>';
                 });
             }
