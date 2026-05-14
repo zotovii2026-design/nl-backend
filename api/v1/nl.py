@@ -3480,15 +3480,14 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th rowspan="2">РРЦ</th>
 <th rowspan="2">Мин. цена</th>
 <th rowspan="2">Дата внесения правок</th>
-
+<th rowspan="2">Дата начала</th>
 <th rowspan="2">Закупка ₽</th><th rowspan="2">Логистика ₽</th><th rowspan="2">Упаковка ₽</th><th rowspan="2">Прочее ₽</th><th rowspan="2">НДС руб</th>
 <th rowspan="2">Баз. % МП</th><th rowspan="2">% хранения</th>
 <th rowspan="2">Цена до СПП план ₽</th><th rowspan="2">Цена до СПП к изм. ₽</th><th rowspan="2">Скидка WB Клуб %</th>
 
 <th rowspan="2">Налог. система</th>
 <th rowspan="2">Дост. до склада</th><th rowspan="2">Дост. до МП</th>
-
-<th rowspan="2">Дата начала</th><th rowspan="2">Заметки</th>
+<th rowspan="2">Заметки</th>
 </tr><tr>
 <th style="background:#e8f4e8;font-size:.78em">Длина, см</th><th style="background:#e8f4e8;font-size:.78em">Ширина, см</th><th style="background:#e8f4e8;font-size:.78em">Высота, см</th><th style="background:#e8f4e8;font-size:.78em">Объём, л</th><th style="background:#e8f4e8;font-size:.78em">Вес, гр</th>
 <th style="background:#eef0f5;font-size:.78em">Д×Ш×В</th><th style="background:#eef0f5;font-size:.78em">Объём, л</th><th style="background:#eef0f5;font-size:.78em">Вес</th>
