@@ -3460,9 +3460,9 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div style="overflow-x:auto;position:relative">
 <table id="cost-table" style="font-size:.82em"><thead><tr>
 <th style="position:sticky;left:0;z-index:2;background:#fff" rowspan="2"><input type="checkbox" id="cost-check-all" onchange="toggleAllCostRows(this.checked)" style="cursor:pointer"></th>
-<th rowspan="2">Статус товара</th><th rowspan="2">Класс товара</th><th rowspan="2">Бренд</th><th rowspan="2">Фото</th><th rowspan="2">Категория</th><th rowspan="2">Арт продавца</th><th rowspan="2">Баркод</th><th rowspan="2">Размер</th><th rowspan="2">Арт WB</th><th rowspan="2">Товар</th>
-<th rowspan="2">Отгрузка</th>
-<th rowspan="2">Склад отгрузки FBS</th>
+<th rowspan="2" style="text-align:center;line-height:1.2">Статус<br>товара</th><th rowspan="2" style="text-align:center;line-height:1.2">Класс<br>товара</th><th rowspan="2" style="text-align:center;line-height:1.2">Бренд</th><th rowspan="2">Фото</th><th rowspan="2" style="text-align:center;line-height:1.2">Кате-<br>гория</th><th rowspan="2" style="text-align:center;line-height:1.2">Арт<br>продавца</th><th rowspan="2" style="text-align:center;line-height:1.2">Бар-<br>код</th><th rowspan="2" style="text-align:center;line-height:1.2">Раз-<br>мер</th><th rowspan="2" style="text-align:center;line-height:1.2">Арт<br>WB</th><th rowspan="2" style="text-align:center;line-height:1.2">Товар</th>
+<th rowspan="2" style="text-align:center;line-height:1.2">От-<br>грузка</th>
+<th rowspan="2" style="text-align:center;line-height:1.2;font-size:.9em">Склад от-<br>грузки FBS</th>
 <th style="position:relative" rowspan="2">Себестоимость ₽<span onclick="showCostInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
 <th style="position:relative" rowspan="2">Доп расходы ₽<span onclick="showExtraCostsInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
 <th style="position:relative" rowspan="2">Себестоимость итого ₽<span onclick="showTotalCostInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
@@ -3472,15 +3472,15 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <th colspan="3" style="background:#eef0f5;text-align:center;font-size:.85em">Габариты ФАКТ</th>
 <th colspan="12" style="background:#fff8e1;text-align:center;font-size:.85em">Коэффициент сезонности</th>
 <th colspan="3" style="background:#e8eaf6;text-align:center;font-size:.85em">ТОП запросы, ПЛАН</th>
-<th rowspan="2">% выкупа по категории</th>
-<th style="position:relative" rowspan="2">Коррекция к комиссии МП, %<span onclick="showCommCorrInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
-<th rowspan="2">Планируемые рекламные расходы, %</th>
-<th style="position:relative" rowspan="2">Скорость доставаемости, дн<span onclick="showDeliveryInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
-<th rowspan="2">Мин партия/ кратность</th>
-<th rowspan="2">РРЦ</th>
-<th rowspan="2">Мин. цена</th>
-<th rowspan="2">Дата внесения правок</th>
-<th rowspan="2">Дата начала</th>
+<th rowspan="2" style="text-align:center;line-height:1.2">% выкупа<br>по категории</th>
+<th style="position:relative;text-align:center;line-height:1.2" rowspan="2">Коррекция к<br>комиссии МП, %<span onclick="showCommCorrInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
+<th rowspan="2" style="text-align:center;line-height:1.2">Планируемые<br>рекл. расходы, %</th>
+<th style="position:relative;text-align:center;line-height:1.2" rowspan="2">Скорость<br>достав., дн<span onclick="showDeliveryInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
+<th rowspan="2" style="text-align:center;line-height:1.2;font-size:.9em">Мин пар-<br>тия/кратн.</th>
+<th rowspan="2" style="text-align:center;line-height:1.2">РРЦ</th>
+<th rowspan="2" style="text-align:center;line-height:1.2">Мин.<br>цена</th>
+<th rowspan="2" style="text-align:center;line-height:1.2;font-size:.9em">Дата вне-<br>сения правок</th>
+<th rowspan="2" style="text-align:center;line-height:1.2">Дата<br>начала</th>
 </tr><tr>
 <th style="background:#e8f4e8;font-size:.78em">Длина, см</th><th style="background:#e8f4e8;font-size:.78em">Ширина, см</th><th style="background:#e8f4e8;font-size:.78em">Высота, см</th><th style="background:#e8f4e8;font-size:.78em">Объём, л</th><th style="background:#e8f4e8;font-size:.78em">Вес, гр</th>
 <th style="background:#eef0f5;font-size:.78em">Д×Ш×В</th><th style="background:#eef0f5;font-size:.78em">Объём, л</th><th style="background:#eef0f5;font-size:.78em">Вес</th>
