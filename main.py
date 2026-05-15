@@ -45,6 +45,14 @@ async def health_check(db: AsyncSession = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Database error: {str(e)}")
 
+# Static files для JS/CSS модулей
+from fastapi.staticfiles import StaticFiles
+import os
+static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+if os.path.isdir(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+

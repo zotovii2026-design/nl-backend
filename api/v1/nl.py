@@ -3172,7 +3172,34 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 .rnp-summary-bar{display:flex;gap:16px;margin-bottom:12px;font-size:.85em;flex-wrap:wrap;background:#fff;padding:12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .rnp-pos{color:#00b894}.rnp-neg{color:#e74c3c}
 
+
+/* === Tabulator overrides === */
+.tabulator{border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;font-size:.82em;background:#fff}
+.tabulator .tabulator-header{background:#f8f9fa;border-bottom:2px solid #e0e0e0;font-size:.7em;text-transform:none;letter-spacing:0;color:#333}
+.tabulator .tabulator-header .tabulator-col{border-right:1px solid #e0e0e0}
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content{padding:6px 8px}
+.tabulator .tabulator-header .tabulator-col.tabulator-sortable .tabulator-col-title{padding-right:20px}
+.tabulator .tabulator-header .tabulator-col-group{background:#f0f1f5;font-weight:600}
+.tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell{padding:4px 6px;border-right:1px solid #f0f0f0;border-bottom:1px solid #f0f0f0}
+.tabulator .tabulator-tableholder .tabulator-table .tabulator-row:hover{background:#f8f9ff}
+.tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell input,
+.tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell select{width:100%;border:1px solid #e0e0e0;border-radius:3px;padding:2px 4px;font-size:.85em}
+.tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell input:focus,
+.tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell select:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,231,.15)}
+.season-cell{background:#fffde7 !important}
+.topquery-cell{background:#ede7f6 !important}
+.tax-cell{text-align:center;color:#6c5ce7;font-weight:600;background:#f8f7ff !important}
+.tabulator .tabulator-footer{background:#f8f9fa;border-top:1px solid #e0e0e0;padding:6px 12px}
 </style>
+<!-- Tabulator CSS -->
+<link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator.min.css" rel="stylesheet">
+<link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator_modern.min.css" rel="stylesheet">
+<!-- Tabulator JS -->
+<script type="text/javascript" src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
+<!-- NL Grid Module -->
+<script type="text/javascript" src="/static/js/nl-grid.js"></script>
+<!-- Cost Grid Module -->
+<script type="text/javascript" src="/static/js/cost-grid.js"></script>
 </head>
 <body>
 
@@ -4853,6 +4880,23 @@ function applyCostFilters() {
             groups[p.nm_id].push(p);
         });
         
+        // === TABULATOR: если загружен, рендерим через него ===
+        if (typeof Tabulator !== "undefined" && typeof updateCostTabulator === "function") {
+            updateCostTabulator(products);
+            // Итоги
+            let tc = 0, fc = 0;
+            products.forEach(p => {
+                const c = _costMap[p.nm_id] || {};
+                if (c.cost_price) { tc += parseFloat(c.cost_price); fc++; }
+            });
+            document.getElementById("cost-summary").innerHTML =
+                "<span>💰 Заполнено: <strong>" + fc + "/" + products.length + "</strong></span>" +
+                "<span>📊 Сумма себестоимости: <strong>" + tc.toLocaleString("ru-RU") + " ₽</strong></span>" +
+                (fc > 0 ? "<span>📄 Средняя: <strong>" + Math.round(tc/fc).toLocaleString("ru-RU") + " ₽</strong></span>" : "");
+            return;
+        }
+        // === FALLBACK: старый HTML-рендер если Tabulator не загружен ===
+
         let totalCost = 0, filled = 0;
         const tbody = document.getElementById('cost-body');
         let html = '';
@@ -5205,6 +5249,25 @@ async function autoFillReference() {
 }
 
 async function saveAllCostPrices() {
+    // === TABULATOR: сохранение из Tabulator ===
+    if (typeof Tabulator !== "undefined" && costTabulator && typeof getCostDataForSave === "function") {
+        const saveData = getCostDataForSave();
+        let saved = 0;
+        for (const data of saveData) {
+            try {
+                const resp = await fetch("/api/v1/nl/cost-prices?org_id=" + ORG_ID, {
+                    method: "POST", headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify(data)
+                });
+                if (resp.ok) saved++;
+                else console.error("save error nm=" + data.nm_id, resp.status);
+            } catch(e) { console.error("save error", e); }
+        }
+        alert("Сохранено: " + saved + " записей");
+        loadCostPrices();
+        return;
+    }
+    // === FALLBACK: старое сохранение ===
     const rows = document.querySelectorAll('#cost-body tr[data-nm]');
     let saved = 0;
     for (const row of rows) {
