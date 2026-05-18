@@ -39,17 +39,18 @@ function getCostColumns() {
             columns: [
                 {
                     title: 'Статус товара', field: 'product_status', width: 120, headerSort: true,
-                    editor: 'select',
+                    editor: 'list',
                     editorParams: {
-                        values: [
-                            {value:'',label:'-'},
-                            {value:'Новинка',label:'🟢 Новинка'},
-                            {value:'Выводим',label:'🔴 Выводим'},
-                            {value:'ТОП (А)',label:'🔵 ТОП (А)'},
-                            {value:'Двигаем (В)',label:'🟡 Двигаем (В)'},
-                            {value:'Категория С',label:'⚪ Категория С'},
-                            {value:'Планируется к запуску',label:'🟣 Планируется к запуску'},
-                        ]
+                        values: {
+                            '':'-',
+                            'Новинка':'🟢 Новинка',
+                            'Выводим':'🔴 Выводим',
+                            'ТОП (А)':'🔵 ТОП (А)',
+                            'Двигаем (В)':'🟡 Двигаем (В)',
+                            'Категория С':'⚪ Категория С',
+                            'Планируется к запуску':'🟣 Планируется к запуску',
+                        },
+                        clearable: true,
                     },
                     formatter: function(cell) {
                         const v = cell.getValue() || '';
@@ -64,12 +65,12 @@ function getCostColumns() {
                 { title: 'Класс товара', field: 'product_class', width: 80, editor: 'input', headerSort: true },
                 { title: 'Бренд', field: 'brand', width: 90, editor: 'input', headerSort: true },
                 {
-                    title: 'Фото', field: 'photo_main', width: 50, headerSort: false,
+                    title: 'Фото', field: 'photo_main', width: 66, headerSort: false,
                     formatter: function(cell) {
                         const url = cell.getValue();
                         if (!url) return '';
                         const thumb = url.replace('/hq/','/c246x328/').replace('/big/','/c246x328/').replace('/tm/','/c246x328/');
-                        return '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover">';
+                        return '<img src="' + thumb + '" style="width:46px;height:46px;border-radius:4px;object-fit:cover">';
                     }
                 },
                 { title: 'Категория', field: 'subject_name', width: 120, headerSort: true, formatter: 'textarea' },
@@ -87,27 +88,19 @@ function getCostColumns() {
             columns: [
                 {
                     title: 'Отгрузка', field: 'fulfillment_model', width: 80, headerSort: true,
-                    editor: 'select',
-                    editorParams: { values: [{value:'fbo',label:'ФБО'},{value:'fbs',label:'ФБС'}] },
+                    editor: 'list',
+                    editorParams: { values: {'fbo':'ФБО','fbs':'ФБС'}, clearable: true },
                     formatter: function(cell) { return cell.getValue() === 'fbs' ? 'ФБС' : 'ФБО'; }
                 },
                 {
                     title: 'Склад FBS', field: 'fbs_warehouse', width: 160, headerSort: true,
-                    editor: 'select',
+                    editor: 'list',
                     editorParams: function(cell) {
-                        const values = [{value:'',label:'-'}];
-                        const groups = {};
+                        const values = {'':'-'};
                         (FBS_WAREHOUSES||[]).forEach(function(w) {
-                            const t = w.type || 'Склад';
-                            if (!groups[t]) groups[t] = [];
-                            groups[t].push(w);
+                            values[w.name] = w.name;
                         });
-                        ['Склад','СЦ','КГТ+'].forEach(function(t) {
-                            if (groups[t]) groups[t].forEach(function(w) {
-                                values.push({value: w.name, label: w.name});
-                            });
-                        });
-                        return { values: values };
+                        return { values: values, clearable: true };
                     }
                 },
             ]
@@ -131,8 +124,8 @@ function getCostColumns() {
                 },
                 {
                     title: 'НДС', field: 'vat_rate', width: 80, headerSort: false,
-                    editor: 'select',
-                    editorParams: { values: [{value:0,label:'нет'},{value:5,label:'5%'},{value:7,label:'7%'}] },
+                    editor: 'list',
+                    editorParams: { values: {0:'нет',5:'5%',7:'7%'}, clearable: true },
                     formatter: function(cell) {
                         const v = cell.getValue();
                         if (!v || v === 0 || v === 'нет') return 'нет';
@@ -308,6 +301,14 @@ function initCostTabulator(data) {
         tabEl.style.height = '70vh';
         // Вставляем после скрытой старой таблицы
         oldTable.parentNode.appendChild(tabEl);
+    }
+
+    // CSS: уменьшенный шрифт заголовков
+    if (!document.getElementById('cost-header-style')) {
+        const style = document.createElement('style');
+        style.id = 'cost-header-style';
+        style.textContent = '.tabulator-col-title { font-size: 8px !important; line-height: 1.1 !important; padding: 2px 4px !important; } .tabulator-col .tabulator-col-content { padding: 2px 4px !important; } .tabulator-cell { font-size: 11px !important; }';
+        document.head.appendChild(style);
     }
 
     costTabulator = new Tabulator('#cost-tabulator', {
