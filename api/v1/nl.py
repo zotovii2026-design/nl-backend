@@ -1723,6 +1723,14 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
     for sr in subj_result.all():
         subj_map[sr[0]] = {"subject_id": sr[1], "subject_name": sr[2]}
 
+    # Загружаем vendor_code из product_entities по nm_id
+    vc_result = await db.execute(text(
+        "SELECT DISTINCT nm_id, vendor_code FROM product_entities WHERE organization_id = :org AND vendor_code IS NOT NULL AND vendor_code != ''"
+    ), {"org": org_id})
+    vendor_code_by_nm = {}
+    for vr in vc_result.all():
+        vendor_code_by_nm[vr[0]] = vr[1]
+
     # Добавляем subject данные в snapshots
     for eid_str, snap in snap_by_entity.items():
         if eid_str in subj_map:
@@ -1737,7 +1745,7 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
     ref_result = await db.execute(text("""
         SELECT id, entity_id, nm_id,
                mp_base_pct, logistics_cost, storage_pct,
-               price_before_spp_plan, buyout_niche_pct, ad_plan_rub,
+               price_before_spp_plan, buyout_niche_pct, ad_plan_rub, vendor_code,
                subject_id, subject_name
         FROM reference_book
         WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
@@ -1756,6 +1764,9 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
         "subject_name": "subject_name",
     }
 
+    # vendor_code: заполняем из product_entities (не из snapshot)
+    # Будет обработан отдельно ниже
+
     for r in refs:
         rid = str(r[0])
         eid = str(r[1]) if r[1] else None
@@ -1770,6 +1781,7 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
             "ad_plan_rub": r[8],
             "subject_id": r[9],
             "subject_name": r[10],
+            "vendor_code": r[11],
         }
 
         # Ищем snapshot: сначала по entity_id, потом по nm_id
@@ -1779,12 +1791,23 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
         elif nm_id and nm_id in snap_by_nm:
             snap = snap_by_nm[nm_id]
 
+        # vendor_code: подтягиваем из product_entities если пустой (даже без snapshot)
+        updates = {}
+        vc = vendor_code_by_nm.get(nm_id)
+        if vc and (not current.get("vendor_code") or current["vendor_code"] == ""):
+            updates["vendor_code"] = vc
+
         if not snap:
-            stats["skipped"] += 1
+            if updates:
+                set_clauses = ", ".join(f"{k} = :{k}" for k in updates)
+                updates["rid"] = rid
+                await db.execute(text(f"UPDATE reference_book SET {set_clauses} WHERE id = :rid"), updates)
+                stats["updated"] += 1
+            else:
+                stats["skipped"] += 1
             continue
 
         # Собираем обновления (только пустые поля)
-        updates = {}
         for ref_field, snap_field in field_map.items():
             snap_val = snap.get(snap_field)
             cur_val = current.get(ref_field)
@@ -1809,7 +1832,7 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
             existing_nms.add(r[2])
     
     all_entities = await db.execute(text(
-        "SELECT pe.id, pe.nm_id, pe.size_name, pe.brand, pe.subject_id, pe.subject_name FROM product_entities pe WHERE pe.organization_id = :org"
+        "SELECT pe.id, pe.nm_id, pe.size_name, pe.brand, pe.subject_id, pe.subject_name, pe.vendor_code FROM product_entities pe WHERE pe.organization_id = :org"
     ), {"org": org_id})
     
     created_count = 0
@@ -1832,6 +1855,7 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
             "brand": ent[3] or "",
             "subject_id": ent[4],
             "subject_name": ent[5] or "",
+            "vendor_code": ent[6] or "",
             "valid_from": date.today(),
             "mp_base_pct": float(snap["commission_pct"]) if snap and snap.get("commission_pct") else None,
             "logistics_cost": float(snap["logistics_tariff"]) if snap and snap.get("logistics_tariff") else None,
@@ -3520,7 +3544,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Плавающая панель массовых действий -->
 <div id="cost-bulk-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:#6c5ce7;color:#fff;padding:10px 16px;border-radius:8px 8px 0 0;display:none;align-items:center;gap:12px;flex-wrap:wrap;z-index:10;box-shadow:0 -2px 10px rgba(0,0,0,.15)">
 <span style="font-weight:600" id="bulk-bar-count">Выделено: 0</span>
-<select id="bulk-field" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:rgba(255,255,255,.15);color:#fff">
+<select id="bulk-field" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333">
 <option value="">Выберите поле...</option>
 <optgroup label="Себестоимость">
 <option value="purchase_cost">Закупка ₽</option>
@@ -3573,7 +3597,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <option value="notes">Заметки</option>
 </optgroup>
 </select>
-<input type="text" id="bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:rgba(255,255,255,.15);color:#fff">
+<input type="text" id="bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:#fff;color:#333">
 <button onclick="applyBulkEdit()" style="background:#00b894;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer;font-weight:600">✅ Применить</button>
 <button onclick="clearBulkSelection()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer">Снять выделение</button>
 </div>
@@ -3626,7 +3650,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Плавающая панель массовых действий -->
 <div id="sp-bulk-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:#6c5ce7;color:#fff;padding:10px 16px;border-radius:8px 8px 0 0;align-items:center;gap:12px;flex-wrap:wrap;z-index:10;box-shadow:0 -2px 10px rgba(0,0,0,.15)">
 <span style="font-weight:600" id="sp-bulk-count">Выделено: 0</span>
-<select id="sp-bulk-field" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:rgba(255,255,255,.15);color:#fff">
+<select id="sp-bulk-field" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333">
 <option value="">Выберите поле...</option>
 <option value="plan_value">План</option>
 <option value="plan_type">Тип плана</option>
@@ -3634,7 +3658,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <option value="actual_value">Факт</option>
 <option value="sales_temp">Темп продаж</option>
 </select>
-<input type="text" id="sp-bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:rgba(255,255,255,.15);color:#fff">
+<input type="text" id="sp-bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:#fff;color:#333">
 <button onclick="applySpBulkEdit()" style="background:#00b894;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer;font-weight:600">✅ Применить</button>
 <button onclick="clearSpBulkSelection()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer">Снять выделение</button>
 </div>
@@ -3750,9 +3774,9 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 <div id="ext-bulk-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:#6c5ce7;color:#fff;padding:10px 16px;border-radius:8px 8px 0 0;align-items:center;gap:12px;flex-wrap:wrap;z-index:10;box-shadow:0 -2px 10px rgba(0,0,0,.15)">
 <span style="font-weight:600" id="ext-bulk-count">Выделено: 0</span>
-<select id="ext-bulk-field" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:rgba(255,255,255,.15);color:#fff">
+<select id="ext-bulk-field" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333">
 <option value="">Поле...</option><option value="source">Источник</option><option value="ad_type">Тип</option><option value="amount">Сумма</option><option value="notes">Заметки</option></select>
-<input type="text" id="ext-bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:rgba(255,255,255,.15);color:#fff">
+<input type="text" id="ext-bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:#fff;color:#333">
 <button onclick="applyExtBulkEdit()" style="background:#00b894;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer;font-weight:600">✅ Применить</button>
 <button onclick="clearExtBulkSelection()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer">Снять</button>
 </div>
@@ -5139,8 +5163,13 @@ function toggleCostGroup(row) {
 }
 
 function updateBulkBar() {
-    const checks = document.querySelectorAll('.cost-row-check:checked');
-    const count = checks.length;
+    // Считаем через Tabulator данные (а не DOM чекбоксы)
+    let count = 0;
+    if (typeof costTabulator !== 'undefined' && costTabulator) {
+        count = costTabulator.getData().filter(r => r._selected).length;
+    } else {
+        count = document.querySelectorAll('.cost-row-check:checked').length;
+    }
     const bar = document.getElementById('cost-bulk-bar');
     const info = document.getElementById('cost-selected-info');
     const countEl = document.getElementById('cost-selected-count');
@@ -5357,19 +5386,19 @@ async function uploadCostExcel(input) {
 }
 function exportCostTemplate() {
     const rows = document.querySelectorAll('#cost-body tr[data-nm]');
-    const hdr = 'Арт WB;Арт продавца;Баркод;Название;Размер;Отгрузка;' +
-        'Доп расходы;Себестоимость итого;Закупка;Логистика;Упаковка;Прочее;Мин. цена;НДС руб;' +
+    const hdr = 'Арт WB;Арт продавца;Баркод;Категория;' +
+        'Себестоимость;Доп расходы;Закупка;Логистика;Упаковка;Прочее;Мин. цена;НДС руб;' +
+        'ФБО/ФБС;Склад отгрузки FBS;' +
         'Баз. % МП;Корр. % МП;% хранения;% выкупа по категории;' +
         'Цена до СПП план;Цена до СПП к изм.;Дата правок;Скидка WB Клуб %;РРЦ;' +
         'Реклама план;' +
         'Класс товара;Бренд;Статус товара;' +
-        'Налог. система;НДС от дохода;' +
+        'Налог. система;' +
         'Сезон янв;Сезон фев;Сезон мар;Сезон апр;Сезон май;Сезон июн;' +
         'Сезон июл;Сезон авг;Сезон сен;Сезон окт;Сезон ноя;Сезон дек;' +
         'План длина;План ширина;План высота;План объём;План вес;' +
         'Доставка до склада (дни);Доставка до МП (дни);' +
         'ТОП запрос 1;ТОП запрос 2;ТОП запрос 3;' +
-        'Склад отгрузки FBS;' +
         'Заметки';
     let csv = hdr;
     if (rows.length) {
@@ -5378,22 +5407,21 @@ function exportCostTemplate() {
             const nm = row.dataset.nm || '';
             const vc = row.dataset.vc || '';
             const bc = row.dataset.barcode || '';
-            const name = row.querySelector('td:nth-child(5)')?.textContent || '';
-            const size = row.querySelector('td:nth-child(4)')?.textContent || '';
             const gv = (f) => row.querySelector('[data-field="' + f + '"]')?.value || '';
-            const cols = [nm, vc, bc, '"' + name + '"', size,
-                gv('extra_costs'), (parseFloat(gv('cost_price'))+parseFloat(gv('extra_costs'))).toFixed(2), gv('purchase'), gv('logistics'), gv('packaging'), gv('other'), gv('min_price'), gv('vat'),
-                gv('mp_base_pct'), gv('mp_correction_pct'), gv('fulfillment_model'), gv('storage_pct'), gv('buyout_niche_pct'),
+            const subject = row.querySelector('[data-field="subject_name"]')?.textContent || '';
+            const cols = [nm, vc, bc, subject,
+                gv('cost_price'), gv('extra_costs'), gv('purchase'), gv('logistics'), gv('packaging'), gv('other'), gv('min_price'), gv('vat'),
+                gv('fulfillment_model'), gv('fbs_warehouse'),
+                gv('mp_base_pct'), gv('mp_correction_pct'), gv('storage_pct'), gv('buyout_niche_pct'),
                 gv('price_before_spp_plan'), gv('price_before_spp_change'), gv('change_date'), gv('wb_club_discount_pct'), gv('rrc_price'),
                 gv('ad_plan_rub'),
                 gv('product_class'), gv('brand'), gv('product_status'),
-                gv('tax_system'), gv('vat_rate'),
+                gv('tax_system'),
                 gv('season_jan'), gv('season_feb'), gv('season_mar'), gv('season_apr'), gv('season_may'), gv('season_jun'),
                 gv('season_jul'), gv('season_aug'), gv('season_sep'), gv('season_oct'), gv('season_nov'), gv('season_dec'),
                 gv('plan_length'), gv('plan_width'), gv('plan_height'), (function(){var l=parseFloat(gv('plan_length'))||0,w=parseFloat(gv('plan_width'))||0,h=parseFloat(gv('plan_height'))||0;return(l>0&&w>0&&h>0)?((l*w*h)/1000):''})(), gv('plan_weight'),
                 gv('delivery_days_to_seller'), gv('delivery_days_to_mp'),
                 gv('top_query_1'), gv('top_query_2'), gv('top_query_3'),
-                gv('shipment_method'), gv('fbs_warehouse'),
                 gv('notes')
             ];
             csv += cols.join(';') + String.fromCharCode(10);

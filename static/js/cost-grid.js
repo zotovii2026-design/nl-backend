@@ -27,6 +27,7 @@ function getCostColumns() {
                 const all = costTabulator.getData();
                 const anyChecked = all.some(r => r._selected);
                 all.forEach(r => r._selected = !anyChecked);
+                // Перерисовываем чекбоксы через replaceData
                 costTabulator.replaceData(all);
                 updateBulkBar();
             }
