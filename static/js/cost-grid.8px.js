@@ -39,18 +39,17 @@ function getCostColumns() {
             columns: [
                 {
                     title: 'Статус товара', field: 'product_status', width: 120, headerSort: true,
-                    editor: 'list',
+                    editor: 'select',
                     editorParams: {
-                        values: {
-                            '':'-',
-                            'Новинка':'🟢 Новинка',
-                            'Выводим':'🔴 Выводим',
-                            'ТОП (А)':'🔵 ТОП (А)',
-                            'Двигаем (В)':'🟡 Двигаем (В)',
-                            'Категория С':'⚪ Категория С',
-                            'Планируется к запуску':'🟣 Планируется к запуску',
-                        },
-                        clearable: true,
+                        values: [
+                            {value:'',label:'-'},
+                            {value:'Новинка',label:'🟢 Новинка'},
+                            {value:'Выводим',label:'🔴 Выводим'},
+                            {value:'ТОП (А)',label:'🔵 ТОП (А)'},
+                            {value:'Двигаем (В)',label:'🟡 Двигаем (В)'},
+                            {value:'Категория С',label:'⚪ Категория С'},
+                            {value:'Планируется к запуску',label:'🟣 Планируется к запуску'},
+                        ]
                     },
                     formatter: function(cell) {
                         const v = cell.getValue() || '';
@@ -74,14 +73,9 @@ function getCostColumns() {
                     }
                 },
                 { title: 'Категория', field: 'subject_name', width: 120, headerSort: true, formatter: 'textarea' },
-                { title: 'Арт продавца', field: 'vendor_code', width: 110, headerSort: true, formatter: function(cell) {
-                    var d = cell.getRow().getData();
-                    var vc = d.vendor_code || '';
-                    var sz = d.size_name && d.size_name !== '0' ? d.size_name : '';
-                    return vc + (sz ? '<br><span style="font-size:.8em;color:#888">' + sz + '</span>' : '');
-                }},
+                { title: 'Арт продавца', field: 'vendor_code', width: 100, headerSort: true },
                 { title: 'Баркод', field: '_barcodes', width: 110, headerSort: false, formatter: 'textarea' },
-                { title: 'Размер', field: '_sizeList', width: 60, headerSort: true },
+                { title: 'Размер', field: '_sizeList', width: 80, headerSort: false },
                 { title: 'Арт WB', field: 'nm_id', width: 100, headerSort: true, formatter: function(cell) { return '<b>' + cell.getValue() + '</b>'; } },
                 { title: 'Товар', field: 'product_name', width: 180, headerSort: true, formatter: 'textarea' },
             ]
@@ -93,19 +87,27 @@ function getCostColumns() {
             columns: [
                 {
                     title: 'Отгрузка', field: 'fulfillment_model', width: 80, headerSort: true,
-                    editor: 'list',
-                    editorParams: { values: {'fbo':'ФБО','fbs':'ФБС'}, clearable: true },
+                    editor: 'select',
+                    editorParams: { values: [{value:'fbo',label:'ФБО'},{value:'fbs',label:'ФБС'}] },
                     formatter: function(cell) { return cell.getValue() === 'fbs' ? 'ФБС' : 'ФБО'; }
                 },
                 {
                     title: 'Склад FBS', field: 'fbs_warehouse', width: 160, headerSort: true,
-                    editor: 'list',
+                    editor: 'select',
                     editorParams: function(cell) {
-                        const values = {'':'-'};
+                        const values = [{value:'',label:'-'}];
+                        const groups = {};
                         (FBS_WAREHOUSES||[]).forEach(function(w) {
-                            values[w.name] = w.name;
+                            const t = w.type || 'Склад';
+                            if (!groups[t]) groups[t] = [];
+                            groups[t].push(w);
                         });
-                        return { values: values, clearable: true };
+                        ['Склад','СЦ','КГТ+'].forEach(function(t) {
+                            if (groups[t]) groups[t].forEach(function(w) {
+                                values.push({value: w.name, label: w.name});
+                            });
+                        });
+                        return { values: values };
                     }
                 },
             ]
@@ -129,8 +131,8 @@ function getCostColumns() {
                 },
                 {
                     title: 'НДС', field: 'vat_rate', width: 80, headerSort: false,
-                    editor: 'list',
-                    editorParams: { values: {0:'нет',5:'5%',7:'7%'}, clearable: true },
+                    editor: 'select',
+                    editorParams: { values: [{value:0,label:'нет'},{value:5,label:'5%'},{value:7,label:'7%'}] },
                     formatter: function(cell) {
                         const v = cell.getValue();
                         if (!v || v === 0 || v === 'нет') return 'нет';
@@ -215,13 +217,14 @@ function getCostColumns() {
  * Подготовить данные для Tabulator из _costProducts + _costMap
  */
 function prepareCostData(products) {
-    // Count entities per nm_id to detect sizeless products
-    const nmCounts = {};
-    products.forEach(p => { nmCounts[p.nm_id] = (nmCounts[p.nm_id] || 0) + 1; });
-
     return products.map(p => {
-        const c = _costMap[p.entity_id] || {};
-        const isSizeless = nmCounts[p.nm_id] === 1 && (!p.size_name || p.size_name === '0' || p.size_name === 'ONE SIZE');
+        const c = _costMap[p.nm_id] || {};
+        const sizes = _costSizes[p.nm_id] || [];
+        const hasSizes = sizes.length > 1 || (sizes.length === 1 && sizes[0].size_name && sizes[0].size_name !== '0' && sizes[0].size_name !== 'ONE SIZE');
+
+        // Баркоды из размеров
+        const barcodeText = sizes.map(s => s.barcodes).filter(Boolean).join(', ');
+        const sizeListText = sizes.map(s => s.size_name).filter(s => s && s !== '0' && s !== 'ONE SIZE').join(', ');
 
         // Фактические габариты
         const factDims = (p.length || '') + '×' + (p.width || '') + '×' + (p.height || '') || '—';
@@ -232,22 +235,19 @@ function prepareCostData(products) {
             ? ((parseFloat(c.plan_length) * parseFloat(c.plan_width) * parseFloat(c.plan_height)) / 1000) : null;
 
         return {
-            _id: p.entity_id || (p.nm_id + '_' + (p.size_name || '0')), // уникальный ID = entity_id
+            _id: p.nm_id + '_' + (p.size_name || '0'), // уникальный ID строки
             _selected: false,
-            _hasSizes: false,
-            _sizesData: [],
-            _noGroup: isSizeless, // безразмерные — без группировки
+            _hasSizes: hasSizes,
+            _sizesData: hasSizes ? sizes : [],
 
             // Данные продукта (из API /control)
-            entity_id: p.entity_id || '',
             nm_id: p.nm_id,
-            size_name: p.size_name || '',
             product_name: p.product_name || '',
-            vendor_code: p.vendor_code || c.vendor_code || '',
+            vendor_code: p.vendor_code || '',
             photo_main: p.photo_main || '',
             subject_name: c.subject_name || p.subject_name || '',
-            _barcodes: c.barcodes || c.barcode || p.barcode || '',
-            _sizeList: p.size_name && p.size_name !== '0' ? p.size_name : '—',
+            _barcodes: barcodeText || p.barcode || '',
+            _sizeList: hasSizes ? sizeListText : (p.size_name || '—'),
             _fact_dims: factDims,
             _fact_volume: p.volume || '—',
             _fact_weight: p.weight || '—',
@@ -314,7 +314,7 @@ function initCostTabulator(data) {
     if (!document.getElementById('cost-header-style')) {
         const style = document.createElement('style');
         style.id = 'cost-header-style';
-        style.textContent = '.tabulator-col-title { font-size: 8px !important; line-height: 1.1 !important; padding: 2px 4px !important; } .tabulator-col .tabulator-col-content { padding: 2px 4px !important; } .tabulator-cell { font-size: 11px !important; }';
+        style.textContent = '.tabulator-col-title { font-size: 8px !important; line-height: 1.1 !important; padding: 2px 4px !important; } .tabulator-col .tabulator-col-content { padding: 2px 4px !important; }';
         document.head.appendChild(style);
     }
 
@@ -329,27 +329,8 @@ function initCostTabulator(data) {
         virtualDomBuffer: 100,
         placeholder: 'Нет данных',
         columnHeaderSortMulti: true,
-        initialSort: [
-            {column: '_sizeList', dir: 'asc'},
-        ],
-        groupBy: function(data) {
-            // Безразмерные товары — без группы
-            if (data._noGroup) return '';
-            return data.nm_id;
-        },
-        groupStartOpen: true,
-        groupToggleElement: 'header',
-        groupHeader: function(value, count, data, group) {
-            if (!value) return ''; // безразмерные — пустой заголовок
-            const d = data[0] || {};
-            const name = (d.product_name || '').substring(0, 40);
-            const vc = d.vendor_code || '';
-            const photo = d.photo_main ? d.photo_main.replace('/hq/','/c246x328/').replace('/big/','/c246x328/').replace('/tm/','/c246x328/') : '';
-            const img = photo ? '<img src="' + photo + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:8px">' : '';
-            return '<span style="font-size:6px;line-height:1">' + img + '<b>' + value + '</b> — ' + count + ' ' + (count === 1 ? 'размер' : count < 5 ? 'размера' : 'размеров') + ' &nbsp; <span style="color:#666">' + name + '</span> &nbsp; <span style="color:#999">[' + vc + ']</span></span>';
-        },
 
-        // При редактировании ячейки — обновляем вычисляемые поля + синхронизация по nm_id
+        // При редактировании ячейки — обновляем вычисляемые поля
         cellEdited: function(cell) {
             const field = cell.getField();
             const row = cell.getRow();
@@ -368,45 +349,6 @@ function initCostTabulator(data) {
                 const h = parseFloat(data.plan_height) || 0;
                 const vol = (l > 0 && w > 0 && h > 0) ? ((l * w * h) / 1000) : null;
                 row.update({ 'plan_volume': vol });
-            }
-
-            // === Синхронизация полей по nm_id ===
-            var syncFields = [
-                'cost_price', 'extra_costs',
-                'plan_length', 'plan_width', 'plan_height', 'plan_weight',
-                'season_jan', 'season_feb', 'season_mar', 'season_apr',
-                'season_may', 'season_jun', 'season_jul', 'season_aug',
-                'season_sep', 'season_oct', 'season_nov', 'season_dec',
-                'brand', 'product_status', 'product_class',
-                'buyout_niche_pct', 'mp_correction_pct', 'ad_plan_rub',
-                'fulfillment_model', 'rrc_price', 'min_price'
-            ];
-
-            if (syncFields.indexOf(field) !== -1 && data.nm_id && !data._noGroup) {
-                var newVal = cell.getValue();
-                var nmId = data.nm_id;
-                var allRows = costTabulator.getRows();
-                var updates = {};
-                updates[field] = newVal;
-
-                allRows.forEach(function(r) {
-                    var rd = r.getData();
-                    if (rd.nm_id === nmId && rd.entity_id !== data.entity_id) {
-                        var rowUpdates = Object.assign({}, updates);
-                        if (field === 'cost_price') {
-                            rowUpdates['_total_cost'] = ((parseFloat(newVal)||0) + (parseFloat(rd.extra_costs)||0)).toFixed(2);
-                        } else if (field === 'extra_costs') {
-                            rowUpdates['_total_cost'] = ((parseFloat(rd.cost_price)||0) + (parseFloat(newVal)||0)).toFixed(2);
-                        }
-                        if (field === 'plan_length' || field === 'plan_width' || field === 'plan_height') {
-                            var sl = (field === 'plan_length') ? parseFloat(newVal)||0 : parseFloat(rd.plan_length)||0;
-                            var sw = (field === 'plan_width') ? parseFloat(newVal)||0 : parseFloat(rd.plan_width)||0;
-                            var sh = (field === 'plan_height') ? parseFloat(newVal)||0 : parseFloat(rd.plan_height)||0;
-                            rowUpdates['plan_volume'] = (sl > 0 && sw > 0 && sh > 0) ? ((sl * sw * sh) / 1000) : null;
-                        }
-                        r.update(rowUpdates);
-                    }
-                });
             }
         },
 
@@ -449,8 +391,6 @@ function getCostDataForSave() {
     if (!costTabulator) return [];
     const rows = costTabulator.getData();
     return rows.map(data => ({
-        entity_id: data.entity_id || null,
-        size_name: data.size_name || '',
         nm_id: parseInt(data.nm_id),
         barcode: null,
         vendor_code: null,

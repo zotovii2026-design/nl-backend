@@ -35,6 +35,9 @@ class ReferenceBook(Base):
     vendor_code = Column(String(100), nullable=True)               # Арт поставщика
     size_name = Column(String(50), nullable=True)                   # Размер
 
+    # === НДС ===
+    vat_rate = Column(Numeric(5, 2), nullable=True)              # НДС от дохода (нет/5%/7%)
+
     # === КАТЕГОРИЯ WB ===
     subject_id = Column(Integer, nullable=True)                      # ID категории WB (subjectID)
     subject_name = Column(String(200), nullable=True)                # Название категории WB (subjectName)
@@ -138,7 +141,7 @@ class ReferenceBook(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "organization_id", "entity_id", "valid_from",
-            name="reference_book_org_entity_vf_key"
+            "organization_id", "nm_id", "valid_from",
+            name="reference_book_org_nm_vf_key"
         ),
     )

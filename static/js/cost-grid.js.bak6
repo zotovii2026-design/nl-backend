@@ -349,7 +349,7 @@ function initCostTabulator(data) {
             return '<span style="font-size:6px;line-height:1">' + img + '<b>' + value + '</b> — ' + count + ' ' + (count === 1 ? 'размер' : count < 5 ? 'размера' : 'размеров') + ' &nbsp; <span style="color:#666">' + name + '</span> &nbsp; <span style="color:#999">[' + vc + ']</span></span>';
         },
 
-        // При редактировании ячейки — обновляем вычисляемые поля + синхронизация по nm_id
+        // При редактировании ячейки — обновляем вычисляемые поля
         cellEdited: function(cell) {
             const field = cell.getField();
             const row = cell.getRow();
@@ -368,45 +368,6 @@ function initCostTabulator(data) {
                 const h = parseFloat(data.plan_height) || 0;
                 const vol = (l > 0 && w > 0 && h > 0) ? ((l * w * h) / 1000) : null;
                 row.update({ 'plan_volume': vol });
-            }
-
-            // === Синхронизация полей по nm_id ===
-            var syncFields = [
-                'cost_price', 'extra_costs',
-                'plan_length', 'plan_width', 'plan_height', 'plan_weight',
-                'season_jan', 'season_feb', 'season_mar', 'season_apr',
-                'season_may', 'season_jun', 'season_jul', 'season_aug',
-                'season_sep', 'season_oct', 'season_nov', 'season_dec',
-                'brand', 'product_status', 'product_class',
-                'buyout_niche_pct', 'mp_correction_pct', 'ad_plan_rub',
-                'fulfillment_model', 'rrc_price', 'min_price'
-            ];
-
-            if (syncFields.indexOf(field) !== -1 && data.nm_id && !data._noGroup) {
-                var newVal = cell.getValue();
-                var nmId = data.nm_id;
-                var allRows = costTabulator.getRows();
-                var updates = {};
-                updates[field] = newVal;
-
-                allRows.forEach(function(r) {
-                    var rd = r.getData();
-                    if (rd.nm_id === nmId && rd.entity_id !== data.entity_id) {
-                        var rowUpdates = Object.assign({}, updates);
-                        if (field === 'cost_price') {
-                            rowUpdates['_total_cost'] = ((parseFloat(newVal)||0) + (parseFloat(rd.extra_costs)||0)).toFixed(2);
-                        } else if (field === 'extra_costs') {
-                            rowUpdates['_total_cost'] = ((parseFloat(rd.cost_price)||0) + (parseFloat(newVal)||0)).toFixed(2);
-                        }
-                        if (field === 'plan_length' || field === 'plan_width' || field === 'plan_height') {
-                            var sl = (field === 'plan_length') ? parseFloat(newVal)||0 : parseFloat(rd.plan_length)||0;
-                            var sw = (field === 'plan_width') ? parseFloat(newVal)||0 : parseFloat(rd.plan_width)||0;
-                            var sh = (field === 'plan_height') ? parseFloat(newVal)||0 : parseFloat(rd.plan_height)||0;
-                            rowUpdates['plan_volume'] = (sl > 0 && sw > 0 && sh > 0) ? ((sl * sw * sh) / 1000) : null;
-                        }
-                        r.update(rowUpdates);
-                    }
-                });
             }
         },
 
