@@ -74,9 +74,14 @@ function getCostColumns() {
                     }
                 },
                 { title: 'Категория', field: 'subject_name', width: 120, headerSort: true, formatter: 'textarea' },
-                { title: 'Арт продавца', field: 'vendor_code', width: 100, headerSort: true },
+                { title: 'Арт продавца', field: 'vendor_code', width: 110, headerSort: true, formatter: function(cell) {
+                    var d = cell.getRow().getData();
+                    var vc = d.vendor_code || '';
+                    var sz = d.size_name && d.size_name !== '0' ? d.size_name : '';
+                    return vc + (sz ? '<br><span style="font-size:.8em;color:#888">' + sz + '</span>' : '');
+                }},
                 { title: 'Баркод', field: '_barcodes', width: 110, headerSort: false, formatter: 'textarea' },
-                { title: 'Размер', field: '_sizeList', width: 80, headerSort: false },
+                { title: 'Размер', field: '_sizeList', width: 60, headerSort: true },
                 { title: 'Арт WB', field: 'nm_id', width: 100, headerSort: true, formatter: function(cell) { return '<b>' + cell.getValue() + '</b>'; } },
                 { title: 'Товар', field: 'product_name', width: 180, headerSort: true, formatter: 'textarea' },
             ]
@@ -210,14 +215,13 @@ function getCostColumns() {
  * Подготовить данные для Tabulator из _costProducts + _costMap
  */
 function prepareCostData(products) {
-    return products.map(p => {
-        const c = _costMap[p.nm_id] || {};
-        const sizes = _costSizes[p.nm_id] || [];
-        const hasSizes = sizes.length > 1 || (sizes.length === 1 && sizes[0].size_name && sizes[0].size_name !== '0' && sizes[0].size_name !== 'ONE SIZE');
+    // Count entities per nm_id to detect sizeless products
+    const nmCounts = {};
+    products.forEach(p => { nmCounts[p.nm_id] = (nmCounts[p.nm_id] || 0) + 1; });
 
-        // Баркоды из размеров
-        const barcodeText = sizes.map(s => s.barcodes).filter(Boolean).join(', ');
-        const sizeListText = sizes.map(s => s.size_name).filter(s => s && s !== '0' && s !== 'ONE SIZE').join(', ');
+    return products.map(p => {
+        const c = _costMap[p.entity_id] || {};
+        const isSizeless = nmCounts[p.nm_id] === 1 && (!p.size_name || p.size_name === '0' || p.size_name === 'ONE SIZE');
 
         // Фактические габариты
         const factDims = (p.length || '') + '×' + (p.width || '') + '×' + (p.height || '') || '—';
@@ -228,19 +232,22 @@ function prepareCostData(products) {
             ? ((parseFloat(c.plan_length) * parseFloat(c.plan_width) * parseFloat(c.plan_height)) / 1000) : null;
 
         return {
-            _id: p.nm_id + '_' + (p.size_name || '0'), // уникальный ID строки
+            _id: p.entity_id || (p.nm_id + '_' + (p.size_name || '0')), // уникальный ID = entity_id
             _selected: false,
-            _hasSizes: hasSizes,
-            _sizesData: hasSizes ? sizes : [],
+            _hasSizes: false,
+            _sizesData: [],
+            _noGroup: isSizeless, // безразмерные — без группировки
 
             // Данные продукта (из API /control)
+            entity_id: p.entity_id || '',
             nm_id: p.nm_id,
+            size_name: p.size_name || '',
             product_name: p.product_name || '',
-            vendor_code: p.vendor_code || '',
+            vendor_code: p.vendor_code || c.vendor_code || '',
             photo_main: p.photo_main || '',
             subject_name: c.subject_name || p.subject_name || '',
-            _barcodes: barcodeText || p.barcode || '',
-            _sizeList: hasSizes ? sizeListText : (p.size_name || '—'),
+            _barcodes: c.barcodes || c.barcode || p.barcode || '',
+            _sizeList: p.size_name && p.size_name !== '0' ? p.size_name : '—',
             _fact_dims: factDims,
             _fact_volume: p.volume || '—',
             _fact_weight: p.weight || '—',
@@ -322,6 +329,25 @@ function initCostTabulator(data) {
         virtualDomBuffer: 100,
         placeholder: 'Нет данных',
         columnHeaderSortMulti: true,
+        initialSort: [
+            {column: '_sizeList', dir: 'asc'},
+        ],
+        groupBy: function(data) {
+            // Безразмерные товары — без группы
+            if (data._noGroup) return '';
+            return data.nm_id;
+        },
+        groupStartOpen: true,
+        groupToggleElement: 'header',
+        groupHeader: function(value, count, data, group) {
+            if (!value) return ''; // безразмерные — пустой заголовок
+            const d = data[0] || {};
+            const name = (d.product_name || '').substring(0, 40);
+            const vc = d.vendor_code || '';
+            const photo = d.photo_main ? d.photo_main.replace('/hq/','/c246x328/').replace('/big/','/c246x328/').replace('/tm/','/c246x328/') : '';
+            const img = photo ? '<img src="' + photo + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:8px">' : '';
+            return '<span style="font-size:6px;line-height:1">' + img + '<b>' + value + '</b> — ' + count + ' ' + (count === 1 ? 'размер' : count < 5 ? 'размера' : 'размеров') + ' &nbsp; <span style="color:#666">' + name + '</span> &nbsp; <span style="color:#999">[' + vc + ']</span></span>';
+        },
 
         // При редактировании ячейки — обновляем вычисляемые поля
         cellEdited: function(cell) {
@@ -384,6 +410,8 @@ function getCostDataForSave() {
     if (!costTabulator) return [];
     const rows = costTabulator.getData();
     return rows.map(data => ({
+        entity_id: data.entity_id || null,
+        size_name: data.size_name || '',
         nm_id: parseInt(data.nm_id),
         barcode: null,
         vendor_code: null,

@@ -1455,90 +1455,93 @@ async def get_opiu(org_id: str, period: str = "4", db: AsyncSession = Depends(ge
 
 @router.get("/api/v1/nl/cost-prices")
 async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
-    """Справочник товаров — одна запись на nm_id + массив размеров"""
+    """Справочник товаров — одна запись на entity (nm_id + размер)"""
     from sqlalchemy import text
-    # 1. Справочник (одна запись на nm_id)
+    # JOIN product_entities с reference_book: каждая entity = своя строка
+    # Сначала получаем все entity, потом подтягиваем справочник по nm_id
     result = await db.execute(text(
-        "SELECT cp.id, cp.entity_id, cp.nm_id, cp.barcode, cp.vendor_code, cp.size_name, "
-        "cp.cost_price, cp.purchase_cost, cp.logistics_cost, cp.packaging_cost, "
-        "cp.other_costs, cp.extra_costs, cp.vat, "
-        "cp.min_price, "
+        "SELECT pe.id as entity_id, pe.nm_id, pe.size_name, pe.vendor_code, pe.brand, "
+        "pe.subject_id, pe.subject_name, pe.length, pe.width, pe.height, pe.weight, "
+        "(SELECT string_agg(eb.barcode, ', ') FROM entity_barcodes eb WHERE eb.entity_id = pe.id AND eb.is_active = true) as barcodes, "
+        "cp.id as ref_id, cp.cost_price, cp.purchase_cost, cp.logistics_cost, cp.packaging_cost, "
+        "cp.other_costs, cp.extra_costs, cp.vat, cp.min_price, "
         "cp.mp_base_pct, cp.mp_correction_pct, cp.fulfillment_model, cp.storage_pct, "
-        "cp.buyout_niche_pct, "
-        "cp.price_before_spp_plan, cp.price_before_spp_change, cp.change_date, "
-        "cp.wb_club_discount_pct, cp.ad_plan_rub, cp.supply_days, cp.min_batch_fbo, "
-        "cp.product_status, "
-        "cp.valid_from, cp.valid_to, cp.source, cp.notes, "
-        "cp.product_class, cp.brand, cp.tax_system, cp.season_jan, cp.season_feb, cp.season_mar, cp.season_apr, cp.season_may, cp.season_jun, cp.season_jul, cp.season_aug, cp.season_sep, cp.season_oct, cp.season_nov, cp.season_dec, cp.plan_length, cp.plan_width, cp.plan_height, cp.plan_volume, cp.plan_weight, cp.delivery_days_to_seller, cp.delivery_days_to_mp, cp.top_query_1, cp.top_query_2, cp.top_query_3, cp.shipment_method, cp.fbs_warehouse, cp.rrc_price, cp.vat_rate, "
-        "COALESCE(cp.subject_id, pe_sub.subject_id) as subject_id, COALESCE(NULLIF(cp.subject_name,''), pe_sub.subject_name) as subject_name, "
-        "ts.product_name FROM reference_book cp "
-        "LEFT JOIN (SELECT DISTINCT nm_id, subject_id, subject_name FROM product_entities WHERE organization_id = :org) pe_sub ON cp.nm_id = pe_sub.nm_id "
-        "LEFT JOIN (SELECT DISTINCT nm_id, product_name FROM tech_status WHERE organization_id = :org) ts ON cp.nm_id = ts.nm_id "
-        "WHERE cp.organization_id = :org AND (cp.valid_to IS NULL OR cp.valid_to >= CURRENT_DATE) "
-        "ORDER BY cp.nm_id, cp.valid_from DESC"
-    ), {"org": org_id})
-    rows = result.all()
-    # 2. Размеры из product_entities + entity_barcodes
-    ent_result = await db.execute(text(
-        "SELECT pe.nm_id, pe.id as entity_id, pe.size_name, "
-        "(SELECT string_agg(eb.barcode, ', ') FROM entity_barcodes eb WHERE eb.entity_id = pe.id AND eb.is_active = true) as barcodes "
+        "cp.buyout_niche_pct, cp.price_before_spp_plan, cp.price_before_spp_change, "
+        "cp.change_date, cp.wb_club_discount_pct, cp.ad_plan_rub, cp.supply_days, "
+        "cp.min_batch_fbo, cp.product_status, cp.valid_from, cp.notes, "
+        "cp.product_class, cp.tax_system, "
+        "cp.season_jan, cp.season_feb, cp.season_mar, cp.season_apr, cp.season_may, cp.season_jun, "
+        "cp.season_jul, cp.season_aug, cp.season_sep, cp.season_oct, cp.season_nov, cp.season_dec, "
+        "cp.plan_length, cp.plan_width, cp.plan_height, cp.plan_volume, cp.plan_weight, "
+        "cp.delivery_days_to_seller, cp.delivery_days_to_mp, "
+        "cp.top_query_1, cp.top_query_2, cp.top_query_3, "
+        "cp.shipment_method, cp.fbs_warehouse, cp.rrc_price, cp.vat_rate, "
+        "ts.product_name "
         "FROM product_entities pe "
+        "LEFT JOIN LATERAL (SELECT * FROM reference_book WHERE organization_id = :org AND nm_id = pe.nm_id "
+        "  AND (valid_to IS NULL OR valid_to >= CURRENT_DATE) ORDER BY valid_from DESC LIMIT 1) cp ON true "
+        "LEFT JOIN (SELECT DISTINCT nm_id, product_name FROM tech_status WHERE organization_id = :org) ts ON pe.nm_id = ts.nm_id "
         "WHERE pe.organization_id = :org "
         "ORDER BY pe.nm_id, pe.size_name"
     ), {"org": org_id})
-    sizes_map = {}  # nm_id -> [{entity_id, size_name, barcodes}]
-    for r in ent_result.all():
-        nm = r[0]
-        if nm not in sizes_map:
-            sizes_map[nm] = []
-        sizes_map[nm].append({
-            "entity_id": str(r[1]),
-            "size_name": r[2] or "",
-            "barcodes": r[3] or ""
-        })
-    # 3. Собираем ответ
-    return [{"id": str(r[0]), "entity_id": str(r[1]) if r[1] else None, "nm_id": r[2], "barcode": r[3], "vendor_code": r[4],
-             "size_name": r[5], "cost_price": float(r[6]) if r[6] else 0,
-             "purchase_cost": float(r[7]) if r[7] else None,
-             "logistics_cost": float(r[8]) if r[8] else None,
-             "packaging_cost": float(r[9]) if r[9] else None,
-             "other_costs": float(r[10]) if r[10] else None,
-             "extra_costs": float(r[11]) if r[11] else None,
-             "vat": float(r[12]) if r[12] else 0,
-             "min_price": float(r[13]) if r[13] else None,
-             "mp_base_pct": float(r[14]) if r[14] else None,
-             "mp_correction_pct": float(r[15]) if r[15] else None,
-             "fulfillment_model": r[16],
-             "storage_pct": float(r[17]) if r[17] else None,
-             "buyout_niche_pct": float(r[18]) if r[18] else None,
-             "price_before_spp_plan": float(r[19]) if r[19] else None,
-             "price_before_spp_change": float(r[20]) if r[20] else None,
-             "change_date": str(r[21]) if r[21] else None,
-             "wb_club_discount_pct": float(r[22]) if r[22] else None,
-             "ad_plan_rub": float(r[23]) if r[23] else None,
-             "supply_days": r[24] if r[24] else None,
-             "min_batch_fbo": r[25] if r[25] else None,
-             "product_status": r[26],
-             "valid_from": str(r[27]), "valid_to": str(r[28]) if r[28] else None,
-             "source": r[29], "notes": r[30],
-             "product_class": r[31], "brand": r[32],
-             "tax_system": r[33], "season_jan": float(r[34]) if r[34] else None, "season_feb": float(r[35]) if r[35] else None,
-             "season_mar": float(r[36]) if r[36] else None, "season_apr": float(r[37]) if r[37] else None,
-             "season_may": float(r[38]) if r[38] else None, "season_jun": float(r[39]) if r[39] else None,
-             "season_jul": float(r[40]) if r[40] else None, "season_aug": float(r[41]) if r[41] else None,
-             "season_sep": float(r[42]) if r[42] else None, "season_oct": float(r[43]) if r[43] else None,
-             "season_nov": float(r[44]) if r[44] else None, "season_dec": float(r[45]) if r[45] else None,
-             "plan_length": float(r[46]) if r[46] else None, "plan_width": float(r[47]) if r[47] else None,
-             "plan_height": float(r[48]) if r[48] else None, "plan_volume": float(r[49]) if r[49] else None,
-             "plan_weight": float(r[50]) if r[50] else None,
-             "delivery_days_to_seller": int(r[51]) if r[51] else None, "delivery_days_to_mp": int(r[52]) if r[52] else None,
-             "top_query_1": r[53], "top_query_2": r[54], "top_query_3": r[55],
-             "shipment_method": r[56], "fbs_warehouse": r[57], "rrc_price": float(r[58]) if r[58] else None,
-             "vat_rate": float(r[59]) if r[59] else 0,
-             "subject_id": r[60], "subject_name": r[61],
-             "product_name": r[62],
-             "sizes": sizes_map.get(r[2], [])
-             } for r in rows]
+
+    def fval(v): return float(v) if v else None
+    def ival(v): return int(v) if v else None
+    def sval(v): return str(v) if v else None
+
+    return [{
+        "id": sval(r[12]) or str(r[0]),  # ref_id или entity_id
+        "entity_id": str(r[0]),
+        "nm_id": r[1],
+        "size_name": r[2] or "",
+        "vendor_code": r[3] or "",
+        "brand": r[4] or "",
+        "subject_id": r[5], "subject_name": r[6] or "",
+        "length": fval(r[7]), "width": fval(r[8]), "height": fval(r[9]),
+        "weight": fval(r[10]),
+        "barcode": r[11] or "",
+        "barcodes": r[11] or "",
+        "cost_price": fval(r[13]) or 0,
+        "purchase_cost": fval(r[14]),
+        "logistics_cost": fval(r[15]),
+        "packaging_cost": fval(r[16]),
+        "other_costs": fval(r[17]),
+        "extra_costs": fval(r[18]),
+        "vat": fval(r[19]) or 0,
+        "min_price": fval(r[20]),
+        "mp_base_pct": fval(r[21]),
+        "mp_correction_pct": fval(r[22]),
+        "fulfillment_model": r[23] or "fbo",
+        "storage_pct": fval(r[24]),
+        "buyout_niche_pct": fval(r[25]),
+        "price_before_spp_plan": fval(r[26]),
+        "price_before_spp_change": fval(r[27]),
+        "change_date": sval(r[28]),
+        "wb_club_discount_pct": fval(r[29]),
+        "ad_plan_rub": fval(r[30]),
+        "supply_days": r[31],
+        "min_batch_fbo": r[32],
+        "product_status": r[33] or "",
+        "valid_from": sval(r[34]) or "",
+        "notes": r[35] or "",
+        "product_class": r[36] or "",
+        "tax_system": r[37] or "",
+        "season_jan": fval(r[38]), "season_feb": fval(r[39]),
+        "season_mar": fval(r[40]), "season_apr": fval(r[41]),
+        "season_may": fval(r[42]), "season_jun": fval(r[43]),
+        "season_jul": fval(r[44]), "season_aug": fval(r[45]),
+        "season_sep": fval(r[46]), "season_oct": fval(r[47]),
+        "season_nov": fval(r[48]), "season_dec": fval(r[49]),
+        "plan_length": fval(r[50]), "plan_width": fval(r[51]),
+        "plan_height": fval(r[52]), "plan_volume": fval(r[53]),
+        "plan_weight": fval(r[54]),
+        "delivery_days_to_seller": ival(r[55]), "delivery_days_to_mp": ival(r[56]),
+        "top_query_1": r[57] or "", "top_query_2": r[58] or "", "top_query_3": r[59] or "",
+        "shipment_method": r[60] or "", "fbs_warehouse": r[61] or "",
+        "rrc_price": fval(r[62]), "vat_rate": fval(r[63]) or 0,
+        "product_name": r[64] or "",
+        "sizes": [],  # больше не нужен массив — каждая entity = своя строка
+    } for r in result.all()]
 
 
 @router.post("/api/v1/nl/cost-prices")
@@ -4809,13 +4812,12 @@ async function loadCostPrices() {
         console.log("[CP] products:", _costProducts.length, "dates:", dates.length);
         
         const costRes = await fetch('/api/v1/nl/cost-prices?org_id=' + ORG_ID);
-        _costMap = {};
-        _costSizes = {};  // nm_id -> [{entity_id, size_name, barcodes}]
+        _costMap = {};  // entity_id -> cost data
+        _costSizes = {};
         if (costRes.ok) {
             const costs = await costRes.json();
             costs.forEach(c => {
-                _costMap[c.nm_id] = c;
-                if (c.sizes && c.sizes.length > 0 && !_costSizes[c.nm_id]) _costSizes[c.nm_id] = c.sizes;
+                _costMap[c.entity_id] = c;  // ключ = entity_id
             });
         }
         
@@ -4829,7 +4831,7 @@ async function loadCostPrices() {
 function populateCostFilterOptions() {
     const classes = new Set(), brands = new Set(), statuses = new Set();
     _costProducts.forEach(p => {
-        const c = _costMap[p.nm_id] || {};
+        const c = _costMap[p.entity_id] || {};
         if (c.product_class) classes.add(c.product_class);
         if (c.brand) brands.add(c.brand);
         if (c.product_status) statuses.add(c.product_status);
@@ -4883,7 +4885,7 @@ function applyCostFilters() {
     };
     
     products = products.filter(p => {
-        const c = _costMap[p.nm_id] || {};
+        const c = _costMap[p.entity_id] || {};
         if (fltFF && !checkMatch(c, 'fulfillment_model', fltFF)) return false;
         if (fltTax && !checkMatch(c, 'tax_system', fltTax)) return false;
         if (fltClass && !checkMatch(c, 'product_class', fltClass)) return false;
@@ -4910,7 +4912,7 @@ function applyCostFilters() {
             // Итоги
             let tc = 0, fc = 0;
             products.forEach(p => {
-                const c = _costMap[p.nm_id] || {};
+                const c = _costMap[p.entity_id] || {};
                 if (c.cost_price) { tc += parseFloat(c.cost_price); fc++; }
             });
             document.getElementById("cost-summary").innerHTML =
@@ -6033,8 +6035,10 @@ async function loadOrgs() {
 }
 
 function switchOrg() {
+    // Update URL so refresh keeps the right org
     ORG_ID = document.getElementById('org-select').value;
     localStorage.setItem('nl_org_id', ORG_ID);
+    history.replaceState(null, '', '/nl/v2?org=' + ORG_ID);
     showApp();
 }
 
@@ -6201,6 +6205,7 @@ try {
             TOKEN = null; ORG_ID = null;
             localStorage.removeItem('nl_token');
             localStorage.removeItem('nl_org_id');
+            showAuth(); // Показываем логин при невалидном токене
         });
     }
 } catch(e) { console.error('Auto-login error:', e); }
