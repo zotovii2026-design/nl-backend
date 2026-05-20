@@ -1792,6 +1792,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 "pstatus": data.get("product_status"),
                 "pcls": data.get("product_class"), "brand": data.get("brand"),
                 "tsys": data.get("tax_system"),
+                "tr": pfloat(data.get("tax_rate")),
                 "sjan": pfloat(data.get("season_jan")), "sfeb": pfloat(data.get("season_feb")),
                 "smar": pfloat(data.get("season_mar")), "sapr": pfloat(data.get("season_apr")),
                 "smay": pfloat(data.get("season_may")), "sjun": pfloat(data.get("season_jun")),

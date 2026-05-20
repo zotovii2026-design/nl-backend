@@ -62,8 +62,8 @@ function getCostColumns() {
                         return '<span style="' + (colors[v]||'') + ';padding:2px 6px;border-radius:3px;font-size:.85em">' + (v || '—') + '</span>';
                     }
                 },
-                { title: 'Класс товара', field: 'product_class', width: 60, editor: 'input', headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
-                { title: 'Бренд', field: 'brand', width: 70, editor: 'input', headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
+                { title: 'Класс товара', field: 'product_class', width: 80, editor: 'input', headerSort: true },
+                { title: 'Бренд', field: 'brand', width: 90, editor: 'input', headerSort: true },
                 {
                     title: 'Фото', field: 'photo_main', width: 66, headerSort: false,
                     formatter: function(cell) {
@@ -73,17 +73,17 @@ function getCostColumns() {
                         return '<img src="' + thumb + '" style="width:46px;height:46px;border-radius:4px;object-fit:cover">';
                     }
                 },
-                { title: 'Категория', field: 'subject_name', width: 100, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
-                { title: 'Арт продавца', field: 'vendor_code', width: 80, headerSort: true, tooltip: function(cell) {
+                { title: 'Категория', field: 'subject_name', width: 120, headerSort: true, formatter: 'textarea' },
+                { title: 'Арт продавца', field: 'vendor_code', width: 110, headerSort: true, formatter: function(cell) {
                     var d = cell.getRow().getData();
                     var vc = d.vendor_code || '';
                     var sz = d.size_name && d.size_name !== '0' ? d.size_name : '';
-                    return vc + (sz ? ' (' + sz + ')' : '');
-                }, cssClass: 'truncate-cell' },
-                { title: 'Баркод', field: '_barcodes', width: 80, headerSort: false, tooltip: true, cssClass: 'truncate-cell' },
+                    return vc + (sz ? '<br><span style="font-size:.8em;color:#888">' + sz + '</span>' : '');
+                }},
+                { title: 'Баркод', field: '_barcodes', width: 110, headerSort: false, formatter: 'textarea' },
                 { title: 'Размер', field: '_sizeList', width: 60, headerSort: true },
-                { title: 'Арт WB', field: 'nm_id', width: 80, headerSort: true, formatter: function(cell) { return '<b>' + cell.getValue() + '</b>'; } },
-                { title: 'Товар', field: 'product_name', width: 120, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
+                { title: 'Арт WB', field: 'nm_id', width: 100, headerSort: true, formatter: function(cell) { return '<b>' + cell.getValue() + '</b>'; } },
+                { title: 'Товар', field: 'product_name', width: 180, headerSort: true, formatter: 'textarea' },
             ]
         },
 
@@ -92,7 +92,7 @@ function getCostColumns() {
             title: '🚚 Логистика',
             columns: [
                 {
-                    title: 'Отгрузка', field: 'fulfillment_model', width: 65, headerSort: true,
+                    title: 'Отгрузка', field: 'fulfillment_model', width: 80, headerSort: true,
                     editor: 'list',
                     editorParams: { values: {'fbo':'ФБО','fbs':'ФБС'}, clearable: true },
                     formatter: function(cell) { return cell.getValue() === 'fbs' ? 'ФБС' : 'ФБО'; }
@@ -123,7 +123,7 @@ function getCostColumns() {
                     mutator: function(value, data) { return ((parseFloat(data.cost_price)||0) + (parseFloat(data.extra_costs)||0)).toFixed(2); }
                 },
                 {
-                    title: 'Налог %', field: '_tax_rate_override', width: 55, headerSort: true,
+                    title: 'Налог %', field: '_tax_rate_override', width: 70, headerSort: true,
                     cssClass: 'tax-cell',
                     editor: 'number',
                     editorParams: { step: 0.01, min: 0, max: 100 },
@@ -135,7 +135,7 @@ function getCostColumns() {
                     }
                 },
                 {
-                    title: 'НДС от дохода', field: 'vat_rate', width: 55, headerSort: false,
+                    title: 'НДС', field: 'vat_rate', width: 80, headerSort: false,
                     editor: 'list',
                     editorParams: { values: {0:'нет',5:'5%',7:'7%'}, clearable: true },
                     formatter: function(cell) {
@@ -151,13 +151,13 @@ function getCostColumns() {
         {
             title: '📐 Габариты ПЛАН',
             columns: [
-                { title: 'Длина', field: 'plan_length', width: 50, editor: 'number', editorParams: {step:0.1,min:0} },
-                { title: 'Ширина', field: 'plan_width', width: 50, editor: 'number', editorParams: {step:0.1,min:0} },
-                { title: 'Высота', field: 'plan_height', width: 50, editor: 'number', editorParams: {step:0.1,min:0} },
-                { title: 'Объём, л', field: 'plan_volume', width: 55, headerSort: true,
+                { title: 'Длина', field: 'plan_length', width: 65, editor: 'number', editorParams: {step:0.1,min:0} },
+                { title: 'Ширина', field: 'plan_width', width: 65, editor: 'number', editorParams: {step:0.1,min:0} },
+                { title: 'Высота', field: 'plan_height', width: 65, editor: 'number', editorParams: {step:0.1,min:0} },
+                { title: 'Объём, л', field: 'plan_volume', width: 70, headerSort: true,
                     formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v) : '—'; }
                 },
-                { title: 'Вес, гр', field: 'plan_weight', width: 55, editor: 'number', editorParams: {step:1,min:0} },
+                { title: 'Вес, гр', field: 'plan_weight', width: 70, editor: 'number', editorParams: {step:1,min:0} },
             ]
         },
 
@@ -165,9 +165,9 @@ function getCostColumns() {
         {
             title: '📐 Габариты ФАКТ',
             columns: [
-                { title: 'Д×Ш×В', field: '_fact_dims', width: 70, tooltip: true, headerSort: false, formatter: 'plaintext' },
-                { title: 'Объём, л', field: '_fact_volume', width: 55, headerSort: false },
-                { title: 'Вес', field: '_fact_weight', width: 50, headerSort: false },
+                { title: 'Д×Ш×В', field: '_fact_dims', width: 100, headerSort: false, formatter: 'plaintext' },
+                { title: 'Объём, л', field: '_fact_volume', width: 70, headerSort: false },
+                { title: 'Вес', field: '_fact_weight', width: 70, headerSort: false },
             ]
         },
 
@@ -175,18 +175,18 @@ function getCostColumns() {
         {
             title: '📊 Коэффициент сезонности',
             columns: [
-                { title: 'янв', field: 'season_jan', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'фев', field: 'season_feb', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'мар', field: 'season_mar', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'апр', field: 'season_apr', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'май', field: 'season_may', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'июн', field: 'season_jun', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'июл', field: 'season_jul', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'авг', field: 'season_aug', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'сен', field: 'season_sep', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'окт', field: 'season_oct', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'ноя', field: 'season_nov', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'дек', field: 'season_dec', width: 40, editor: 'number', cssClass: 'season-cell' },
+                { title: 'янв', field: 'season_jan', width: 50, editor: 'number', cssClass: 'season-cell' },
+                { title: 'фев', field: 'season_feb', width: 50, editor: 'number', cssClass: 'season-cell' },
+                { title: 'мар', field: 'season_mar', width: 50, editor: 'number', cssClass: 'season-cell' },
+                { title: 'апр', field: 'season_apr', width: 50, editor: 'number', cssClass: 'season-cell' },
+                { title: 'май', field: 'season_may', width: 50, editor: 'number', cssClass: 'season-cell' },
+                { title: 'июн', field: 'season_jun', width: 50, editor: 'number', cssClass: 'season-cell' },
+                { title: 'июл', field: 'season_jul', width: 50, editor: 'number', cssClass: 'season-cell' },
+                { title: 'авг', field: 'season_aug', width: 50, editor: 'number', cssClass: 'season-cell' },
+                { title: 'сен', field: 'season_sep', width: 50, editor: 'number', cssClass: 'season-cell' },
+                { title: 'окт', field: 'season_oct', width: 50, editor: 'number', cssClass: 'season-cell' },
+                { title: 'ноя', field: 'season_nov', width: 50, editor: 'number', cssClass: 'season-cell' },
+                { title: 'дек', field: 'season_dec', width: 50, editor: 'number', cssClass: 'season-cell' },
             ]
         },
 
@@ -194,9 +194,9 @@ function getCostColumns() {
         {
             title: '🔍 ТОП запросы',
             columns: [
-                { title: '1', field: 'top_query_1', width: 70, editor: 'input', tooltip: true, cssClass: 'topquery-cell truncate-cell' },
-                { title: '2', field: 'top_query_2', width: 70, editor: 'input', tooltip: true, cssClass: 'topquery-cell truncate-cell' },
-                { title: '3', field: 'top_query_3', width: 70, editor: 'input', tooltip: true, cssClass: 'topquery-cell truncate-cell' },
+                { title: '1', field: 'top_query_1', width: 100, editor: 'input', cssClass: 'topquery-cell' },
+                { title: '2', field: 'top_query_2', width: 100, editor: 'input', cssClass: 'topquery-cell' },
+                { title: '3', field: 'top_query_3', width: 100, editor: 'input', cssClass: 'topquery-cell' },
             ]
         },
 
@@ -204,15 +204,15 @@ function getCostColumns() {
         {
             title: '🎯 Расчёты',
             columns: [
-                { title: '% выкупа по кат.', field: 'buyout_niche_pct', width: 65, editor: 'number', headerSort: true },
-                { title: 'Корр. комиссии %', field: 'mp_correction_pct', width: 70, editor: 'number', headerSort: true },
-                { title: 'Рекл. расходы %', field: 'ad_plan_rub', width: 65, editor: 'number', editorParams: {step:0.1} },
-                { title: 'Скорость достав., дн', field: 'supply_days', width: 60, editor: 'number', editorParams: {min:0} },
-                { title: 'Мин партия', field: 'min_batch_fbo', width: 60, editor: 'number', editorParams: {min:1} },
-                { title: 'РРЦ', field: 'rrc_price', width: 60, editor: 'number', headerSort: true },
-                { title: 'Мин. цена', field: 'min_price', width: 65, editor: 'number', headerSort: true },
-                { title: 'Дата правок', field: 'change_date', width: 80, tooltip: true, cssClass: 'truncate-cell', editor: 'input' },
-                { title: 'Дата начала', field: 'valid_from', width: 80, tooltip: true, cssClass: 'truncate-cell', editor: 'input' },
+                { title: '% выкупа по кат.', field: 'buyout_niche_pct', width: 80, editor: 'number', headerSort: true },
+                { title: 'Корр. комиссии %', field: 'mp_correction_pct', width: 85, editor: 'number', headerSort: true },
+                { title: 'Рекл. расходы %', field: 'ad_plan_rub', width: 85, editor: 'number', editorParams: {step:0.1} },
+                { title: 'Скорость достав., дн', field: 'supply_days', width: 90, editor: 'number', editorParams: {min:0} },
+                { title: 'Мин партия', field: 'min_batch_fbo', width: 75, editor: 'number', editorParams: {min:1} },
+                { title: 'РРЦ', field: 'rrc_price', width: 80, editor: 'number', headerSort: true },
+                { title: 'Мин. цена', field: 'min_price', width: 85, editor: 'number', headerSort: true },
+                { title: 'Дата правок', field: 'change_date', width: 105, editor: 'input' },
+                { title: 'Дата начала', field: 'valid_from', width: 105, editor: 'input' },
             ]
         },
     ];
@@ -321,17 +321,15 @@ function initCostTabulator(data) {
     if (!document.getElementById('cost-header-style')) {
         const style = document.createElement('style');
         style.id = 'cost-header-style';
-        style.textContent = '.tabulator-col-title { font-size: 8px !important; line-height: 1.1 !important; padding: 2px 4px !important; } .tabulator-col .tabulator-col-content { padding: 2px 4px !important; } .tabulator-cell { font-size: 11px !important; } .truncate-cell .tabulator-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; } .truncate-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }';
+        style.textContent = '.tabulator-col-title { font-size: 8px !important; line-height: 1.1 !important; padding: 2px 4px !important; } .tabulator-col .tabulator-col-content { padding: 2px 4px !important; } .tabulator-cell { font-size: 11px !important; }';
         document.head.appendChild(style);
     }
 
     costTabulator = new Tabulator('#cost-tabulator', {
         data: data,
         columns: getCostColumns(),
-        layout: "fitDataFill",
-        index: "_id",
+        layout: 'fitDataFill',
         movableColumns: true,
-        resizable: true,
         sortable: true,
         height: '70vh',
         virtualDom: true,
