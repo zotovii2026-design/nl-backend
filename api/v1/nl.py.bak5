@@ -148,7 +148,7 @@ async def get_reference(org_id: str, target_date: Optional[str] = None, db: Asyn
     from sqlalchemy import text
     sql = (
         "SELECT nm_id, vendor_code, subject_id, subject_name, cost_price, purchase_cost as purchase_price, packaging_cost, "
-        "logistics_cost, other_costs, notes, product_class, brand, tax_system, tax_rate, vat_rate, "
+        "logistics_cost, other_costs, notes, product_class, brand, tax_system, 0 as tax_rate, 0 as vat_rate, "
         "valid_from FROM reference_book "
         "WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
     )
@@ -581,7 +581,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
 
     # Себестоимость и справочник
     ref_result = await db.execute(text(
-        "SELECT entity_id, nm_id, cost_price, product_class, brand, tax_system, tax_rate, vat_rate "
+        "SELECT entity_id, nm_id, cost_price, product_class, brand, tax_system, 0 as tax_rate, 0 as vat_rate "
         "FROM reference_book WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
     ), {"org": org_id})
     ref_by_entity = {}
@@ -763,7 +763,7 @@ async def get_rnp(
     ref_result = await db.execute(text(
         "SELECT DISTINCT ON (entity_id) entity_id, nm_id, cost_price, purchase_cost, "
         "packaging_cost, logistics_cost, other_costs, extra_costs, vat, "
-        "mp_base_pct, mp_correction_pct, tax_system, tax_rate, vat_rate, "
+        "mp_base_pct, mp_correction_pct, tax_system, 0 as tax_rate, 0 as vat_rate, "
         "product_class, brand, product_status, subject_id, subject_name, "
         "in_promo, ad_shows_organic, ad_shows_paid, ad_strategy, tags, rating_reviews, localization_pct "
         "FROM reference_book "
@@ -1469,7 +1469,7 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
         "cp.buyout_niche_pct, cp.price_before_spp_plan, cp.price_before_spp_change, "
         "cp.change_date, cp.wb_club_discount_pct, cp.ad_plan_rub, cp.supply_days, "
         "cp.min_batch_fbo, cp.product_status, cp.valid_from, cp.notes, "
-        "cp.product_class, cp.tax_system, cp.tax_rate, "
+        "cp.product_class, cp.tax_system, "
         "cp.season_jan, cp.season_feb, cp.season_mar, cp.season_apr, cp.season_may, cp.season_jun, "
         "cp.season_jul, cp.season_aug, cp.season_sep, cp.season_oct, cp.season_nov, cp.season_dec, "
         "cp.plan_length, cp.plan_width, cp.plan_height, cp.plan_volume, cp.plan_weight, "
@@ -1478,7 +1478,7 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
         "cp.shipment_method, cp.fbs_warehouse, cp.rrc_price, cp.vat_rate, "
         "ts.product_name "
         "FROM product_entities pe "
-        "LEFT JOIN LATERAL (SELECT * FROM reference_book WHERE organization_id = :org AND nm_id = pe.nm_id AND entity_id = pe.id "
+        "LEFT JOIN LATERAL (SELECT * FROM reference_book WHERE organization_id = :org AND nm_id = pe.nm_id "
         "  AND (valid_to IS NULL OR valid_to >= CURRENT_DATE) ORDER BY valid_from DESC LIMIT 1) cp ON true "
         "LEFT JOIN (SELECT DISTINCT nm_id, product_name FROM tech_status WHERE organization_id = :org) ts ON pe.nm_id = ts.nm_id "
         "WHERE pe.organization_id = :org "
@@ -1526,21 +1526,20 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
         "notes": r[35] or "",
         "product_class": r[36] or "",
         "tax_system": r[37] or "",
-        "tax_rate": fval(r[38]) or 0,
-        "season_jan": fval(r[39]), "season_feb": fval(r[40]),
-        "season_mar": fval(r[41]), "season_apr": fval(r[42]),
-        "season_may": fval(r[43]), "season_jun": fval(r[44]),
-        "season_jul": fval(r[45]), "season_aug": fval(r[46]),
-        "season_sep": fval(r[47]), "season_oct": fval(r[48]),
-        "season_nov": fval(r[49]), "season_dec": fval(r[50]),
-        "plan_length": fval(r[51]), "plan_width": fval(r[52]),
-        "plan_height": fval(r[53]), "plan_volume": fval(r[54]),
-        "plan_weight": fval(r[55]),
-        "delivery_days_to_seller": ival(r[56]), "delivery_days_to_mp": ival(r[57]),
-        "top_query_1": r[58] or "", "top_query_2": r[59] or "", "top_query_3": r[60] or "",
-        "shipment_method": r[61] or "", "fbs_warehouse": r[62] or "",
-        "rrc_price": fval(r[63]), "vat_rate": fval(r[64]) or 0,
-        "product_name": r[65] or "",
+        "season_jan": fval(r[38]), "season_feb": fval(r[39]),
+        "season_mar": fval(r[40]), "season_apr": fval(r[41]),
+        "season_may": fval(r[42]), "season_jun": fval(r[43]),
+        "season_jul": fval(r[44]), "season_aug": fval(r[45]),
+        "season_sep": fval(r[46]), "season_oct": fval(r[47]),
+        "season_nov": fval(r[48]), "season_dec": fval(r[49]),
+        "plan_length": fval(r[50]), "plan_width": fval(r[51]),
+        "plan_height": fval(r[52]), "plan_volume": fval(r[53]),
+        "plan_weight": fval(r[54]),
+        "delivery_days_to_seller": ival(r[55]), "delivery_days_to_mp": ival(r[56]),
+        "top_query_1": r[57] or "", "top_query_2": r[58] or "", "top_query_3": r[59] or "",
+        "shipment_method": r[60] or "", "fbs_warehouse": r[61] or "",
+        "rrc_price": fval(r[62]), "vat_rate": fval(r[63]) or 0,
+        "product_name": r[64] or "",
         "sizes": [],  # больше не нужен массив — каждая entity = своя строка
     } for r in result.all()]
 
@@ -1557,17 +1556,14 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         valid_from = _dt.strptime(valid_from, "%Y-%m-%d").date()
     if not nm_id:
         raise HTTPException(400, "nm_id обязателен")
-    # entity_id из запроса — каждая сущность (размер) сохраняется отдельно
-    entity_id = data.get("entity_id")
-    if not entity_id:
-        # Fallback: если entity_id не передан, ищем по nm_id + size_name
-        size_name = data.get("size_name", "")
-        ent_q = await db.execute(text(
-            "SELECT pe.id FROM product_entities pe "
-            "WHERE pe.organization_id = :org AND pe.nm_id = :nm AND pe.size_name = :sz LIMIT 1"
-        ), {"org": org_id, "nm": nm_id, "sz": size_name})
-        ent_row = ent_q.first()
-        entity_id = str(ent_row[0]) if ent_row else None
+    # entity_id больше не ключ — берём первый попавшийся для nm_id (для FK)
+    entity_id = None
+    ent_q = await db.execute(text(
+        "SELECT pe.id FROM product_entities pe " +
+        "WHERE pe.organization_id = :org AND pe.nm_id = :nm LIMIT 1"
+    ), {"org": org_id, "nm": nm_id})
+    ent_row = ent_q.first()
+    entity_id = str(ent_row[0]) if ent_row else None
     await db.execute(text(
         "INSERT INTO reference_book (organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
         "subject_id, subject_name, "
@@ -1576,7 +1572,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "buyout_niche_pct, "
         "price_before_spp_plan, price_before_spp_change, change_date, "
         "wb_club_discount_pct, ad_plan_rub, supply_days, min_batch_fbo, "
-        "product_status, product_class, brand, tax_system, tax_rate, "
+        "product_status, product_class, brand, tax_system, "
         "season_jan, season_feb, season_mar, season_apr, season_may, season_jun, season_jul, season_aug, season_sep, season_oct, season_nov, season_dec, "
         "plan_length, plan_width, plan_height, plan_volume, plan_weight, "
         "delivery_days_to_seller, delivery_days_to_mp, "
@@ -1590,14 +1586,14 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         ":bnp, "
         ":pspp, :psppc, :cdate, "
         ":wbcd, :adpr, :sdays, :minb, "
-        ":pstatus, :pcls, :brand, :tsys, :tr, "
+        ":pstatus, :pcls, :brand, :tsys, "
         ":sjan, :sfeb, :smar, :sapr, :smay, :sjun, :sjul, :saug, :ssep, :soct, :snov, :sdec, "
         ":pl, :pw, :ph, :pv, :pwg, "
         ":dds, :ddm, "
         ":tq1, :tq2, :tq3, "
         ":sm, :fw, :rrc, :vr, "
         ":vf, :src, :notes) "
-        "ON CONFLICT (organization_id, nm_id, entity_id, valid_from) DO UPDATE SET "
+        "ON CONFLICT (organization_id, nm_id, valid_from) DO UPDATE SET "
         "barcode = COALESCE(EXCLUDED.barcode, reference_book.barcode), vendor_code = COALESCE(EXCLUDED.vendor_code, reference_book.vendor_code), "
         "cost_price = COALESCE(EXCLUDED.cost_price, reference_book.cost_price), purchase_cost = COALESCE(EXCLUDED.purchase_cost, reference_book.purchase_cost), "
         "logistics_cost = COALESCE(EXCLUDED.logistics_cost, reference_book.logistics_cost), packaging_cost = COALESCE(EXCLUDED.packaging_cost, reference_book.packaging_cost), "
@@ -1639,7 +1635,6 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "pstatus": data.get("product_status"),
         "pcls": data.get("product_class"), "brand": data.get("brand"),
         "tsys": data.get("tax_system"), 
-        "tr": float(data["tax_rate"]) if data.get("tax_rate") is not None and str(data.get("tax_rate")) not in ("", "None") else None,
         "sjan": float(data["season_jan"]) if data.get("season_jan") is not None and str(data["season_jan"]) not in ("", "None") else None, "sfeb": float(data["season_feb"]) if data.get("season_feb") is not None and str(data["season_feb"]) not in ("", "None") else None, "smar": float(data["season_mar"]) if data.get("season_mar") is not None and str(data["season_mar"]) not in ("", "None") else None, "sapr": float(data["season_apr"]) if data.get("season_apr") is not None and str(data["season_apr"]) not in ("", "None") else None,
         "smay": float(data["season_may"]) if data.get("season_may") is not None and str(data["season_may"]) not in ("", "None") else None, "sjun": float(data["season_jun"]) if data.get("season_jun") is not None and str(data["season_jun"]) not in ("", "None") else None, "sjul": float(data["season_jul"]) if data.get("season_jul") is not None and str(data["season_jul"]) not in ("", "None") else None, "saug": float(data["season_aug"]) if data.get("season_aug") is not None and str(data["season_aug"]) not in ("", "None") else None,
         "ssep": float(data["season_sep"]) if data.get("season_sep") is not None and str(data["season_sep"]) not in ("", "None") else None, "soct": float(data["season_oct"]) if data.get("season_oct") is not None and str(data["season_oct"]) not in ("", "None") else None, "snov": float(data["season_nov"]) if data.get("season_nov") is not None and str(data["season_nov"]) not in ("", "None") else None, "sdec": float(data["season_dec"]) if data.get("season_dec") is not None and str(data["season_dec"]) not in ("", "None") else None,
@@ -1671,15 +1666,13 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
             valid_from = data.get("valid_from", date.today().isoformat())
             if isinstance(valid_from, str):
                 valid_from = _dt.strptime(valid_from, "%Y-%m-%d").date()
-            entity_id = data.get("entity_id")
-            if not entity_id:
-                size_name = data.get("size_name", "")
-                ent_q = await db.execute(text(
-                    "SELECT pe.id FROM product_entities pe "
-                    "WHERE pe.organization_id = :org AND pe.nm_id = :nm AND pe.size_name = :sz LIMIT 1"
-                ), {"org": org_id, "nm": nm_id, "sz": size_name})
-                ent_row = ent_q.first()
-                entity_id = str(ent_row[0]) if ent_row else None
+            entity_id = None
+            ent_q = await db.execute(text(
+                "SELECT pe.id FROM product_entities pe "
+                "WHERE pe.organization_id = :org AND pe.nm_id = :nm LIMIT 1"
+            ), {"org": org_id, "nm": nm_id})
+            ent_row = ent_q.first()
+            entity_id = str(ent_row[0]) if ent_row else None
             def pfloat(v):
                 if v is not None and str(v) not in ("", "None"):
                     try: return float(v)
@@ -1697,7 +1690,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 "buyout_niche_pct, "
                 "price_before_spp_plan, price_before_spp_change, change_date, "
                 "wb_club_discount_pct, ad_plan_rub, supply_days, min_batch_fbo, "
-                "product_status, product_class, brand, tax_system, tax_rate, "
+                "product_status, product_class, brand, tax_system, "
                 "season_jan, season_feb, season_mar, season_apr, season_may, season_jun, season_jul, season_aug, season_sep, season_oct, season_nov, season_dec, "
                 "plan_length, plan_width, plan_height, plan_volume, plan_weight, "
                 "delivery_days_to_seller, delivery_days_to_mp, "
@@ -1711,14 +1704,14 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 ":bnp, "
                 ":pspp, :psppc, :cdate, "
                 ":wbcd, :adpr, :sdays, :minb, "
-                ":pstatus, :pcls, :brand, :tsys, :tr, "
+                ":pstatus, :pcls, :brand, :tsys, "
                 ":sjan, :sfeb, :smar, :sapr, :smay, :sjun, :sjul, :saug, :ssep, :soct, :snov, :sdec, "
                 ":pl, :pw, :ph, :pv, :pwg, "
                 ":dds, :ddm, "
                 ":tq1, :tq2, :tq3, "
                 ":sm, :fw, :rrc, :vr, "
                 ":vf, :src, :notes) "
-                "ON CONFLICT (organization_id, nm_id, entity_id, valid_from) DO UPDATE SET "
+                "ON CONFLICT (organization_id, nm_id, valid_from) DO UPDATE SET "
                 "barcode = COALESCE(EXCLUDED.barcode, reference_book.barcode), "
                 "vendor_code = COALESCE(EXCLUDED.vendor_code, reference_book.vendor_code), "
                 "cost_price = COALESCE(EXCLUDED.cost_price, reference_book.cost_price), "
@@ -1745,7 +1738,6 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 "product_class = COALESCE(EXCLUDED.product_class, reference_book.product_class), "
                 "brand = COALESCE(EXCLUDED.brand, reference_book.brand), "
                 "tax_system = COALESCE(EXCLUDED.tax_system, reference_book.tax_system), "
-        "tax_rate = COALESCE(EXCLUDED.tax_rate, reference_book.tax_rate), "
                 "season_jan = COALESCE(EXCLUDED.season_jan, reference_book.season_jan), "
                 "season_feb = COALESCE(EXCLUDED.season_feb, reference_book.season_feb), "
                 "season_mar = COALESCE(EXCLUDED.season_mar, reference_book.season_mar), "
@@ -2360,7 +2352,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             ":tq1, :tq2, :tq3, "
             ":shm, :fbsw, :rrc, "
             ":notes, CURRENT_DATE, 'excel') "
-            "ON CONFLICT (organization_id, nm_id, entity_id, valid_from) DO UPDATE SET "
+            "ON CONFLICT (organization_id, nm_id, valid_from) DO UPDATE SET "
             "barcode = COALESCE(EXCLUDED.barcode, reference_book.barcode), "
             "vendor_code = COALESCE(EXCLUDED.vendor_code, reference_book.vendor_code), "
             "cost_price = COALESCE(EXCLUDED.cost_price, reference_book.cost_price), "
@@ -2385,7 +2377,6 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "brand = COALESCE(EXCLUDED.brand, reference_book.brand), "
             "product_status = COALESCE(EXCLUDED.product_status, reference_book.product_status), "
             "tax_system = COALESCE(EXCLUDED.tax_system, reference_book.tax_system), "
-        "tax_rate = COALESCE(EXCLUDED.tax_rate, reference_book.tax_rate), "
             "season_jan = COALESCE(EXCLUDED.season_jan, reference_book.season_jan), "
             "season_feb = COALESCE(EXCLUDED.season_feb, reference_book.season_feb), "
             "season_mar = COALESCE(EXCLUDED.season_mar, reference_book.season_mar), "
@@ -2900,7 +2891,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
     cost_result = await db.execute(
         sql_text("""
             SELECT entity_id, nm_id, cost_price, purchase_cost, logistics_cost, packaging_cost,
-            other_costs, vat, product_class, brand, tax_system, tax_rate, vat_rate as cost_vat_rate
+            other_costs, vat, product_class, brand, tax_system, 0 as tax_rate, 0 as cost_vat_rate
             FROM reference_book WHERE organization_id = :org 
             AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
             ORDER BY entity_id NULLS LAST, valid_from DESC
@@ -3649,8 +3640,6 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <option value="7%">7%</option>
 </select>
 </div>
-<button id="tax-apply-btn" onclick="applyTaxToAll()" title="Применить налоги ко всем строкам" style="padding:6px 10px;font-size:.85em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px">📋 Применить ко всему</button>
-<button id="tax-lock-btn" onclick="toggleTaxLock()" title="Заблокировать/разблокировать" style="padding:6px 10px;font-size:1.2em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px;transition:all .2s">🔒</button>
 <button class="btn" onclick="saveTaxSettings()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff;margin-left:auto">💾 Сохранить</button>
 </div>
 
@@ -4401,7 +4390,7 @@ function navTo(name, el) {
     else if (name === 'analytics') loadAnalytics();
     else if (name === 'rnp') loadRnp();
     else if (name === 'opiu') loadOpiu();
-    else if (name === 'costprice') { loadTaxSettings(); loadCostPrices(); }
+    else if (name === 'costprice') loadCostPrices();
     else if (name === 'salesplan') loadSalesPlans();
     else if (name === 'warehouses') loadWarehouses();
     else if (name === 'opexpenses') loadOpEx();
@@ -4909,12 +4898,6 @@ async function loadTaxSettings() {
             document.getElementById('tax-rate-input').value = _taxSettings.tax_rate != null ? _taxSettings.tax_rate : '';
             document.getElementById('vat-type-select').value = _taxSettings.vat_type || 'нет';
             updateTaxColHeader();
-            // Restore lock state from localStorage
-            const lockKey = 'tax_locked_' + ORG_ID;
-            const isLocked = localStorage.getItem(lockKey);
-            if (isLocked === 'true') {
-                setTaxLock(true);
-            }
         }
     } catch(e) { console.error('loadTaxSettings', e); }
 }
@@ -4950,20 +4933,7 @@ async function saveTaxSettings() {
         if (r.ok) {
             _taxSettings = await r.json();
             updateTaxColHeader();
-            // Save to localStorage
-            localStorage.setItem('tax_settings_' + ORG_ID, JSON.stringify(_taxSettings));
-            // Auto-lock after save
-            setTaxLock(true);
-            localStorage.setItem('tax_locked_' + ORG_ID, 'true');
-            // Update grid with new tax values (only rows without manual override)
-            if (costTabulator) {
-                const rows = costTabulator.getData();
-                costTabulator.updateData(rows.filter(r => !r._tax_rate_override).map(r => ({
-                    _id: r._id,
-                    _tax_rate_override: ''
-                })));
-                costTabulator.redraw(true);
-            }
+            applyCostFilters(); // перерисовать таблицу с новыми данными
             showToast('Налоговые настройки сохранены');
         } else {
             const err = await r.json();
@@ -4975,67 +4945,6 @@ async function saveTaxSettings() {
     }
 }
 
-
-function toggleTaxLock() {
-    const lockKey = 'tax_locked_' + ORG_ID;
-    const isLocked = localStorage.getItem(lockKey) === 'true';
-    if (isLocked) {
-        setTaxLock(false);
-        localStorage.setItem(lockKey, 'false');
-    } else {
-        setTaxLock(true);
-        localStorage.setItem(lockKey, 'true');
-    }
-}
-
-function setTaxLock(locked) {
-    var btn = document.getElementById('tax-lock-btn');
-    var sel = document.getElementById('tax-system-select');
-    var inp = document.getElementById('tax-rate-input');
-    var vat = document.getElementById('vat-type-select');
-    var excelBtn = document.getElementById('cost-file-input');
-    if (locked) {
-        btn.textContent = '\U0001f512';
-        btn.style.borderColor = '#6c5ce7';
-        btn.style.background = '#f0edff';
-        sel.disabled = true;
-        inp.disabled = true;
-        vat.disabled = true;
-        _taxLocked = true;
-        if (costTabulator) {
-            costTabulator.updateColumnDefinition('_tax_rate_override', {editable:false});
-            costTabulator.updateColumnDefinition('vat_rate', {editable:false});
-        }
-        if (excelBtn) excelBtn.disabled = true;
-    } else {
-        btn.textContent = '\U0001f513';
-        btn.style.borderColor = '#ddd';
-        btn.style.background = 'none';
-        sel.disabled = false;
-        inp.disabled = false;
-        vat.disabled = false;
-        _taxLocked = false;
-        if (costTabulator) {
-            costTabulator.updateColumnDefinition('_tax_rate_override', {editable:true});
-            costTabulator.updateColumnDefinition('vat_rate', {editable:true});
-        }
-        if (excelBtn) excelBtn.disabled = false;
-    }
-}
-
-var _taxLocked = false;
-
-function applyTaxToAll() {
-    if (!costTabulator) return;
-    var taxRate = parseFloat(document.getElementById('tax-rate-input').value) || 0;
-    var vatSel = document.getElementById('vat-type-select').value;
-    var vatNum = vatSel === '5%' ? 5 : vatSel === '7%' ? 7 : 0;
-    var rows = costTabulator.getData();
-    costTabulator.updateData(rows.map(function(r) {
-        return { _id: r._id, _tax_rate_override: taxRate, vat_rate: vatNum };
-    }));
-    showToast('\u041d\u0430\u043b\u043e\u0433 ' + taxRate + '% \u0438 \u041d\u0414\u0421 ' + (vatNum ? vatNum + '%' : '\u043d\u0435\u0442') + ' \u043f\u0440\u0438\u043c\u0435\u043d\u0435\u043d\u044b \u043a\u043e \u0432\u0441\u0435\u043c');
-}
 
 function showToast(msg, type) {
     var el = document.createElement('div');
