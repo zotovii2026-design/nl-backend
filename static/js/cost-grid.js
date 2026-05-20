@@ -98,14 +98,24 @@ function getCostColumns() {
                     formatter: function(cell) { return cell.getValue() === 'fbs' ? 'ФБС' : 'ФБО'; }
                 },
                 {
-                    title: 'Склад FBS', field: 'fbs_warehouse', width: 160, headerSort: true,
+                    title: 'Склад FBS', field: 'fbs_warehouse', width: 100, headerSort: true,
                     editor: 'list',
+                    editable: function(cell) {
+                        var row = cell.getRow().getData();
+                        return row.fulfillment_model === 'fbs';
+                    },
                     editorParams: function(cell) {
-                        const values = {'':'-'};
+                        var values = {'':'-'};
                         (FBS_WAREHOUSES||[]).forEach(function(w) {
                             values[w.name] = w.name;
                         });
                         return { values: values, clearable: true };
+                    },
+                    formatter: function(cell) {
+                        var row = cell.getRow().getData();
+                        var v = cell.getValue();
+                        if (row.fulfillment_model !== 'fbs') return '<span style="color:#ccc">—</span>';
+                        return v || '—';
                     }
                 },
             ]
@@ -363,6 +373,13 @@ function initCostTabulator(data) {
             const field = cell.getField();
             const row = cell.getRow();
             const data = row.getData();
+
+            // Очистка склада FBS при переключении на ФБО
+            if (field === 'fulfillment_model') {
+                if (data.fulfillment_model !== 'fbs') {
+                    row.update({ 'fbs_warehouse': '' });
+                }
+            }
 
             // Пересчёт итого при изменении себестоимости или доп расходов
             if (field === 'cost_price' || field === 'extra_costs') {
