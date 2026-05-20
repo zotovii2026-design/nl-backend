@@ -123,9 +123,16 @@ function getCostColumns() {
                     mutator: function(value, data) { return ((parseFloat(data.cost_price)||0) + (parseFloat(data.extra_costs)||0)).toFixed(2); }
                 },
                 {
-                    title: 'Налог %', field: '_tax_rate_display', width: 70, headerSort: false,
+                    title: 'Налог %', field: '_tax_rate_override', width: 70, headerSort: true,
                     cssClass: 'tax-cell',
-                    formatter: function(cell) { return cell.getValue() || '—'; }
+                    editor: 'number',
+                    editorParams: { step: 0.01, min: 0, max: 100 },
+                    formatter: function(cell) {
+                        const override = cell.getValue();
+                        if (override !== null && override !== '' && override !== undefined) return '<b>' + parseFloat(override) + '%</b>';
+                        const defaultRate = _taxSettings.tax_rate;
+                        return defaultRate ? '<span style="color:#6c5ce7">' + defaultRate + '%</span>' : '—';
+                    }
                 },
                 {
                     title: 'НДС', field: 'vat_rate', width: 80, headerSort: false,
@@ -261,7 +268,7 @@ function prepareCostData(products) {
             cost_price: c.cost_price || '',
             extra_costs: c.extra_costs || '',
             _total_cost: ((parseFloat(c.cost_price)||0) + (parseFloat(c.extra_costs)||0)).toFixed(2),
-            _tax_rate_display: _taxSettings.tax_rate ? _taxSettings.tax_rate + '%' : '—',
+            _tax_rate_override: c.tax_rate || '',
             vat_rate: c.vat_rate || 0,
             plan_length: c.plan_length || '',
             plan_width: c.plan_width || '',
@@ -473,7 +480,7 @@ function getCostDataForSave() {
         brand: data.brand || '',
         product_status: data.product_status || '',
         tax_system: '',
-        tax_rate: 0,
+        tax_rate: (function(){ var o = data._tax_rate_override; return (o !== null && o !== '' && o !== undefined) ? parseFloat(o) || 0 : (_taxSettings.tax_rate || 0); })(),
         season_jan: parseFloat(data.season_jan) || null, season_feb: parseFloat(data.season_feb) || null,
         season_mar: parseFloat(data.season_mar) || null, season_apr: parseFloat(data.season_apr) || null,
         season_may: parseFloat(data.season_may) || null, season_jun: parseFloat(data.season_jun) || null,

@@ -77,6 +77,7 @@ class ReferenceBook(Base):
 
     # === НАЛОГИ ===
     tax_system = Column(String(20), nullable=True)                  # Налоговая: usn / osn / usn_dr
+    tax_rate = Column(Numeric(5, 2), nullable=True, default=0)          # Ставка налога % (переопределение строки)
 
     # === КЛАССИФИКАЦИЯ ===
     product_class = Column(String(100), nullable=True)              # AABBCC класс

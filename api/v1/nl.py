@@ -1469,7 +1469,7 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
         "cp.buyout_niche_pct, cp.price_before_spp_plan, cp.price_before_spp_change, "
         "cp.change_date, cp.wb_club_discount_pct, cp.ad_plan_rub, cp.supply_days, "
         "cp.min_batch_fbo, cp.product_status, cp.valid_from, cp.notes, "
-        "cp.product_class, cp.tax_system, "
+        "cp.product_class, cp.tax_system, cp.tax_rate, "
         "cp.season_jan, cp.season_feb, cp.season_mar, cp.season_apr, cp.season_may, cp.season_jun, "
         "cp.season_jul, cp.season_aug, cp.season_sep, cp.season_oct, cp.season_nov, cp.season_dec, "
         "cp.plan_length, cp.plan_width, cp.plan_height, cp.plan_volume, cp.plan_weight, "
@@ -1526,20 +1526,21 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
         "notes": r[35] or "",
         "product_class": r[36] or "",
         "tax_system": r[37] or "",
-        "season_jan": fval(r[38]), "season_feb": fval(r[39]),
-        "season_mar": fval(r[40]), "season_apr": fval(r[41]),
-        "season_may": fval(r[42]), "season_jun": fval(r[43]),
-        "season_jul": fval(r[44]), "season_aug": fval(r[45]),
-        "season_sep": fval(r[46]), "season_oct": fval(r[47]),
-        "season_nov": fval(r[48]), "season_dec": fval(r[49]),
-        "plan_length": fval(r[50]), "plan_width": fval(r[51]),
-        "plan_height": fval(r[52]), "plan_volume": fval(r[53]),
-        "plan_weight": fval(r[54]),
-        "delivery_days_to_seller": ival(r[55]), "delivery_days_to_mp": ival(r[56]),
-        "top_query_1": r[57] or "", "top_query_2": r[58] or "", "top_query_3": r[59] or "",
-        "shipment_method": r[60] or "", "fbs_warehouse": r[61] or "",
-        "rrc_price": fval(r[62]), "vat_rate": fval(r[63]) or 0,
-        "product_name": r[64] or "",
+        "tax_rate": fval(r[38]) or 0,
+        "season_jan": fval(r[39]), "season_feb": fval(r[40]),
+        "season_mar": fval(r[41]), "season_apr": fval(r[42]),
+        "season_may": fval(r[43]), "season_jun": fval(r[44]),
+        "season_jul": fval(r[45]), "season_aug": fval(r[46]),
+        "season_sep": fval(r[47]), "season_oct": fval(r[48]),
+        "season_nov": fval(r[49]), "season_dec": fval(r[50]),
+        "plan_length": fval(r[51]), "plan_width": fval(r[52]),
+        "plan_height": fval(r[53]), "plan_volume": fval(r[54]),
+        "plan_weight": fval(r[55]),
+        "delivery_days_to_seller": ival(r[56]), "delivery_days_to_mp": ival(r[57]),
+        "top_query_1": r[58] or "", "top_query_2": r[59] or "", "top_query_3": r[60] or "",
+        "shipment_method": r[61] or "", "fbs_warehouse": r[62] or "",
+        "rrc_price": fval(r[63]), "vat_rate": fval(r[64]) or 0,
+        "product_name": r[65] or "",
         "sizes": [],  # больше не нужен массив — каждая entity = своя строка
     } for r in result.all()]
 
@@ -1575,7 +1576,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "buyout_niche_pct, "
         "price_before_spp_plan, price_before_spp_change, change_date, "
         "wb_club_discount_pct, ad_plan_rub, supply_days, min_batch_fbo, "
-        "product_status, product_class, brand, tax_system, "
+        "product_status, product_class, brand, tax_system, tax_rate, "
         "season_jan, season_feb, season_mar, season_apr, season_may, season_jun, season_jul, season_aug, season_sep, season_oct, season_nov, season_dec, "
         "plan_length, plan_width, plan_height, plan_volume, plan_weight, "
         "delivery_days_to_seller, delivery_days_to_mp, "
@@ -1589,7 +1590,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         ":bnp, "
         ":pspp, :psppc, :cdate, "
         ":wbcd, :adpr, :sdays, :minb, "
-        ":pstatus, :pcls, :brand, :tsys, "
+        ":pstatus, :pcls, :brand, :tsys, :tr, "
         ":sjan, :sfeb, :smar, :sapr, :smay, :sjun, :sjul, :saug, :ssep, :soct, :snov, :sdec, "
         ":pl, :pw, :ph, :pv, :pwg, "
         ":dds, :ddm, "
@@ -1638,6 +1639,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "pstatus": data.get("product_status"),
         "pcls": data.get("product_class"), "brand": data.get("brand"),
         "tsys": data.get("tax_system"), 
+        "tr": float(data["tax_rate"]) if data.get("tax_rate") is not None and str(data.get("tax_rate")) not in ("", "None") else None,
         "sjan": float(data["season_jan"]) if data.get("season_jan") is not None and str(data["season_jan"]) not in ("", "None") else None, "sfeb": float(data["season_feb"]) if data.get("season_feb") is not None and str(data["season_feb"]) not in ("", "None") else None, "smar": float(data["season_mar"]) if data.get("season_mar") is not None and str(data["season_mar"]) not in ("", "None") else None, "sapr": float(data["season_apr"]) if data.get("season_apr") is not None and str(data["season_apr"]) not in ("", "None") else None,
         "smay": float(data["season_may"]) if data.get("season_may") is not None and str(data["season_may"]) not in ("", "None") else None, "sjun": float(data["season_jun"]) if data.get("season_jun") is not None and str(data["season_jun"]) not in ("", "None") else None, "sjul": float(data["season_jul"]) if data.get("season_jul") is not None and str(data["season_jul"]) not in ("", "None") else None, "saug": float(data["season_aug"]) if data.get("season_aug") is not None and str(data["season_aug"]) not in ("", "None") else None,
         "ssep": float(data["season_sep"]) if data.get("season_sep") is not None and str(data["season_sep"]) not in ("", "None") else None, "soct": float(data["season_oct"]) if data.get("season_oct") is not None and str(data["season_oct"]) not in ("", "None") else None, "snov": float(data["season_nov"]) if data.get("season_nov") is not None and str(data["season_nov"]) not in ("", "None") else None, "sdec": float(data["season_dec"]) if data.get("season_dec") is not None and str(data["season_dec"]) not in ("", "None") else None,
@@ -1695,7 +1697,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 "buyout_niche_pct, "
                 "price_before_spp_plan, price_before_spp_change, change_date, "
                 "wb_club_discount_pct, ad_plan_rub, supply_days, min_batch_fbo, "
-                "product_status, product_class, brand, tax_system, "
+                "product_status, product_class, brand, tax_system, tax_rate, "
                 "season_jan, season_feb, season_mar, season_apr, season_may, season_jun, season_jul, season_aug, season_sep, season_oct, season_nov, season_dec, "
                 "plan_length, plan_width, plan_height, plan_volume, plan_weight, "
                 "delivery_days_to_seller, delivery_days_to_mp, "
@@ -1709,7 +1711,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 ":bnp, "
                 ":pspp, :psppc, :cdate, "
                 ":wbcd, :adpr, :sdays, :minb, "
-                ":pstatus, :pcls, :brand, :tsys, "
+                ":pstatus, :pcls, :brand, :tsys, :tr, "
                 ":sjan, :sfeb, :smar, :sapr, :smay, :sjun, :sjul, :saug, :ssep, :soct, :snov, :sdec, "
                 ":pl, :pw, :ph, :pv, :pwg, "
                 ":dds, :ddm, "
@@ -1743,6 +1745,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 "product_class = COALESCE(EXCLUDED.product_class, reference_book.product_class), "
                 "brand = COALESCE(EXCLUDED.brand, reference_book.brand), "
                 "tax_system = COALESCE(EXCLUDED.tax_system, reference_book.tax_system), "
+        "tax_rate = COALESCE(EXCLUDED.tax_rate, reference_book.tax_rate), "
                 "season_jan = COALESCE(EXCLUDED.season_jan, reference_book.season_jan), "
                 "season_feb = COALESCE(EXCLUDED.season_feb, reference_book.season_feb), "
                 "season_mar = COALESCE(EXCLUDED.season_mar, reference_book.season_mar), "
@@ -2382,6 +2385,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "brand = COALESCE(EXCLUDED.brand, reference_book.brand), "
             "product_status = COALESCE(EXCLUDED.product_status, reference_book.product_status), "
             "tax_system = COALESCE(EXCLUDED.tax_system, reference_book.tax_system), "
+        "tax_rate = COALESCE(EXCLUDED.tax_rate, reference_book.tax_rate), "
             "season_jan = COALESCE(EXCLUDED.season_jan, reference_book.season_jan), "
             "season_feb = COALESCE(EXCLUDED.season_feb, reference_book.season_feb), "
             "season_mar = COALESCE(EXCLUDED.season_mar, reference_book.season_mar), "
@@ -3645,6 +3649,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <option value="7%">7%</option>
 </select>
 </div>
+<button id="tax-lock-btn" onclick="toggleTaxLock()" title="Заблокировать/разблокировать" style="padding:6px 10px;font-size:1.2em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:16px;transition:all .2s">🔒</button>
 <button class="btn" onclick="saveTaxSettings()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff;margin-left:auto">💾 Сохранить</button>
 </div>
 
@@ -4395,7 +4400,7 @@ function navTo(name, el) {
     else if (name === 'analytics') loadAnalytics();
     else if (name === 'rnp') loadRnp();
     else if (name === 'opiu') loadOpiu();
-    else if (name === 'costprice') loadCostPrices();
+    else if (name === 'costprice') { loadTaxSettings(); loadCostPrices(); }
     else if (name === 'salesplan') loadSalesPlans();
     else if (name === 'warehouses') loadWarehouses();
     else if (name === 'opexpenses') loadOpEx();
@@ -4903,6 +4908,12 @@ async function loadTaxSettings() {
             document.getElementById('tax-rate-input').value = _taxSettings.tax_rate != null ? _taxSettings.tax_rate : '';
             document.getElementById('vat-type-select').value = _taxSettings.vat_type || 'нет';
             updateTaxColHeader();
+            // Restore lock state from localStorage
+            const lockKey = 'tax_locked_' + ORG_ID;
+            const isLocked = localStorage.getItem(lockKey);
+            if (isLocked === 'true') {
+                setTaxLock(true);
+            }
         }
     } catch(e) { console.error('loadTaxSettings', e); }
 }
@@ -4938,7 +4949,20 @@ async function saveTaxSettings() {
         if (r.ok) {
             _taxSettings = await r.json();
             updateTaxColHeader();
-            applyCostFilters(); // перерисовать таблицу с новыми данными
+            // Save to localStorage
+            localStorage.setItem('tax_settings_' + ORG_ID, JSON.stringify(_taxSettings));
+            // Auto-lock after save
+            setTaxLock(true);
+            localStorage.setItem('tax_locked_' + ORG_ID, 'true');
+            // Update grid with new tax values (only rows without manual override)
+            if (costTabulator) {
+                const rows = costTabulator.getData();
+                costTabulator.updateData(rows.filter(r => !r._tax_rate_override).map(r => ({
+                    _id: r._id,
+                    _tax_rate_override: ''
+                })));
+                costTabulator.redraw(true);
+            }
             showToast('Налоговые настройки сохранены');
         } else {
             const err = await r.json();
@@ -4950,6 +4974,40 @@ async function saveTaxSettings() {
     }
 }
 
+
+function toggleTaxLock() {
+    const lockKey = 'tax_locked_' + ORG_ID;
+    const isLocked = localStorage.getItem(lockKey) === 'true';
+    if (isLocked) {
+        setTaxLock(false);
+        localStorage.setItem(lockKey, 'false');
+    } else {
+        setTaxLock(true);
+        localStorage.setItem(lockKey, 'true');
+    }
+}
+
+function setTaxLock(locked) {
+    const btn = document.getElementById('tax-lock-btn');
+    const sel = document.getElementById('tax-system-select');
+    const inp = document.getElementById('tax-rate-input');
+    const vat = document.getElementById('vat-type-select');
+    if (locked) {
+        btn.textContent = '🔒';
+        btn.style.borderColor = '#6c5ce7';
+        btn.style.background = '#f0edff';
+        sel.disabled = true;
+        inp.disabled = true;
+        vat.disabled = true;
+    } else {
+        btn.textContent = '🔓';
+        btn.style.borderColor = '#ddd';
+        btn.style.background = 'none';
+        sel.disabled = false;
+        inp.disabled = false;
+        vat.disabled = false;
+    }
+}
 
 function showToast(msg, type) {
     var el = document.createElement('div');
