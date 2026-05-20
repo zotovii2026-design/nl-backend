@@ -1478,7 +1478,7 @@ async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
         "cp.shipment_method, cp.fbs_warehouse, cp.rrc_price, cp.vat_rate, "
         "ts.product_name "
         "FROM product_entities pe "
-        "LEFT JOIN LATERAL (SELECT * FROM reference_book WHERE organization_id = :org AND nm_id = pe.nm_id "
+        "LEFT JOIN LATERAL (SELECT * FROM reference_book WHERE organization_id = :org AND nm_id = pe.nm_id AND entity_id = pe.id "
         "  AND (valid_to IS NULL OR valid_to >= CURRENT_DATE) ORDER BY valid_from DESC LIMIT 1) cp ON true "
         "LEFT JOIN (SELECT DISTINCT nm_id, product_name FROM tech_status WHERE organization_id = :org) ts ON pe.nm_id = ts.nm_id "
         "WHERE pe.organization_id = :org "
@@ -1556,14 +1556,17 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         valid_from = _dt.strptime(valid_from, "%Y-%m-%d").date()
     if not nm_id:
         raise HTTPException(400, "nm_id обязателен")
-    # entity_id больше не ключ — берём первый попавшийся для nm_id (для FK)
-    entity_id = None
-    ent_q = await db.execute(text(
-        "SELECT pe.id FROM product_entities pe " +
-        "WHERE pe.organization_id = :org AND pe.nm_id = :nm LIMIT 1"
-    ), {"org": org_id, "nm": nm_id})
-    ent_row = ent_q.first()
-    entity_id = str(ent_row[0]) if ent_row else None
+    # entity_id из запроса — каждая сущность (размер) сохраняется отдельно
+    entity_id = data.get("entity_id")
+    if not entity_id:
+        # Fallback: если entity_id не передан, ищем по nm_id + size_name
+        size_name = data.get("size_name", "")
+        ent_q = await db.execute(text(
+            "SELECT pe.id FROM product_entities pe "
+            "WHERE pe.organization_id = :org AND pe.nm_id = :nm AND pe.size_name = :sz LIMIT 1"
+        ), {"org": org_id, "nm": nm_id, "sz": size_name})
+        ent_row = ent_q.first()
+        entity_id = str(ent_row[0]) if ent_row else None
     await db.execute(text(
         "INSERT INTO reference_book (organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
         "subject_id, subject_name, "
@@ -1593,7 +1596,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         ":tq1, :tq2, :tq3, "
         ":sm, :fw, :rrc, :vr, "
         ":vf, :src, :notes) "
-        "ON CONFLICT (organization_id, nm_id, valid_from) DO UPDATE SET "
+        "ON CONFLICT (organization_id, nm_id, entity_id, valid_from) DO UPDATE SET "
         "barcode = COALESCE(EXCLUDED.barcode, reference_book.barcode), vendor_code = COALESCE(EXCLUDED.vendor_code, reference_book.vendor_code), "
         "cost_price = COALESCE(EXCLUDED.cost_price, reference_book.cost_price), purchase_cost = COALESCE(EXCLUDED.purchase_cost, reference_book.purchase_cost), "
         "logistics_cost = COALESCE(EXCLUDED.logistics_cost, reference_book.logistics_cost), packaging_cost = COALESCE(EXCLUDED.packaging_cost, reference_book.packaging_cost), "
@@ -1629,7 +1632,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "ffm": data.get("fulfillment_model", "fbo"), "stp": float(data["storage_pct"]) if data.get("storage_pct") is not None and str(data["storage_pct"]) not in ("", "None") else None,
         "bnp": float(data["buyout_niche_pct"]) if data.get("buyout_niche_pct") is not None and str(data["buyout_niche_pct"]) not in ("", "None") else None,
         "pspp": float(data["price_before_spp_plan"]) if data.get("price_before_spp_plan") is not None and str(data["price_before_spp_plan"]) not in ("", "None") else None, "psppc": float(data["price_before_spp_change"]) if data.get("price_before_spp_change") is not None and str(data["price_before_spp_change"]) not in ("", "None") else None,
-        "cdate": _dt.strptime(data.get("change_date"), "%Y-%m-%d").date() if data.get("change_date") else None,
+        "cdate": (lambda v: _dt.strptime(v, "%Y-%m-%d").date() if v and len(str(v)) >= 8 else None)(data.get("change_date")),
         "wbcd": float(data["wb_club_discount_pct"]) if data.get("wb_club_discount_pct") is not None and str(data["wb_club_discount_pct"]) not in ("", "None") else None, "adpr": float(data["ad_plan_rub"]) if data.get("ad_plan_rub") is not None and str(data["ad_plan_rub"]) not in ("", "None") else None,
         "sdays": int(data["supply_days"]) if data.get("supply_days") and str(data["supply_days"]).isdigit() else None, "minb": int(data["min_batch_fbo"]) if data.get("min_batch_fbo") and str(data["min_batch_fbo"]).isdigit() else None,
         "pstatus": data.get("product_status"),
@@ -1666,13 +1669,15 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
             valid_from = data.get("valid_from", date.today().isoformat())
             if isinstance(valid_from, str):
                 valid_from = _dt.strptime(valid_from, "%Y-%m-%d").date()
-            entity_id = None
-            ent_q = await db.execute(text(
-                "SELECT pe.id FROM product_entities pe "
-                "WHERE pe.organization_id = :org AND pe.nm_id = :nm LIMIT 1"
-            ), {"org": org_id, "nm": nm_id})
-            ent_row = ent_q.first()
-            entity_id = str(ent_row[0]) if ent_row else None
+            entity_id = data.get("entity_id")
+            if not entity_id:
+                size_name = data.get("size_name", "")
+                ent_q = await db.execute(text(
+                    "SELECT pe.id FROM product_entities pe "
+                    "WHERE pe.organization_id = :org AND pe.nm_id = :nm AND pe.size_name = :sz LIMIT 1"
+                ), {"org": org_id, "nm": nm_id, "sz": size_name})
+                ent_row = ent_q.first()
+                entity_id = str(ent_row[0]) if ent_row else None
             def pfloat(v):
                 if v is not None and str(v) not in ("", "None"):
                     try: return float(v)
@@ -1711,7 +1716,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 ":tq1, :tq2, :tq3, "
                 ":sm, :fw, :rrc, :vr, "
                 ":vf, :src, :notes) "
-                "ON CONFLICT (organization_id, nm_id, valid_from) DO UPDATE SET "
+                "ON CONFLICT (organization_id, nm_id, entity_id, valid_from) DO UPDATE SET "
                 "barcode = COALESCE(EXCLUDED.barcode, reference_book.barcode), "
                 "vendor_code = COALESCE(EXCLUDED.vendor_code, reference_book.vendor_code), "
                 "cost_price = COALESCE(EXCLUDED.cost_price, reference_book.cost_price), "
@@ -1778,7 +1783,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 "ffm": data.get("fulfillment_model", "fbo"), "stp": pfloat(data.get("storage_pct")),
                 "bnp": pfloat(data.get("buyout_niche_pct")),
                 "pspp": pfloat(data.get("price_before_spp_plan")), "psppc": pfloat(data.get("price_before_spp_change")),
-                "cdate": _dt.strptime(data.get("change_date"), "%Y-%m-%d").date() if data.get("change_date") else None,
+                "cdate": (lambda v: _dt.strptime(v, "%Y-%m-%d").date() if v and len(str(v)) >= 8 else None)(data.get("change_date")),
                 "wbcd": pfloat(data.get("wb_club_discount_pct")), "adpr": pfloat(data.get("ad_plan_rub")),
                 "sdays": pint(data.get("supply_days")), "minb": pint(data.get("min_batch_fbo")),
                 "pstatus": data.get("product_status"),
@@ -2352,7 +2357,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             ":tq1, :tq2, :tq3, "
             ":shm, :fbsw, :rrc, "
             ":notes, CURRENT_DATE, 'excel') "
-            "ON CONFLICT (organization_id, nm_id, valid_from) DO UPDATE SET "
+            "ON CONFLICT (organization_id, nm_id, entity_id, valid_from) DO UPDATE SET "
             "barcode = COALESCE(EXCLUDED.barcode, reference_book.barcode), "
             "vendor_code = COALESCE(EXCLUDED.vendor_code, reference_book.vendor_code), "
             "cost_price = COALESCE(EXCLUDED.cost_price, reference_book.cost_price), "
@@ -5559,7 +5564,7 @@ function exportCostTemplate() {
         }
     }
 
-    var blob = new Blob(["" + csv], {type: "text/csv;charset=utf-8"});
+    var blob = new Blob(["\ufeff" + csv], {type: "text/csv;charset=utf-8"});
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "template_spravochnik.csv";

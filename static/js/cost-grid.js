@@ -372,7 +372,6 @@ function initCostTabulator(data) {
 
             // === Синхронизация полей по nm_id ===
             var syncFields = [
-                'cost_price', 'extra_costs',
                 'plan_length', 'plan_width', 'plan_height', 'plan_weight',
                 'season_jan', 'season_feb', 'season_mar', 'season_apr',
                 'season_may', 'season_jun', 'season_jul', 'season_aug',
