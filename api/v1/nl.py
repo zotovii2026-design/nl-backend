@@ -1622,7 +1622,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "fulfillment_model = COALESCE(EXCLUDED.fulfillment_model, reference_book.fulfillment_model), storage_pct = COALESCE(EXCLUDED.storage_pct, reference_book.storage_pct), "
         "buyout_niche_pct = COALESCE(EXCLUDED.buyout_niche_pct, reference_book.buyout_niche_pct), "
         "price_before_spp_plan = COALESCE(EXCLUDED.price_before_spp_plan, reference_book.price_before_spp_plan), "
-        "price_before_spp_change = COALESCE(EXCLUDED.price_before_spp_change, reference_book.price_before_spp_change), change_date = COALESCE(EXCLUDED.change_date, reference_book.change_date), "
+        "price_before_spp_change = COALESCE(EXCLUDED.price_before_spp_change, reference_book.price_before_spp_change), change_date = CURRENT_DATE, "
         "wb_club_discount_pct = COALESCE(EXCLUDED.wb_club_discount_pct, reference_book.wb_club_discount_pct), ad_plan_rub = COALESCE(EXCLUDED.ad_plan_rub, reference_book.ad_plan_rub), "
         "supply_days = COALESCE(EXCLUDED.supply_days, reference_book.supply_days), min_batch_fbo = COALESCE(EXCLUDED.min_batch_fbo, reference_book.min_batch_fbo), "
         "product_status = COALESCE(EXCLUDED.product_status, reference_book.product_status), "
@@ -1648,7 +1648,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "ffm": data.get("fulfillment_model", "fbo"), "stp": float(data["storage_pct"]) if data.get("storage_pct") is not None and str(data["storage_pct"]) not in ("", "None") else None,
         "bnp": float(data["buyout_niche_pct"]) if data.get("buyout_niche_pct") is not None and str(data["buyout_niche_pct"]) not in ("", "None") else None,
         "pspp": float(data["price_before_spp_plan"]) if data.get("price_before_spp_plan") is not None and str(data["price_before_spp_plan"]) not in ("", "None") else None, "psppc": float(data["price_before_spp_change"]) if data.get("price_before_spp_change") is not None and str(data["price_before_spp_change"]) not in ("", "None") else None,
-        "cdate": (lambda v: _dt.strptime(v, "%Y-%m-%d").date() if v and len(str(v)) >= 8 else None)(data.get("change_date")),
+        "cdate": date.today(),
         "wbcd": float(data["wb_club_discount_pct"]) if data.get("wb_club_discount_pct") is not None and str(data["wb_club_discount_pct"]) not in ("", "None") else None, "adpr": min(99, max(0, float(data["ad_plan_rub"]) if data.get("ad_plan_rub") is not None and str(data["ad_plan_rub"]) not in ("", "None") else 5)),
         "sdays": int(data["supply_days"]) if data.get("supply_days") and str(data["supply_days"]).isdigit() else None, "minb": int(data["min_batch_fbo"]) if data.get("min_batch_fbo") and str(data["min_batch_fbo"]).isdigit() else None,
         "pstatus": data.get("product_status"),
@@ -1751,7 +1751,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 "buyout_niche_pct = COALESCE(EXCLUDED.buyout_niche_pct, reference_book.buyout_niche_pct), "
                 "price_before_spp_plan = COALESCE(EXCLUDED.price_before_spp_plan, reference_book.price_before_spp_plan), "
                 "price_before_spp_change = COALESCE(EXCLUDED.price_before_spp_change, reference_book.price_before_spp_change), "
-                "change_date = COALESCE(EXCLUDED.change_date, reference_book.change_date), "
+                "change_date = CURRENT_DATE, "
                 "wb_club_discount_pct = COALESCE(EXCLUDED.wb_club_discount_pct, reference_book.wb_club_discount_pct), "
                 "ad_plan_rub = COALESCE(EXCLUDED.ad_plan_rub, reference_book.ad_plan_rub), "
                 "supply_days = COALESCE(EXCLUDED.supply_days, reference_book.supply_days), "
@@ -1801,7 +1801,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 "ffm": data.get("fulfillment_model", "fbo"), "stp": pfloat(data.get("storage_pct")),
                 "bnp": pfloat(data.get("buyout_niche_pct")),
                 "pspp": pfloat(data.get("price_before_spp_plan")), "psppc": pfloat(data.get("price_before_spp_change")),
-                "cdate": (lambda v: _dt.strptime(v, "%Y-%m-%d").date() if v and len(str(v)) >= 8 else None)(data.get("change_date")),
+                "cdate": date.today(),
                 "wbcd": pfloat(data.get("wb_club_discount_pct")), "adpr": min(99, max(0, pfloat(data.get("ad_plan_rub")) if pfloat(data.get("ad_plan_rub")) is not None else 5)),
                 "sdays": pint(data.get("supply_days")), "minb": pint(data.get("min_batch_fbo")),
                 "pstatus": data.get("product_status"),
@@ -2394,7 +2394,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "buyout_niche_pct = COALESCE(EXCLUDED.buyout_niche_pct, reference_book.buyout_niche_pct), "
             "price_before_spp_plan = COALESCE(EXCLUDED.price_before_spp_plan, reference_book.price_before_spp_plan), "
             "price_before_spp_change = COALESCE(EXCLUDED.price_before_spp_change, reference_book.price_before_spp_change), "
-            "change_date = COALESCE(EXCLUDED.change_date, reference_book.change_date), "
+            "change_date = CURRENT_DATE, "
             "wb_club_discount_pct = COALESCE(EXCLUDED.wb_club_discount_pct, reference_book.wb_club_discount_pct), "
             "ad_plan_rub = COALESCE(EXCLUDED.ad_plan_rub, reference_book.ad_plan_rub), "
             "product_class = COALESCE(EXCLUDED.product_class, reference_book.product_class), "
@@ -3195,9 +3195,7 @@ async def save_unit_economics(data: UnitEconSave, org_id: str, db: AsyncSession 
     from models.reference_book import ReferenceBook
     from datetime import datetime as dt_mod
 
-    change_date = None
-    if data.change_date:
-        change_date = dt_mod.strptime(data.change_date, "%Y-%m-%d").date()
+    change_date = date.today()
 
     # Определяем entity_id
     entity_id_ue = data.entity_id if hasattr(data, "entity_id") and data.entity_id else None
@@ -3222,7 +3220,7 @@ async def save_unit_economics(data: UnitEconSave, org_id: str, db: AsyncSession 
         ad_plan_rub=data.ad_plan_rub,
         price_before_spp_plan=data.price_before_spp_plan,
         price_before_spp_change=data.price_before_spp_change,
-        change_date=change_date,
+        change_date=date.today(),
         fulfillment_model=data.tariff_type or "fbo",
         wb_club_discount_pct=data.wb_club_discount_pct,
     )
@@ -3235,7 +3233,7 @@ async def save_unit_economics(data: UnitEconSave, org_id: str, db: AsyncSession 
             "ad_plan_rub": ins.excluded.ad_plan_rub,
             "price_before_spp_plan": ins.excluded.price_before_spp_plan,
             "price_before_spp_change": ins.excluded.price_before_spp_change,
-            "change_date": ins.excluded.change_date,
+            "change_date": date.today(),
             "fulfillment_model": ins.excluded.fulfillment_model,
             "wb_club_discount_pct": ins.excluded.wb_club_discount_pct,
         }
@@ -3409,7 +3407,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- NL Grid Module -->
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260521i"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260521j"></script>
 </head>
 <body>
 

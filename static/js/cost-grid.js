@@ -283,7 +283,7 @@ function getCostColumns() {
                 { title: 'Мин. цена', field: 'min_price',
                     headerTooltip: 'Минимальная цена', width: 65, editor: 'number', headerSort: true },
                 { title: 'Дата правок', field: 'change_date',
-                    headerTooltip: 'Дата внесения правок', width: 80, tooltip: true, cssClass: 'truncate-cell', editor: 'input' },
+                    headerTooltip: 'Дата внесения правок (авто)', width: 80, tooltip: true, cssClass: 'truncate-cell', editable: false },
                 { title: 'Дата начала', field: 'valid_from',
                     headerTooltip: 'Дата начала действия', width: 80, tooltip: true, cssClass: 'truncate-cell', editor: 'input' },
             ]
@@ -525,7 +525,14 @@ function initCostTabulator(data) {
     });
     costTabulator.on('cellEdited', function(cell) {
         _costDirty = true;
-        
+        // Автопростановка даты правок при изменении любой ячейки (кроме самой change_date)
+        if (cell.getField() !== 'change_date') {
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            cell.getRow().update({ change_date: yyyy + '-' + mm + '-' + dd });
+        }
     });
 
     return costTabulator;
