@@ -379,9 +379,8 @@ function initCostTabulator(data) {
         tabEl = document.createElement('div');
         tabEl.id = 'cost-tabulator';
         tabEl.style.height = '70vh';
-        // Вставляем после скрытого wrapper (НЕ внутрь)
-        var wrapper = document.getElementById('cost-table-wrapper');
-            if (wrapper) { wrapper.parentNode.appendChild(tabEl); } else { oldTable.parentNode.appendChild(tabEl); }
+        // Вставляем после скрытой старой таблицы
+        oldTable.parentNode.appendChild(tabEl);
     }
 
     // CSS: уменьшенный шрифт заголовков

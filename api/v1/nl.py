@@ -3409,7 +3409,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- NL Grid Module -->
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260521f"></script>
 </head>
 <body>
 
@@ -3696,7 +3696,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 
 <!-- Таблица -->
-<div style="overflow-x:auto;position:relative">
+<div id="cost-table-wrapper" style="display:none">
 <table id="cost-table" style="font-size:.82em"><thead><tr>
 <th style="position:sticky;left:0;z-index:2;background:#fff" rowspan="2"><input type="checkbox" id="cost-check-all" onchange="toggleAllCostRows(this.checked)" style="cursor:pointer"></th>
 <th rowspan="2" style="text-align:center;line-height:1.2">Статус<br>товара</th><th rowspan="2" style="text-align:center;line-height:1.2">Класс<br>товара</th><th rowspan="2" style="text-align:center;line-height:1.2">Бренд</th><th rowspan="2">Фото</th><th rowspan="2" style="text-align:center;line-height:1.2">Кате-<br>гория</th><th rowspan="2" style="text-align:center;line-height:1.2">Арт<br>продавца</th><th rowspan="2" style="text-align:center;line-height:1.2">Бар-<br>код</th><th rowspan="2" style="text-align:center;line-height:1.2">Раз-<br>мер</th><th rowspan="2" style="text-align:center;line-height:1.2">Арт<br>WB</th><th rowspan="2" style="text-align:center;line-height:1.2">Товар</th>
@@ -5187,109 +5187,24 @@ function applyCostFilters() {
                 (fc > 0 ? "<span>📄 Средняя: <strong>" + Math.round(tc/fc).toLocaleString("ru-RU") + " ₽</strong></span>" : "");
             return;
         }
-        // === FALLBACK: старый HTML-рендер если Tabulator не загружен ===
-
-        let totalCost = 0, filled = 0;
-        const tbody = document.getElementById('cost-body');
-        let html = '';
-        
-        order.forEach(nmId => {
-            const items = groups[nmId];
-            const c = _costMap[nmId] || {};
-            const sizes = _costSizes[nmId] || [];
-            const hasSizes = sizes.length > 1 || (sizes.length === 1 && sizes[0].size_name && sizes[0].size_name !== '0' && sizes[0].size_name !== 'ONE SIZE');
-            const costPrice = c.cost_price || '';
-            if (costPrice) { totalCost += parseFloat(costPrice); filled++; }
-            const p = items[0];
-            const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/').replace('/big/', '/c246x328/').replace('/tm/', '/c246x328/');
-            const sizeListText = sizes.map(s => s.size_name).filter(s => s && s !== '0' && s !== 'ONE SIZE').join(', ');
-            const barcodeText = sizes.map(s => s.barcodes).filter(Boolean).join(', ');
-            const factDims = (p.length || '') + String.fromCharCode(215) + (p.width || '') + String.fromCharCode(215) + (p.height || '') || String.fromCharCode(8212);
-            
-            const rowClass = hasSizes ? 'group-parent' : '';
-            const clickAttr = hasSizes ? ' onclick="toggleCostGroup(this)"' : '';
-            const bgStyle = hasSizes ? 'background:#f8f9ff;cursor:pointer' : '';
-            const sizesBadge = hasSizes ? ' <span style="font-size:.7em;color:#6c5ce7">' + String.fromCharCode(9656) + ' ' + sizes.length + ' ' + esc(sizeListText) + '</span>' : (sizeListText ? ' <span style="font-size:.8em;color:#636e72">' + esc(sizeListText) + '</span>' : '');
-            
-            html += '<tr data-nm="' + nmId + '" class="' + rowClass + '"' + clickAttr + ' style="' + bgStyle + '">' +
-                '<td style="position:sticky;left:0;z-index:1;background:' + (hasSizes ? '#f8f9ff' : '#fff') + '"><input type="checkbox" class="cost-row-check" onchange="updateBulkBar()" style="cursor:pointer"' + (hasSizes ? ' onclick="event.stopPropagation()"' : '') + '></td>' +
-                '<td style="' + (c.product_status==='Новинка'?'background:#d4edda':c.product_status==='Выводим'?'background:#f8d7da':c.product_status==='ТОП (А)'?'background:#cce5ff':c.product_status==='Двигаем (В)'?'background:#fff3cd':c.product_status==='Категория С'?'background:#e2e3e5':c.product_status==='Планируется к запуску'?'background:#e2d9f3':'') + '"><select class="cost-input" data-field="product_status" style="width:110px;font-size:.85em;border:none;background:transparent;padding:2px">' + '<option value="">-</option>'+'<option value="Новинка"' + (c.product_status==='Новинка'?' selected':'') + '>🟢 Новинка</option>'+'<option value="Выводим"' + (c.product_status==='Выводим'?' selected':'') + '>🔴 Выводим</option>'+'<option value="ТОП (А)"' + (c.product_status==='ТОП (А)'?' selected':'') + '>🔵 ТОП (А)</option>'+'<option value="Двигаем (В)"' + (c.product_status==='Двигаем (В)'?' selected':'') + '>🟡 Двигаем (В)</option>'+'<option value="Категория С"' + (c.product_status==='Категория С'?' selected':'') + '>⚪ Категория С</option>'+'<option value="Планируется к запуску"' + (c.product_status==='Планируется к запуску'?' selected':'') + '>🟣 Планируется к запуску</option>' + '</select></td>' +
-                '<td><input type="text" class="cost-input" data-field="product_class" value="' + esc(c.product_class||'') + '" style="width:70px" placeholder="-"></td>' +
-                '<td><input type="text" class="cost-input" data-field="brand" value="' + esc(c.brand||'') + '" style="width:80px" placeholder="-"></td>' +
-                '<td>' + (thumb ? '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
-                '<td style="font-size:.8em;color:#636e72" title="' + esc(c.subject_name||'') + '">' + esc(c.subject_name||'') + '</td>' +
-                '<td>' + esc(p.vendor_code||'') + '</td>' +
-                '<td style="font-size:.8em">' + esc(barcodeText || p.barcode||'') + '</td>' +
-                '<td>' + (hasSizes ? esc(sizeListText) : esc(p.size_name||'') || String.fromCharCode(8212)) + '</td>' +
-                '<td><b>' + nmId + '</b>' + sizesBadge + '</td>' +
-                '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name||'') + '">' + esc(p.product_name||'') + '</td>' +
-                '<td><select class="cost-input" data-field="fulfillment_model" style="width:60px;font-size:.8em" onchange="onShipmentChange(this)"><option value="fbo"' + (c.fulfillment_model!=='fbs'?' selected':'') + '>ФБО</option><option value="fbs"' + (c.fulfillment_model==='fbs'?' selected':'') + '>ФБС</option></select></td>' +
-                '<td><select class="cost-input" data-field="fbs_warehouse" style="width:140px;font-size:.8em"><option value="">-</option>' + (function(){var g={};FBS_WAREHOUSES.forEach(function(w){var t=w.type||"Склад";if(!g[t])g[t]=[];g[t].push(w);});var h="";["Склад","СЦ","КГТ+"].forEach(function(t){if(g[t]){h+="<optgroup label='"+t+" ("+g[t].length+")'>";g[t].forEach(function(w){h+="<option value='"+esc(w.name)+"'"+(c.fbs_warehouse===w.name?" selected":"")+" title='"+esc(w.address||"")+"'>"+esc(w.name)+"</option>";});h+="</optgroup>";}});return h;})() + '</select></td>' +
-                '<td><input type="number" class="cost-input" data-field="cost_price" value="' + costPrice + '" style="width:80px;font-weight:600" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="extra_costs" value="' + (c.extra_costs||'') + '" style="width:70px" placeholder="0"></td>' +
-                '<td><input type="text" class="cost-input" data-field="total_cost" value="' + ((parseFloat(costPrice)||0)+(parseFloat(c.extra_costs)||0)).toFixed(2) + '" style="width:80px;font-weight:600;background:#f0f0f0" readonly></td>' +
-                '<td class="tax-cell" style="text-align:center;font-size:.85em;color:#6c5ce7;font-weight:600;background:#f8f7ff">' + (_taxSettings.tax_rate ? _taxSettings.tax_rate + '%' : String.fromCharCode(8212)) + '</td>' +
-                '<td style="text-align:center;background:#f0f1f5"><select class="cost-input" data-field="vat_rate" style="width:80px;font-size:.8em"><option value="нет"' + (c.vat_rate==="нет"||c.vat_rate===0||(!c.vat_rate&&_taxSettings.vat_type!=="5%"&&_taxSettings.vat_type!=="7%")?' selected':'') + '>нет</option><option value="5"' + (c.vat_rate===5||(!c.vat_rate&&_taxSettings.vat_type==="5%")?' selected':'') + '>5%</option><option value="7"' + (c.vat_rate===7||(!c.vat_rate&&_taxSettings.vat_type==="7%")?' selected':'') + '>7%</option></select></td>' +
-                '<td><input type="number" class="cost-input" data-field="plan_length" value="' + (c.plan_length||'') + '" style="width:55px" placeholder="-" step="0.1" min="0" oninput="calcPlanVol(this)"></td>' +
-                '<td><input type="number" class="cost-input" data-field="plan_width" value="' + (c.plan_width||'') + '" style="width:55px" placeholder="-" step="0.1" min="0" oninput="calcPlanVol(this)"></td>' +
-                '<td><input type="number" class="cost-input" data-field="plan_height" value="' + (c.plan_height||'') + '" style="width:55px" placeholder="-" step="0.1" min="0" oninput="calcPlanVol(this)"></td>' +
-                '<td class="plan-vol-cell" style="color:#666">' + (c.plan_volume ? parseFloat(c.plan_volume) : String.fromCharCode(8212)) + '</td>' +
-                '<td><input type="number" class="cost-input" data-field="plan_weight" value="' + (c.plan_weight||'') + '" style="width:55px" placeholder="-" step="1" min="0"></td>' +
-                '<td style="white-space:nowrap;font-size:.78em;color:#666;background:#f5f6fa">' + factDims + '</td>' +
-                '<td style="color:#666;background:#f5f6fa">' + (p.volume||String.fromCharCode(8212)) + '</td>' +
-                '<td style="color:#666;background:#f5f6fa">' + (p.weight||String.fromCharCode(8212)) + '</td>' +
-                '<td><input type="number" class="cost-input" data-field="season_jan" value="' + (c.season_jan||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="season_feb" value="' + (c.season_feb||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="season_mar" value="' + (c.season_mar||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="season_apr" value="' + (c.season_apr||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="season_may" value="' + (c.season_may||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="season_jun" value="' + (c.season_jun||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="season_jul" value="' + (c.season_jul||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="season_aug" value="' + (c.season_aug||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="season_sep" value="' + (c.season_sep||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="season_oct" value="' + (c.season_oct||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="season_nov" value="' + (c.season_nov||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="season_dec" value="' + (c.season_dec||'') + '" style="width:42px;background:#fffde7" placeholder="0"></td>' +
-                '<td><input type="text" class="cost-input" data-field="top_query_1" value="' + esc(c.top_query_1||'') + '" style="width:80px;background:#ede7f6" placeholder="-"></td>' +
-                '<td><input type="text" class="cost-input" data-field="top_query_2" value="' + esc(c.top_query_2||'') + '" style="width:80px;background:#ede7f6" placeholder="-"></td>' +
-                '<td><input type="text" class="cost-input" data-field="top_query_3" value="' + esc(c.top_query_3||'') + '" style="width:80px;background:#ede7f6" placeholder="-"></td>' +
-                '<td><input type="number" class="cost-input" data-field="buyout_niche_pct" value="' + (c.buyout_niche_pct||'') + '" style="width:60px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="mp_correction_pct" value="' + (c.mp_correction_pct||'') + '" style="width:60px" placeholder="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="ad_plan_rub" value="' + (c.ad_plan_rub||'') + '" style="width:60px" placeholder="0" step="0.1"></td>' +
-                '<td><input type="number" class="cost-input" data-field="supply_days" value="' + (c.supply_days||'') + '" style="width:60px" placeholder="5" min="0"></td>' +
-                '<td><input type="number" class="cost-input" data-field="min_batch_fbo" value="' + (c.min_batch_fbo||'') + '" style="width:60px" placeholder="1" min="1"></td>' +
-                '<td><input type="number" class="cost-input" data-field="rrc_price" value="' + (c.rrc_price||'') + '" style="width:70px" placeholder="0"></td>' +
-                '<td style="position:relative"><input type="number" class="cost-input" data-field="min_price" value="' + (c.min_price||'') + '" style="width:80px' + (c.min_price ? '' : ';color:#888;font-style:italic') + '" placeholder="0"></td>' +
-                '<td><input type="date" class="cost-input" data-field="change_date" value="' + (c.change_date||'') + '" style="width:100px;font-size:.8em"></td>' +
-                '<td><input type="date" class="cost-input" data-field="valid_from" value="' + (c.valid_from||new Date().toISOString().split('T')[0]) + '" style="width:100px;font-size:.8em"></td>'
-                '</tr>';
-            
-            // Дочерние строки размеров (скрыты)
-            if (hasSizes) {
-                sizes.forEach(s => {
-                    const sizeLabel = s.size_name && s.size_name !== '0' && s.size_name !== 'ONE SIZE' ? s.size_name : String.fromCharCode(8212);
-                    html += '<tr class="cost-group-child" style="display:none;font-size:.85em">' +
-                        '<td></td><td></td><td></td><td></td><td></td><td></td><td></td>' +
-                        '<td style="color:#6c5ce7;font-weight:500">' + esc(sizeLabel) + '</td>' +
-                        '<td></td><td></td>' +
-                        '<td style="font-size:.7em;color:#999">' + esc(s.barcodes||'') + '</td>' +
-                        '<td></td><td></td><td></td><td></td><td></td>' +
-                        '<td colspan="34" style="color:#999;font-size:.75em">' + String.fromCharCode(8592) + ' ' + esc(s.entity_id||'') + '</td>' +
-                        '</tr>';
-                });
-            }
-        });
-        
-        tbody.innerHTML = html;
-        
-        document.getElementById('cost-summary').innerHTML = 
-            '<span>' + String.fromCharCode(128176) + ' Заполнено: <strong>' + filled + '/' + order.length + '</strong></span>' +
-            '<span>' + String.fromCharCode(128202) + ' Сумма себестоимости: <strong>' + totalCost.toLocaleString('ru-RU') + ' ' + String.fromCharCode(8381) + '</strong></span>' +
-            (filled > 0 ? '<span>' + String.fromCharCode(128208) + ' Средняя: <strong>' + Math.round(totalCost/filled).toLocaleString('ru-RU') + ' ' + String.fromCharCode(8381) + '</strong></span>' : '');
+        // === ОШИБКА: Tabulator не загружен ===
+        var reasons = [];
+        if (typeof Tabulator === "undefined") reasons.push("Tabulator CDN не загружен");
+        if (typeof updateCostTabulator === "undefined") reasons.push("cost-grid.js не загружен");
+        var errMsg = "⚠️ Ошибка загрузки таблицы: " + (reasons.length ? reasons.join(", ") : "неизвестная ошибка") + ". Обновите страницу (Ctrl+F5).";
+        var errDiv = document.getElementById('cost-error-msg');
+        if (!errDiv) {
+            errDiv = document.createElement('div');
+            errDiv.id = 'cost-error-msg';
+            errDiv.style.cssText = 'padding:20px;text-align:center;color:#e17055;font-size:1.1em;background:#fff5f5;border:1px solid #e17055;border-radius:8px;margin:10px 0';
+            var wrapper = document.getElementById('cost-table-wrapper');
+            if (wrapper) { wrapper.style.display = 'none'; wrapper.parentNode.appendChild(errDiv); }
+            else { document.querySelector('.main-content')?.appendChild(errDiv); }
+        }
+        errDiv.textContent = errMsg;
+        document.getElementById('cost-count').textContent = '0 товаров';
+        document.getElementById('cost-summary').innerHTML = '';
 }
-
-
-
 
 // Автоудаление зависших попапов
 function cleanupCostPopups() {
