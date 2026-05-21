@@ -3731,57 +3731,41 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Плавающая панель массовых действий -->
 <div id="cost-bulk-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:#6c5ce7;color:#fff;padding:10px 16px;border-radius:8px 8px 0 0;display:none;align-items:center;gap:12px;flex-wrap:wrap;z-index:10;box-shadow:0 -2px 10px rgba(0,0,0,.15)">
 <span style="font-weight:600" id="bulk-bar-count">Выделено: 0</span>
-<select id="bulk-field" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333">
+<select id="bulk-field" onchange="onBulkFieldChange()" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333">
 <option value="">Выберите поле...</option>
-<optgroup label="Себестоимость">
-<option value="purchase_cost">Закупка ₽</option>
-<option value="logistics_cost">Логистика ₽</option>
-<option value="packaging_cost">Упаковка ₽</option>
-<option value="other_costs">Прочее ₽</option>
-<option value="extra_costs">Доп расходы ₽</option>
-<option value="cost_price">Себестоимость ₽</option>
-<option value="min_price">Мин. цена ₽</option>
-<option value="vat">НДС руб</option>
-</optgroup>
-<optgroup label="МП / Комиссия">
-<option value="mp_base_pct">Баз. % МП</option>
-<option value="mp_correction_pct">Корр. % МП</option>
-<option value="fulfillment_model">Отгрузка</option>
-<option value="storage_pct">% хранения</option>
-<option value="buyout_niche_pct">% выкупа по категории</option>
-</optgroup>
-<optgroup label="Цены">
-<option value="price_before_spp_plan">Цена до СПП план ₽</option>
-<option value="price_before_spp_change">Цена до СПП к изм. ₽</option>
-<option value="change_date">Дата правок</option>
-<option value="wb_club_discount_pct">Скидка WB Клуб %</option><option value="rrc_price">РРЦ ₽</option>
-</optgroup>
-<optgroup label="Реклама">
-<option value="ad_plan_rub">Рекл. расходы %</option>
-</optgroup>
-<optgroup label="Классификация">
-<option value="supply_days">Срок поставки</option><option value="min_batch_fbo">Мин. партия FBO</option><option value="product_class">Класс товара</option>
-<option value="brand">Бренд</option>
+<optgroup label="📌 Основное">
 <option value="product_status">Статус товара</option>
+<option value="product_class">Класс товара</option>
+<option value="brand">Бренд</option>
 </optgroup>
-<optgroup label="Налоги">
-<option value="tax_system">Налог. система</option>
+<optgroup label="🚚 Логистика">
+<option value="fulfillment_model">Отгрузка</option>
+<option value="fbs_warehouse">Склад FBS</option>
 </optgroup>
-<optgroup label="Сезонность">
-<option value="season_jan">Янв</option><option value="season_feb">Фев</option><option value="season_mar">Мар</option><option value="season_apr">Апр</option><option value="season_may">Май</option><option value="season_jun">Июн</option><option value="season_jul">Июл</option><option value="season_aug">Авг</option><option value="season_sep">Сен</option><option value="season_oct">Окт</option><option value="season_nov">Ноя</option><option value="season_dec">Дек</option>
+<optgroup label="💰 Себестоимость">
+<option value="cost_price">Себестоимость ₽</option>
+<option value="extra_costs">Доп расходы ₽</option>
+<option value="vat_rate">НДС от дохода</option>
 </optgroup>
-<optgroup label="Габариты ПЛАН">
-<option value="plan_length">Длина, см</option><option value="plan_width">Ширина, см</option><option value="plan_height">Высота, см</option><option value="plan_volume">Объём, л</option><option value="plan_weight">Вес, гр</option>
+<optgroup label="📐 Габариты ПЛАН">
+<option value="plan_length">Длина</option><option value="plan_width">Ширина</option><option value="plan_height">Высота</option><option value="plan_volume">Объём, л</option><option value="plan_weight">Вес, гр</option>
 </optgroup>
-<optgroup label="Доставка">
-<option value="delivery_days_to_seller">До склада (дн)</option><option value="delivery_days_to_mp">До МП (дн)</option>
+<optgroup label="📊 Сезонность">
+<option value="season_jan">янв</option><option value="season_feb">фев</option><option value="season_mar">мар</option><option value="season_apr">апр</option><option value="season_may">май</option><option value="season_jun">июн</option><option value="season_jul">июл</option><option value="season_aug">авг</option><option value="season_sep">сен</option><option value="season_oct">окт</option><option value="season_nov">ноя</option><option value="season_dec">дек</option>
 </optgroup>
-<optgroup label="Запросы/отгрузка">
-<option value="top_query_1">ТОП запрос 1</option><option value="top_query_2">ТОП запрос 2</option><option value="top_query_3">ТОП запрос 3</option><option value="fbs_warehouse">Склад отгрузки FBS</option>
+<optgroup label="🔍 ТОП запросы">
+<option value="top_query_1">1</option><option value="top_query_2">2</option><option value="top_query_3">3</option>
 </optgroup>
-<optgroup label="Прочее">
+<optgroup label="🎯 Расчёты">
+<option value="buyout_niche_pct">% выкупа по кат.</option>
+<option value="mp_correction_pct">Корр. комиссии %</option>
+<option value="ad_plan_rub">Рекл. расходы %</option>
+<option value="supply_days">Скорость достав., дн</option>
+<option value="min_batch_fbo">Мин партия</option>
+<option value="rrc_price">РРЦ</option>
+<option value="min_price">Мин. цена</option>
+<option value="change_date">Дата правок</option>
 <option value="valid_from">Дата начала</option>
-<option value="notes">Заметки</option>
 </optgroup>
 </select>
 <input type="text" id="bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:#fff;color:#333">
@@ -5398,6 +5382,44 @@ function clearBulkSelection() {
     document.querySelectorAll('.cost-row-check').forEach(cb => { cb.checked = false; });
     document.getElementById('cost-check-all').checked = false;
     updateBulkBar();
+}
+
+function onBulkFieldChange() {
+    const field = document.getElementById('bulk-field').value;
+    const container = document.getElementById('bulk-value');
+    const parentEl = container.parentNode;
+
+    // Values for list-type fields (must match cost-grid.js editorParams)
+    const listValues = {
+        'product_class': [['','—'],['A','A'],['B','B'],['C','C']],
+        'product_status': [['','—'],['Новинка','🟢 Новинка'],['Выводим','🔴 Выводим'],['ТОП (А)','🔵 ТОП (А)'],['Двигаем (В)','🟡 Двигаем (В)'],['Категория С','⚪ Категория С'],['Планируется к запуску','🟣 Планируется к запуску']],
+        'fulfillment_model': [['','—'],['fbo','ФБО'],['fbs','ФБС']],
+        'vat_rate': [['','—'],['0','нет'],['5','5%'],['7','7%']],
+    };
+
+    // Replace input with appropriate element
+    if (listValues[field]) {
+        const sel = document.createElement('select');
+        sel.id = 'bulk-value';
+        sel.style.cssText = 'border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:160px;background:#fff;color:#333';
+        listValues[field].forEach(function(item) {
+            const opt = document.createElement('option');
+            opt.value = item[0];
+            opt.textContent = item[1];
+            sel.appendChild(opt);
+        });
+        parentEl.replaceChild(sel, container);
+    } else {
+        // Restore text input if not a list field
+        if (container.tagName === 'SELECT') {
+            const inp = document.createElement('input');
+            inp.type = 'text';
+            inp.id = 'bulk-value';
+            inp.placeholder = 'Значение';
+            inp.style.cssText = 'border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:#fff;color:#333';
+            parentEl.replaceChild(inp, container);
+        }
+    }
 }
 
 function applyBulkEdit() {

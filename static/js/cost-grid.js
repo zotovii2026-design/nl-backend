@@ -69,7 +69,7 @@ function getCostColumns() {
                     },
                 },
                 { title: 'Класс товара', field: 'product_class',
-                    headerTooltip: 'Класс товара', width: 60, editor: 'input', headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
+                    headerTooltip: 'Класс товара', width: 60, editor: 'list', editorParams: { values: ['A', 'B', 'C'], clearable: true }, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
                 { title: 'Бренд', field: 'brand',
                     headerTooltip: 'Бренд', width: 70, editor: 'input', headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
                 {

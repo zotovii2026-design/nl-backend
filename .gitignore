@@ -47,3 +47,4 @@ wb-api-key.txt
 
 celerybeat-schedule
 *.bak.*
+*.bak*
