@@ -3409,7 +3409,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- NL Grid Module -->
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260521f"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260521i"></script>
 </head>
 <body>
 
@@ -4406,11 +4406,13 @@ function switchTab(name, el) { navTo(name, el); }
 
 async function confirmDirty() {
     if (!_costDirty) return true;
-    const answer = confirm('У вас есть несохранённые изменения в справочнике. Сохранить перед уходом?');
+    const answer = confirm('В справочнике есть несохранённые изменения. Нажмите ОК — сохранить, Отмена — перейти без сохранения.');
     if (answer) {
+        _costDirty = false;
         await saveAllCostPrices();
+    } else {
+        _costDirty = false;
     }
-    _costDirty = false;
     return true;
 }
 

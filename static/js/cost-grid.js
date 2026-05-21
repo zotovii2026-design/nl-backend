@@ -370,6 +370,7 @@ function prepareCostData(products) {
  * Инициализировать Tabulator для справочника
  */
 function initCostTabulator(data) {
+    
     // Уничтожаем старый если есть
     if (costTabulator) {
         costTabulator.destroy();
@@ -433,9 +434,9 @@ function initCostTabulator(data) {
             return '<span style="font-size:6px;line-height:1">' + img + '<b>' + value + '</b> — ' + count + ' ' + (count === 1 ? 'размер' : count < 5 ? 'размера' : 'размеров') + ' &nbsp; <span style="color:#666">' + name + '</span> &nbsp; <span style="color:#999">[' + vc + ']</span></span>';
         },
 
-        // При редактировании ячейки — обновляем вычисляемые поля + синхронизация по nm_id
+        // cellEdited handled via table.on event below (Tabulator 6.x)
         cellEdited: function(cell) {
-            _costDirty = true;
+            // Fallback for older Tabulator versions
             const field = cell.getField();
             const row = cell.getRow();
             const data = row.getData();
@@ -515,6 +516,16 @@ function initCostTabulator(data) {
                 el.style.cursor = 'pointer';
             }
         },
+    });
+
+    // Tabulator 6.x uses events, not config callbacks
+    costTabulator.on('cellEditing', function(cell) {
+        _costDirty = true;
+        
+    });
+    costTabulator.on('cellEdited', function(cell) {
+        _costDirty = true;
+        
     });
 
     return costTabulator;
