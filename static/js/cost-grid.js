@@ -266,7 +266,14 @@ function getCostColumns() {
                 { title: 'Корр. комиссии %', field: 'mp_correction_pct',
                     headerTooltip: 'Коррекция к комиссии МП, %', width: 70, editor: 'number', headerSort: true },
                 { title: 'Рекл. расходы %', field: 'ad_plan_rub',
-                    headerTooltip: 'Рекламные расходы, %', width: 65, editor: 'number', editorParams: {step:0.1} },
+                    headerTooltip: 'Рекламные расходы, % (по умолчанию 5%)', width: 65, editor: 'number',
+                    editorParams: {step:0.1, min:0, max:99},
+                    formatter: function(cell) {
+                        const v = cell.getValue();
+                        if (v !== null && v !== '' && v !== undefined) return parseFloat(v) + '%';
+                        return '<span style="color:#999">5%</span>';
+                    }
+                },
                 { title: 'Скорость достав., дн', field: 'supply_days',
                     headerTooltip: 'Скорость доставки, дней', width: 60, editor: 'number', editorParams: {min:0} },
                 { title: 'Мин партия', field: 'min_batch_fbo',
@@ -348,7 +355,7 @@ function prepareCostData(products) {
             top_query_1: c.top_query_1 || '', top_query_2: c.top_query_2 || '', top_query_3: c.top_query_3 || '',
             buyout_niche_pct: c.buyout_niche_pct || '',
             mp_correction_pct: c.mp_correction_pct || '',
-            ad_plan_rub: c.ad_plan_rub || '',
+            ad_plan_rub: (c.ad_plan_rub !== null && c.ad_plan_rub !== '' && c.ad_plan_rub !== undefined) ? c.ad_plan_rub : '',
             supply_days: c.supply_days || '',
             min_batch_fbo: c.min_batch_fbo || '',
             rrc_price: c.rrc_price || '',
@@ -428,6 +435,7 @@ function initCostTabulator(data) {
 
         // При редактировании ячейки — обновляем вычисляемые поля + синхронизация по nm_id
         cellEdited: function(cell) {
+            _costDirty = true;
             const field = cell.getField();
             const row = cell.getRow();
             const data = row.getData();
@@ -552,7 +560,7 @@ function getCostDataForSave() {
         change_date: data.change_date || null,
         wb_club_discount_pct: 0,
         rrc_price: parseFloat(data.rrc_price) || null,
-        ad_plan_rub: parseFloat(data.ad_plan_rub) || 0,
+        ad_plan_rub: (data.ad_plan_rub !== null && data.ad_plan_rub !== '' && data.ad_plan_rub !== undefined) ? parseFloat(data.ad_plan_rub) : 5,
         product_class: data.product_class || '',
         brand: data.brand || '',
         product_status: data.product_status || '',

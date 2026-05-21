@@ -1649,7 +1649,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "bnp": float(data["buyout_niche_pct"]) if data.get("buyout_niche_pct") is not None and str(data["buyout_niche_pct"]) not in ("", "None") else None,
         "pspp": float(data["price_before_spp_plan"]) if data.get("price_before_spp_plan") is not None and str(data["price_before_spp_plan"]) not in ("", "None") else None, "psppc": float(data["price_before_spp_change"]) if data.get("price_before_spp_change") is not None and str(data["price_before_spp_change"]) not in ("", "None") else None,
         "cdate": (lambda v: _dt.strptime(v, "%Y-%m-%d").date() if v and len(str(v)) >= 8 else None)(data.get("change_date")),
-        "wbcd": float(data["wb_club_discount_pct"]) if data.get("wb_club_discount_pct") is not None and str(data["wb_club_discount_pct"]) not in ("", "None") else None, "adpr": float(data["ad_plan_rub"]) if data.get("ad_plan_rub") is not None and str(data["ad_plan_rub"]) not in ("", "None") else None,
+        "wbcd": float(data["wb_club_discount_pct"]) if data.get("wb_club_discount_pct") is not None and str(data["wb_club_discount_pct"]) not in ("", "None") else None, "adpr": min(99, max(0, float(data["ad_plan_rub"]) if data.get("ad_plan_rub") is not None and str(data["ad_plan_rub"]) not in ("", "None") else 5)),
         "sdays": int(data["supply_days"]) if data.get("supply_days") and str(data["supply_days"]).isdigit() else None, "minb": int(data["min_batch_fbo"]) if data.get("min_batch_fbo") and str(data["min_batch_fbo"]).isdigit() else None,
         "pstatus": data.get("product_status"),
         "pcls": data.get("product_class"), "brand": data.get("brand"),
@@ -1802,7 +1802,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 "bnp": pfloat(data.get("buyout_niche_pct")),
                 "pspp": pfloat(data.get("price_before_spp_plan")), "psppc": pfloat(data.get("price_before_spp_change")),
                 "cdate": (lambda v: _dt.strptime(v, "%Y-%m-%d").date() if v and len(str(v)) >= 8 else None)(data.get("change_date")),
-                "wbcd": pfloat(data.get("wb_club_discount_pct")), "adpr": pfloat(data.get("ad_plan_rub")),
+                "wbcd": pfloat(data.get("wb_club_discount_pct")), "adpr": min(99, max(0, pfloat(data.get("ad_plan_rub")) if pfloat(data.get("ad_plan_rub")) is not None else 5)),
                 "sdays": pint(data.get("supply_days")), "minb": pint(data.get("min_batch_fbo")),
                 "pstatus": data.get("product_status"),
                 "pcls": data.get("product_class"), "brand": data.get("brand"),
@@ -3051,7 +3051,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "mp_correction_pct": float(ue.get("mp_correction_pct") or 0),
             "buyout_niche_pct": float(ue.get("buyout_niche_pct") or 0),
             "extra_costs": float(ue.get("extra_costs") or 0),
-            "ad_plan_rub": float(ue.get("ad_plan_rub") or 0),
+            "ad_plan_rub": min(99, max(0, float(ue.get("ad_plan_rub")) if ue.get("ad_plan_rub") not in (None, "", 0) else 5)),
             "price_before_spp_plan": float(ue.get("price_before_spp_plan") or 0),
             "price_before_spp_change": float(ue.get("price_before_spp_change") or 0),
             "change_date": str(ue.get("change_date")) if ue.get("change_date") else None,
@@ -3635,11 +3635,10 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 
 <div id="page-costprice" class="page-section">
-<!-- Верхняя панель: магазин + период + поиск -->
+<!-- Верхняя панель: текущий магазин -->
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
-<select id="cp-store" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:130px"><option>Все магазины</option></select>
-<select id="cp-period" onchange="loadCostPrices()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option></select>
-<input type="text" id="cp-article" placeholder="Артикул" oninput="loadCostPrices()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:120px">
+<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
+<select id="cp-store" onchange="switchCostStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
 </div>
 
 
@@ -3667,7 +3666,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 <button id="tax-apply-btn" onclick="applyTaxToAll()" title="Применить налоги ко всем строкам" style="padding:6px 10px;font-size:.85em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px">📋 Применить ко всему</button>
 <button id="tax-lock-btn" onclick="toggleTaxLock()" title="Заблокировать/разблокировать" style="padding:6px 10px;font-size:1.2em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px;transition:all .2s">🔒</button>
-<button class="btn" onclick="saveTaxSettings()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff;margin-left:auto">💾 Сохранить</button>
+<button class="btn" onclick="saveTaxSettings()" style="padding:6px 10px;font-size:.75em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px">💾 Налоги</button>
 </div>
 
 <!-- Панель действий -->
@@ -3676,10 +3675,10 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <input type="file" id="cost-file-input" accept=".xlsx,.csv" style="display:none" onchange="uploadCostExcel(this)">
 <button class="btn btn-outline" onclick="exportCostTemplate()" style="padding:6px 14px;font-size:.85em">📥 Скачать шаблон</button>
 <span style="font-size:.85em;color:#999" id="cost-count"></span>
+<button class="btn" onclick="autoFillReference()" style="padding:5px 12px;font-size:.82em;background:#6c5ce7;color:#fff;border-radius:4px">🔄 Автозаполнение</button>
+<button class="btn" onclick="saveAllCostPrices()" style="padding:7px 16px;font-size:.88em;background:#00b894;color:#fff;font-weight:600;border-radius:6px">СОХРАНИТЬ<br><span style="font-size:.65em;font-weight:400;opacity:.7">отправить на сервер</span></button>
 <span style="flex:1"></span>
 <span id="cost-selected-info" style="font-size:.85em;color:#6c5ce7;font-weight:600;display:none">☑ Выделено: <span id="cost-selected-count">0</span></span>
-<button class="btn" onclick="autoFillReference()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff">🔄 Автозаполнение</button>
-<button class="btn" onclick="saveAllCostPrices()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить всё</button>
 </div>
 
 <!-- Фильтры по столбцам -->
@@ -3758,7 +3757,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <option value="wb_club_discount_pct">Скидка WB Клуб %</option><option value="rrc_price">РРЦ ₽</option>
 </optgroup>
 <optgroup label="Реклама">
-<option value="ad_plan_rub">Реклама план %</option>
+<option value="ad_plan_rub">Рекл. расходы %</option>
 </optgroup>
 <optgroup label="Классификация">
 <option value="supply_days">Срок поставки</option><option value="min_batch_fbo">Мин. партия FBO</option><option value="product_class">Класс товара</option>
@@ -4185,6 +4184,15 @@ let TOKEN = localStorage.getItem('nl_token');
 let ORG_ID = new URL(location).searchParams.get('org') || localStorage.getItem('nl_org_id');
 let FBS_WAREHOUSES = [];
 let _taxSettings = {tax_system: '', tax_rate: null, vat_type: 'нет'};
+let _costDirty = false;  // Флаг несохранённых изменений в справочнике
+// Защита от потери данных при закрытии/перезагрузке
+window.addEventListener('beforeunload', function(e) {
+    if (_costDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});
+
 async function loadFbsWarehouses() {
     try {
         const r = await fetch('/api/v1/nl/fbs-warehouses?org_id=' + ORG_ID);
@@ -4396,7 +4404,18 @@ function doLogout() { showAuth(); }
 
 function switchTab(name, el) { navTo(name, el); }
 
-function navTo(name, el) {
+async function confirmDirty() {
+    if (!_costDirty) return true;
+    const answer = confirm('У вас есть несохранённые изменения в справочнике. Сохранить перед уходом?');
+    if (answer) {
+        await saveAllCostPrices();
+    }
+    _costDirty = false;
+    return true;
+}
+
+async function navTo(name, el) {
+    if (_costDirty) await confirmDirty();
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     if (el) el.classList.add('active');
     document.querySelectorAll('.page-section').forEach(t => t.classList.remove('active'));
@@ -5380,46 +5399,33 @@ function clearBulkSelection() {
 }
 
 function applyBulkEdit() {
+    _costDirty = true;
     const field = document.getElementById('bulk-field').value;
     const value = document.getElementById('bulk-value').value;
     if (!field) { alert('\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043f\u043e\u043b\u0435 \u0434\u043b\u044f \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f'); return; }
-    
-    const checkedRows = document.querySelectorAll('.cost-row-check:checked');
-    if (!checkedRows.length) { alert('\u0412\u044b\u0434\u0435\u043b\u0438\u0442\u0435 \u0445\u043e\u0442\u044f \u0431\u044b \u043e\u0434\u043d\u0443 \u0441\u0442\u0440\u043e\u043a\u0443'); return; }
-    
-    const count = checkedRows.length;
+
+    // Берём выделенные строки через Tabulator API (а не DOM — Tabulator виртуализирует строки)
+    let selectedRows = [];
+    if (typeof costTabulator !== 'undefined' && costTabulator) {
+        selectedRows = costTabulator.getRows().filter(r => r.getData()._selected);
+    }
+
+    if (!selectedRows.length) { alert('\u0412\u044b\u0434\u0435\u043b\u0438\u0442\u0435 \u0445\u043e\u0442\u044f \u0431\u044b \u043e\u0434\u043d\u0443 \u0441\u0442\u0440\u043e\u043a\u0443'); return; }
+
+    const count = selectedRows.length;
     if (!confirm('\u0417\u0430\u043f\u0438\u0441\u0430\u0442\u044c \u00ab' + value + '\u00bb \u0432 \u043f\u043e\u043b\u0435 \u00ab' + field + '\u00bb \u0434\u043b\u044f ' + count + ' \u0442\u043e\u0432\u0430\u0440\u043e\u0432?')) return;
-    
-    checkedRows.forEach(cb => {
-        const row = cb.closest('tr');
-        const input = row.querySelector('[data-field="' + field + '"]');
-        if (input) {
-            if (input.tagName === 'SELECT') {
-                for (let opt of input.options) {
-                    if (opt.value === value || opt.textContent === value) {
-                        input.value = opt.value;
-                        break;
-                    }
-                }
-            } else {
-                input.value = value;
-            }
-        }
+
+    // Применяем значение через Tabulator row.update — триггерит cellEdited и синхронизацию
+    const update = {};
+    update[field] = value;
+    selectedRows.forEach(row => {
+        row.update(update);
     });
-    
+
     document.getElementById('bulk-field').value = '';
     document.getElementById('bulk-value').value = '';
-    
-    checkedRows.forEach(cb => {
-        const row = cb.closest('tr');
-        const input = row.querySelector('[data-field="' + field + '"]');
-        if (input) {
-            const td = input.closest('td');
-            td.style.background = '#ffeaa7';
-            setTimeout(() => { td.style.background = ''; }, 1500);
-        }
-    });
 }
+
 
 async function autoFillReference() {
     if (!ORG_ID) return;
@@ -5471,6 +5477,7 @@ async function saveAllCostPrices() {
             });
             const result = await resp.json();
             if (resp.ok) {
+                _costDirty = false;
                 alert("Сохранено: " + (result.saved || 0) + " из " + saveData.length + (result.errors ? " (ошибок: " + result.errors + ")" : ""));
             } else {
                 alert("Ошибка сохранения: " + (result.detail || resp.status));
@@ -5509,7 +5516,7 @@ function exportCostTemplate() {
         "ФБО/ФБС;Склад отгрузки FBS;" +
         "Баз. % МП;Корр. % МП;% хранения;% выкупа по категории;" +
         "Цена до СПП план;Цена до СПП к изм.;Дата правок;Скидка WB Клуб %;РРЦ;" +
-        "Реклама план;" +
+        "Рекл. расходы %;" +
         "Класс товара;Бренд;Статус товара;" +
         "Налог. система;" +
         "Сезон янв;Сезон фев;Сезон мар;Сезон апр;Сезон май;Сезон июн;" +
@@ -6185,14 +6192,47 @@ async function loadOrgs() {
         localStorage.setItem('nl_org_id', ORG_ID);
         sel.value = ORG_ID;
     }
+    // Sync cp-store dropdown in Справочник
+    const cpSel = document.getElementById('cp-store');
+    if (cpSel) {
+        cpSel.innerHTML = '';
+        orgs.forEach(o => {
+            const opt = document.createElement('option');
+            opt.value = o.id;
+            opt.textContent = o.name + (o.wb_seller_id ? ' (ID ' + o.wb_seller_id + ')' : '');
+            if (o.id === ORG_ID) opt.selected = true;
+            cpSel.appendChild(opt);
+        });
+    }
 }
 
-function switchOrg() {
+async function switchOrg() {
+    if (_costDirty && !await confirmDirty()) return;
     // Update URL so refresh keeps the right org
     ORG_ID = document.getElementById('org-select').value;
     localStorage.setItem('nl_org_id', ORG_ID);
     history.replaceState(null, '', '/nl/v2?org=' + ORG_ID);
+    // Sync cp-store
+    const cpSel = document.getElementById('cp-store');
+    if (cpSel) cpSel.value = ORG_ID;
     showApp();
+}
+
+async function switchCostStore() {
+    if (_costDirty && !await confirmDirty()) return;
+    const cpSel = document.getElementById('cp-store');
+    const newOrgId = cpSel.value;
+    if (newOrgId === ORG_ID) return;
+    ORG_ID = newOrgId;
+    localStorage.setItem('nl_org_id', ORG_ID);
+    // Sync sidebar org-select
+    const sideSel = document.getElementById('org-select');
+    if (sideSel) sideSel.value = ORG_ID;
+    history.replaceState(null, '', '/nl/v2?org=' + ORG_ID);
+    showApp();
+    // Reload cost prices for new org
+    loadTaxSettings();
+    loadCostPrices();
 }
 
 function showNewOrgDialog() {
@@ -6577,7 +6617,7 @@ async function loadUnitEcon() {
                 '<td>' + (p.vat_rate || '—') + '</td>' +
                 '<td>' + fmt(p.tax_total) + '</td>' +
                 '<td style="background:#f0fff0">' + fmt(p.ad_fact_rub) + '</td>' +
-                '<td style="background:#f0fff0"><input type="number" class="ue-input" data-field="ad_plan_rub" value="' + (p.ad_plan_rub || '') + '" style="width:60px" placeholder="0"></td>' +
+                '<td style="background:#f0fff0"><input type="number" class="ue-input" data-field="ad_plan_rub" value="' + (p.ad_plan_rub !== null && p.ad_plan_rub !== undefined && p.ad_plan_rub !== '' ? p.ad_plan_rub : 5) + '" style="width:60px" min="0" max="99" step="0.1" placeholder="5"></td>' +
                 '<td style="background:#e8f4fd">' + fmt(p.price_before_spp) + '</td>' +
                 '<td style="background:#e8f4fd">' + fmtI(p.spp_pct) + '</td>' +
                 '<td style="background:#e8f4fd;font-weight:600">' + fmt(p.price_with_spp) + '</td>' +
