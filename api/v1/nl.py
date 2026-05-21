@@ -3407,7 +3407,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- NL Grid Module -->
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260521j"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260521k"></script>
 </head>
 <body>
 
@@ -3762,8 +3762,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <option value="min_batch_fbo">Мин партия</option>
 <option value="rrc_price">РРЦ</option>
 <option value="min_price">Мин. цена</option>
-<option value="change_date">Дата правок</option>
-<option value="valid_from">Дата начала</option>
+
 </optgroup>
 </select>
 <input type="text" id="bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:#fff;color:#333">

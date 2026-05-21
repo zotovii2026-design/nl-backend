@@ -523,15 +523,19 @@ function initCostTabulator(data) {
         _costDirty = true;
         
     });
+    var _autoUpdatingDate = false;
     costTabulator.on('cellEdited', function(cell) {
+        if (_autoUpdatingDate) return;
         _costDirty = true;
         // Автопростановка даты правок при изменении любой ячейки (кроме самой change_date)
         if (cell.getField() !== 'change_date') {
+            _autoUpdatingDate = true;
             const today = new Date();
             const yyyy = today.getFullYear();
             const mm = String(today.getMonth() + 1).padStart(2, '0');
             const dd = String(today.getDate()).padStart(2, '0');
             cell.getRow().update({ change_date: yyyy + '-' + mm + '-' + dd });
+            _autoUpdatingDate = false;
         }
     });
 
