@@ -576,6 +576,20 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
         vol = round((l * w * h) / 1000, 2) if l and w and h else None
         dims_map[eid] = {"length": l, "width": w, "height": h, "weight": wt, "volume": vol}
 
+    # Маппинг entity_id -> все ШК (для поиска)
+    from models.product_entity import EntityBarcode
+    bc_result = await db.execute(
+        select(EntityBarcode.entity_id, EntityBarcode.barcode).where(
+            EntityBarcode.is_active == True
+        )
+    )
+    barcodes_map = {}
+    for r in bc_result.all():
+        eid = str(r[0])
+        if eid not in barcodes_map:
+            barcodes_map[eid] = []
+        barcodes_map[eid].append(r[1])
+
     # --- Юнит Экономика для ТС ---
     from sqlalchemy import text
 
@@ -686,6 +700,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
                 "price_discount": safe_float(r[14]),
                 "tariff": safe_float(r[15]),
                 "barcode": r[16] or "",
+                "barcodes": ", ".join(barcodes_map.get(str(r[0]), [])) or (r[16] or ""),
                 "size_name": size_map.get(str(r[0]), "") if r[0] else "",
                 "subject_name": subject_map.get(str(r[0]), "") if r[0] else "",
                 **(dims_map.get(str(r[0]), {}) if r[0] else {}),
@@ -3676,7 +3691,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <select id="flt-brand" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
 <select id="flt-product-status" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется к запуску</option></select>
 <select id="flt-has-cost" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
-<input type="text" id="cost-search" placeholder="🔍 Поиск по названию/артикулу" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
+<input type="text" id="cost-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
 <button onclick="clearCostFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сбросить</button>
 </div>
 
@@ -5125,7 +5140,8 @@ function applyCostFilters() {
         products = products.filter(p => 
             (p.product_name||'').toLowerCase().includes(search) || 
             String(p.nm_id).includes(search) || 
-            (p.vendor_code||'').toLowerCase().includes(search)
+            (p.vendor_code||'').toLowerCase().includes(search) ||
+            (p.barcodes||'').includes(search)
         );
     }
     
