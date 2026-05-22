@@ -3981,10 +3981,10 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 
 <div id="page-unitecon" class="page-section">
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;background:#f8f9fb;padding:10px 16px;border-radius:8px">
-<select id="ue-store" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:130px"><option>Все магазины</option></select>
-<select id="ue-period" onchange="loadUEData()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option></select>
-<input type="text" id="ue-article" placeholder="Артикул" oninput="loadUEData()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:120px">
+<!-- Верхняя панель: магазин (как в Справочнике) -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
+<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
+<select id="ue-store" onchange="switchUEStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
 </div>
 
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
@@ -6182,6 +6182,21 @@ async function switchCostStore() {
     // Reload cost prices for new org
     loadTaxSettings();
     loadCostPrices();
+}
+
+async function switchUEStore() {
+    const ueSel = document.getElementById("ue-store");
+    const newOrgId = ueSel.value;
+    if (newOrgId === ORG_ID) return;
+    ORG_ID = newOrgId;
+    localStorage.setItem("nl_org_id", ORG_ID);
+    // Sync sidebar + cp-store
+    const sideSel = document.getElementById("org-select");
+    if (sideSel) sideSel.value = ORG_ID;
+    const cpSel = document.getElementById("cp-store");
+    if (cpSel) cpSel.value = ORG_ID;
+    history.replaceState(null, "", "/nl/v2?org=" + ORG_ID);
+    loadUEData();
 }
 
 function showNewOrgDialog() {
