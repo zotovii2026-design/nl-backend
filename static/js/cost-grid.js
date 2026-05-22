@@ -4,6 +4,7 @@
  */
 
 let costTabulator = null;
+let _costEditedIds = new Set();  // entity_id строк с реальными изменениями
 
 // Конфигурация колонок справочника
 function getCostColumns() {
@@ -208,8 +209,8 @@ function getCostColumns() {
                     headerTooltip: 'Габариты ФАКТ (Д×Ш×В)', width: 70, tooltip: true, headerSort: false, formatter: 'plaintext' },
                 { title: 'Объём, л', field: '_fact_volume',
                     headerTooltip: 'Объём ФАКТ, л', width: 55, headerSort: false },
-                { title: 'Вес', field: '_fact_weight',
-                    headerTooltip: 'Вес ФАКТ', width: 50, headerSort: false },
+                { title: 'Вес, кг', field: '_fact_weight',
+                    headerTooltip: 'Вес ФАКТ (от ВБ), кг', width: 50, headerSort: false },
             ]
         },
 
@@ -343,6 +344,7 @@ function prepareCostData(products) {
             _total_cost: ((parseFloat(c.cost_price)||0) + (parseFloat(c.extra_costs)||0)).toFixed(2),
             _tax_rate_override: c.tax_rate || '',
             vat_rate: c.vat_rate || 0,
+            tax_system: c.tax_system || "",
             plan_length: c.plan_length || '',
             plan_width: c.plan_width || '',
             plan_height: c.plan_height || '',
@@ -388,8 +390,8 @@ function initCostTabulator(data) {
         tabEl.id = 'cost-tabulator';
         tabEl.style.height = '70vh';
         // Вставляем после скрытого wrapper (НЕ внутрь)
-        var wrapper = document.getElementById('cost-table-wrapper');
-            if (wrapper) { wrapper.parentNode.appendChild(tabEl); } else { oldTable.parentNode.appendChild(tabEl); }
+        var target = document.getElementById('cost-tabulator-host') || document.querySelector('.main-content');
+            if (target) { target.appendChild(tabEl); } else { document.body.appendChild(tabEl); }
     }
 
     // CSS: уменьшенный шрифт заголовков
@@ -527,6 +529,7 @@ function initCostTabulator(data) {
     costTabulator.on('cellEdited', function(cell) {
         if (_autoUpdatingDate) return;
         _costDirty = true;
+        var _editedId = cell.getRow().getData().entity_id || cell.getRow().getData()._id; if (_editedId) _costEditedIds.add(_editedId);
         // Автопростановка даты правок при изменении любой ячейки (кроме самой change_date)
         if (cell.getField() !== 'change_date') {
             _autoUpdatingDate = true;
@@ -579,14 +582,14 @@ function getCostDataForSave() {
         buyout_niche_pct: parseFloat(data.buyout_niche_pct) || 0,
         price_before_spp_plan: 0,
         price_before_spp_change: 0,
-        change_date: data.change_date || null,
+        change_date: _costEditedIds.has(data.entity_id || data._id) ? (data.change_date || null) : null,
         wb_club_discount_pct: 0,
         rrc_price: parseFloat(data.rrc_price) || null,
         ad_plan_rub: (data.ad_plan_rub !== null && data.ad_plan_rub !== '' && data.ad_plan_rub !== undefined) ? parseFloat(data.ad_plan_rub) : 5,
         product_class: data.product_class || '',
         brand: data.brand || '',
         product_status: data.product_status || '',
-        tax_system: '',
+        tax_system: data.tax_system || '',
         tax_rate: (function(){ var o = data._tax_rate_override; return (o !== null && o !== '' && o !== undefined) ? parseFloat(o) || 0 : (_taxSettings.tax_rate || 0); })(),
         season_jan: parseFloat(data.season_jan) || null, season_feb: parseFloat(data.season_feb) || null,
         season_mar: parseFloat(data.season_mar) || null, season_apr: parseFloat(data.season_apr) || null,

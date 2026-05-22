@@ -1622,7 +1622,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         "fulfillment_model = COALESCE(EXCLUDED.fulfillment_model, reference_book.fulfillment_model), storage_pct = COALESCE(EXCLUDED.storage_pct, reference_book.storage_pct), "
         "buyout_niche_pct = COALESCE(EXCLUDED.buyout_niche_pct, reference_book.buyout_niche_pct), "
         "price_before_spp_plan = COALESCE(EXCLUDED.price_before_spp_plan, reference_book.price_before_spp_plan), "
-        "price_before_spp_change = COALESCE(EXCLUDED.price_before_spp_change, reference_book.price_before_spp_change), change_date = CURRENT_DATE, "
+        "price_before_spp_change = COALESCE(EXCLUDED.price_before_spp_change, reference_book.price_before_spp_change), change_date = COALESCE(EXCLUDED.change_date, reference_book.change_date), "
         "wb_club_discount_pct = COALESCE(EXCLUDED.wb_club_discount_pct, reference_book.wb_club_discount_pct), ad_plan_rub = COALESCE(EXCLUDED.ad_plan_rub, reference_book.ad_plan_rub), "
         "supply_days = COALESCE(EXCLUDED.supply_days, reference_book.supply_days), min_batch_fbo = COALESCE(EXCLUDED.min_batch_fbo, reference_book.min_batch_fbo), "
         "product_status = COALESCE(EXCLUDED.product_status, reference_book.product_status), "
@@ -1751,7 +1751,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 "buyout_niche_pct = COALESCE(EXCLUDED.buyout_niche_pct, reference_book.buyout_niche_pct), "
                 "price_before_spp_plan = COALESCE(EXCLUDED.price_before_spp_plan, reference_book.price_before_spp_plan), "
                 "price_before_spp_change = COALESCE(EXCLUDED.price_before_spp_change, reference_book.price_before_spp_change), "
-                "change_date = CURRENT_DATE, "
+                "change_date = COALESCE(EXCLUDED.change_date, reference_book.change_date), "
                 "wb_club_discount_pct = COALESCE(EXCLUDED.wb_club_discount_pct, reference_book.wb_club_discount_pct), "
                 "ad_plan_rub = COALESCE(EXCLUDED.ad_plan_rub, reference_book.ad_plan_rub), "
                 "supply_days = COALESCE(EXCLUDED.supply_days, reference_book.supply_days), "
@@ -2267,14 +2267,23 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
         if not nm: continue
         nm = int(nm)
         
-        # entity_id: первый попавшийся для nm_id (не ключ больше)
+        # entity_id: ищем по nm_id + size_name, fallback на nm_id
+        sz_val = ps(row, "Размер", "size_name")
         eid = None
-        ent_q = await db.execute(text(
-            "SELECT pe.id FROM product_entities pe "
-            "WHERE pe.organization_id = :org AND pe.nm_id = :nm LIMIT 1"
-        ), {"org": org_id, "nm": nm})
-        ent_row = ent_q.first()
-        eid = str(ent_row[0]) if ent_row else None
+        if sz_val:
+            ent_q = await db.execute(text(
+                "SELECT pe.id FROM product_entities pe "
+                "WHERE pe.organization_id = :org AND pe.nm_id = :nm AND pe.size_name = :sz LIMIT 1"
+            ), {"org": org_id, "nm": nm, "sz": sz_val})
+            ent_row = ent_q.first()
+            eid = str(ent_row[0]) if ent_row else None
+        if not eid:
+            ent_q = await db.execute(text(
+                "SELECT pe.id FROM product_entities pe "
+                "WHERE pe.organization_id = :org AND pe.nm_id = :nm LIMIT 1"
+            ), {"org": org_id, "nm": nm})
+            ent_row = ent_q.first()
+            eid = str(ent_row[0]) if ent_row else None
         
         # Собираем все поля — полная версия справочника
         params = {
@@ -2394,7 +2403,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "buyout_niche_pct = COALESCE(EXCLUDED.buyout_niche_pct, reference_book.buyout_niche_pct), "
             "price_before_spp_plan = COALESCE(EXCLUDED.price_before_spp_plan, reference_book.price_before_spp_plan), "
             "price_before_spp_change = COALESCE(EXCLUDED.price_before_spp_change, reference_book.price_before_spp_change), "
-            "change_date = CURRENT_DATE, "
+            "change_date = COALESCE(EXCLUDED.change_date, reference_book.change_date), "
             "wb_club_discount_pct = COALESCE(EXCLUDED.wb_club_discount_pct, reference_book.wb_club_discount_pct), "
             "ad_plan_rub = COALESCE(EXCLUDED.ad_plan_rub, reference_book.ad_plan_rub), "
             "product_class = COALESCE(EXCLUDED.product_class, reference_book.product_class), "
@@ -3407,7 +3416,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- NL Grid Module -->
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260521k"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260522e"></script>
 </head>
 <body>
 
@@ -3664,14 +3673,10 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 <button id="tax-apply-btn" onclick="applyTaxToAll()" title="Применить налоги ко всем строкам" style="padding:6px 10px;font-size:.85em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px">📋 Применить ко всему</button>
 <button id="tax-lock-btn" onclick="toggleTaxLock()" title="Заблокировать/разблокировать" style="padding:6px 10px;font-size:1.2em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px;transition:all .2s">🔒</button>
-<button class="btn" onclick="saveTaxSettings()" style="padding:6px 10px;font-size:.75em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px">💾 Налоги</button>
-</div>
-
-<!-- Панель действий -->
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
 <button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить Excel</button>
 <input type="file" id="cost-file-input" accept=".xlsx,.csv" style="display:none" onchange="uploadCostExcel(this)">
-<button class="btn btn-outline" onclick="exportCostTemplate()" style="padding:6px 14px;font-size:.85em">📥 Скачать шаблон</button>
+<button class="btn btn-outline" onclick="downloadEmptyTemplate()" style="padding:6px 14px;font-size:.85em">📥 Скачать шаблон</button>
+<button class="btn btn-outline" onclick="exportCostTemplate()" style="padding:6px 14px;font-size:.85em">📤 Экспорт данных</button>
 <span style="font-size:.85em;color:#999" id="cost-count"></span>
 <button class="btn" onclick="autoFillReference()" style="padding:5px 12px;font-size:.82em;background:#6c5ce7;color:#fff;border-radius:4px">🔄 Автозаполнение</button>
 <button class="btn" onclick="saveAllCostPrices()" style="padding:7px 16px;font-size:.88em;background:#00b894;color:#fff;font-weight:600;border-radius:6px">СОХРАНИТЬ<br><span style="font-size:.65em;font-weight:400;opacity:.7">отправить на сервер</span></button>
@@ -3693,38 +3698,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 
 <!-- Таблица -->
-<div id="cost-table-wrapper" style="display:none">
-<table id="cost-table" style="font-size:.82em"><thead><tr>
-<th style="position:sticky;left:0;z-index:2;background:#fff" rowspan="2"><input type="checkbox" id="cost-check-all" onchange="toggleAllCostRows(this.checked)" style="cursor:pointer"></th>
-<th rowspan="2" style="text-align:center;line-height:1.2">Статус<br>товара</th><th rowspan="2" style="text-align:center;line-height:1.2">Класс<br>товара</th><th rowspan="2" style="text-align:center;line-height:1.2">Бренд</th><th rowspan="2">Фото</th><th rowspan="2" style="text-align:center;line-height:1.2">Кате-<br>гория</th><th rowspan="2" style="text-align:center;line-height:1.2">Арт<br>продавца</th><th rowspan="2" style="text-align:center;line-height:1.2">Бар-<br>код</th><th rowspan="2" style="text-align:center;line-height:1.2">Раз-<br>мер</th><th rowspan="2" style="text-align:center;line-height:1.2">Арт<br>WB</th><th rowspan="2" style="text-align:center;line-height:1.2">Товар</th>
-<th rowspan="2" style="text-align:center;line-height:1.2">От-<br>грузка</th>
-<th rowspan="2" style="text-align:center;line-height:1.2;font-size:.9em">Склад от-<br>грузки FBS</th>
-<th style="position:relative" rowspan="2">Себестоимость ₽<span onclick="showCostInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
-<th style="position:relative" rowspan="2">Доп расходы ₽<span onclick="showExtraCostsInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
-<th style="position:relative" rowspan="2">Себестоимость итого ₽<span onclick="showTotalCostInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
-<th id="tax-col-header" style="background:#f0f1f5" rowspan="2">Налог, %<br><span id="tax-col-subheader" style="font-size:.8em;color:#666;font-weight:400">—</span></th>
-<th style="background:#f0f1f5" rowspan="2">НДС от дохода</th>
-<th colspan="5" style="background:#e8f4e8;text-align:center;font-size:.85em">Габариты ПЛАН</th>
-<th colspan="3" style="background:#eef0f5;text-align:center;font-size:.85em">Габариты ФАКТ</th>
-<th colspan="12" style="background:#fff8e1;text-align:center;font-size:.85em">Коэффициент сезонности</th>
-<th colspan="3" style="background:#e8eaf6;text-align:center;font-size:.85em">ТОП запросы, ПЛАН</th>
-<th rowspan="2" style="text-align:center;line-height:1.2">% выкупа<br>по категории</th>
-<th style="position:relative;text-align:center;line-height:1.2" rowspan="2">Коррекция к<br>комиссии МП, %<span onclick="showCommCorrInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
-<th rowspan="2" style="text-align:center;line-height:1.2">Планируемые<br>рекл. расходы, %</th>
-<th style="position:relative;text-align:center;line-height:1.2" rowspan="2">Скорость<br>достав., дн<span onclick="showDeliveryInfo(this)" style="position:absolute;top:1px;right:2px;font-size:8px;cursor:pointer;color:#6c5ce7" title="Информация">ⓘ</span></th>
-<th rowspan="2" style="text-align:center;line-height:1.2;font-size:.9em">Мин пар-<br>тия/кратн.</th>
-<th rowspan="2" style="text-align:center;line-height:1.2">РРЦ</th>
-<th rowspan="2" style="text-align:center;line-height:1.2">Мин.<br>цена</th>
-<th rowspan="2" style="text-align:center;line-height:1.2;font-size:.9em">Дата вне-<br>сения правок</th>
-<th rowspan="2" style="text-align:center;line-height:1.2">Дата<br>начала</th>
-</tr><tr>
-<th style="background:#e8f4e8;font-size:.78em">Длина, см</th><th style="background:#e8f4e8;font-size:.78em">Ширина, см</th><th style="background:#e8f4e8;font-size:.78em">Высота, см</th><th style="background:#e8f4e8;font-size:.78em">Объём, л</th><th style="background:#e8f4e8;font-size:.78em">Вес, гр</th>
-<th style="background:#eef0f5;font-size:.78em">Д×Ш×В</th><th style="background:#eef0f5;font-size:.78em">Объём, л</th><th style="background:#eef0f5;font-size:.78em">Вес</th>
-<th style="background:#fff8e1;font-size:.78em">янв</th><th style="background:#fff8e1;font-size:.78em">фев</th><th style="background:#fff8e1;font-size:.78em">мар</th><th style="background:#fff8e1;font-size:.78em">апр</th><th style="background:#fff8e1;font-size:.78em">май</th><th style="background:#fff8e1;font-size:.78em">июн</th><th style="background:#fff8e1;font-size:.78em">июл</th><th style="background:#fff8e1;font-size:.78em">авг</th><th style="background:#fff8e1;font-size:.78em">сен</th><th style="background:#fff8e1;font-size:.78em">окт</th><th style="background:#fff8e1;font-size:.78em">ноя</th><th style="background:#fff8e1;font-size:.78em">дек</th>
-<th style="background:#e8eaf6;font-size:.78em">1</th><th style="background:#e8eaf6;font-size:.78em">2</th><th style="background:#e8eaf6;font-size:.78em">3</th>
-</tr></thead>
-<tbody id="cost-body"><tr><td colspan="50" class="empty">Загрузка...</td></tr></tbody></table>
-</div>
+<div id="cost-tabulator-host"></div>
 
 <!-- Плавающая панель массовых действий -->
 <div id="cost-bulk-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:#6c5ce7;color:#fff;padding:10px 16px;border-radius:8px 8px 0 0;display:none;align-items:center;gap:12px;flex-wrap:wrap;z-index:10;box-shadow:0 -2px 10px rgba(0,0,0,.15)">
@@ -4634,7 +4608,7 @@ async function saveExtAd() {
         if (!r.ok) { var err = await r.json(); throw new Error(err.detail || 'Ошибка сохранения'); }
         closeExtAdModal();
         loadExtAds();
-    } catch(e) { alert('Ошибка: ' + e.message); }
+    } catch(e) { showToast('❌ Ошибка: ' + e.message, 'error'); }
 }
 
 async function deleteExtAd(id) {
@@ -4701,7 +4675,7 @@ async function applyExtBulkEdit() {
         });
         clearExtBulkSelection();
         loadExtAds();
-    } catch(e) { alert('Ошибка: ' + e.message); }
+    } catch(e) { showToast('❌ Ошибка: ' + e.message, 'error'); }
 }
 
 
@@ -4982,7 +4956,7 @@ async function saveTaxSettings() {
                 })));
                 costTabulator.redraw(true);
             }
-            showToast('Налоговые настройки сохранены');
+            // showToast handled by caller
         } else {
             const err = await r.json();
             showToast('Ошибка: ' + (err.detail || r.status), 'error');
@@ -5070,7 +5044,7 @@ async function loadCostPrices() {
     try {
         const datesRes = await fetch('/api/v1/nl/dates?org_id=' + ORG_ID);
         const dates = datesRes.ok ? await datesRes.json() : [];
-        if (!dates.length) { document.getElementById('cost-body').innerHTML = '<tr><td colspan="37" class="empty">Нет данных</td></tr>'; return; }
+        if (!dates.length) { document.getElementById('cost-count').textContent = 'Нет данных'; return; }
         
         const prodsRes = await fetch('/api/v1/nl/control?org_id=' + ORG_ID + '&target_date=' + dates[0]);
         if (!prodsRes.ok) return;
@@ -5376,8 +5350,10 @@ function updateBulkBar() {
 }
 
 function clearBulkSelection() {
-    document.querySelectorAll('.cost-row-check').forEach(cb => { cb.checked = false; });
-    document.getElementById('cost-check-all').checked = false;
+    if (typeof costTabulator !== "undefined" && costTabulator) {
+        costTabulator.getData().forEach(function(r) { r._selected = false; });
+        costTabulator.replaceData(costTabulator.getData());
+    }
     updateBulkBar();
 }
 
@@ -5488,6 +5464,9 @@ async function autoFillReference() {
 }
 
 async function saveAllCostPrices() {
+    // Сначала сохраняем налоговые настройки (тихо, без alert)
+    try { await saveTaxSettings(); } catch(e) { console.warn("Tax save failed", e); }
+
     // === TABULATOR: batch-сохранение ===
     if (typeof Tabulator !== "undefined" && costTabulator && typeof getCostDataForSave === "function") {
         const saveData = getCostDataForSave();
@@ -5499,11 +5478,11 @@ async function saveAllCostPrices() {
             const result = await resp.json();
             if (resp.ok) {
                 _costDirty = false;
-                alert("Сохранено: " + (result.saved || 0) + " из " + saveData.length + (result.errors ? " (ошибок: " + result.errors + ")" : ""));
+                showToast("✅ Сохранено: " + (result.saved || 0) + " из " + saveData.length + (result.errors ? " (ошибок: " + result.errors + ")" : ""));
             } else {
-                alert("Ошибка сохранения: " + (result.detail || resp.status));
+                showToast("❌ Ошибка сохранения: " + (result.detail || resp.status), "error");
             }
-        } catch(e) { alert("Ошибка: " + e.message); }
+        } catch(e) { showToast("❌ Ошибка: " + e.message, "error"); }
         loadCostPrices();
         return;
     }
@@ -5512,7 +5491,7 @@ async function saveAllCostPrices() {
     if (typeof Tabulator === "undefined") reasons.push("Tabulator CDN не загружен");
     if (typeof costTabulator === "undefined" || !costTabulator) reasons.push("costTabulator не инициализирован");
     if (typeof getCostDataForSave === "undefined") reasons.push("cost-grid.js не загружен");
-    alert("Сохранение недоступно: " + reasons.join(", ") + ". Обновите страницу (Ctrl+F5).");
+    showToast("⚠️ Сохранение недоступно: " + reasons.join(", ") + ". Обновите страницу (Ctrl+F5).", "error");
 }
 
 async function uploadCostExcel(input) {
@@ -5526,13 +5505,37 @@ async function uploadCostExcel(input) {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || 'Ошибка');
-        alert('Загружено: ' + data.updated + ' из ' + data.total);
+        showToast('✅ Загружено: ' + data.updated + ' из ' + data.total);
         loadCostPrices();
-    } catch(e) { alert('Ошибка: ' + e.message); }
+    } catch(e) { showToast('❌ Ошибка: ' + e.message, 'error'); }
     input.value = '';
 }
+function downloadEmptyTemplate() {
+    var hdr = "Арт WB;Арт продавца;Баркод;Размер;Категория;" +
+        "Себестоимость;Доп расходы;Закупка;Логистика;Упаковка;Прочее;Мин. цена;НДС руб;" +
+        "ФБО/ФБС;Склад отгрузки FBS;" +
+        "Баз. % МП;Корр. % МП;% хранения;% выкупа по категории;" +
+        "Цена до СПП план;Цена до СПП к изм.;Дата правок;Скидка WB Клуб %;РРЦ;" +
+        "Рекл. расходы %;" +
+        "Класс товара;Бренд;Статус товара;" +
+        "Налог. система;" +
+        "Сезон янв;Сезон фев;Сезон мар;Сезон апр;Сезон май;Сезон июн;" +
+        "Сезон июл;Сезон авг;Сезон сен;Сезон окт;Сезон ноя;Сезон дек;" +
+        "План длина;План ширина;План высота;План объём;План вес;" +
+        "Доставка до склада (дни);Доставка до МП (дни);" +
+        "ТОП запрос 1;ТОП запрос 2;ТОП запрос 3;" +
+        "Заметки";
+    var blob = new Blob(["\ufeff" + hdr], {type: "text/csv;charset=utf-8"});
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "template_spravochnik.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast("📥 Шаблон скачан");
+}
+
 function exportCostTemplate() {
-    var hdr = "Арт WB;Арт продавца;Баркод;Категория;" +
+    var hdr = "Арт WB;Арт продавца;Баркод;Размер;Категория;" +
         "Себестоимость;Доп расходы;Закупка;Логистика;Упаковка;Прочее;Мин. цена;НДС руб;" +
         "ФБО/ФБС;Склад отгрузки FBS;" +
         "Баз. % МП;Корр. % МП;% хранения;% выкупа по категории;" +
@@ -5560,7 +5563,7 @@ function exportCostTemplate() {
                 var h = parseFloat(d.plan_height) || 0;
                 if (l > 0 && w > 0 && h > 0) vol = (l * w * h / 1000);
                 var cols = [
-                    d.nm_id || "", d.vendor_code || "", d._barcodes || "", d.subject_name || "",
+                    d.nm_id || "", d.vendor_code || "", d._barcodes || "", d.size_name || "", d.subject_name || "",
                     d.cost_price || "", d.extra_costs || "", "", "", "", "", d.min_price || "", "",
                     d.fulfillment_model === "fbs" ? "fbs" : "fbo", d.fbs_warehouse || "",
                     "", d.mp_correction_pct || "", "", d.buyout_niche_pct || "",
@@ -5579,41 +5582,12 @@ function exportCostTemplate() {
                 csv += cols.join(";") + String.fromCharCode(10);
             });
         }
-    } else {
-        // Fallback: старая HTML-таблица
-        var rows = document.querySelectorAll("#cost-body tr[data-nm]");
-        if (rows.length) {
-            csv += String.fromCharCode(10);
-            rows.forEach(function(row) {
-                var nm = row.dataset.nm || "";
-                var vc = row.dataset.vc || "";
-                var bc = row.dataset.barcode || "";
-                var gv = function(f) { return row.querySelector("[data-field=" + f + "]") ? (row.querySelector("[data-field=" + f + "]").value || "") : ""; };
-                var subject = row.querySelector("[data-field=subject_name]") ? row.querySelector("[data-field=subject_name]").textContent : "";
-                var cols = [nm, vc, bc, subject,
-                    gv("cost_price"), gv("extra_costs"), gv("purchase"), gv("logistics"), gv("packaging"), gv("other"), gv("min_price"), gv("vat"),
-                    gv("fulfillment_model"), gv("fbs_warehouse"),
-                    gv("mp_base_pct"), gv("mp_correction_pct"), gv("storage_pct"), gv("buyout_niche_pct"),
-                    gv("price_before_spp_plan"), gv("price_before_spp_change"), gv("change_date"), gv("wb_club_discount_pct"), gv("rrc_price"),
-                    gv("ad_plan_rub"),
-                    gv("product_class"), gv("brand"), gv("product_status"),
-                    gv("tax_system"),
-                    gv("season_jan"), gv("season_feb"), gv("season_mar"), gv("season_apr"), gv("season_may"), gv("season_jun"),
-                    gv("season_jul"), gv("season_aug"), gv("season_sep"), gv("season_oct"), gv("season_nov"), gv("season_dec"),
-                    gv("plan_length"), gv("plan_width"), gv("plan_height"), "", gv("plan_weight"),
-                    gv("delivery_days_to_seller"), gv("delivery_days_to_mp"),
-                    gv("top_query_1"), gv("top_query_2"), gv("top_query_3"),
-                    gv("notes")
-                ];
-                csv += cols.join(";") + String.fromCharCode(10);
-            });
-        }
     }
 
     var blob = new Blob(["\ufeff" + csv], {type: "text/csv;charset=utf-8"});
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "template_spravochnik.csv";
+    a.download = "export_spravochnik.csv";
     a.click();
     URL.revokeObjectURL(a.href);
 }
@@ -5644,7 +5618,7 @@ async function saveOpEx() {
     try {
         await fetch('/api/v1/nl/operating-expenses?org_id=' + ORG_ID, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
         hideOpExDialog(); loadOpEx();
-    } catch(e) { alert('Ошибка: ' + e.message); }
+    } catch(e) { showToast('❌ Ошибка: ' + e.message, 'error'); }
 }
 async function loadOpEx() {
     if (!ORG_ID) return;
@@ -6074,7 +6048,7 @@ async function saveAllSpChanges() {
         document.getElementById('sp-save-all-btn').style.display = 'none';
         loadSalesPlans();
         alert('✅ Сохранено ' + updates.length + ' записей');
-    } catch(e) { alert('Ошибка: ' + e.message); }
+    } catch(e) { showToast('❌ Ошибка: ' + e.message, 'error'); }
 }
 
 async function deleteSpRow(idx) {
@@ -6086,7 +6060,7 @@ async function deleteSpRow(idx) {
         });
         spData.splice(idx, 1);
         renderSpTable(spData);
-    } catch(e) { alert('Ошибка: ' + e.message); }
+    } catch(e) { showToast('❌ Ошибка: ' + e.message, 'error'); }
 }
 
 function openSpAddModal() {

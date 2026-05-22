@@ -142,7 +142,7 @@ class ReferenceBook(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "organization_id", "nm_id", "valid_from",
-            name="reference_book_org_nm_vf_key"
+            "organization_id", "nm_id", "entity_id", "valid_from",
+            name="reference_book_org_nm_eid_vf_key"
         ),
     )
