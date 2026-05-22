@@ -3417,7 +3417,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260522e"></script>
-<script type="text/javascript" src="/static/js/ue-grid.js?v=20260522a"></script>
+<script type="text/javascript" src="/static/js/ue-grid.js?v=20260522b"></script>
 </head>
 <body>
 
