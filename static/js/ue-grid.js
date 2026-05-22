@@ -388,6 +388,7 @@ function getUEColumns() {
 
 /**
  * Инициализация Tabulator для Юнит-экономики
+ * Стили и настройки — как в cost-grid.js (Справочник)
  */
 function initUEGrid() {
     const container = document.getElementById('ue-tabulator');
@@ -396,20 +397,50 @@ function initUEGrid() {
         return;
     }
 
+    // === 8px стиль заголовков (как в cost-grid.js) ===
+    if (!document.getElementById('ue-header-style')) {
+        const style = document.createElement('style');
+        style.id = 'ue-header-style';
+        style.textContent = '.tabulator-col-title { font-size: 8px !important; line-height: 1.1 !important; padding: 2px 4px !important; } .tabulator-col .tabulator-col-content { padding: 2px 4px !important; } .tabulator-cell { font-size: 11px !important; } .truncate-cell .tabulator-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; } .truncate-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }';
+        document.head.appendChild(style);
+    }
+
     ueTabulator = new Tabulator("#ue-tabulator", {
         columns: getUEColumns(),
         data: [],
-        height: '70vh',
         layout: 'fitDataFill',
+        index: 'entity_id',
+        movableColumns: true,
+        resizable: true,
+        sortable: true,
+        height: '70vh',
+        virtualDom: true,
+        virtualDomBuffer: 100,
         placeholder: 'Нажмите 🔄 Обновить для загрузки данных',
         stickyHeader: true,
-        movableColumns: true,
         headerSortClickElement: 'header',
+        columnHeaderSortMulti: true,
         persistence: {
             columns: true,
             sort: true,
         },
         persistenceID: 'ue-grid-state',
+    });
+
+    // Автопростановка даты правок при изменении ячейки
+    var _ueAutoDate = false;
+    ueTabulator.on('cellEdited', function(cell) {
+        if (_ueAutoDate) return;
+        _ueEditedIds.add(cell.getRow().getData().entity_id);
+        if (cell.getField() !== 'change_date') {
+            _ueAutoDate = true;
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            cell.getRow().update({ change_date: yyyy + '-' + mm + '-' + dd });
+            _ueAutoDate = false;
+        }
     });
 
     console.log('[UE Grid] Tabulator initialized');
