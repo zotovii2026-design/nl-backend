@@ -3417,6 +3417,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260522e"></script>
+<script type="text/javascript" src="/static/js/ue-grid.js?v=20260522a"></script>
 </head>
 <body>
 
@@ -3982,67 +3983,20 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div id="page-unitecon" class="page-section">
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;background:#f8f9fb;padding:10px 16px;border-radius:8px">
 <select id="ue-store" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:130px"><option>Все магазины</option></select>
-<select id="ue-period" onchange="loadUnitEcon()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option></select>
-<input type="text" id="ue-article" placeholder="Артикул" oninput="loadUnitEcon()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:120px">
+<select id="ue-period" onchange="loadUEData()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option></select>
+<input type="text" id="ue-article" placeholder="Артикул" oninput="loadUEData()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:120px">
 </div>
 
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-<button class="btn" onclick="loadUnitEcon()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
-<input type="text" id="ue-search" placeholder="🔍 Поиск по артикулу/названию" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:240px" oninput="loadUnitEcon()">
-<button class="btn btn-outline" onclick="exportUnitEcon()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
+<button class="btn" onclick="loadUEData()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+<input type="text" id="ue-search" placeholder="🔍 Поиск по артикулу/названию" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:240px" oninput="loadUEData()">
+<button class="btn btn-outline" onclick="exportUEExcel()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
 <span style="font-size:.85em;color:#999;margin-left:auto" id="ue-count"></span>
-<button class="btn" onclick="saveAllUnitEcon()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
+<button class="btn" onclick="saveUEData()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
 </div>
-<div style="overflow-x:auto;max-height:70vh">
-<table id="ue-table" style="font-size:.75em"><thead><tr>
-<th style="position:sticky;left:0;z-index:2;background:#fff">Фото</th>
-<th style="position:sticky;left:40px;z-index:2;background:#fff">Арт WB</th>
-<th>Арт продавца</th>
-<th style="min-width:140px">Название</th>
-<th>Класс</th>
-<th>Бренд</th>
-<th>Категория</th>
-<th>Себест. ₽</th>
-<th>Доп расходы</th>
-<th style="background:#f0f0ff">Баз. % МП</th>
-<th style="background:#f0f0ff">Корр. % МП</th>
-<th style="background:#f0f0ff">Итог. % МП</th>
-<th style="background:#f0f0ff">% выкупа по категории</th>
-<th>% выкупа факт</th>
-<th style="background:#fff3f0">Лог. тариф</th>
-<th style="background:#fff3f0">Лог. факт</th>
-<th style="background:#fff3f0">Хран. тариф</th>
-<th style="background:#fff3f0">Хран. факт</th>
-<th>Эквайр. 1.5%</th>
-<th>Приёмка</th>
-<th>Налог %</th>
-<th>НДС %</th>
-<th>Налог ₽</th>
-<th style="background:#f0fff0">Рекл. факт</th>
-<th style="background:#f0fff0">Рекл. план</th>
-<th style="background:#e8f4fd">Цена до СПП</th>
-<th style="background:#e8f4fd">СПП %</th>
-<th style="background:#e8f4fd">Цена с СПП</th>
-<th style="background:#fff8e0">Скидка ВБ Клуб %</th>
-<th style="background:#ffe8e8">Расходы</th>
-<th style="background:#ffe8e8">Прибыль</th>
-<th style="background:#ffe8e8">Маржа %</th>
-<th style="background:#ffe8e8">ROI %</th>
-<th style="background:#ffe8e8">На Р/С</th>
-<th style="background:#e8f0ff">Цена план</th>
-<th style="background:#e8f0ff">Расходы план</th>
-<th style="background:#e8f0ff">Прибыль план</th>
-<th style="background:#e8f0ff">Маржа план %</th>
-<th style="background:#e8f0ff">ROI план %</th>
-<th style="background:#e8f0ff">На Р/С план</th>
-<th style="background:#f0e8ff">Дата правок</th>
-<th style="background:#f0e8ff">Цена к изм.</th>
-<th style="background:#f0e8ff">Прибыль изм.</th>
-<th style="background:#f0e8ff">ROI изм.</th>
-<th>Тариф тип</th>
-</tr></thead>
-<tbody id="ue-body"><tr><td colspan="48" class="empty">Нажмите обновить</td></tr></tbody></table>
-</div>
+
+<div id="ue-tabulator" style="overflow-x:auto;max-height:70vh"></div>
+
 <div style="margin-top:12px;display:flex;gap:16px;font-size:.85em;flex-wrap:wrap" id="ue-summary"></div>
 </div>
 
@@ -4400,7 +4354,7 @@ async function navTo(name, el) {
     else if (name === 'ads') loadAds();
     else if (name === 'extads') loadExtAds();
     else if (name === 'fboneeds') loadFboNeeds();
-    else if (name === 'unitecon') loadUnitEcon();
+    else if (name === 'unitecon') { if (!ueTabulator) initUEGrid(); loadUEData(); }
 }
 
 async function loadAds() {
