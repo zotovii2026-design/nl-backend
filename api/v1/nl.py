@@ -6153,6 +6153,18 @@ async function loadOrgs() {
             cpSel.appendChild(opt);
         });
     }
+    // Sync ue-store dropdown in Юнит-экономика
+    const ueSel = document.getElementById("ue-store");
+    if (ueSel) {
+        ueSel.innerHTML = "";
+        orgs.forEach(o => {
+            const opt = document.createElement("option");
+            opt.value = o.id;
+            opt.textContent = o.name + (o.wb_seller_id ? " (ID " + o.wb_seller_id + ")" : "");
+            if (o.id === ORG_ID) opt.selected = true;
+            ueSel.appendChild(opt);
+        });
+    }
 }
 
 async function switchOrg() {
@@ -6164,6 +6176,8 @@ async function switchOrg() {
     // Sync cp-store
     const cpSel = document.getElementById('cp-store');
     if (cpSel) cpSel.value = ORG_ID;
+    const ueSel2 = document.getElementById('ue-store');
+    if (ueSel2) ueSel2.value = ORG_ID;
     showApp();
 }
 
