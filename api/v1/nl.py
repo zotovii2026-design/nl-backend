@@ -2871,13 +2871,22 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         return {"items": [], "total": 0}
     latest_date = latest_date_row[0]
 
-    # 2) Продукты с базовыми данными
+    # 2) Продукты из product_entities (одна строка на nm_id + размер, как в Справочнике)
     prods_result = await db.execute(
         sql_text("""
-            SELECT DISTINCT ON (entity_id, nm_id) entity_id, nm_id, vendor_code, product_name, photo_main, barcode, price, price_discount, tariff, ad_cost
-            FROM tech_status 
-            WHERE organization_id = :org AND target_date = :dt
-            ORDER BY entity_id, nm_id, barcode
+            SELECT pe.id as entity_id, pe.nm_id, pe.vendor_code, ts.product_name, ts.photo_main,
+                   (SELECT string_agg(eb.barcode, ', ') FROM entity_barcodes eb WHERE eb.entity_id = pe.id AND eb.is_active = true) as barcode,
+                   ts.price, ts.price_discount, ts.tariff, ts.ad_cost,
+                   pe.size_name, pe.subject_name
+            FROM product_entities pe
+            LEFT JOIN LATERAL (
+                SELECT product_name, photo_main, price, price_discount, tariff, ad_cost
+                FROM tech_status ts
+                WHERE ts.organization_id = :org AND ts.nm_id = pe.nm_id AND ts.target_date = :dt
+                LIMIT 1
+            ) ts ON true
+            WHERE pe.organization_id = :org
+            ORDER BY pe.nm_id, pe.size_name
         """),
         {"org": org_id, "dt": latest_date}
     )
@@ -2995,14 +3004,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
     items = []
     search_q = search.lower() if search else ""
     
-    # Маппинг entity_id → size_name
-    from models.product_entity import ProductEntity
-    ent_result = await db.execute(
-        select(ProductEntity.id, ProductEntity.size_name, ProductEntity.subject_name).where(
-            ProductEntity.organization_id == org_id
-        )
-    )
-    size_map_ue = {str(r[0]): {"size_name": r[1], "subject_name": r[2]} for r in ent_result.all()}
+    # size_name и subject_name берутся напрямую из product_entities (индексы 10, 11)
 
     for p in products:
         entity_id = str(p[0]) if p[0] else None
@@ -3013,6 +3015,9 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         main_barcode = p[5] or ""
         price = float(p[6]) if p[6] else 0
         price_discount = float(p[7]) if p[7] else 0
+        # size_name и subject_name из product_entities (индексы 10, 11)
+        _pe_size_name = p[10] or ""
+        _pe_subject_name = p[11] or ""
 
         # Фильтр поиска
         if search_q and search_q not in str(nm_id) and search_q not in product_name.lower() and search_q not in vendor_code.lower():
@@ -3028,8 +3033,8 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "product_name": product_name,
             "photo": photo.replace("/hq/", "/c246x328/").replace("/big/", "/c246x328/").replace("/tm/", "/c246x328/") if photo else "",
             "barcode": main_barcode,
-            "size_name": size_map_ue.get(entity_id, {}).get("size_name", "") if entity_id else "",
-            "subject_name": size_map_ue.get(entity_id, {}).get("subject_name", "") or cost.get("subject_name", ""),
+            "size_name": _pe_size_name,
+            "subject_name": _pe_subject_name or cost.get("subject_name", ""),
             "sku": f"{vendor_code}_{main_barcode}" if vendor_code else str(nm_id),
 
             # Из справочника / себестоимости
@@ -3412,6 +3417,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 .topquery-cell{background:#ede7f6 !important}
 .tax-cell{text-align:center;color:#6c5ce7;font-weight:600;background:#f8f7ff !important}
 .tabulator .tabulator-footer{background:#f8f9fa;border-top:1px solid #e0e0e0;padding:6px 12px}
+.tabulator .tabulator-tableholder .tabulator-table .tabulator-group{background:#f0f1f5;border-bottom:1px solid #e0e0e0;font-size:11px;color:#333;font-weight:400;padding:4px 8px}
+.tabulator .tabulator-tableholder .tabulator-table .tabulator-group .tabulator-arrow{color:#999;margin-right:4px}
 </style>
 <!-- Tabulator CSS -->
 <link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator.min.css" rel="stylesheet">
@@ -3422,7 +3429,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260522e"></script>
-<script type="text/javascript" src="/static/js/ue-grid.js?v=20260522b"></script>
+<script type="text/javascript" src="/static/js/ue-grid.js?v=20260522g"></script>
 </head>
 <body>
 

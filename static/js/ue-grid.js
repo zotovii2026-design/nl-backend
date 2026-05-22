@@ -426,6 +426,34 @@ function initUEGrid() {
             sort: true,
         },
         persistenceID: 'ue-grid-state',
+
+        // === Группировка по nm_id (как в Справочнике) ===
+        // Безразмерные товары (_noGroup) не группируются
+        groupBy: function(data) {
+            if (data._noGroup) return '';
+            return data.nm_id;
+        },
+        groupStartOpen: true,
+        groupToggleElement: 'header',
+        groupHeader: function(value, count, data, group) {
+            if (!value) return '';
+            const d = data[0] || {};
+            const name = (d.product_name || '').substring(0, 40);
+            const vc = d.vendor_code || '';
+            const photo = d.photo ? d.photo.replace('/hq/','/c246x328/').replace('/big/','/c246x328/') : '';
+            const img = photo ? '<img src="' + photo + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:8px">' : '';
+            return '<span style="font-size:6px;line-height:1">' + img + '<b>' + value + '</b> — ' + count + ' ' + (count === 1 ? 'размер' : count < 5 ? 'размера' : 'размеров') + ' &nbsp; <span style="color:#666">' + name + '</span> &nbsp; <span style="color:#999">[' + vc + ']</span></span>';
+        },
+
+        // Подсветка строк внутри групп (как в Справочнике)
+        rowFormatter: function(row) {
+            const data = row.getData();
+            const el = row.getElement();
+            if (data._hasSizes) {
+                el.style.background = '#f8f9ff';
+                el.style.cursor = 'pointer';
+            }
+        },
     });
 
     // Автопростановка даты правок при изменении ячейки
@@ -460,12 +488,26 @@ async function loadUEData() {
         const raw = await res.json();
         const data = Array.isArray(raw) ? raw : (raw.items || []);
 
+        // Помечаем безразмерные товары ПЕРЕД replaceData (для группировки — как в cost-grid.js)
+        const nmCounts = {};
+        data.forEach(p => { nmCounts[p.nm_id] = (nmCounts[p.nm_id] || 0) + 1; });
+        data.forEach(p => {
+            p._noGroup = nmCounts[p.nm_id] === 1 && (!p.size_name || p.size_name === '0' || p.size_name === 'ONE SIZE');
+            p._hasSizes = !p._noGroup;
+        });
+
         if (ueTabulator) {
-            ueTabulator.replaceData(data);
+            ueTabulator.replaceData(data).then(() => {
+                const groups = ueTabulator.getGroups();
+                groups.forEach(g => g.show());
+            });
         } else {
             // Если Tabulator не инициализирован — инициализируем
             initUEGrid();
-            ueTabulator.replaceData(data);
+            ueTabulator.replaceData(data).then(() => {
+                const groups = ueTabulator.getGroups();
+                groups.forEach(g => g.show());
+            });
         }
 
         const countEl = document.getElementById('ue-count');
@@ -473,6 +515,7 @@ async function loadUEData() {
 
         _ueAllData = data;  // Сохраняем полные данные
         populateUEFilterOptions();  // Заполняем фильтры
+
         console.log('[UE Grid] Loaded', data.length, 'rows');
     } catch (e) {
         console.error('[UE Grid] Load error:', e);
