@@ -6,6 +6,7 @@
 
 let ueTabulator = null;
 let _ueEditedIds = new Set();
+let _ueAllData = [];  // Полные данные до фильтрации
 
 // Конфигурация колонок Юнит-экономики
 function getUEColumns() {
@@ -470,9 +471,81 @@ async function loadUEData() {
         const countEl = document.getElementById('ue-count');
         if (countEl) countEl.textContent = data.length + ' товаров';
 
+        _ueAllData = data;  // Сохраняем полные данные
+        populateUEFilterOptions();  // Заполняем фильтры
         console.log('[UE Grid] Loaded', data.length, 'rows');
     } catch (e) {
         console.error('[UE Grid] Load error:', e);
+    }
+}
+
+/**
+ * Фильтрация данных (как applyCostFilters в Справочнике)
+ */
+function applyUEFilters() {
+    if (!_ueAllData.length) return;
+
+    const search = (document.getElementById('ue-flt-search')?.value || '').toLowerCase();
+    const fltStatus = document.getElementById('ue-flt-status')?.value || '';
+    const fltClass = document.getElementById('ue-flt-class')?.value || '';
+    const fltBrand = document.getElementById('ue-flt-brand')?.value || '';
+    const fltFF = document.getElementById('ue-flt-ff')?.value || '';
+
+    let filtered = _ueAllData;
+
+    // Поиск
+    if (search) {
+        filtered = filtered.filter(p =>
+            (p.product_name || '').toLowerCase().includes(search) ||
+            String(p.nm_id).includes(search) ||
+            (p.vendor_code || '').toLowerCase().includes(search) ||
+            (p.barcode || '').includes(search)
+        );
+    }
+
+    // Фильтры по полям
+    if (fltStatus) filtered = filtered.filter(p => (p.product_status || '') === fltStatus);
+    if (fltClass) filtered = filtered.filter(p => (p.product_class || '') === fltClass);
+    if (fltBrand) filtered = filtered.filter(p => (p.brand || '') === fltBrand);
+    if (fltFF) filtered = filtered.filter(p => (p.tariff_type || '') === fltFF);
+
+    // Обновляем таблицу
+    if (ueTabulator) ueTabulator.replaceData(filtered);
+    const countEl = document.getElementById('ue-count');
+    if (countEl) countEl.textContent = filtered.length + ' товаров';
+}
+
+/**
+ * Сброс всех фильтров
+ */
+function resetUEFilters() {
+    document.getElementById('ue-flt-status').value = '';
+    document.getElementById('ue-flt-class').value = '';
+    document.getElementById('ue-flt-brand').value = '';
+    document.getElementById('ue-flt-ff').value = '';
+    document.getElementById('ue-flt-search').value = '';
+    applyUEFilters();
+}
+
+/**
+ * Заполнить выпадающие списки фильтров из загруженных данных
+ */
+function populateUEFilterOptions() {
+    if (!_ueAllData.length) return;
+
+    // Бренды
+    const brands = [...new Set(_ueAllData.map(p => p.brand).filter(Boolean))].sort();
+    const brandSel = document.getElementById('ue-flt-brand');
+    if (brandSel) {
+        const current = brandSel.value;
+        brandSel.innerHTML = '<option value="">Бренд: все</option>';
+        brands.forEach(b => {
+            const opt = document.createElement('option');
+            opt.value = b;
+            opt.textContent = b;
+            brandSel.appendChild(opt);
+        });
+        brandSel.value = current;
     }
 }
 

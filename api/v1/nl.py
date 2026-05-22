@@ -2897,6 +2897,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         "price_before_spp_plan": r[6], "price_before_spp_change": r[7],
         "change_date": r[8], "tariff_type": r[9],
         "wb_club_discount_pct": r[10],
+        "product_status": r[12],
         "mp_base_pct": r[13],
     }
     for r in ue_rows:
@@ -2925,7 +2926,8 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
     cost_result = await db.execute(
         sql_text("""
             SELECT entity_id, nm_id, cost_price, purchase_cost, logistics_cost, packaging_cost,
-            other_costs, vat, product_class, brand, tax_system, tax_rate, vat_rate as cost_vat_rate
+            other_costs, vat, product_class, brand, tax_system, tax_rate, vat_rate as cost_vat_rate,
+            product_status
             FROM reference_book WHERE organization_id = :org 
             AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
             ORDER BY entity_id NULLS LAST, valid_from DESC
@@ -2936,12 +2938,12 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
     cost_by_entity = {}
     cost_by_nm = {}
     # cols: entity_id(0), nm_id(1), cost_price(2), purchase_cost(3), logistics_cost(4),
-    # packaging_cost(5), other_costs(6), vat(7), product_class(8), brand(9), tax_system(10), tax_rate(11), cost_vat_rate(12)
+    # packaging_cost(5), other_costs(6), vat(7), product_class(8), brand(9), tax_system(10), tax_rate(11), cost_vat_rate(12), product_status(13)
     _cost_fields = lambda r: {
         "cost_price": r[2], "purchase_cost": r[3], "logistics_cost": r[4],
         "packaging_cost": r[5], "other_costs": r[6], "vat": r[7],
         "product_class": r[8], "brand": r[9], "tax_system": r[10],
-        "tax_rate": r[11], "vat_rate": r[12],
+        "tax_rate": r[11], "vat_rate": r[12], "product_status": r[13],
     }
     for r in cost_rows:
         fields = _cost_fields(r)
@@ -3055,6 +3057,9 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "price_with_spp": snap_by_nm.get(nm_id, {}).get("price_with_spp") or price_discount or price,
             "ad_fact_rub": snap_by_nm.get(nm_id, {}).get("ad_cost_fact") or float(p[9] or 0),
             "wb_club_discount_pct_api": 0,
+
+            # Из справочника
+            "product_status": ue.get("product_status") or cost.get("product_status", ""),
 
             # Ручные вводы
             "mp_correction_pct": float(ue.get("mp_correction_pct") or 0),
@@ -3987,9 +3992,19 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <select id="ue-store" onchange="switchUEStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
 </div>
 
+<!-- Фильтры по столбцам (как в Справочнике) -->
+<div id="ue-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
+<label style="color:#666;font-weight:600">Фильтры:</label>
+<select id="ue-flt-status" onchange="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется</option></select>
+<select id="ue-flt-class" onchange="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select>
+<select id="ue-flt-brand" onchange="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
+<select id="ue-flt-ff" onchange="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
+<input type="text" id="ue-flt-search" placeholder="🔍 Поиск по названию / артикулу" oninput="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
+<button onclick="resetUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 10px;font-size:.9em;background:#fff;cursor:pointer">✕ Сбросить</button>
+</div>
+
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
 <button class="btn" onclick="loadUEData()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
-<input type="text" id="ue-search" placeholder="🔍 Поиск по артикулу/названию" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:240px" oninput="loadUEData()">
 <button class="btn btn-outline" onclick="exportUEExcel()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
 <span style="font-size:.85em;color:#999;margin-left:auto" id="ue-count"></span>
 <button class="btn" onclick="saveUEData()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
