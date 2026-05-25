@@ -8,6 +8,16 @@ let ueTabulator = null;
 let _ueEditedIds = new Set();
 let _ueAllData = [];  // Полные данные до фильтрации
 
+// Сброс кэша Tabulator при смене версии колонок
+(function() {
+    const VER = 'ue-grid-v2';
+    if (localStorage.getItem('ue-grid-ver') !== VER) {
+        localStorage.removeItem('tabulator-ue-grid-state-columns');
+        localStorage.removeItem('tabulator-ue-grid-state-sort');
+        localStorage.setItem('ue-grid-ver', VER);
+    }
+})();
+
 // Конфигурация колонок Юнит-экономики
 function getUEColumns() {
     return [
@@ -95,8 +105,8 @@ function getUEColumns() {
         {
             title: '📊 Выкуп',
             columns: [
-                { title: '% выкупа ниши', field: 'buyout_niche_pct',
-                    headerTooltip: '% выкупа ниши', width: 85, headerSort: true,
+                { title: '% выкупа по кат.', field: 'buyout_niche_pct',
+                    headerTooltip: '% выкупа по категории', width: 85, headerSort: true,
                     formatter: function(cell) { const v = cell.getValue(); return v ? v + '%' : '—'; }
                 },
                 { title: '% выкупа факт', field: 'buyout_fact_pct',

@@ -1,0 +1,386 @@
+/**
+ * Promo Grid — Акции WB на Tabulator
+ * Паттерн: ue-grid.js
+ */
+
+let promoTabulator = null;
+let _promoAllData = [];
+
+// Сброс кэша Tabulator при смене версии колонок
+(function() {
+    const VER = 'promo-grid-v1';
+    if (localStorage.getItem('promo-grid-ver') !== VER) {
+        localStorage.removeItem('tabulator-promo-grid-state-columns');
+        localStorage.removeItem('tabulator-promo-grid-state-sort');
+        localStorage.setItem('promo-grid-ver', VER);
+    }
+})();
+
+function getPromoColumns() {
+    return [
+        // === 📌 Основное ===
+        {
+            title: '📌 Основное',
+            columns: [
+                {
+                    title: 'Фото', field: 'photo', width: 66, headerSort: false,
+                    formatter: function(cell) {
+                        const url = cell.getValue();
+                        if (!url) return '';
+                        const thumb = url.replace('/hq/','/c246x328/').replace('/big/','/c246x328/');
+                        return '<img src="' + thumb + '" style="width:46px;height:46px;border-radius:4px;object-fit:cover">';
+                    }
+                },
+                { title: 'Теги', field: 'tags', headerTooltip: 'Теги', width: 70, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
+                { title: 'SKU', field: 'nm_id',
+                    headerTooltip: 'Артикул WB', width: 80, headerSort: true,
+                    formatter: function(cell) { return '<b>' + cell.getValue() + '</b>'; }
+                },
+                { title: 'Предмет', field: 'subject_name',
+                    headerTooltip: 'Предмет/категория', width: 120, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
+                { title: 'Арт продавца', field: 'vendor_code',
+                    headerTooltip: 'Артикул продавца', width: 80, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
+                { title: 'Бренд', field: 'brand',
+                    headerTooltip: 'Бренд', width: 70, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
+                { title: 'Размер', field: 'size_name',
+                    headerTooltip: 'Размер', width: 50, headerSort: true },
+            ]
+        },
+
+        // === 📊 Показатели ===
+        {
+            title: '📊 Показатели',
+            columns: [
+                { title: 'Оборач.', field: 'turnover',
+                    headerTooltip: 'Оборачиваемость', width: 70, headerSort: true,
+                    formatter: function(cell) { const v = cell.getValue(); return v != null ? v : '—'; }
+                },
+                { title: 'Остаток', field: 'stock_qty',
+                    headerTooltip: 'Остаток товара', width: 70, headerSort: true,
+                    formatter: function(cell) { const v = cell.getValue(); return v != null ? v : '—'; }
+                },
+                { title: 'Цена до СПП', field: 'price_before_spp',
+                    headerTooltip: 'Цена до СПП', width: 90, headerSort: true,
+                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
+                },
+                { title: 'Маржа %', field: 'margin_pct',
+                    headerTooltip: 'Маржа актуальная', width: 70, headerSort: true,
+                    formatter: function(cell) { const v = cell.getValue(); return v != null ? v + '%' : '—'; }
+                },
+            ]
+        },
+
+        // === 🏷 Акция ===
+        {
+            title: '🏷 Акция',
+            columns: [
+                { title: 'Акция', field: 'promo_title',
+                    headerTooltip: 'Название акции', width: 140, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
+                { title: 'Начало', field: 'promo_start',
+                    headerTooltip: 'Дата начала акции', width: 90, headerSort: true,
+                    formatter: function(cell) { const v = cell.getValue(); return v || '—'; }
+                },
+                { title: 'Конец', field: 'promo_end',
+                    headerTooltip: 'Дата окончания акции', width: 90, headerSort: true,
+                    formatter: function(cell) { const v = cell.getValue(); return v || '—'; }
+                },
+                { title: 'Важность', field: 'promo_importance',
+                    headerTooltip: 'Важность акции', width: 75, headerSort: true,
+                    formatter: function(cell) {
+                        const v = cell.getValue();
+                        if (!v) return '—';
+                        const colors = {'high':'background:#f8d7da','medium':'background:#fff3cd','low':'background:#d4edda'};
+                        return '<span style="' + (colors[v]||'') + ';padding:2px 6px;border-radius:3px;font-size:.85em">' + v + '</span>';
+                    }
+                },
+                { title: 'Факт', field: 'in_action',
+                    headerTooltip: 'Уже в акции', width: 60, headerSort: true,
+                    formatter: function(cell) {
+                        const v = cell.getValue();
+                        return v ? '<span style="background:#d4edda;padding:2px 6px;border-radius:3px">✓</span>' : '—';
+                    }
+                },
+                { title: 'План', field: 'plan',
+                    headerTooltip: 'ЛПР отметил для участия', width: 60, headerSort: true,
+                    editor: true, editorParams: { values: { true: '✓', false: '—' } },
+                    formatter: function(cell) {
+                        const v = cell.getValue();
+                        return v ? '<span style="background:#cce5ff;padding:2px 6px;border-radius:3px;cursor:pointer">✓</span>' : '<span style="cursor:pointer">—</span>';
+                    },
+                    cellClick: function(e, cell) {
+                        cell.setValue(!cell.getValue());
+                    }
+                },
+                { title: 'Цена в акции', field: 'price_in_promo',
+                    headerTooltip: 'Цена в акции', width: 90, headerSort: true,
+                    editor: 'number', editorParams: { step: 1 },
+                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
+                },
+                { title: 'Прибыль в акции', field: 'profit_in_promo',
+                    headerTooltip: 'Прибыль в акции', width: 100, headerSort: true,
+                    formatter: function(cell) {
+                        const v = cell.getValue();
+                        if (v == null) return '—';
+                        const color = parseFloat(v) >= 0 ? '#27ae60' : '#e74c3c';
+                        return '<span style="color:' + color + '">' + parseFloat(v).toLocaleString('ru-RU') + ' ₽</span>';
+                    }
+                },
+                { title: 'Δ маржи', field: 'margin_delta',
+                    headerTooltip: 'Разница маржи', width: 80, headerSort: true,
+                    formatter: function(cell) {
+                        const v = cell.getValue();
+                        if (v == null) return '—';
+                        const color = parseFloat(v) >= 0 ? '#27ae60' : '#e74c3c';
+                        return '<span style="color:' + color + '">' + parseFloat(v).toLocaleString('ru-RU') + ' ₽</span>';
+                    }
+                },
+                { title: 'Статус', field: 'status_text',
+                    headerTooltip: 'Статус из шаблона WB', width: 100, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
+            ]
+        },
+    ];
+}
+
+function initPromoGrid() {
+    const container = document.getElementById('promo-tabulator');
+    if (!container) {
+        console.warn('[Promo Grid] Container #promo-tabulator not found');
+        return;
+    }
+
+    // Стиль заголовков
+    if (!document.getElementById('promo-header-style')) {
+        const style = document.createElement('style');
+        style.id = 'promo-header-style';
+        style.textContent = '.tabulator-col-title { font-size: 8px !important; line-height: 1.1 !important; padding: 2px 4px !important; } .tabulator-col .tabulator-col-content { padding: 2px 4px !important; } .tabulator-cell { font-size: 11px !important; } .truncate-cell .tabulator-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }';
+        document.head.appendChild(style);
+    }
+
+    promoTabulator = new Tabulator("#promo-tabulator", {
+        columns: getPromoColumns(),
+        data: [],
+        layout: 'fitDataFill',
+        index: '_promo_row_id',
+        movableColumns: true,
+        resizable: true,
+        sortable: true,
+        height: '70vh',
+        virtualDom: true,
+        virtualDomBuffer: 100,
+        placeholder: 'Нажмите 🔄 Обновить для загрузки данных',
+        stickyHeader: true,
+        headerSortClickElement: 'header',
+        columnHeaderSortMulti: true,
+        persistence: {
+            columns: true,
+            sort: true,
+        },
+        persistenceID: 'promo-grid-state',
+
+        groupBy: function(data) {
+            if (data._noGroup) return '';
+            return data.nm_id;
+        },
+        groupStartOpen: true,
+        groupToggleElement: 'header',
+        groupHeader: function(value, count, data, group) {
+            if (!value) return '';
+            const d = data[0] || {};
+            const name = (d.product_name || '').substring(0, 40);
+            const vc = d.vendor_code || '';
+            const photo = d.photo ? d.photo.replace('/hq/','/c246x328/').replace('/big/','/c246x328/') : '';
+            const img = photo ? '<img src="' + photo + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:8px">' : '';
+            return '<span style="font-size:6px;line-height:1">' + img + '<b>' + value + '</b> — ' + count + ' ' + (count === 1 ? 'размер' : count < 5 ? 'размера' : 'размеров') + ' &nbsp; <span style="color:#666">' + name + '</span> &nbsp; <span style="color:#999">[' + vc + ']</span></span>';
+        },
+    });
+
+    console.log('[Promo Grid] Tabulator initialized');
+}
+
+async function loadPromoData() {
+    const promotionId = document.getElementById('promo-flt-action')?.value || '';
+    let url = '/api/v1/nl/promotions/products?org_id=' + ORG_ID;
+    if (promotionId) url += '&promotion_id=' + encodeURIComponent(promotionId);
+
+    try {
+        const res = await fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}});
+        const raw = await res.json();
+        const data = Array.isArray(raw) ? raw : (raw.items || []);
+
+        // Помечаем безразмерные и добавляем уникальный ID
+        const nmCounts = {};
+        data.forEach(p => { nmCounts[p.nm_id] = (nmCounts[p.nm_id] || 0) + 1; });
+        data.forEach((p, i) => {
+            p._noGroup = nmCounts[p.nm_id] === 1 && (!p.size_name || p.size_name === '0' || p.size_name === 'ONE SIZE');
+            p._promo_row_id = p.id || (p.nm_id + '_' + p.wb_promotion_ext_id + '_' + i);
+        });
+
+        if (promoTabulator) {
+            promoTabulator.replaceData(data);
+        } else {
+            initPromoGrid();
+            promoTabulator.replaceData(data);
+        }
+
+        const countEl = document.getElementById('promo-count');
+        if (countEl) countEl.textContent = data.length + ' товаров';
+
+        _promoAllData = data;
+        populatePromoFilterOptions();
+
+        console.log('[Promo Grid] Loaded', data.length, 'rows');
+    } catch (e) {
+        console.error('[Promo Grid] Load error:', e);
+    }
+}
+
+function applyPromoFilters() {
+    if (!_promoAllData.length) return;
+
+    const search = (document.getElementById('promo-flt-search')?.value || '').toLowerCase();
+    const fltBrand = document.getElementById('promo-flt-brand')?.value || '';
+    const fltStatus = document.getElementById('promo-flt-status')?.value || '';
+    const fltAction = document.getElementById('promo-flt-action')?.value || '';
+
+    let filtered = _promoAllData;
+
+    if (search) {
+        filtered = filtered.filter(p =>
+            (p.product_name || '').toLowerCase().includes(search) ||
+            String(p.nm_id).includes(search) ||
+            (p.vendor_code || '').toLowerCase().includes(search)
+        );
+    }
+    if (fltBrand) filtered = filtered.filter(p => (p.brand || '') === fltBrand);
+    if (fltStatus === 'in_action') filtered = filtered.filter(p => p.in_action);
+    if (fltStatus === 'plan') filtered = filtered.filter(p => p.plan);
+    if (fltStatus === 'not_in') filtered = filtered.filter(p => !p.in_action && !p.plan);
+
+    if (promoTabulator) promoTabulator.replaceData(filtered);
+    const countEl = document.getElementById('promo-count');
+    if (countEl) countEl.textContent = filtered.length + ' товаров';
+}
+
+function resetPromoFilters() {
+    document.getElementById('promo-flt-brand').value = '';
+    document.getElementById('promo-flt-status').value = '';
+    document.getElementById('promo-flt-search').value = '';
+    applyPromoFilters();
+}
+
+function populatePromoFilterOptions() {
+    if (!_promoAllData.length) return;
+
+    const brands = [...new Set(_promoAllData.map(p => p.brand).filter(Boolean))].sort();
+    const brandSel = document.getElementById('promo-flt-brand');
+    if (brandSel) {
+        const current = brandSel.value;
+        brandSel.innerHTML = '<option value="">Бренд: все</option>';
+        brands.forEach(b => {
+            const opt = document.createElement('option');
+            opt.value = b;
+            opt.textContent = b;
+            brandSel.appendChild(opt);
+        });
+        brandSel.value = current;
+    }
+}
+
+async function loadPromoActions() {
+    try {
+        const res = await fetch('/api/v1/nl/promotions?org_id=' + ORG_ID, {headers:{'Authorization':'Bearer '+TOKEN}});
+        const promos = await res.json();
+        const sel = document.getElementById('promo-flt-action');
+        if (!sel) return;
+        const current = sel.value;
+        sel.innerHTML = '<option value="">Все акции</option>';
+        (Array.isArray(promos) ? promos : []).forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.promotion_id;
+            opt.textContent = (p.title || 'Акция ' + p.promotion_id) + ' (' + (p.promo_type || '?') + ')';
+            sel.appendChild(opt);
+        });
+        sel.value = current;
+    } catch (e) {
+        console.error('[Promo Grid] Load actions error:', e);
+    }
+}
+
+async function savePromoData() {
+    if (!promoTabulator) return;
+    const allData = promoTabulator.getData();
+    if (!allData.length) { alert('Нет данных'); return; }
+
+    const items = allData.map(r => ({
+        id: r.id,
+        plan: r.plan || false,
+        price_in_promo: r.price_in_promo,
+    }));
+
+    try {
+        const res = await fetch('/api/v1/nl/promotions/products/save?org_id=' + ORG_ID, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer '+TOKEN },
+            body: JSON.stringify({ items })
+        });
+        const result = await res.json();
+        if (result.ok) {
+            alert('Сохранено: ' + items.length + ' строк');
+        } else {
+            alert('Ошибка: ' + (result.error || 'неизвестная'));
+        }
+    } catch (e) {
+        alert('Ошибка сохранения: ' + e.message);
+    }
+}
+
+function exportPromoExcel() {
+    if (!promoTabulator) return;
+    promoTabulator.download('xlsx', 'promotions.xlsx', { sheetName: 'Акции' });
+}
+
+async function uploadPromoExcel() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.xlsx,.xls';
+    input.onchange = async function() {
+        const file = input.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const res = await fetch('/api/v1/nl/promotions/upload-excel?org_id=' + ORG_ID, {headers:{'Authorization':'Bearer '+TOKEN},
+                method: 'POST',
+                body: formData
+            });
+            const result = await res.json();
+            if (result.ok) {
+                alert('Загружено: ' + (result.count || 0) + ' строк');
+                loadPromoData();
+                loadPromoActions();
+            } else {
+                alert('Ошибка: ' + (result.error || 'неизвестная'));
+            }
+        } catch (e) {
+            alert('Ошибка загрузки: ' + e.message);
+        }
+    };
+    input.click();
+}
+
+async function switchPromoStore() {
+    const sel = document.getElementById("promo-store");
+    const newOrgId = sel.value;
+    if (newOrgId === ORG_ID) return;
+    ORG_ID = newOrgId;
+    localStorage.setItem("nl_org_id", ORG_ID);
+    const sideSel = document.getElementById("org-select");
+    if (sideSel) sideSel.value = ORG_ID;
+    const cpSel = document.getElementById("cp-store");
+    if (cpSel) cpSel.value = ORG_ID;
+    const ueSel = document.getElementById("ue-store");
+    if (ueSel) ueSel.value = ORG_ID;
+    history.replaceState(null, "", "/nl/v2?org=" + ORG_ID);
+    loadPromoData();
+    loadPromoActions();
+}

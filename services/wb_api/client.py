@@ -503,6 +503,59 @@ class WBApiClient:
 
         _log.info(f"[prices] done: {len(all_items)} items with prices")
         return all_items
+    # ─── Calendar / Promotions API ───────────────────────
+
+    CALENDAR_URL = "https://dp-calendar-api.wildberries.ru"
+
+    async def get_calendar_promotions(self, start_date=None, end_date=None, all_promo=False, limit=100, offset=0):
+        """Получить список акций из календаря WB"""
+        from datetime import datetime, timedelta, timezone
+        if not start_date:
+            start_date = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if not end_date:
+            end_date = (datetime.now(timezone.utc) + timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        params = {
+            "startDateTime": start_date,
+            "endDateTime": end_date,
+            "allPromo": str(all_promo).lower(),
+            "limit": limit,
+            "offset": offset,
+        }
+        resp = await self.client.get(
+            f"{self.CALENDAR_URL}/api/v1/calendar/promotions",
+            params=params
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_promotion_details(self, promotion_ids):
+        """Получить детали акций по IDs"""
+        if isinstance(promotion_ids, list):
+            ids_str = ",".join(str(i) for i in promotion_ids)
+        else:
+            ids_str = str(promotion_ids)
+        resp = await self.client.get(
+            f"{self.CALENDAR_URL}/api/v1/calendar/promotions/details",
+            params={"promotionIDs": ids_str}
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_promotion_nomenclatures(self, promotion_id, in_action=False, limit=1000, offset=0):
+        """Получить товары для участия в акции (НЕ для автоакций)"""
+        params = {
+            "promotionID": promotion_id,
+            "inAction": str(in_action).lower(),
+            "limit": limit,
+            "offset": offset,
+        }
+        resp = await self.client.get(
+            f"{self.CALENDAR_URL}/api/v1/calendar/promotions/nomenclatures",
+            params=params
+        )
+        resp.raise_for_status()
+        return resp.json()
+
 
 
 async def get_wb_client(api_key: str) -> WBApiClient:

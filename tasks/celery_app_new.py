@@ -15,6 +15,7 @@ celery_app_new = Celery(
         "tasks.daily_sync",
         "tasks.scheduled_sync",
         "tasks.ad_sync",
+        "tasks.promo_sync",
     ]
 )
 
@@ -89,6 +90,12 @@ celery_app_new.conf.update(
         "hourly-prices": {
             "task": "wb.sched.prices",
             "schedule": crontab(minute=30),   # каждый час в :30
+        },
+
+        # --- Каждые 2 часа --- Синхронизация акций WB ---
+        "promo-sync-every-2h": {
+            "task": "wb.sched.promo_sync",
+            "schedule": crontab(minute=0, hour="*/2"),
         },
     },
 )

@@ -64,3 +64,6 @@ __all__ = [
     "PlanType",
     "Seasonality",
 ]
+
+from models.promotion import WbPromotion, WbPromotionProduct
+__all__.extend(["WbPromotion", "WbPromotionProduct"])

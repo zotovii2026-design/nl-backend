@@ -1,6 +1,6 @@
 import uuid
 """API для справочного листа, авторизации и фронтенд НЛ"""
-from fastapi import APIRouter, Depends, Query, Request, HTTPException, status
+from fastapi import APIRouter, Depends, Query, Request, HTTPException, UploadFile, File, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
@@ -2909,27 +2909,18 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         "product_status": r[12],
         "mp_base_pct": r[13],
     }
+    # Берём только первую (самую свежую) запись по entity_id
+    # ORDER BY valid_from DESC гарантирует что первая = новейшая
     for r in ue_rows:
         eid = str(r[0]) if r[0] else None
         fields = _ue_fields(r)
         if eid:
             if eid not in ue_by_entity:
                 ue_by_entity[eid] = fields
-            else:
-                # Merge: newer non-null values override
-                existing = ue_by_entity[eid]
-                for k, v in fields.items():
-                    if v is not None and v != 0 and v != "":
-                        existing[k] = v
         else:
             key = (r[1], "")
             if key not in ue_by_nm_bc:
                 ue_by_nm_bc[key] = fields
-            else:
-                existing = ue_by_nm_bc[key]
-                for k, v in fields.items():
-                    if v is not None and v != 0 and v != "":
-                        existing[k] = v
 
     # 4) Себестоимость из reference_book — приоритет по entity_id, fallback по nm_id
     cost_result = await db.execute(
@@ -3261,6 +3252,305 @@ async def save_unit_economics(data: UnitEconSave, org_id: str, db: AsyncSession 
     await db.commit()
     return {"ok": True}
 
+# ─── АКЦИИ WB ─────────────────────────────────────────────
+
+@router.get("/api/v1/nl/promotions")
+async def get_promotions(org_id: str, is_active: Optional[bool] = None, db: AsyncSession = Depends(get_db)):
+    """Список акций WB"""
+    from models.promotion import WbPromotion
+    q = select(WbPromotion).where(WbPromotion.organization_id == org_id)
+    if is_active is not None:
+        q = q.where(WbPromotion.is_active == is_active)
+    q = q.order_by(WbPromotion.start_date.desc())
+    result = await db.execute(q)
+    promos = result.scalars().all()
+    return [
+        {
+            "id": str(p.id),
+            "promotion_id": p.promotion_id,
+            "title": p.title,
+            "promo_type": p.promo_type,
+            "start_date": p.start_date.isoformat() if p.start_date else None,
+            "end_date": p.end_date.isoformat() if p.end_date else None,
+            "max_price": float(p.max_price) if p.max_price else None,
+            "min_discount": p.min_discount,
+            "has_boost": p.has_boost,
+            "boost_value": float(p.boost_value) if p.boost_value else None,
+            "is_active": p.is_active,
+            "importance": p.importance,
+            "source": p.source,
+        }
+        for p in promos
+    ]
+
+
+@router.get("/api/v1/nl/promotions/products")
+async def get_promotion_products(org_id: str, promotion_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Товары в акциях WB — сборка данных для Tabulator"""
+    from models.promotion import WbPromotionProduct, WbPromotion
+    params = {"org": org_id}
+    promo_filter = ""
+    if promotion_id:
+        promo_filter = " AND wp.promotion_id = :promo_id"
+        params["promo_id"] = int(promotion_id)
+
+    q = text("""
+        SELECT
+            pp.id,
+            pp.wb_promotion_ext_id,
+            pp.nm_id,
+            pp.in_action,
+            pp.auto_matched,
+            pp.current_price,
+            pp.required_price,
+            pp.price_in_promo,
+            pp.profit_in_promo,
+            pp.margin_delta,
+            pp.plan,
+            pp.status_text,
+            pp.entity_id,
+            pe.vendor_code,
+            pe.product_name,
+            pe.photo_main as photo,
+            pe.size_name,
+            pe.brand,
+            pe.subject_name,
+            wp.title as promo_title,
+            wp.promo_type,
+            wp.start_date as promo_start,
+            wp.end_date as promo_end,
+            wp.importance as promo_importance,
+            COALESCE(ts.price, pp.current_price) as price_before_spp,
+            ts.stock_qty,
+            rb.cost_price
+        FROM wb_promotion_products pp
+        LEFT JOIN product_entities pe ON pe.id = pp.entity_id
+        LEFT JOIN wb_promotions wp ON wp.id = pp.promotion_id_col
+        LEFT JOIN LATERAL (
+            SELECT price, stock_qty
+            FROM tech_status ts2
+            WHERE ts2.organization_id = :org AND ts2.nm_id = pp.nm_id
+            ORDER BY target_date DESC LIMIT 1
+        ) ts ON true
+        LEFT JOIN LATERAL (
+            SELECT cost_price FROM reference_book rb2
+            WHERE rb2.organization_id = :org AND rb2.entity_id = pp.entity_id
+            ORDER BY valid_from DESC LIMIT 1
+        ) rb ON true
+        WHERE pp.organization_id = :org
+    """ + promo_filter + """
+        ORDER BY pp.nm_id, pe.size_name
+    """)
+    result = await db.execute(q, params)
+    rows = result.all()
+
+    items = []
+    for r in rows:
+        price_before = float(r.price_before_spp) if r.price_before_spp else None
+        cost = float(r.cost_price) if r.cost_price else None
+        margin_pct = None
+        if price_before and cost and price_before > 0:
+            margin_pct = round((price_before - cost) / price_before * 100, 1)
+        items.append({
+            "id": str(r.id),
+            "wb_promotion_ext_id": r.wb_promotion_ext_id,
+            "nm_id": r.nm_id,
+            "in_action": r.in_action or False,
+            "auto_matched": r.auto_matched or False,
+            "current_price": float(r.current_price) if r.current_price else None,
+            "required_price": float(r.required_price) if r.required_price else None,
+            "price_in_promo": float(r.price_in_promo) if r.price_in_promo else None,
+            "profit_in_promo": float(r.profit_in_promo) if r.profit_in_promo else None,
+            "margin_delta": float(r.margin_delta) if r.margin_delta else None,
+            "plan": r.plan or False,
+            "status_text": r.status_text,
+            "entity_id": str(r.entity_id) if r.entity_id else None,
+            "vendor_code": r.vendor_code,
+            "product_name": r.product_name,
+            "photo": r.photo,
+            "size_name": r.size_name,
+            "brand": r.brand,
+            "subject_name": r.subject_name,
+            "promo_title": r.promo_title,
+            "promo_type": r.promo_type,
+            "promo_start": r.promo_start.strftime("%d.%m.%Y") if r.promo_start else None,
+            "promo_end": r.promo_end.strftime("%d.%m.%Y") if r.promo_end else None,
+            "promo_importance": r.promo_importance,
+            "price_before_spp": price_before,
+            "stock_qty": r.stock_qty,
+            "margin_pct": margin_pct,
+        })
+    return {"items": items}
+
+
+class PromoProductSave(BaseModel):
+    items: list
+
+@router.post("/api/v1/nl/promotions/products/save")
+async def save_promotion_products(data: PromoProductSave, org_id: str, db: AsyncSession = Depends(get_db)):
+    """Сохранить ручные вводы: plan, price_in_promo"""
+    from models.promotion import WbPromotionProduct
+    saved = 0
+    for item in data.items:
+        row_id = item.get("id")
+        if not row_id:
+            continue
+        q = select(WbPromotionProduct).where(
+            WbPromotionProduct.id == row_id,
+            WbPromotionProduct.organization_id == org_id
+        )
+        result = await db.execute(q)
+        pp = result.scalar_one_or_none()
+        if not pp:
+            continue
+        if "plan" in item:
+            pp.plan = item["plan"]
+        if "price_in_promo" in item:
+            pp.price_in_promo = item["price_in_promo"]
+        saved += 1
+    await db.commit()
+    return {"ok": True, "saved": saved}
+
+
+@router.post("/api/v1/nl/promotions/upload-excel")
+async def upload_promo_excel(org_id: str, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+    """Загрузка шаблона Excel с акциями WB"""
+    from models.promotion import WbPromotion, WbPromotionProduct
+    import openpyxl
+    import io
+
+    content = await file.read()
+    wb = openpyxl.load_workbook(io.BytesIO(content))
+    ws = wb.active
+
+    # Ожидаемые колонки (по шаблону WB)
+    col_map = {}
+    header_row = 1
+    for col_idx in range(1, ws.max_column + 1):
+        val = ws.cell(row=header_row, column=col_idx).value
+        if val:
+            val_lower = str(val).strip().lower()
+            if "уже участв" in val_lower:
+                col_map["in_action"] = col_idx
+            elif "бренд" in val_lower:
+                col_map["brand"] = col_idx
+            elif "предмет" in val_lower:
+                col_map["subject"] = col_idx
+            elif "наименован" in val_lower:
+                col_map["name"] = col_idx
+            elif "артикул постав" in val_lower:
+                col_map["vendor_code"] = col_idx
+            elif "артикул wb" in val_lower or "артикул продавца" in val_lower and "wb" in val_lower:
+                col_map["nm_id"] = col_idx
+            elif "баркод" in val_lower or "штрих" in val_lower:
+                col_map["barcode"] = col_idx
+            elif "оборач" in val_lower:
+                col_map["turnover"] = col_idx
+            elif "остаток" in val_lower:
+                col_map["stock"] = col_idx
+            elif "плановая цена" in val_lower or "план. цена" in val_lower:
+                col_map["planned_price"] = col_idx
+            elif "текущая цена" in val_lower:
+                col_map["current_price"] = col_idx
+            elif "минимальная цена" in val_lower or "мин. цена" in val_lower:
+                col_map["min_price"] = col_idx
+            elif "текущая скидка" in val_lower:
+                col_map["current_discount"] = col_idx
+            elif "загружаемая скидка" in val_lower or "загружаем" in val_lower:
+                col_map["upload_discount"] = col_idx
+            elif "статус" in val_lower:
+                col_map["status"] = col_idx
+
+    # Ищем колонку nm_id — это ключевая
+    nm_col = col_map.get("nm_id")
+    if not nm_col:
+        # Пробуем найти по позиции — обычно Артикул WB ~ 6-я колонка
+        for col_idx in range(1, ws.max_column + 1):
+            val = ws.cell(row=header_row, column=col_idx).value
+            if val and ("артикул" in str(val).lower() and "wb" in str(val).lower()):
+                nm_col = col_idx
+                break
+
+    # Определяем promotion_id из имени файла или создаём новую акцию
+    filename = file.filename or "upload"
+    promo_title = filename.replace(".xlsx", "").replace(".xls", "")
+
+    # Создаём акцию
+    new_promo = WbPromotion(
+        organization_id=org_id,
+        promotion_id=abs(hash(promo_title)) % 1000000,
+        title=promo_title,
+        promo_type="excel",
+        is_active=True,
+        source="excel",
+    )
+    db.add(new_promo)
+    await db.flush()
+
+    count = 0
+    for row_idx in range(2, ws.max_row + 1):
+        nm_val = ws.cell(row=row_idx, column=nm_col).value if nm_col else None
+        if not nm_val:
+            continue
+        try:
+            nm_id = int(nm_val)
+        except (ValueError, TypeError):
+            continue
+
+        # Привязка к сущности
+        ent_q = await db.execute(text(
+            "SELECT id FROM product_entities WHERE organization_id = :org AND nm_id = :nm LIMIT 1"
+        ), {"org": org_id, "nm": nm_id})
+        ent_row = ent_q.first()
+        entity_id = ent_row[0] if ent_row else None
+
+        # Значения из Excel
+        def cell_val(col_key):
+            c = col_map.get(col_key)
+            return ws.cell(row=row_idx, column=c).value if c else None
+
+        in_action = cell_val("in_action")
+        if isinstance(in_action, str):
+            in_action = in_action.strip().upper() in ("ДА", "YES", "1", "+")
+        elif isinstance(in_action, (int, float)):
+            in_action = bool(in_action)
+
+        # Upsert
+        existing = await db.execute(text(
+            "SELECT id FROM wb_promotion_products WHERE organization_id = :org AND wb_promotion_ext_id = :ext_id AND nm_id = :nm"
+        ), {"org": org_id, "ext_id": new_promo.promotion_id, "nm": nm_id})
+        ex_row = existing.first()
+
+        if ex_row:
+            await db.execute(text(
+                "UPDATE wb_promotion_products SET in_action = :ia, status_text = :st, current_price = :cp, entity_id = :eid, promotion_id_col = :pid, updated_at = now() WHERE id = :rid"
+            ), {
+                "ia": in_action, "st": str(cell_val("status") or "")[:200],
+                "cp": cell_val("current_price"), "eid": entity_id,
+                "pid": str(new_promo.id), "rid": ex_row[0]
+            })
+        else:
+            await db.execute(text(
+                "INSERT INTO wb_promotion_products (id, organization_id, promotion_id_col, wb_promotion_ext_id, nm_id, entity_id, in_action, current_price, status_text, created_at) VALUES (gen_random_uuid(), :org, :pid, :ext_id, :nm, :eid, :ia, :cp, :st, now())"
+            ), {
+                "org": org_id, "pid": str(new_promo.id), "ext_id": new_promo.promotion_id,
+                "nm": nm_id, "eid": entity_id, "ia": in_action,
+                "cp": cell_val("current_price"), "st": str(cell_val("status") or "")[:200]
+            })
+        count += 1
+
+    await db.commit()
+    return {"ok": True, "count": count, "promotion_id": new_promo.promotion_id}
+
+
+@router.post("/api/v1/nl/promotions/sync-api")
+async def sync_promo_api(org_id: str = None, db: AsyncSession = Depends(get_db)):
+    """Ручной запуск синка акций через WB API"""
+    from tasks.promo_sync import do_promo_sync
+    result = do_promo_sync.delay()
+    return {"status": "started", "task_id": result.id}
+
+
 
 @router.get("/nl/v2", response_class=HTMLResponse)
 async def nl_page():
@@ -3429,7 +3719,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260522e"></script>
-<script type="text/javascript" src="/static/js/ue-grid.js?v=20260522g"></script>
+<script type="text/javascript" src="/static/js/ue-grid.js?v=20260525b"></script>
+<script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 </head>
 <body>
 
@@ -3479,6 +3770,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <a class="nav-item" onclick="navTo('fboneeds',this)"><span class="icon">🚚</span>Потребность FBO</a>
 <a class="nav-item" onclick="navTo('unitecon',this)"><span class="icon">🧮</span>Юнит Экономика</a>
 </div>
+<a class="nav-item" onclick="navTo('promo',this)"><span class="icon">🏷</span>Акции</a>
 <div class="nav-group">
 <div class="nav-label">Остальное</div>
 <a class="nav-item" onclick="navTo('connectors',this)"><span class="icon">🔌</span>Подключения</a>
@@ -4022,6 +4314,32 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div style="margin-top:12px;display:flex;gap:16px;font-size:.85em;flex-wrap:wrap" id="ue-summary"></div>
 </div>
 
+<div id="page-promo" class="page-section">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
+<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
+<select id="promo-store" onchange="switchPromoStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
+</div>
+<div id="promo-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
+<label style="color:#666;font-weight:600">Фильтры:</label>
+<select id="promo-flt-action" onchange="applyPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Акция: все</option></select>
+<select id="promo-flt-status" onchange="applyPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Участие: все</option><option value="in">В акции</option><option value="plan">План</option><option value="out">Не участвует</option></select>
+<select id="promo-flt-brand" onchange="applyPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
+<input type="text" id="promo-flt-search" placeholder="🔍 Поиск по названию / артикулу" oninput="applyPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
+<button onclick="resetPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 10px;font-size:.9em;background:#fff;cursor:pointer">✕ Сбросить</button>
+</div>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<button class="btn" onclick="loadPromoData()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+<button class="btn btn-outline" onclick="exportPromoExcel()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
+<button class="btn btn-outline" onclick="document.getElementById('promo-upload-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить шаблон</button>
+<input type="file" id="promo-upload-input" accept=".xlsx,.xls" style="display:none" onchange="uploadPromoTemplate(this)">
+<button class="btn" onclick="savePromoData()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
+<span style="font-size:.85em;color:#999;margin-left:auto" id="promo-count"></span>
+</div>
+<div id="promo-tabulator" style="overflow-x:auto;max-height:70vh"></div>
+<div style="margin-top:12px;display:flex;gap:16px;font-size:.85em;flex-wrap:wrap" id="promo-summary"></div>
+</div>
+
+
 <div id="page-connectors" class="page-section">
 <div style="max-width:600px;margin:0 auto;padding:20px">
 <h3 style="color:#6c5ce7;margin-bottom:16px">🔌 Подключения</h3>
@@ -4357,7 +4675,7 @@ async function navTo(name, el) {
     // Update page title
     var titles = {stats:'Основные показатели',rnp:'РНП',opiu:'ОПиУ',analytics:'Аналитика по товарам',
         costprice:'Справочник',salesplan:'План продаж',warehouses:'Склады',opexpenses:'Опер. расходы',ads:'Реклама',
-        extads:'Внешняя реклама',fboneeds:'Потребность FBO',unitecon:'Юнит Экономика',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
+        extads:'Внешняя реклама',fboneeds:'Потребность FBO',unitecon:'Юнит Экономика',promo:'Акции',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
     document.getElementById('page-title').textContent = titles[name] || name;
     // Update top-bar filters visibility
     var topFilters = document.getElementById('top-filters');
@@ -4377,6 +4695,7 @@ async function navTo(name, el) {
     else if (name === 'extads') loadExtAds();
     else if (name === 'fboneeds') loadFboNeeds();
     else if (name === 'unitecon') { if (!ueTabulator) initUEGrid(); loadUEData(); }
+    else if (name === 'promo') { if (typeof promoTabulator === 'undefined' || !promoTabulator) initPromoGrid(); loadPromoData(); }
 }
 
 async function loadAds() {
@@ -6187,6 +6506,18 @@ async function loadOrgs() {
             ueSel.appendChild(opt);
         });
     }
+    // Sync promo-store dropdown in Акции
+    const promoSel = document.getElementById("promo-store");
+    if (promoSel) {
+        promoSel.innerHTML = "";
+        orgs.forEach(o => {
+            const opt = document.createElement("option");
+            opt.value = o.id;
+            opt.textContent = o.name + (o.wb_seller_id ? " (ID " + o.wb_seller_id + ")" : "");
+            if (o.id === ORG_ID) opt.selected = true;
+            promoSel.appendChild(opt);
+        });
+    }
 }
 
 async function switchOrg() {
@@ -6200,6 +6531,8 @@ async function switchOrg() {
     if (cpSel) cpSel.value = ORG_ID;
     const ueSel2 = document.getElementById('ue-store');
     if (ueSel2) ueSel2.value = ORG_ID;
+    const promoSel2 = document.getElementById('promo-store');
+    if (promoSel2) promoSel2.value = ORG_ID;
     showApp();
 }
 
