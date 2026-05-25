@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 from typing import Optional, List, Dict, Any
 from core.config import settings
@@ -210,6 +211,58 @@ class WBApiClient:
             return result.get("items", [])
         return []
 
+
+    async def get_all_sales(self,
+                     date_from: Optional[str] = None,
+                     date_to: Optional[str] = None,
+                     page_size: int = 1000) -> List[Dict[str, Any]]:
+        """Получение ВСЕХ продаж с пагинацией"""
+        import logging
+        _log = logging.getLogger(__name__)
+        all_sales = []
+        seen_ids = set()
+        max_pages = 100
+        params = {"limit": page_size}
+        if date_from:
+            params["dateFrom"] = date_from
+        if date_to:
+            params["dateTo"] = date_to
+
+        for page in range(max_pages):
+            response = await self.client.get(
+                f"{self.STATISTICS_URL}/api/v1/supplier/sales",
+                params=params
+            )
+            response.raise_for_status()
+            result = response.json()
+            items = result if isinstance(result, list) else []
+            if isinstance(result, dict):
+                data = result.get("data", {})
+                items = data.get("items", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+
+            new_items = [s for s in items if s.get("saleID") and s["saleID"] not in seen_ids]
+            for s in new_items:
+                seen_ids.add(s["saleID"])
+            all_sales.extend(new_items)
+
+            _log.info(f"[sales pagination] page {page+1}: {len(items)} items ({len(new_items)} new), total {len(all_sales)}")
+
+            if len(items) < page_size:
+                break
+
+            last_key = None
+            if isinstance(result, dict):
+                last_key = result.get("lastKey")
+            if last_key:
+                params["lastKey"] = last_key
+            else:
+                params["offset"] = (page + 1) * page_size
+
+            await asyncio.sleep(0.5)
+
+        _log.info(f"[sales pagination] done: {len(all_sales)} unique sales")
+        return all_sales
+
     async def get_sales_funnel_products(self,
                      date_from: str,
                      date_to: str,
@@ -250,6 +303,57 @@ class WBApiClient:
         response.raise_for_status()
         result = response.json()
         return result if isinstance(result, list) else result.get("data", result)
+
+
+    async def get_all_orders(self,
+                     date_from: Optional[str] = None,
+                     date_to: Optional[str] = None,
+                     page_size: int = 1000) -> List[Dict[str, Any]]:
+        """Получение ВСЕХ заказов с пагинацией"""
+        import logging
+        _log = logging.getLogger(__name__)
+        all_orders = []
+        seen_ids = set()
+        max_pages = 100
+        params = {"limit": page_size}
+        if date_from:
+            params["dateFrom"] = date_from
+        if date_to:
+            params["dateTo"] = date_to
+
+        for page in range(max_pages):
+            response = await self.client.get(
+                f"{self.STATISTICS_URL}/api/v1/supplier/orders",
+                params=params
+            )
+            response.raise_for_status()
+            result = response.json()
+            items = result if isinstance(result, list) else result.get("data", [])
+            if not isinstance(items, list):
+                items = []
+
+            new_items = [o for o in items if (o.get("srid") or o.get("odid") or o.get("gNumber")) and (o.get("srid") or o.get("odid") or o.get("gNumber")) not in seen_ids]
+            for o in new_items:
+                seen_ids.add(o.get("srid") or o.get("odid") or o.get("gNumber"))
+            all_orders.extend(new_items)
+
+            _log.info(f"[orders pagination] page {page+1}: {len(items)} items ({len(new_items)} new), total {len(all_orders)}")
+
+            if len(items) < page_size:
+                break
+
+            last_key = None
+            if isinstance(result, dict):
+                last_key = result.get("lastKey")
+            if last_key:
+                params["lastKey"] = last_key
+            else:
+                params["offset"] = (page + 1) * page_size
+
+            await asyncio.sleep(0.5)
+
+        _log.info(f"[orders pagination] done: {len(all_orders)} unique orders")
+        return all_orders
 
     async def get_reports(self, 
                        report_type: str = "sales",

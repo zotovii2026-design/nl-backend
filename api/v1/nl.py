@@ -2874,7 +2874,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
     # 2) Продукты из product_entities (одна строка на nm_id + размер, как в Справочнике)
     prods_result = await db.execute(
         sql_text("""
-            SELECT pe.id as entity_id, pe.nm_id, pe.vendor_code, ts.product_name, ts.photo_main,
+            SELECT pe.id as entity_id, pe.nm_id, pe.vendor_code, COALESCE(ts.product_name, pe.product_name) as product_name, COALESCE(ts.photo_main, pe.photo_main) as photo_main,
                    (SELECT string_agg(eb.barcode, ', ') FROM entity_barcodes eb WHERE eb.entity_id = pe.id AND eb.is_active = true) as barcode,
                    ts.price, ts.price_discount, ts.tariff, ts.ad_cost,
                    pe.size_name, pe.subject_name

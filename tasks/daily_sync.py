@@ -559,6 +559,7 @@ async def parse_raw_to_tech_status(org_id: str = None):
 
             for td in dates:
                 # --- products: названия, бренд, фото ---
+                # Сначала пробуем за текущую дату, fallback на предыдущие
                 result = await db.execute(
                     select(RawApiData.raw_response).where(
                         RawApiData.organization_id == oid,
@@ -568,6 +569,17 @@ async def parse_raw_to_tech_status(org_id: str = None):
                     ).limit(1)
                 )
                 prod_row = result.first()
+                if not prod_row or not prod_row[0]:
+                    # Fallback: берём products за ближайшую предыдущую дату
+                    result = await db.execute(
+                        select(RawApiData.raw_response).where(
+                            RawApiData.organization_id == oid,
+                            RawApiData.api_method == "products",
+                            RawApiData.target_date < td,
+                            RawApiData.status == "ok"
+                        ).order_by(RawApiData.target_date.desc()).limit(1)
+                    )
+                    prod_row = result.first()
                 product_map = {}  # nm_id → {name, brand, photo, barcodes}
                 if prod_row and prod_row[0]:
                     cards = prod_row[0] if isinstance(prod_row[0], list) else prod_row[0].get("cards", prod_row[0].get("items", []))
@@ -711,10 +723,11 @@ async def parse_raw_to_tech_status(org_id: str = None):
                             TechStatus.nm_id == nm_id
                         )
                     )
-                    ts = result.scalar_one_or_none()
-                    if not ts:
+                    existing = result.scalars().all()
+                    
+                    if not existing:
                         ts = TechStatus(
-                            id=str(uuid.uuid4()),
+                            id=uuid.uuid4(),
                             organization_id=oid,
                             target_date=td,
                             nm_id=nm_id,
@@ -722,22 +735,110 @@ async def parse_raw_to_tech_status(org_id: str = None):
                             is_final="no"
                         )
                         db.add(ts)
+                        existing = [ts]
 
-                    ts.product_name = pinfo.get("name", "") or oinfo.get("subject", "")
-                    ts.vendor_code = oinfo.get("vendor_code", "")
-                    ts.barcode = oinfo.get("barcode", "") or (pinfo.get("barcodes") or [""])[0]
-                    ts.photo_main = pinfo.get("photo", "")
-                    ts.orders_count = oinfo.get("count", 0)
-                    ts.buyouts_count = sinfo.get("buyouts", 0)
-                    ts.returns_count = sinfo.get("returns", 0)
-                    ts.price_discount = sinfo.get("revenue") / max(sinfo.get("buyouts", 1), 1) if sinfo.get("buyouts") else None
-                    ts.stock_qty = skinfo.get("qty", 0)
-                    ts.warehouse_name = ", ".join(skinfo.get("warehouses", set())) if skinfo.get("warehouses") else ""
-                    ts.ad_cost = ad_cost_map.get(nm_id, 0)
-                    ts.updated_at = datetime.now()
-                    total_parsed += 1
+                    for ts in existing:
+                        ts.product_name = pinfo.get("name", "") or oinfo.get("subject", "")
+                        ts.vendor_code = oinfo.get("vendor_code", "")
+                        ts.barcode = oinfo.get("barcode", "") or (pinfo.get("barcodes") or [""])[0]
+                        ts.photo_main = pinfo.get("photo", "")
+                        ts.orders_count = oinfo.get("count", 0)
+                        ts.buyouts_count = sinfo.get("buyouts", 0)
+                        ts.returns_count = sinfo.get("returns", 0)
+                        ts.price_discount = sinfo.get("revenue") / max(sinfo.get("buyouts", 1), 1) if sinfo.get("buyouts") else None
+                        ts.stock_qty = skinfo.get("qty", 0)
+                        ts.warehouse_name = ", ".join(skinfo.get("warehouses", set())) if skinfo.get("warehouses") else ""
+                        ts.ad_cost = ad_cost_map.get(nm_id, 0)
+                        ts.updated_at = datetime.now()
+                    total_parsed += len(existing)
 
             await db.commit()
+            
+            # === Добавить nm_id из reference_book, которых нет в tech_status ===
+            from models.reference_book import ReferenceBook
+            # Собираем общий product_map из ближайших products raw_api_data
+            global_product_map = {}
+            for oid in org_ids:
+                gpm_result = await db.execute(
+                    select(RawApiData.raw_response).where(
+                        RawApiData.organization_id == oid,
+                        RawApiData.api_method == "products",
+                        RawApiData.status == "ok"
+                    ).order_by(RawApiData.target_date.desc()).limit(1)
+                )
+                gpm_row = gpm_result.first()
+                if gpm_row and gpm_row[0]:
+                    cards = gpm_row[0] if isinstance(gpm_row[0], list) else gpm_row[0].get("cards", gpm_row[0].get("items", []))
+                    if isinstance(cards, dict):
+                        cards = cards.get("cards", cards.get("items", []))
+                    for c in (cards if isinstance(cards, list) else []):
+                        if not isinstance(c, dict): continue
+                        nm = c.get("nmID", c.get("nm_id"))
+                        if not nm: continue
+                        photos = c.get("photos") or []
+                        barcodes = []
+                        for sz in (c.get("sizes") or []):
+                            barcodes.extend(sz.get("skus") or [])
+                        global_product_map[int(nm)] = {
+                            "name": c.get("title", c.get("name", "")),
+                            "brand": c.get("brand", ""),
+                            "photo": photos[0].get("hq", photos[0].get("tm", "")) if photos else "",
+                            "barcodes": barcodes,
+                        }
+
+            for oid in org_ids:
+                for td in dates:
+                    # Все nm_id из reference_book для этой организации
+                    rb_result = await db.execute(
+                        select(ReferenceBook.nm_id, ReferenceBook.vendor_code, ReferenceBook.brand,
+                               ReferenceBook.subject_name).where(
+                            ReferenceBook.organization_id == oid
+                        ).distinct()
+                    )
+                    rb_nms = {r[0]: {"vendor_code": r[1], "brand": r[2], "subject_name": r[3]} for r in rb_result.all()}
+                    
+                    # Существующие nm_id в tech_status за эту дату
+                    ts_result = await db.execute(
+                        select(TechStatus.nm_id).where(
+                            TechStatus.organization_id == oid,
+                            TechStatus.target_date == td
+                        )
+                    )
+                    existing_nms = set(r[0] for r in ts_result.all())
+                    
+                    missing_nms = set(rb_nms.keys()) - existing_nms
+                    added = 0
+                    for nm_id in missing_nms:
+                        if not nm_id:
+                            continue
+                        rb_info = rb_nms.get(nm_id, {})
+                        pinfo = global_product_map.get(nm_id, {})
+                        ts = TechStatus(
+                            id=uuid.uuid4(),
+                            organization_id=oid,
+                            target_date=td,
+                            nm_id=nm_id,
+                            product_name=pinfo.get("name", ""),
+                            vendor_code=rb_info.get("vendor_code") or "",
+                            
+                            photo_main=pinfo.get("photo", ""),
+                            barcode=(pinfo.get("barcodes") or [""])[0],
+                            stock_qty=0,
+                            orders_count=0,
+                            buyouts_count=0,
+                            returns_count=0,
+                            ad_cost=0,
+                            row_status="active",
+                            is_final="no",
+                            updated_at=datetime.now()
+                        )
+                        db.add(ts)
+                        added += 1
+                    if added:
+                        await db.commit()
+                        logger.info(f"Added {added} missing nm_ids from reference_book for org={oid} date={td}")
+                        total_parsed += added
+
         logger.info(f"Parsed {total_parsed} tech_status records for {len(org_ids)} orgs")
         return {"parsed": total_parsed}
 
@@ -809,6 +910,7 @@ def fetch_tariffs_task(organization_id: str = None):
     return run_async(fetch_and_apply_tariffs(organization_id))
 
 
+# DEPRECATED: use wb.sched.parse_raw instead
 @shared_task(name="wb.parse_raw")
 def parse_raw_task(organization_id: str = None):
     """Celery task: парсинг raw → tech_status"""

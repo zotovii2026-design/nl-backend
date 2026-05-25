@@ -64,10 +64,7 @@ celery_app_new.conf.update(
             "task": "wb.sched.adverts",
             "schedule": crontab(hour=17, minute=5),   # UTC 17:05
         },
-        "evening-orders": {
-            "task": "wb.sched.orders",
-            "schedule": crontab(hour=17, minute=10),  # UTC 17:10
-        },
+
 
         # ─── 22:00 MSK — Парсинг raw → tech_status ───────
         "night-parse": {

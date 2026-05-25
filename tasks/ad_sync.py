@@ -4,6 +4,7 @@ import asyncio
 import logging
 import httpx
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from celery import shared_task
@@ -115,7 +116,7 @@ async def _do_ad_stats(sf, days_back=1):
         try:
             # Запрашиваем расходы за последние 30 дней — этого достаточно чтобы покрыть
             # все активные и недавно завершённые кампании
-            today = date.today()
+            today = datetime.now(ZoneInfo("Europe/Moscow")).date()  # МСК
             from_date = (today - timedelta(days=30)).isoformat()
             to_date = today.isoformat()
             resp_names = await client.get(
@@ -160,7 +161,7 @@ async def _do_ad_stats(sf, days_back=1):
 
         total_saved = 0
         for day_offset in range(days_back):
-            target_date = (date.today() - timedelta(days=day_offset + 1)).isoformat()
+            target_date = (datetime.now(ZoneInfo("Europe/Moscow")).date() - timedelta(days=day_offset + 1)).isoformat()  # МСК
 
             for batch_start in range(0, len(stat_ids), 50):
                 batch = stat_ids[batch_start:batch_start+50]
@@ -238,7 +239,7 @@ async def _do_ad_stats(sf, days_back=1):
                     ins = pg_insert(RawApiData)
                     await db.execute(ins.values(
                         organization_id=org_id, api_method="ad_balance",
-                        target_date=date.today(), raw_response=bal,
+                        target_date=datetime.now(ZoneInfo("Europe/Moscow")).date(), raw_response=bal,  # МСК
                         status="ok", fetched_at=datetime.utcnow(),
                     ).on_conflict_do_update(
                         constraint="raw_api_data_organization_id_api_method_target_date_key",

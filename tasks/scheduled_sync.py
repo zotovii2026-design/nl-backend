@@ -22,6 +22,7 @@ from services.wb_api.client import WBApiClient
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 import uuid
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ async def _do_products(sf):
             async with WBApiClient(api_key) as client:
                 cards = await client.get_all_cards()
                 count = len(cards)
-                today = date.today()
+                today = datetime.now(ZoneInfo("Europe/Moscow")).date()  # МСК
 
                 async with sf() as db:
                     await _save_raw(db, org_id, "products", today, cards, count=count)
@@ -202,6 +203,9 @@ def sched_sales():
 
 
 async def _do_sales(sf):
+    """Продажи за 3 дня по МСК времени, с пагинацией"""
+    today_msk = datetime.now(ZoneInfo("Europe/Moscow")).date()
+
     all_keys = await _get_all_keys(sf)
     if not all_keys:
         return {"status": "skipped", "reason": "no_keys"}
@@ -209,18 +213,20 @@ async def _do_sales(sf):
     for org_id, api_key in all_keys:
         try:
             async with WBApiClient(api_key) as client:
-                for i in range(2):
-                    target = date.today() - timedelta(days=i)
+                for i in range(3):  # сегодня, вчера, позавчера
+                    target = today_msk - timedelta(days=i)
                     try:
-                        sales = await _fetch_with_retry(lambda: client.get_sales(date_from=target.isoformat()), label=f"sales/{target}")
-                        data = sales if isinstance(sales, list) else {"response": sales}
+                        sales = await _fetch_with_retry(
+                            lambda t=target: client.get_all_sales(date_from=t.isoformat()),
+                            label=f"sales/{target}"
+                        )
                         count = len(sales) if isinstance(sales, list) else 0
 
                         async with sf() as db:
-                            await _save_raw(db, org_id, "sales", target, data, count=count)
+                            await _save_raw(db, org_id, "sales", target, sales, count=count)
 
                         results[str(target)] = count
-                        if i == 0:
+                        if i < 2:
                             await asyncio.sleep(PAUSE_SEC)
                     except Exception as e:
                         logger.error(f"[sched] sales {target}: {e}")
@@ -241,6 +247,11 @@ def sched_orders():
 
 
 async def _do_orders(sf):
+    """Заказы за 3 дня (позавчера, вчера, сегодня) по МСК времени, с пагинацией"""
+    msk = ZoneInfo("Europe/Moscow")
+    # Правильный способ:
+    today_msk = datetime.now(ZoneInfo("Europe/Moscow")).date()
+
     all_keys = await _get_all_keys(sf)
     if not all_keys:
         return {"status": "skipped", "reason": "no_keys"}
@@ -248,18 +259,20 @@ async def _do_orders(sf):
     for org_id, api_key in all_keys:
         try:
             async with WBApiClient(api_key) as client:
-                for i in range(2):
-                    target = date.today() - timedelta(days=i)
+                for i in range(3):  # сегодня, вчера, позавчера
+                    target = today_msk - timedelta(days=i)
                     try:
-                        orders = await _fetch_with_retry(lambda: client.get_orders(date_from=target.isoformat()), label=f"orders/{target}")
-                        data = orders if isinstance(orders, list) else {"response": orders}
+                        orders = await _fetch_with_retry(
+                            lambda t=target: client.get_all_orders(date_from=t.isoformat()),
+                            label=f"orders/{target}"
+                        )
                         count = len(orders) if isinstance(orders, list) else 0
 
                         async with sf() as db:
-                            await _save_raw(db, org_id, "orders", target, data, count=count)
+                            await _save_raw(db, org_id, "orders", target, orders, count=count)
 
                         results[str(target)] = count
-                        if i == 0:
+                        if i < 2:
                             await asyncio.sleep(PAUSE_SEC)
                     except Exception as e:
                         logger.error(f"[sched] orders {target}: {e}")
@@ -285,7 +298,7 @@ async def _do_stocks(sf):
         return {"status": "skipped", "reason": "no_keys"}
     results = {}
     for org_id, api_key in all_keys:
-        today = date.today()
+        today = datetime.now(ZoneInfo("Europe/Moscow")).date()  # МСК
         try:
             async with WBApiClient(api_key) as client:
                 try:
@@ -320,7 +333,7 @@ async def _do_tariffs(sf):
         return {"status": "skipped", "reason": "no_keys"}
     org_id, api_key = info
 
-    today = date.today()
+    today = datetime.now(ZoneInfo("Europe/Moscow")).date()  # МСК
     async with WBApiClient(api_key) as client:
         results = {}
         for tariff_type in ["box", "pallet"]:
@@ -355,7 +368,7 @@ async def _do_adverts(sf):
         return {"status": "skipped", "reason": "no_keys"}
     results = {}
     for org_id, api_key in all_keys:
-        today = date.today()
+        today = datetime.now(ZoneInfo("Europe/Moscow")).date()  # МСК
         async with WBApiClient(api_key) as client:
             try:
                 resp = await client.client.get(
@@ -395,7 +408,7 @@ async def _do_prices(sf):
 
                 # Сохраняем в raw_api_data
                 async with sf() as db:
-                    await _save_raw(db, org_id, "prices", date.today(), items, count=count)
+                    await _save_raw(db, org_id, "prices", datetime.now(ZoneInfo("Europe/Moscow")).date(), items, count=count)  # МСК
 
                 # Обновляем цены в tech_status (цены в копейках, переводим в рубли)
                 async with sf() as db:
@@ -773,7 +786,7 @@ async def _do_parse_raw(sf):
         for k in product_map.keys():
             all_entity_or_nm.add(k)
 
-        today = date.today()
+        today = datetime.now(ZoneInfo("Europe/Moscow")).date()  # МСК
         # Добавляем ключи для entities без продаж/заказов
         for (nm, sz), eid in entity_by_nm_size.items():
             if eid not in all_entity_or_nm and nm not in all_entity_or_nm:
@@ -819,7 +832,7 @@ async def _do_parse_raw(sf):
                     _price_discount = sinfo.get("price_discount", 0) or oinfo.get("price_discount", 0) or _tariff_price.get("price_spp", 0)
                     ins = pg_insert(TechStatus)
                     stmt = ins.values(
-                        id=str(uuid.uuid4()),
+                        id=uuid.uuid4(),
                         organization_id=org_id,
                         target_date=td,
                         nm_id=n_id,
@@ -906,7 +919,7 @@ async def _do_parse_raw(sf):
         async with sf() as db:
             ins = pg_insert(TechStatus)
             stmt = ins.values(
-                id=str(uuid.uuid4()),
+                id=uuid.uuid4(),
                 organization_id=org_id,
                 target_date=today,
                 nm_id=n_id,
@@ -952,7 +965,44 @@ async def _do_parse_raw(sf):
 
 
 
-    # Финальный коммит не нужен — каждый upsert коммитится отдельно
+    # === Gap-fill: добавить entity_id из product_entities, отсутствующих в tech_status за today ===
+    for org_id in org_ids:
+        try:
+            async with sf() as db:
+                result = await db.execute(text("""
+                    INSERT INTO tech_status (id, organization_id, target_date, nm_id, entity_id, product_name, vendor_code, barcode, photo_main, stock_qty, orders_count, buyouts_count, returns_count, ad_cost, row_status, is_final, updated_at)
+                    SELECT 
+                      gen_random_uuid(),
+                      pe.organization_id,
+                      :today::date,
+                      pe.nm_id,
+                      pe.id,
+                      pe.product_name,
+                      pe.vendor_code,
+                      (SELECT eb.barcode FROM entity_barcodes eb WHERE eb.entity_id = pe.id AND eb.is_active = true LIMIT 1),
+                      pe.photo_main,
+                      0, 0, 0, 0, 0, active, no, NOW()
+                    FROM product_entities pe
+                    WHERE pe.organization_id = :org
+                    AND NOT EXISTS (
+                      SELECT 1 FROM tech_status ts 
+                      WHERE ts.organization_id = pe.organization_id 
+                      AND ts.target_date = :today 
+                      AND ts.entity_id = pe.id
+                    )
+                    ON CONFLICT (organization_id, target_date, entity_id) DO UPDATE SET
+                      product_name = COALESCE(EXCLUDED.product_name, tech_status.product_name),
+                      vendor_code = COALESCE(EXCLUDED.vendor_code, tech_status.vendor_code),
+                      photo_main = COALESCE(EXCLUDED.photo_main, tech_status.photo_main),
+                      updated_at = NOW()
+                """), {"org": org_id, "today": today})
+                gap_filled = result.rowcount
+                await db.commit()
+                if gap_filled:
+                    logger.info(f"[parse_raw] gap-fill: added {gap_filled} missing entities for org={org_id[:8]} date={today}")
+                    total += gap_filled
+        except Exception as exc:
+            logger.error(f"[parse_raw] gap-fill error for org={org_id[:8]}: {exc}")
 
     logger.info(f"[sched] parse_raw: {total} records")
     return {"parsed": total}
@@ -1051,7 +1101,7 @@ async def _do_commission(sf):
         return {"status": "skipped", "reason": "no_keys"}
     org_id, api_key = info
 
-    today = date.today()
+    today = datetime.now(ZoneInfo("Europe/Moscow")).date()  # МСК
 
     import httpx
     async with httpx.AsyncClient() as http:
@@ -1086,7 +1136,7 @@ async def _do_tariff_snapshot(sf):
         return {"status": "skipped", "reason": "no_keys"}
     results = {}
     for org_id, api_key in all_keys:
-        today = date.today()
+        today = datetime.now(ZoneInfo("Europe/Moscow")).date()  # МСК
         try:
             import json as _json
             from models.wb_tariff_snapshot import WbTariffSnapshot
