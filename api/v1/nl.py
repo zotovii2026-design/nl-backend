@@ -3698,7 +3698,7 @@ async def nl_verify_wb_key(data: dict, token: str = Query(""), db: AsyncSession 
         try:
             api_token = decrypt_data(key.personal_token)
             async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.get(
+                r = await client.post(
                     "https://content-api.wildberries.ru/content/v2/get/cards/list",
                     headers={"Authorization": api_token},
                     json={"settings": {"cursor": {"limit": 1}, "filter": {"withPhoto": -1}}}
@@ -3737,6 +3737,46 @@ async def nl_verify_wb_key(data: dict, token: str = Query(""), db: AsyncSession 
     
     return {"status": "error", "message": "Не удалось проверить", "products_count": 0}
 
+
+
+@router.post("/api/v1/nl/rename-org")
+async def nl_rename_org(data: dict, token: str = Query(""), db: AsyncSession = Depends(get_db)):
+    """Переименовать магазин (организацию)"""
+    from models.organization import Membership, Role
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(401, "Не авторизован")
+    user_id = payload.get("sub")
+    
+    org_id = data.get("org_id", "").strip()
+    new_name = data.get("name", "").strip()
+    
+    if not org_id or not new_name:
+        raise HTTPException(400, "org_id и name обязательны")
+    if len(new_name) > 100:
+        raise HTTPException(400, "Название слишком длинное (макс 100 символов)")
+    
+    # Check user is OWNER or ADMIN in this org
+    result = await db.execute(
+        select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.organization_id == org_id
+        )
+    )
+    membership = result.scalar_one_or_none()
+    if not membership or membership.role not in (Role.OWNER, Role.ADMIN):
+        raise HTTPException(403, "Только OWNER или ADMIN может переименовывать")
+    
+    from models.organization import Organization
+    result = await db.execute(select(Organization).where(Organization.id == org_id))
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(404, "Организация не найдена")
+    
+    org.name = new_name
+    await db.commit()
+    
+    return {"status": "ok", "name": new_name}
 
 @router.post("/api/v1/nl/invite")
 async def nl_invite(data: dict, token: str = Query(""), db: AsyncSession = Depends(get_db)):
@@ -6929,7 +6969,8 @@ async function loadProfile() {
             return '<div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:8px" id="shop-card-' + s.id + '">' +
                 '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
                 '<span style="font-size:1.1em">🏪</span>' +
-                '<span style="font-weight:600">' + s.name + '</span>' +
+                '<span style="font-weight:600" id="shop-name-' + s.id + '">' + s.name + '</span>' +
+                '<button onclick="startRenameShop(this)" data-orgid="' + s.id + '" style="background:none;border:none;cursor:pointer;font-size:.85em;color:#999;margin-left:4px" title="Rename">&#9998;</button>' +
                 (s.wb_seller_id ? '<span style="font-size:.8em;color:#999;background:#f0f0f0;padding:2px 6px;border-radius:4px">ID ' + s.wb_seller_id + '</span>' : '') +
                 '<span style="margin-left:auto;font-size:.8em;color:#999" id="shop-status-' + s.id + '">не проверен</span>' +
                 '<button onclick="verifyShopKey(this)" data-orgid="' + s.id + '" style="background:none;border:1px solid #ddd;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:.85em;color:#6c5ce7" title="Проверить ключ">🔍 Проверить</button>' +
@@ -7010,6 +7051,30 @@ async function deleteWbKeyBtn(span) {
     await fetch('/api/v1/nl/wb-keys/' + keyId + '?org_id=' + orgId, {method: 'DELETE'});
     loadProfile();
     loadOrgs();
+}
+
+async function startRenameShop(btn) {
+    const orgId = btn.dataset.orgid;
+    const nameEl = document.getElementById('shop-name-' + orgId);
+    if (!nameEl) return;
+    const currentName = nameEl.textContent;
+    const newName = prompt('Новое название:', currentName);
+    if (!newName || newName.trim() === '' || newName.trim() === currentName) return;
+    try {
+        const res = await fetch('/api/v1/nl/rename-org?token=' + TOKEN, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({org_id: orgId, name: newName.trim()})
+        });
+        if (!res.ok) { const err = await res.json(); alert('Ошибка: ' + (err.detail || 'не удалось')); return; }
+        const data = await res.json();
+        nameEl.textContent = data.name;
+        const inviteSel = document.getElementById('invite-org');
+        if (inviteSel) { for (let i = 0; i < inviteSel.options.length; i++) { if (inviteSel.options[i].value === orgId) { inviteSel.options[i].textContent = data.name; break; } } }
+        showToast("Сохранено: " + data.name);
+        const orgSel = document.getElementById('org-selector');
+        if (orgSel) { for (let i = 0; i < orgSel.options.length; i++) { if (orgSel.options[i].value === orgId) { orgSel.options[i].textContent = data.name; break; } } }
+    } catch(e) { alert('Ошибка сети: ' + e.message); }
 }
 
 async function connectNewShop() {
