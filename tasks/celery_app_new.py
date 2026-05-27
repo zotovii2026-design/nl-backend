@@ -67,10 +67,24 @@ celery_app_new.conf.update(
         },
 
 
-        # ─── 22:00 MSK — Парсинг raw → tech_status ───────
-        "night-parse": {
+        # ─── Sales Funnel: показы/клики по товарам (1 раз в день) ──
+        "sales-funnel-daily": {
+            "task": "wb.sched.sales_funnel",
+            "schedule": crontab(hour=18, minute=30),   # UTC 18:30 = MSK 21:30 (до вечернего parse)
+        },
+
+        # ─── Парсинг raw → tech_status (3 раза в день) ──
+        "parse-morning": {
             "task": "wb.sched.parse_raw",
-            "schedule": crontab(hour=19, minute=0),   # UTC 19:00 = MSK 22:00
+            "schedule": crontab(hour=6, minute=30),   # UTC 06:30 = MSK 09:30 (после утреннего сбора)
+        },
+        "parse-afternoon": {
+            "task": "wb.sched.parse_raw",
+            "schedule": crontab(hour=12, minute=30),   # UTC 12:30 = MSK 15:30 (после дневного сбора)
+        },
+        "parse-evening": {
+            "task": "wb.sched.parse_raw",
+            "schedule": crontab(hour=19, minute=0),   # UTC 19:00 = MSK 22:00 (после вечернего сбора)
         },
 
         # --- 23:00 MSK --- Snapshot tariffov dlya unitki ---

@@ -3923,6 +3923,7 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 .sidebar .user-block{position:absolute;bottom:0;left:0;right:0;padding:12px 20px;border-top:1px solid rgba(255,255,255,.1);font-size:.8em;color:rgba(255,255,255,.5)}
 .sidebar .user-block .logout-btn{color:#e74c3c;cursor:pointer;display:block;margin-top:6px}
 .sidebar .user-block .logout-btn:hover{color:#ff6b6b}
+.sidebar select option{background:#2d2d44;color:#fff}
 .main-area{margin-left:220px;flex:1;min-height:100vh;background:#f5f7fa}
 .top-bar{background:#fff;border-bottom:1px solid #e0e0e0;padding:10px 24px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
 .top-bar .page-title{font-size:1.1em;font-weight:600;color:#1a1a2e}
@@ -4063,7 +4064,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div class="user-block">
 <div id="user-email"></div>
 <div style="margin-top:4px">
-<select id="org-select" onchange="switchOrg()" style="width:100%;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:4px;padding:4px;font-size:.85em"></select>
+<select id="org-select" onchange="switchOrg()" style="width:100%;background:#2d2d44;color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:4px;padding:4px;font-size:.85em"></select>
 </div>
 <span class="logout-btn" onclick="doLogout()">Выйти</span>
 </div>
@@ -4072,7 +4073,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div class="top-bar">
 <span class="page-title" id="page-title">Основные показатели</span>
 <div class="filters" id="top-filters">
-<select id="filter-store" style="min-width:120px"><option>Все магазины</option></select>
+<select id="filter-store" onchange="switchTopStore()" style="min-width:160px;border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em"></select>
 <select id="filter-period"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option></select>
 <input type="text" id="filter-article" placeholder="Артикул" style="width:120px">
 </div>
@@ -6840,6 +6841,30 @@ async function loadOrgs() {
             promoSel.appendChild(opt);
         });
     }
+    // Sync analytics-store dropdown in Основные показатели
+    const anSel = document.getElementById("analytics-store");
+    if (anSel) {
+        anSel.innerHTML = "";
+        orgs.forEach(o => {
+            const opt = document.createElement("option");
+            opt.value = o.id;
+            opt.textContent = o.name + (o.wb_seller_id ? " (ID " + o.wb_seller_id + ")" : "");
+            if (o.id === ORG_ID) opt.selected = true;
+            anSel.appendChild(opt);
+        });
+    }
+    // Sync filter-store in top-bar
+    const fSel = document.getElementById("filter-store");
+    if (fSel) {
+        fSel.innerHTML = "";
+        orgs.forEach(o => {
+            const opt = document.createElement("option");
+            opt.value = o.id;
+            opt.textContent = o.name + (o.wb_seller_id ? " (ID " + o.wb_seller_id + ")" : "");
+            if (o.id === ORG_ID) opt.selected = true;
+            fSel.appendChild(opt);
+        });
+    }
 }
 
 async function switchOrg() {
@@ -6855,6 +6880,10 @@ async function switchOrg() {
     if (ueSel2) ueSel2.value = ORG_ID;
     const promoSel2 = document.getElementById('promo-store');
     if (promoSel2) promoSel2.value = ORG_ID;
+    const anSel2 = document.getElementById('analytics-store');
+    if (anSel2) anSel2.value = ORG_ID;
+    const fSel2 = document.getElementById('filter-store');
+    if (fSel2) fSel2.value = ORG_ID;
     showApp();
     // Reload current active tab data for new org
     var activeTab = document.querySelector('.page-section.active');
@@ -6867,6 +6896,7 @@ async function switchOrg() {
         else if (tabName === 'fboneeds') loadFboNeeds();
         else if (tabName === 'ads') loadAds();
         else if (tabName === 'extads') loadExtAds();
+        else if (tabName === 'analytics') loadAnalytics();
     }
 }
 
@@ -6906,6 +6936,56 @@ async function switchUEStore() {
     if (promoSel3) promoSel3.value = ORG_ID;
     history.replaceState(null, "", "/nl/v2?org=" + ORG_ID);
     loadUEData();
+}
+
+async function switchAnalyticsStore() {
+    const anSel = document.getElementById("analytics-store");
+    const newOrgId = anSel.value;
+    if (newOrgId === ORG_ID) return;
+    ORG_ID = newOrgId;
+    localStorage.setItem("nl_org_id", ORG_ID);
+    // Sync sidebar + cp-store + ue-store + promo-store
+    const sideSel = document.getElementById("org-select");
+    if (sideSel) sideSel.value = ORG_ID;
+    const cpSel = document.getElementById("cp-store");
+    if (cpSel) cpSel.value = ORG_ID;
+    const ueSel = document.getElementById("ue-store");
+    if (ueSel) ueSel.value = ORG_ID;
+    const promoSel = document.getElementById("promo-store");
+    if (promoSel) promoSel.value = ORG_ID;
+    const anSel2 = document.getElementById("analytics-store");
+    if (anSel2) anSel2.value = ORG_ID;
+    history.replaceState(null, "", "/nl/v2?org=" + ORG_ID);
+    loadAnalytics();
+}
+
+async function switchTopStore() {
+    const fSel = document.getElementById('filter-store');
+    const newOrgId = fSel.value;
+    if (newOrgId === ORG_ID) return;
+    ORG_ID = newOrgId;
+    localStorage.setItem('nl_org_id', ORG_ID);
+    // Sync all other selectors
+    const sideSel = document.getElementById('org-select');
+    if (sideSel) sideSel.value = ORG_ID;
+    const cpSel = document.getElementById('cp-store');
+    if (cpSel) cpSel.value = ORG_ID;
+    const ueSel = document.getElementById('ue-store');
+    if (ueSel) ueSel.value = ORG_ID;
+    const promoSel = document.getElementById('promo-store');
+    if (promoSel) promoSel.value = ORG_ID;
+    const anSel = document.getElementById('analytics-store');
+    if (anSel) anSel.value = ORG_ID;
+    history.replaceState(null, '', '/nl/v2?org=' + ORG_ID);
+    // Reload current tab data
+    var activeTab = document.querySelector('.page-section.active');
+    if (activeTab) {
+        var tabName = activeTab.id.replace('page-', '');
+        if (tabName === 'stats') loadStats();
+        else if (tabName === 'analytics') loadAnalytics();
+        else if (tabName === 'rnp') loadRnp();
+        else if (tabName === 'opiu') loadOpiu();
+    }
 }
 
 function showNewOrgDialog() {

@@ -509,9 +509,24 @@ def sched_parse_raw():
 
 
 async def _do_parse_raw(sf):
-    """Парсер raw → tech_status по entity_id (слот размера)"""
+    """
+    Парсер raw → tech_status по entity_id (слот размера).
+    
+    Логика:
+    - 9-дневное окно: обновляем сегодня + 8 предыдущих дней
+    - WB дописывает данные задним числом → полная замена, не инкремент
+    - Сток — моментальный срез за конкретный день, НЕ суммируется
+    - Все товары на каждый день (entity gap-fill)
+    - Все даты по МСК
+    """
 
     from services.entity_sync import find_entity_by_barcode, add_unmatched
+
+    msk = ZoneInfo("Europe/Moscow")
+    today_msk = datetime.now(msk).date()
+    # 9-дневное окно: сегодня + 8 дней назад
+    window_dates = [today_msk - timedelta(days=i) for i in range(9)]
+    window_dates_set = set(window_dates)
 
     # Получаем org_ids из raw_api_data
     async with sf() as db:
@@ -522,13 +537,15 @@ async def _do_parse_raw(sf):
 
     total = 0
     for org_id in org_ids:
-        logger.info(f"[parse_raw] processing org={org_id[:8]}")
+        logger.info(f"[parse_raw] processing org={org_id[:8]}, window={window_dates[-1]}..{window_dates[0]}")
+
+        # --- Маппинг entity_id по (nm_id, size_name) ---
         async with sf() as db:
             result = await db.execute(text("""
                 SELECT id, nm_id, size_name FROM product_entities WHERE organization_id = :org
             """), {"org": org_id})
             entity_by_nm_size = {}
-            nm_to_first_entity = {}  # fallback: nm_id → любой entity_id
+            nm_to_first_entity = {}
             for row in result.all():
                 eid = str(row[0])
                 nm = int(row[1])
@@ -547,7 +564,7 @@ async def _do_parse_raw(sf):
             for row in result.all():
                 entity_by_barcode[str(row[0])] = str(row[1])
 
-        # --- products (карточки) ---
+        # --- Products (карточки) — один раз ---
         async with sf() as db:
             result = await db.execute(text("""
                 SELECT raw_response FROM raw_api_data 
@@ -570,7 +587,7 @@ async def _do_parse_raw(sf):
                 for sz in (c.get("sizes") or []):
                     size_name = sz.get("techSizeName") or sz.get("techSize") or "ONE SIZE"
                     entity_id = entity_by_nm_size.get((int(nm), size_name))
-                    key = entity_id or int(nm)  # fallback на nm_id если entity ещё нет
+                    key = entity_id or int(nm)
                     if key not in product_map:
                         product_map[key] = {
                             "name": c.get("title", ""),
@@ -580,9 +597,11 @@ async def _do_parse_raw(sf):
                             "entity_id": entity_id,
                             "vendor_code": c.get("vendorCode", "") or "",
                             "barcodes": [bc for sz_inner in (c.get("sizes") or []) for bc in (sz_inner.get("skus") or [])],
+                            "rating": float(c.get("reviewRating", 0) or 0),
                         }
 
         logger.info(f"[parse_raw] org={org_id[:8]}: product_map built with {len(product_map)} entries")
+
         # --- Fallback: подтянуть vendor_code из product_entities ---
         for k, v in product_map.items():
             if not v.get('vendor_code'):
@@ -617,11 +636,10 @@ async def _do_parse_raw(sf):
                             v['barcodes'] = [row[0]]
 
         # --- Fallback: подтянуть фото из product_entities ---
-        keys_without_photo = [k for k, v in product_map.items() if not v.get('photo')]
-        if keys_without_photo:
-            for k in keys_without_photo:
-                eid = product_map[k].get('entity_id')
-                nm = product_map[k].get('nm_id')
+        for k, v in product_map.items():
+            if not v.get('photo'):
+                eid = v.get('entity_id')
+                nm = v.get('nm_id')
                 async with sf() as db:
                     if eid:
                         result = await db.execute(text(
@@ -637,15 +655,18 @@ async def _do_parse_raw(sf):
                     if row and row[0]:
                         product_map[k]['photo'] = row[0]
 
-        # --- orders (по entity_id) ---
+        # --- Orders — за все дни из окна ---
         async with sf() as db:
             result = await db.execute(text("""
                 SELECT target_date, raw_response FROM raw_api_data 
                 WHERE api_method = 'orders' AND status = 'ok' AND organization_id = :org
-            """), {"org": org_id})
+                AND target_date >= :start_date
+            """), {"org": org_id, "start_date": window_dates[-1]})
             orders_rows = result.all()
 
         orders_map = {}  # key = (date, entity_id)
+        seen_srids = set()  # дедупликация по srid (WB дублирует заказы в разных raw)
+        from datetime import datetime as _dt_parse
         for orow in orders_rows:
             td, resp = orow
             ords = resp if isinstance(resp, list) else []
@@ -658,20 +679,34 @@ async def _do_parse_raw(sf):
                 if not nm:
                     continue
                 nm = int(nm)
-                # Ищем entity_id: сначала по barcode, потом по (nm, size)
                 entity_id = entity_by_barcode.get(barcode) if barcode else None
                 if not entity_id and tech_size:
                     entity_id = entity_by_nm_size.get((nm, tech_size))
                 if not entity_id:
-                    # Фоллбэк: берём первую сущность для этого nm_id
                     entity_id = nm_to_first_entity.get(nm)
 
-                key = (td, entity_id or nm)
+                # Дедупликация по srid (WB дублирует один заказ в разных raw ответах)
+                srid = str(o.get("srid", "") or "")
+                if srid and srid in seen_srids:
+                    continue
+                if srid:
+                    seen_srids.add(srid)
+
+                # Используем РЕАЛЬНУЮ дату заказа, а не target_date из raw_api_data
+                order_date_str = o.get("date", "")[:10]  # "2026-05-25T09:18:58" -> "2026-05-25"
+                try:
+                    order_date = date.fromisoformat(order_date_str) if order_date_str else td
+                except ValueError:
+                    order_date = td
+                # Только если дата в окне
+                if order_date not in window_dates_set:
+                    continue
+
+                key = (order_date, entity_id or nm)
                 if key not in orders_map:
                     orders_map[key] = {"count": 0, "revenue": 0, "vendor_code": "", "barcode": barcode, "entity_id": entity_id, "nm_id": nm, "price": 0, "price_discount": 0}
                 orders_map[key]["count"] += 1
                 orders_map[key]["revenue"] += float(o.get("totalPrice") or o.get("price") or 0)
-                # Собираем цены — берём последнюю ненулевую
                 tp = float(o.get("totalPrice") or 0)
                 pd = float(o.get("priceWithDisc") or 0)
                 if tp > 0:
@@ -680,19 +715,20 @@ async def _do_parse_raw(sf):
                     orders_map[key]["price_discount"] = pd
                 if not orders_map[key]["vendor_code"]:
                     orders_map[key]["vendor_code"] = str(o.get("supplierArticle", "") or "")
-                # Если нашли entity_id позже — обновляем
                 if entity_id and not orders_map[key]["entity_id"]:
                     orders_map[key]["entity_id"] = entity_id
 
-        # --- sales (по entity_id) ---
+        # --- Sales — за все дни из окна ---
         async with sf() as db:
             result = await db.execute(text("""
                 SELECT target_date, raw_response FROM raw_api_data 
                 WHERE api_method = 'sales' AND status = 'ok' AND organization_id = :org
-            """), {"org": org_id})
+                AND target_date >= :start_date
+            """), {"org": org_id, "start_date": window_dates[-1]})
             sales_rows = result.all()
 
         sales_map = {}  # key = (date, entity_id)
+        seen_sale_ids = set()  # дедупликация по saleID
         for srow in sales_rows:
             td, resp = srow
             sls = resp if isinstance(resp, list) else []
@@ -701,7 +737,7 @@ async def _do_parse_raw(sf):
                     continue
                 nm = s.get("nmId") or s.get("nm_id")
                 barcode = str(s.get("barcode", "") or "")
-                tech_size = str(s.get("techSize", "") or "")
+                tech_size = str(s.get("techSize", "") or "")  # баг: было o.get вместо s.get
                 if not nm:
                     continue
                 nm = int(nm)
@@ -709,15 +745,29 @@ async def _do_parse_raw(sf):
                 if not entity_id and tech_size:
                     entity_id = entity_by_nm_size.get((nm, tech_size))
                 if not entity_id:
-                    # Фоллбэк: берём первую сущность для этого nm_id
                     entity_id = nm_to_first_entity.get(nm)
 
-                key = (td, entity_id or nm)
+                # Дедупликация по saleID
+                sale_id = str(s.get("saleID", "") or "")
+                if sale_id and sale_id in seen_sale_ids:
+                    continue
+                if sale_id:
+                    seen_sale_ids.add(sale_id)
+
+                # Используем РЕАЛЬНУЮ дату продажи
+                sale_date_str = s.get("date", "")[:10]
+                try:
+                    sale_date = date.fromisoformat(sale_date_str) if sale_date_str else td
+                except ValueError:
+                    sale_date = td
+                if sale_date not in window_dates_set:
+                    continue
+
+                key = (sale_date, entity_id or nm)
                 if key not in sales_map:
                     sales_map[key] = {"buyouts": 0, "returns": 0, "revenue": 0, "entity_id": entity_id, "nm_id": nm, "price": 0, "price_discount": 0}
                 sale_id = str(s.get("saleID", "") or "")
                 price = float(s.get("forPay") or s.get("totalPrice") or 0)
-                # Собираем цены из sales
                 tp = float(s.get("totalPrice") or 0)
                 pd = float(s.get("priceWithDisc") or 0)
                 if tp > 0:
@@ -733,18 +783,21 @@ async def _do_parse_raw(sf):
                 if entity_id and not sales_map[key]["entity_id"]:
                     sales_map[key]["entity_id"] = entity_id
 
-        # --- stocks (по entity_id) ---
+        # --- Stocks — ПО КАЖДЫЙ ДЕНЬ отдельно! ---
+        stocks_by_date = {}  # key = date -> {entity_id: {qty, warehouses}}
         async with sf() as db:
             result = await db.execute(text("""
-                SELECT raw_response FROM raw_api_data 
+                SELECT target_date, raw_response FROM raw_api_data 
                 WHERE api_method = 'stocks' AND status = 'ok' AND organization_id = :org
-                ORDER BY fetched_at DESC LIMIT 1
-            """), {"org": org_id})
-            stocks_row = result.first()
+                AND target_date >= :start_date
+                ORDER BY target_date
+            """), {"org": org_id, "start_date": window_dates[-1]})
+            stocks_rows = result.all()
 
-        stock_map = {}  # key = entity_id или nm_id
-        if stocks_row and stocks_row[0]:
-            stks = stocks_row[0] if isinstance(stocks_row[0], list) else []
+        for srow in stocks_rows:
+            td, resp = srow
+            stock_map = {}
+            stks = resp if isinstance(resp, list) else []
             for st in stks:
                 if not isinstance(st, dict):
                     continue
@@ -755,7 +808,6 @@ async def _do_parse_raw(sf):
                 nm = int(nm)
                 entity_id = entity_by_barcode.get(barcode) if barcode else None
                 if not entity_id:
-                    # Фоллбэк: берём первую сущность для этого nm_id
                     entity_id = nm_to_first_entity.get(nm)
 
                 key = entity_id or nm
@@ -765,8 +817,9 @@ async def _do_parse_raw(sf):
                 wh = st.get("warehouseName", st.get("warehouse_name", ""))
                 if wh:
                     stock_map[key]["warehouses"].add(wh)
+            stocks_by_date[td] = stock_map
 
-        # --- Цены из tariff_snapshot (для товаров без orders/sales) ---
+        # --- Цены из tariff_snapshot (fallback) ---
         async with sf() as db:
             price_result = await db.execute(text("""
                 SELECT DISTINCT ON (nm_id) nm_id, price_retail, price_with_spp
@@ -776,70 +829,151 @@ async def _do_parse_raw(sf):
             """), {"org": org_id})
             tariff_prices = {r[0]: {"price": float(r[1]) if r[1] else 0, "price_spp": float(r[2]) if r[2] else 0} for r in price_result.all()}
 
-        # --- Собираем уникальные ключи ---
-        all_keys = set(orders_map.keys()) | set(sales_map.keys())
-        all_entity_or_nm = set()
-        for k in all_keys:
-            all_entity_or_nm.add(k[1])  # entity_id или nm_id
-        for k in stock_map.keys():
-            all_entity_or_nm.add(k)
-        for k in product_map.keys():
-            all_entity_or_nm.add(k)
-
-        today = datetime.now(ZoneInfo("Europe/Moscow")).date()  # МСК
-        # Добавляем ключи для entities без продаж/заказов
-        for (nm, sz), eid in entity_by_nm_size.items():
-            if eid not in all_entity_or_nm and nm not in all_entity_or_nm:
-                all_entity_or_nm.add(eid)
-
-        logger.info(f"[parse_raw] org={org_id[:8]}: starting upsert, all_entity_or_nm={len(all_entity_or_nm)}, all_keys={len(all_keys)}")
-        # --- Upsert в tech_status ---
-        for key in all_entity_or_nm:
-            pinfo = product_map.get(key, {})
-            nm_from_pinfo = pinfo.get("nm_id", None)
-            entity_from_pinfo = pinfo.get("entity_id", None)
-
-            # Определяем entity_id и nm_id
-            if entity_from_pinfo:
-                e_id = entity_from_pinfo
-                n_id = nm_from_pinfo
-            elif key in entity_by_nm_size.values():
-                # key это entity_id
-                e_id = key
-                # Найдём nm_id по entity_id
-                n_id = None
-                for (nm, sz), eid in entity_by_nm_size.items():
-                    if eid == key:
-                        n_id = nm
-                        break
-            else:
-                # Фоллбэк — key это nm_id, entity_id неизвестен
-                e_id = None
-                n_id = key if isinstance(key, int) else None
-
-            # Собираем данные по всем дням для этого entity/nm
-            for td, ek in all_keys:
-                if ek != key:
+        # --- Цены из prices raw (последний синк, точнее tariff_snapshot) ---
+        async with sf() as db:
+            result = await db.execute(text("""
+                SELECT raw_response FROM raw_api_data 
+                WHERE api_method = 'prices' AND status = 'ok' AND organization_id = :org
+                ORDER BY fetched_at DESC LIMIT 1
+            """), {"org": org_id})
+            prices_row = result.first()
+        
+        prices_by_nm = {}
+        if prices_row and prices_row[0]:
+            items = prices_row[0] if isinstance(prices_row[0], list) else []
+            for item in items:
+                if not isinstance(item, dict):
                     continue
-                oinfo = orders_map.get((td, key), {})
-                sinfo = sales_map.get((td, key), {})
-                skinfo = stock_map.get(key, {})
+                nm = item.get("nmID") or item.get("nmId") or item.get("nm_id")
+                if not nm:
+                    continue
+                for sz in (item.get("sizes") or []):
+                    prices_by_nm[int(nm)] = {
+                        "price": float(sz.get("price", 0) or 0) / 100,  # копейки → рубли
+                        "price_discount": float(sz.get("discountedPrice", 0) or 0) / 100,
+                        "price_spp": float(sz.get("clubDiscountedPrice", 0) or 0) / 100,
+                    }
+
+        # --- Sales Funnel: показы/клики по nm_id за каждый день ---
+        # Формат WB: [{product: {nmId, title, ...}, statistic: {past: {openCount, cartCount, ...}}}]
+        funnel_map = {}  # key = (date, nm_id) -> {impressions, clicks}
+        async with sf() as db:
+            result = await db.execute(text("""
+                SELECT raw_response FROM raw_api_data
+                WHERE api_method = 'sales_funnel' AND status = 'ok' AND organization_id = :org
+                ORDER BY fetched_at DESC LIMIT 1
+            """), {"org": org_id})
+            funnel_row = result.first()
+
+        if funnel_row and funnel_row[0]:
+            funnel_data = funnel_row[0] if isinstance(funnel_row[0], list) else []
+            n_days = len(window_dates)
+            for fp in funnel_data:
+                if not isinstance(fp, dict):
+                    continue
+                # nm_id внутри product.nmId
+                prod = fp.get("product") or {}
+                nm = prod.get("nmId") or prod.get("nmID") or prod.get("nm_id")
+                if not nm:
+                    continue
+                # Статистика внутри statistic.past
+                stat = (fp.get("statistic") or {}).get("past") or {}
+                impressions_total = int(stat.get("openCount", 0) or 0)   # показы карточки
+                clicks_total = int(stat.get("cartCount", 0) or 0)        # добавления в корзину ~ клики
+                for td in window_dates:
+                    funnel_map[(td, int(nm))] = {
+                        "impressions": impressions_total // n_days,
+                        "clicks": clicks_total // n_days,
+                    }
+            logger.info(f"[parse_raw] org={org_id[:8]}: sales_funnel products={len(funnel_data)}, funnel_map_keys={len(funnel_map)}")
+
+        # --- Ad Stats: расходы по кампаниям за каждый день ---
+        # Распределяем расходы пропорционально заказам (из tech_status)
+        ad_cost_by_date = {}  # date -> total spent
+        async with sf() as db:
+            result = await db.execute(text("""
+                SELECT stat_date, SUM(spent) as total_spent
+                FROM ad_stats
+                WHERE organization_id = :org AND stat_date >= :start_date
+                GROUP BY stat_date
+            """), {"org": org_id, "start_date": window_dates[-1]})
+            for r in result.all():
+                ad_cost_by_date[r[0]] = float(r[1]) if r[1] else 0
+
+        logger.info(f"[parse_raw] org={org_id[:8]}: ad_cost_by_date={len(ad_cost_by_date)}")
+
+        # ============================================================
+        # --- Upsert: перебираем ВСЕ entity × ВСЕ даты из окна ---
+        # ============================================================
+        
+        # Собираем все entity_id
+        all_entities = set()
+        for (nm, sz), eid in entity_by_nm_size.items():
+            all_entities.add(eid)
+
+        # Pre-pass: суммарные заказы за каждый день (для пропорционального распределения ad_cost)
+        total_orders_by_date = {}
+        for td in window_dates:
+            day_total = 0
+            for ek in all_entities:
+                day_total += orders_map.get((td, ek), {}).get("count", 0)
+            total_orders_by_date[td] = day_total
+
+        logger.info(f"[parse_raw] org={org_id[:8]}: dates={len(window_dates)}, entities={len(all_entities)}, orders_keys={len(orders_map)}, sales_keys={len(sales_map)}, stocks_dates={len(stocks_by_date)}")
+
+        for target_date in window_dates:
+            date_stock = stocks_by_date.get(target_date, {})
+            
+            for entity_key in all_entities:
+                pinfo = product_map.get(entity_key, {})
+                nm_from_pinfo = pinfo.get("nm_id", None)
+                entity_from_pinfo = pinfo.get("entity_id", None)
+
+                e_id = entity_from_pinfo or entity_key
+                n_id = nm_from_pinfo
+                if not n_id:
+                    for (nm, sz), eid in entity_by_nm_size.items():
+                        if eid == entity_key:
+                            n_id = nm
+                            break
+
+                # Данные за конкретную дату
+                oinfo = orders_map.get((target_date, entity_key), {})
+                sinfo = sales_map.get((target_date, entity_key), {})
+                skinfo = date_stock.get(entity_key, {})
+
+                # Цены: приоритет sales > orders > prices raw > tariff_snapshot
+                _tp = tariff_prices.get(n_id, {}) if n_id else {}
+                _wp = prices_by_nm.get(n_id, {}) if n_id else {}
+                _price = sinfo.get("price", 0) or oinfo.get("price", 0) or _wp.get("price", 0) or _tp.get("price", 0)
+                _price_discount = sinfo.get("price_discount", 0) or oinfo.get("price_discount", 0) or _wp.get("price_discount", 0) or _tp.get("price_spp", 0)
+                _price_spp = _wp.get("price_spp", 0) or _tp.get("price_spp", 0)
+
+                # Impressions/clicks из sales_funnel (по nm_id)
+                _funnel = funnel_map.get((target_date, n_id), {}) if n_id else {}
+                _impressions = _funnel.get("impressions", 0)
+                _clicks = _funnel.get("clicks", 0)
+
+                # Расходы: пропорционально заказам товара относительно всех заказов за день
+                _date_ad_total = ad_cost_by_date.get(target_date, 0)
+                _day_total_orders = total_orders_by_date.get(target_date, 0)
+                _entity_orders = oinfo.get("count", 0)
+                if _date_ad_total > 0 and _day_total_orders > 0 and _entity_orders > 0:
+                    _ad_cost = round(_date_ad_total * _entity_orders / _day_total_orders, 2)
+                else:
+                    _ad_cost = 0
 
                 async with sf() as db:
-                    # Определяем цену: приоритет sales, затем orders, затем tariff_snapshot
-                    _tariff_price = tariff_prices.get(n_id, {}) if n_id else {}
-                    _price = sinfo.get("price", 0) or oinfo.get("price", 0) or _tariff_price.get("price", 0)
-                    _price_discount = sinfo.get("price_discount", 0) or oinfo.get("price_discount", 0) or _tariff_price.get("price_spp", 0)
                     ins = pg_insert(TechStatus)
                     stmt = ins.values(
                         id=uuid.uuid4(),
                         organization_id=org_id,
-                        target_date=td,
+                        target_date=target_date,
                         nm_id=n_id,
                         entity_id=e_id,
                         product_name=pinfo.get("name", ""),
                         vendor_code=oinfo.get("vendor_code", "") or pinfo.get("vendor_code", ""),
-                        barcode=oinfo.get("barcode", "") or pinfo.get("barcodes", [""])[0] if pinfo.get("barcodes") else "",
+                        barcode=oinfo.get("barcode", "") or (pinfo.get("barcodes", [""])[0] if pinfo.get("barcodes") else ""),
                         photo_main=pinfo.get("photo", ""),
                         orders_count=oinfo.get("count", 0),
                         buyouts_count=sinfo.get("buyouts", 0),
@@ -848,7 +982,11 @@ async def _do_parse_raw(sf):
                         warehouse_name=", ".join(skinfo.get("warehouses", set())) if skinfo.get("warehouses") else None,
                         price=_price if _price else None,
                         price_discount=_price_discount if _price_discount else None,
-                        price_spp=_price_discount if _price_discount else None,
+                        price_spp=_price_spp if _price_spp else None,
+                        rating=pinfo.get("rating", None),
+                        impressions=_impressions if _impressions else None,
+                        clicks=_clicks if _clicks else None,
+                        ad_cost=_ad_cost if _ad_cost else None,
                         row_status="active",
                         is_final="no",
                         last_sync_at=datetime.utcnow(),
@@ -869,6 +1007,10 @@ async def _do_parse_raw(sf):
                             "price": ins.excluded.price,
                             "price_discount": ins.excluded.price_discount,
                             "price_spp": ins.excluded.price_spp,
+                            "rating": ins.excluded.rating,
+                            "impressions": ins.excluded.impressions,
+                            "clicks": ins.excluded.clicks,
+                            "ad_cost": ins.excluded.ad_cost,
                             "last_sync_at": datetime.utcnow(),
                             "updated_at": datetime.utcnow(),
                         }
@@ -879,133 +1021,11 @@ async def _do_parse_raw(sf):
                         total += 1
                     except Exception as exc:
                         await db.rollback()
-                        logger.error(f"[parse_raw] upsert error for entity={e_id}, nm={n_id}, date={td}: {exc}")
+                        logger.error(f"[parse_raw] upsert error entity={e_id}, nm={n_id}, date={target_date}: {exc}")
 
-    # --- Товары без активности: создаём записи на today с нулями ---
-    entities_with_data = set()
-    for td, ek in all_keys:
-        entities_with_data.add(ek)
-    no_activity_count = sum(1 for k in all_entity_or_nm if k not in entities_with_data)
-    logger.info(f"[parse_raw] org={org_id[:8]}: no-activity items={no_activity_count}, entities_with_data={len(entities_with_data)}")
-    logger.info(f"[parse_raw] org={org_id[:8]}: product_map={len(product_map)}, all_keys={len(all_keys)}, all_entity_or_nm={len(all_entity_or_nm)}, entities_with_data={len(entities_with_data)}")
-    
-    for key in all_entity_or_nm:
-        if key in entities_with_data:
-            continue  # уже обработан выше
-        
-        pinfo = product_map.get(key, {})
-        nm_from_pinfo = pinfo.get("nm_id", None)
-        entity_from_pinfo = pinfo.get("entity_id", None)
-        
-        if entity_from_pinfo:
-            e_id = entity_from_pinfo
-            n_id = nm_from_pinfo
-        elif key in entity_by_nm_size.values():
-            e_id = key
-            n_id = None
-            for (nm, sz), eid in entity_by_nm_size.items():
-                if eid == key:
-                    n_id = nm
-                    break
-        else:
-            e_id = None
-            n_id = key if isinstance(key, int) else None
-
-        # Цены из tariff_snapshot для товаров без активности
-        _tp = tariff_prices.get(n_id, {}) if n_id else {}
-        _tp_price = _tp.get("price", 0)
-        _tp_spp = _tp.get("price_spp", 0)
-        
-        async with sf() as db:
-            ins = pg_insert(TechStatus)
-            stmt = ins.values(
-                id=uuid.uuid4(),
-                organization_id=org_id,
-                target_date=today,
-                nm_id=n_id,
-                entity_id=e_id,
-                product_name=pinfo.get("name", ""),
-                vendor_code=pinfo.get("vendor_code", ""),
-                barcode=pinfo.get("barcodes", [""])[0] if pinfo.get("barcodes") else "",
-                photo_main=pinfo.get("photo", ""),
-                price=_tp_price if _tp_price else None,
-                price_discount=_tp_spp if _tp_spp else None,
-                price_spp=_tp_spp if _tp_spp else None,
-                orders_count=0,
-                buyouts_count=0,
-                returns_count=0,
-                stock_qty=0,
-                warehouse_name=None,
-                row_status="active",
-                is_final="no",
-                last_sync_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
-            ).on_conflict_do_update(
-                constraint="tech_status_org_date_entity_key",
-                set_={
-                    "product_name": ins.excluded.product_name,
-                    "vendor_code": ins.excluded.vendor_code,
-                    "barcode": ins.excluded.barcode,
-                    "photo_main": ins.excluded.photo_main,
-                    "nm_id": ins.excluded.nm_id,
-                    "price": ins.excluded.price,
-                    "price_discount": ins.excluded.price_discount,
-                    "price_spp": ins.excluded.price_spp,
-                    "last_sync_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow(),
-                }
-            )
-            try:
-                await db.execute(stmt)
-                await db.commit()
-                total += 1
-            except Exception as exc:
-                await db.rollback()
-                logger.error(f"[parse_raw] upsert no-activity error for entity={e_id}, nm={n_id}: {exc}")
-
-
-
-    # === Gap-fill: добавить entity_id из product_entities, отсутствующих в tech_status за today ===
-    for org_id in org_ids:
-        try:
-            async with sf() as db:
-                result = await db.execute(text("""
-                    INSERT INTO tech_status (id, organization_id, target_date, nm_id, entity_id, product_name, vendor_code, barcode, photo_main, stock_qty, orders_count, buyouts_count, returns_count, ad_cost, row_status, is_final, updated_at)
-                    SELECT 
-                      gen_random_uuid(),
-                      pe.organization_id,
-                      :today::date,
-                      pe.nm_id,
-                      pe.id,
-                      pe.product_name,
-                      pe.vendor_code,
-                      (SELECT eb.barcode FROM entity_barcodes eb WHERE eb.entity_id = pe.id AND eb.is_active = true LIMIT 1),
-                      pe.photo_main,
-                      0, 0, 0, 0, 0, active, no, NOW()
-                    FROM product_entities pe
-                    WHERE pe.organization_id = :org
-                    AND NOT EXISTS (
-                      SELECT 1 FROM tech_status ts 
-                      WHERE ts.organization_id = pe.organization_id 
-                      AND ts.target_date = :today 
-                      AND ts.entity_id = pe.id
-                    )
-                    ON CONFLICT (organization_id, target_date, entity_id) DO UPDATE SET
-                      product_name = COALESCE(EXCLUDED.product_name, tech_status.product_name),
-                      vendor_code = COALESCE(EXCLUDED.vendor_code, tech_status.vendor_code),
-                      photo_main = COALESCE(EXCLUDED.photo_main, tech_status.photo_main),
-                      updated_at = NOW()
-                """), {"org": org_id, "today": today})
-                gap_filled = result.rowcount
-                await db.commit()
-                if gap_filled:
-                    logger.info(f"[parse_raw] gap-fill: added {gap_filled} missing entities for org={org_id[:8]} date={today}")
-                    total += gap_filled
-        except Exception as exc:
-            logger.error(f"[parse_raw] gap-fill error for org={org_id[:8]}: {exc}")
-
-    logger.info(f"[sched] parse_raw: {total} records")
+    logger.info(f"[sched] parse_raw: {total} records upserted across {len(window_dates)} dates for {len(org_ids)} orgs")
     return {"parsed": total}
+
 
 # ─── ПОДТЯЖКА ФОТО ────────────────────────────────────────
 
@@ -1354,6 +1374,47 @@ async def _do_tariff_snapshot(sf):
 
         except Exception as e:
             logger.error(f"[sched] error org={org_id}: {e}")
+            results[org_id[:8]] = {"status": "error", "error": str(e)}
+
+    return results
+
+
+# ─── SALES FUNNEL — Показы/клики по товарам ─────────────
+
+@shared_task(name="wb.sched.sales_funnel")
+def sched_sales_funnel():
+    """Показы/клики/корзина/заказы по товарам из sales-funnel API"""
+    return _run(_do_sales_funnel)
+
+
+async def _do_sales_funnel(sf):
+    """Собирает sales-funnel/products за 9 дней и сохраняет в raw_api_data"""
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
+        return {"status": "skipped", "reason": "no_keys"}
+
+    msk = ZoneInfo("Europe/Moscow")
+    today_msk = datetime.now(msk).date()
+    from_date = (today_msk - timedelta(days=8)).isoformat()  # 9 дней
+    to_date = today_msk.isoformat()
+
+    results = {}
+    for org_id, api_key in all_keys:
+        try:
+            async with WBApiClient(api_key) as client:
+                funnel = await client.get_sales_funnel_products(
+                    date_from=from_date,
+                    date_to=to_date,
+                )
+                count = len(funnel) if isinstance(funnel, list) else 0
+
+                async with sf() as db:
+                    await _save_raw(db, org_id, "sales_funnel", today_msk, funnel, count=count)
+
+                logger.info(f"[sales_funnel] org={org_id[:8]}: {count} products")
+                results[org_id[:8]] = {"status": "ok", "count": count}
+        except Exception as e:
+            logger.error(f"[sales_funnel] error org={org_id[:8]}: {e}")
             results[org_id[:8]] = {"status": "error", "error": str(e)}
 
     return results
