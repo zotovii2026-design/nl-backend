@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, String, DateTime, func, ForeignKey, Text, Numeric
+from sqlalchemy import Column, String, Integer, DateTime, func, ForeignKey, Text, Numeric
 from sqlalchemy.dialects.postgresql import UUID, ENUM
 from sqlalchemy.orm import relationship
 from core.database import Base
@@ -44,7 +44,7 @@ class Organization(Base):
     description = Column(Text, nullable=True)
     subscription_tier = Column(ENUM(SubscriptionTier), default=SubscriptionTier.TRIAL)
     subscription_status = Column(ENUM(SubscriptionStatus), default=SubscriptionStatus.ACTIVE)
-    wb_seller_id = Column(String(20), nullable=True)  # ID магазина WB (oid из JWT)
+    wb_seller_id = Column(Integer, nullable=True)  # ID магазина WB (oid из JWT)
 
     # === НАЛОГОВЫЕ НАСТРОЙКИ (на весь кабинет) ===
     tax_system = Column(String(50), nullable=True)    # УСН Доходы / УСН Доходы-Расходы / ОСНО / АУСН Доходы / АУСН Доходы-Расходы

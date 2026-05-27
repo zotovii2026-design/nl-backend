@@ -322,6 +322,80 @@ async def nl_create_org(data: dict, token: str = Query(""), db: AsyncSession = D
     return {"id": str(org.id), "name": org.name}
 
 
+@router.post("/api/v1/nl/connect-wb")
+async def nl_connect_wb(data: dict, token: str = Query(""), db: AsyncSession = Depends(get_db)):
+    """Подключить новый магазин WB: создать организацию + ключ + membership"""
+    import base64, json as _json
+    from models.organization import Organization, Membership, WbApiKey, Role, SubscriptionTier, SubscriptionStatus
+    from core.security import encrypt_data
+    
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(401, "Не авторизован")
+    user_id = payload.get("sub")
+    
+    name = data.get("name", "").strip()
+    api_key = data.get("api_key", "").strip()
+    
+    if not api_key:
+        raise HTTPException(400, "API ключ обязателен")
+    if not name:
+        name = "Новый магазин"
+    
+    # Parse JWT to extract seller_id (oid) as integer
+    oid = None
+    try:
+        parts = api_key.split(".")
+        if len(parts) >= 2:
+            payload_b64 = parts[1] + "=" * (4 - len(parts[1]) % 4)
+            payload_json = base64.urlsafe_b64decode(payload_b64)
+            payload_data = _json.loads(payload_json)
+            oid_val = payload_data.get("oid")
+            if oid_val is not None:
+                oid = int(oid_val)
+    except Exception:
+        pass
+    
+    # Check if org with this seller_id already exists for this user
+    if oid:
+        result = await db.execute(
+            select(Organization, Membership)
+            .join(Membership, Membership.organization_id == Organization.id)
+            .where(Organization.wb_seller_id == oid, Membership.user_id == user_id)
+        )
+        existing = result.first()
+        if existing:
+            raise HTTPException(400, f"Магазин с seller_id {oid} уже подключен ({existing[0].name})")
+    
+    # Create organization
+    org = Organization(
+        name=name,
+        wb_seller_id=oid,
+        subscription_tier=SubscriptionTier.TRIAL,
+        subscription_status=SubscriptionStatus.ACTIVE
+    )
+    db.add(org)
+    await db.flush()
+    
+    # Create membership (OWNER)
+    membership = Membership(user_id=user_id, organization_id=org.id, role=Role.OWNER)
+    db.add(membership)
+    
+    # Create WB API key (encrypted)
+    encrypted = encrypt_data(api_key)
+    wb_key = WbApiKey(organization_id=org.id, name=name, personal_token=encrypted, api_key="unused")
+    db.add(wb_key)
+    
+    await db.commit()
+    
+    return {
+        "status": "ok",
+        "org_id": str(org.id),
+        "name": org.name,
+        "wb_seller_id": oid,
+        "key_id": str(wb_key.id)
+    }
+
 
 @router.get("/api/v1/nl/tax-settings")
 async def get_tax_settings(org_id: str, db: AsyncSession = Depends(get_db)):
@@ -3552,6 +3626,174 @@ async def sync_promo_api(org_id: str = None, db: AsyncSession = Depends(get_db))
 
 
 
+
+@router.get("/api/v1/nl/profile")
+async def nl_profile(token: str = Query(""), db: AsyncSession = Depends(get_db)):
+    """Профиль текущего пользователя + список магазинов (быстро, без подсчётов)"""
+    from models.organization import Membership, Organization, WbApiKey
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(401, "Не авторизован")
+    user_id = payload.get("sub")
+    
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(401, "Пользователь не найден")
+    
+    result = await db.execute(
+        select(Membership, Organization)
+        .join(Organization, Membership.organization_id == Organization.id)
+        .where(Membership.user_id == user_id)
+    )
+    rows = result.all()
+    
+    shops = []
+    for m, o in rows:
+        keys_result = await db.execute(
+            select(WbApiKey).where(WbApiKey.organization_id == o.id)
+        )
+        keys = keys_result.scalars().all()
+        
+        keys_info = [{"id": str(k.id), "name": k.name, "created_at": str(k.created_at)[:10] if k.created_at else ""} for k in keys]
+        
+        shops.append({
+            "id": str(o.id),
+            "name": o.name,
+            "wb_seller_id": o.wb_seller_id,
+            "role": m.role.value if hasattr(m.role, "value") else str(m.role),
+            "keys": keys_info,
+            "keys_count": len(keys),
+        })
+    
+    return {"email": user.email, "is_superuser": user.is_superuser or False, "shops": shops, "shops_count": len(shops)}
+
+
+@router.post("/api/v1/nl/verify-wb-key")
+async def nl_verify_wb_key(data: dict, token: str = Query(""), db: AsyncSession = Depends(get_db)):
+    """Проверить работает ли WB API ключ магазина — реальный запрос к WB"""
+    import httpx
+    from core.security import decrypt_data
+    
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(401, "Не авторизован")
+    
+    org_id = data.get("org_id", "").strip()
+    if not org_id:
+        raise HTTPException(400, "org_id обязателен")
+    
+    # Get first active key for this org
+    from models.organization import WbApiKey
+    result = await db.execute(
+        select(WbApiKey).where(WbApiKey.organization_id == org_id)
+    )
+    keys = result.scalars().all()
+    
+    if not keys:
+        return {"status": "error", "message": "Нет API ключей", "products_count": 0}
+    
+    # Decrypt and try WB API
+    for key in keys:
+        try:
+            api_token = decrypt_data(key.personal_token)
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(
+                    "https://content-api.wildberries.ru/content/v2/get/cards/list",
+                    headers={"Authorization": api_token},
+                    json={"settings": {"cursor": {"limit": 1}, "filter": {"withPhoto": -1}}}
+                )
+                if r.status_code == 200:
+                    body = r.json()
+                    cards = body.get("cards", [])
+                    total = 0
+                    try:
+                        from models.product_entity import ProductEntity
+                        from sqlalchemy import func as sqlfunc
+                        result2 = await db.execute(
+                            select(sqlfunc.count(ProductEntity.id)).where(ProductEntity.organization_id == org_id)
+                        )
+                        row = result2.first()
+                        if row:
+                            total = row[0]
+                    except Exception:
+                        pass
+                    
+                    return {
+                        "status": "ok",
+                        "message": "Ключ работает",
+                        "key_name": key.name,
+                        "products_count": total,
+                        "wb_response": "200 OK"
+                    }
+                elif r.status_code == 401:
+                    return {"status": "error", "message": "Ключ не авторизован (401)", "key_name": key.name, "products_count": 0}
+                elif r.status_code == 429:
+                    return {"status": "warn", "message": "Слишком много запросов (429), попробуйте позже", "key_name": key.name, "products_count": 0}
+                else:
+                    return {"status": "error", "message": f"Ошибка WB: {r.status_code}", "key_name": key.name, "products_count": 0}
+        except Exception as e:
+            return {"status": "error", "message": f"Ошибка: {str(e)[:100]}", "products_count": 0}
+    
+    return {"status": "error", "message": "Не удалось проверить", "products_count": 0}
+
+
+@router.post("/api/v1/nl/invite")
+async def nl_invite(data: dict, token: str = Query(""), db: AsyncSession = Depends(get_db)):
+    """Пригласить коллегу в организацию"""
+    from models.organization import Membership, Role
+    import secrets
+    
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(401, "Не авторизован")
+    user_id = payload.get("sub")
+    
+    org_id = data.get("org_id", "").strip()
+    email = data.get("email", "").strip().lower()
+    role_str = data.get("role", "VIEWER").upper()
+    
+    if not org_id or not email:
+        raise HTTPException(400, "org_id и email обязательны")
+    
+    # Check inviter is ADMIN+ in this org
+    result = await db.execute(
+        select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.organization_id == org_id
+        )
+    )
+    membership = result.scalar_one_or_none()
+    if not membership or membership.role not in (Role.OWNER, Role.ADMIN):
+        raise HTTPException(403, "Только OWNER или ADMIN может приглашать")
+    
+    # Check role is valid
+    if role_str not in ("ADMIN", "VIEWER"):
+        role_str = "VIEWER"
+    
+    from models.organization import Invitation, InvitationStatus
+    invite_token = secrets.token_urlsafe(32)
+    from datetime import datetime, timedelta
+    invitation = Invitation(
+        email=email,
+        organization_id=org_id,
+        role=Role[role_str],
+        token=invite_token,
+        status=InvitationStatus.PENDING,
+        expires_at=datetime.utcnow() + timedelta(days=7)
+    )
+    db.add(invitation)
+    await db.commit()
+    
+    return {
+        "status": "ok",
+        "email": email,
+        "role": role_str,
+        "invite_token": invite_token,
+        "expires_at": str(invitation.expires_at)[:19]
+    }
+
+
 @router.get("/nl/v2", response_class=HTMLResponse)
 async def nl_page():
     """НЛ — главная страница"""
@@ -4341,18 +4583,55 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
 
 <div id="page-connectors" class="page-section">
-<div style="max-width:600px;margin:0 auto;padding:20px">
+<div style="max-width:700px;margin:0 auto;padding:20px">
 <h3 style="color:#6c5ce7;margin-bottom:16px">🔌 Подключения</h3>
-<div style="background:#fff;border-radius:8px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px">
-<div style="font-weight:600;margin-bottom:8px">Wildberries</div>
-<div style="display:flex;gap:8px;flex-wrap:wrap">
-<input type="text" id="wb-key-name" placeholder="Название" style="width:140px">
-<input type="text" id="wb-key-value" placeholder="API ключ WB" style="flex:1;min-width:200px">
-<button class="btn" onclick="addWbKey()">Подключить</button>
+
+<!-- Profile -->
+<div style="background:#fff;border-radius:8px;padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px;display:flex;align-items:center;gap:12px">
+<div style="width:40px;height:40px;border-radius:50%;background:#6c5ce7;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.2em;font-weight:700" id="profile-avatar">?</div>
+<div>
+<div style="font-weight:600" id="profile-email">Загрузка...</div>
+<div style="font-size:.85em;color:#666" id="profile-summary"></div>
 </div>
-<p style="color:#999;font-size:.8em;margin-top:8px">Кабинет WB → Настройки → Доступ к API</p>
 </div>
-<div id="wb-keys-list"></div>
+
+<!-- My shops -->
+<div style="margin-bottom:16px">
+<div style="font-weight:600;margin-bottom:10px;font-size:1.05em">🏪 Мои магазины</div>
+<div id="shops-list">Загрузка...</div>
+</div>
+
+<!-- Add new shop -->
+<div style="background:#fff;border-radius:8px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px;border-left:4px solid #6c5ce7">
+<div style="font-weight:600;margin-bottom:12px;font-size:1.1em">➕ Подключить новый магазин</div>
+<div style="margin-bottom:10px">
+<input type="text" id="new-shop-name" placeholder="Название магазина" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box">
+</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+<input type="text" id="new-shop-key" placeholder="API ключ WB (JWT токен)" style="flex:1;min-width:300px;padding:8px 12px;border:1px solid #ddd;border-radius:6px">
+<button class="btn" onclick="connectNewShop()" id="btn-connect-shop" style="background:#6c5ce7;color:#fff;padding:8px 20px;border-radius:6px;border:none;cursor:pointer;font-weight:600">Подключить</button>
+</div>
+<p style="color:#999;font-size:.8em;margin-top:4px">Кабинет WB → Настройки → Доступ к API → Создать токен</p>
+<div id="connect-status" style="display:none;margin-top:10px;padding:10px;border-radius:6px;font-size:.9em"></div>
+</div>
+
+<!-- Invite colleague -->
+<div style="background:#fff;border-radius:8px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px;border-left:4px solid #00b894">
+<div style="font-weight:600;margin-bottom:12px;font-size:1.1em">👥 Пригласить коллегу</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+<input type="email" id="invite-email" placeholder="Email коллеги" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid #ddd;border-radius:6px">
+<select id="invite-role" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px">
+<option value="VIEWER">Просмотр (VIEWER)</option>
+<option value="ADMIN">Администратор (ADMIN)</option>
+</select>
+<select id="invite-org" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px">
+<option value="">Выберите магазин</option>
+</select>
+<button class="btn" onclick="inviteColleague()" style="background:#00b894;color:#fff;padding:8px 20px;border-radius:6px;border:none;cursor:pointer;font-weight:600">Пригласить</button>
+</div>
+<div id="invite-status" style="display:none;margin-top:10px;padding:10px;border-radius:6px;font-size:.9em"></div>
+</div>
+
 </div>
 </div>
 
@@ -4624,6 +4903,7 @@ async function doLogin() {
         showApp();
         loadOrgs();
         loadWbKeys();
+        loadProfile();
     } catch(e) { err.textContent = e.message; err.style.display = ''; }
 }
 
@@ -4646,6 +4926,7 @@ async function doRegister() {
         showApp();
         loadOrgs();
         loadWbKeys();
+        loadProfile();
     } catch(e) { err.textContent = e.message; err.style.display = ''; }
 }
 
@@ -4696,6 +4977,7 @@ async function navTo(name, el) {
     else if (name === 'fboneeds') loadFboNeeds();
     else if (name === 'unitecon') { if (!ueTabulator) initUEGrid(); loadUEData(); }
     else if (name === 'promo') { if (typeof promoTabulator === 'undefined' || !promoTabulator) initPromoGrid(); loadPromoData(); }
+    else if (name === 'connectors') { loadProfile(); loadWbKeys(); }
 }
 
 async function loadAds() {
@@ -6526,7 +6808,7 @@ async function switchOrg() {
     ORG_ID = document.getElementById('org-select').value;
     localStorage.setItem('nl_org_id', ORG_ID);
     history.replaceState(null, '', '/nl/v2?org=' + ORG_ID);
-    // Sync cp-store
+    // Sync all store dropdowns
     const cpSel = document.getElementById('cp-store');
     if (cpSel) cpSel.value = ORG_ID;
     const ueSel2 = document.getElementById('ue-store');
@@ -6534,6 +6816,18 @@ async function switchOrg() {
     const promoSel2 = document.getElementById('promo-store');
     if (promoSel2) promoSel2.value = ORG_ID;
     showApp();
+    // Reload current active tab data for new org
+    var activeTab = document.querySelector('.page-section.active');
+    if (activeTab) {
+        var tabName = activeTab.id.replace('page-', '');
+        if (tabName === 'costprice') { loadTaxSettings(); loadCostPrices(); }
+        else if (tabName === 'unitecon') { if (!ueTabulator) initUEGrid(); loadUEData(); }
+        else if (tabName === 'promo') { if (typeof promoTabulator === 'undefined' || !promoTabulator) initPromoGrid(); loadPromoData(); }
+        else if (tabName === 'salesplan') loadSalesPlans();
+        else if (tabName === 'fboneeds') loadFboNeeds();
+        else if (tabName === 'ads') loadAds();
+        else if (tabName === 'extads') loadExtAds();
+    }
 }
 
 async function switchCostStore() {
@@ -6543,9 +6837,13 @@ async function switchCostStore() {
     if (newOrgId === ORG_ID) return;
     ORG_ID = newOrgId;
     localStorage.setItem('nl_org_id', ORG_ID);
-    // Sync sidebar org-select
+    // Sync sidebar org-select + ue-store + promo-store
     const sideSel = document.getElementById('org-select');
     if (sideSel) sideSel.value = ORG_ID;
+    const ueSel3 = document.getElementById('ue-store');
+    if (ueSel3) ueSel3.value = ORG_ID;
+    const promoSel4 = document.getElementById('promo-store');
+    if (promoSel4) promoSel4.value = ORG_ID;
     history.replaceState(null, '', '/nl/v2?org=' + ORG_ID);
     showApp();
     // Reload cost prices for new org
@@ -6559,11 +6857,13 @@ async function switchUEStore() {
     if (newOrgId === ORG_ID) return;
     ORG_ID = newOrgId;
     localStorage.setItem("nl_org_id", ORG_ID);
-    // Sync sidebar + cp-store
+    // Sync sidebar + cp-store + promo-store
     const sideSel = document.getElementById("org-select");
     if (sideSel) sideSel.value = ORG_ID;
     const cpSel = document.getElementById("cp-store");
     if (cpSel) cpSel.value = ORG_ID;
+    const promoSel3 = document.getElementById("promo-store");
+    if (promoSel3) promoSel3.value = ORG_ID;
     history.replaceState(null, "", "/nl/v2?org=" + ORG_ID);
     loadUEData();
 }
@@ -6590,6 +6890,226 @@ async function createNewOrg() {
         loadOrgs();
         loadRefData();
         loadWbKeys();
+    }
+}
+
+async function loadProfile() {
+    if (!TOKEN) return;
+    try {
+        const res = await fetch('/api/v1/nl/profile?token=' + TOKEN);
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        const avatar = document.getElementById('profile-avatar');
+        const emailEl = document.getElementById('profile-email');
+        const summaryEl = document.getElementById('profile-summary');
+        
+        if (avatar) avatar.textContent = data.email.charAt(0).toUpperCase();
+        if (emailEl) emailEl.textContent = data.email;
+        if (summaryEl) summaryEl.textContent = data.shops_count + ' ' + declShop(data.shops_count);
+        
+        const shopsEl = document.getElementById('shops-list');
+        if (!shopsEl) return;
+        
+        if (!data.shops.length) {
+            shopsEl.innerHTML = '<div style="color:#999;padding:12px">Магазины не подключены</div>';
+            return;
+        }
+        
+        shopsEl.innerHTML = data.shops.map(s => {
+            const keysHtml = s.keys.map(k => 
+                '<div style="display:flex;align-items:center;gap:6px;font-size:.85em;padding:3px 0">' +
+                '<span style="color:#00b894">🔑</span>' +
+                '<span>' + k.name + '</span>' +
+                '<span style="color:#999">(' + k.created_at + ')</span>' +
+                '<span style="cursor:pointer;color:#e74c3c;margin-left:4px" onclick="deleteWbKeyBtn(this)" data-keyid="' + k.id + '" data-orgid="' + s.id + '">✕</span>' +
+                '</div>'
+            ).join('');
+            
+            return '<div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:8px" id="shop-card-' + s.id + '">' +
+                '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+                '<span style="font-size:1.1em">🏪</span>' +
+                '<span style="font-weight:600">' + s.name + '</span>' +
+                (s.wb_seller_id ? '<span style="font-size:.8em;color:#999;background:#f0f0f0;padding:2px 6px;border-radius:4px">ID ' + s.wb_seller_id + '</span>' : '') +
+                '<span style="margin-left:auto;font-size:.8em;color:#999" id="shop-status-' + s.id + '">не проверен</span>' +
+                '<button onclick="verifyShopKey(this)" data-orgid="' + s.id + '" style="background:none;border:1px solid #ddd;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:.85em;color:#6c5ce7" title="Проверить ключ">🔍 Проверить</button>' +
+                '</div>' +
+                '<div style="margin-left:28px">' +
+                (keysHtml || '<span style="color:#e74c3c;font-size:.85em">❌ Нет API ключей</span>') +
+                '</div>' +
+                '</div>';
+        }).join('');
+        
+        const inviteOrgSel = document.getElementById('invite-org');
+        if (inviteOrgSel) {
+            inviteOrgSel.innerHTML = '<option value="">Выберите магазин</option>' + 
+                data.shops.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('');
+        }
+        
+    } catch(e) { console.error('loadProfile error:', e); }
+}
+
+async function verifyShopKey(btn) {
+    const orgId = btn.dataset.orgid;
+    const statusEl = document.getElementById('shop-status-' + orgId);
+    if (!statusEl) return;
+    
+    btn.disabled = true;
+    btn.textContent = '⏳ Проверка...';
+    statusEl.textContent = 'проверяем...';
+    statusEl.style.color = '#999';
+    
+    try {
+        const res = await fetch('/api/v1/nl/verify-wb-key?token=' + TOKEN, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({org_id: orgId})
+        });
+        
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Ошибка');
+        }
+        
+        const data = await res.json();
+        
+        if (data.status === 'ok') {
+            statusEl.style.color = '#00b894';
+            statusEl.innerHTML = '✅ Работает' + (data.products_count ? ' (' + data.products_count + ' тов.)' : '');
+            btn.textContent = '🔍 Проверить';
+        } else if (data.status === 'warn') {
+            statusEl.style.color = '#e17055';
+            statusEl.innerHTML = '⚠️ ' + data.message;
+            btn.textContent = '🔍 Проверить';
+        } else {
+            statusEl.style.color = '#e74c3c';
+            statusEl.innerHTML = '❌ ' + data.message;
+            btn.textContent = '🔍 Проверить';
+        }
+    } catch(e) {
+        statusEl.style.color = '#e74c3c';
+        statusEl.innerHTML = '❌ ' + e.message;
+        btn.textContent = '🔍 Проверить';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function declShop(n) {
+    if (n === 1) return 'магазин';
+    if (n >= 2 && n <= 4) return 'магазина';
+    return 'магазинов';
+}
+
+
+
+async function deleteWbKeyBtn(span) {
+    if (!confirm('Удалить ключ?')) return;
+    const keyId = span.dataset.keyid;
+    const orgId = span.dataset.orgid;
+    await fetch('/api/v1/nl/wb-keys/' + keyId + '?org_id=' + orgId, {method: 'DELETE'});
+    loadProfile();
+    loadOrgs();
+}
+
+async function connectNewShop() {
+    const name = document.getElementById('new-shop-name').value.trim();
+    const api_key = document.getElementById('new-shop-key').value.trim();
+    const statusEl = document.getElementById('connect-status');
+    const btn = document.getElementById('btn-connect-shop');
+    
+    if (!api_key) {
+        statusEl.style.display = 'block';
+        statusEl.style.background = '#fff3f3';
+        statusEl.style.color = '#c62828';
+        statusEl.textContent = 'Введите API ключ';
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.textContent = 'Подключение...';
+    statusEl.style.display = 'block';
+    statusEl.style.background = '#e8f5e9';
+    statusEl.style.color = '#2e7d32';
+    statusEl.textContent = '⏳ Подключаем магазин...';
+    
+    try {
+        const res = await fetch('/api/v1/nl/connect-wb?token=' + TOKEN, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: name || 'Новый магазин', api_key})
+        });
+        
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Ошибка подключения');
+        }
+        
+        const data = await res.json();
+        
+        statusEl.style.background = '#e8f5e9';
+        statusEl.style.color = '#2e7d32';
+        statusEl.innerHTML = '✅ Магазин <strong>' + data.name + '</strong> подключен!' +
+            (data.wb_seller_id ? ' (seller ID: ' + data.wb_seller_id + ')' : '') +
+            '<br><span style="font-size:.8em;color:#666">Запускаем синхронизацию данных...</span>';
+        
+        document.getElementById('new-shop-name').value = '';
+        document.getElementById('new-shop-key').value = '';
+        
+        ORG_ID = data.org_id;
+        localStorage.setItem('nl_org_id', ORG_ID);
+        
+        await loadOrgs();
+        loadProfile();
+        
+    } catch(e) {
+        statusEl.style.background = '#fff3f3';
+        statusEl.style.color = '#c62828';
+        statusEl.textContent = '❌ ' + e.message;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Подключить';
+    }
+}
+
+async function inviteColleague() {
+    const email = document.getElementById('invite-email').value.trim();
+    const role = document.getElementById('invite-role').value;
+    const orgId = document.getElementById('invite-org').value;
+    const statusEl = document.getElementById('invite-status');
+    
+    if (!email || !orgId) {
+        statusEl.style.display = 'block';
+        statusEl.style.background = '#fff3f3';
+        statusEl.style.color = '#c62828';
+        statusEl.textContent = 'Укажите email и выберите магазин';
+        return;
+    }
+    
+    try {
+        const res = await fetch('/api/v1/nl/invite?token=' + TOKEN, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({email, role, org_id: orgId})
+        });
+        
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Ошибка');
+        }
+        
+        const data = await res.json();
+        statusEl.style.display = 'block';
+        statusEl.style.background = '#e8f5e9';
+        statusEl.style.color = '#2e7d32';
+        statusEl.innerHTML = '✅ Приглашение отправлено: <strong>' + data.email + '</strong> (' + data.role + ')';
+        document.getElementById('invite-email').value = '';
+        
+    } catch(e) {
+        statusEl.style.display = 'block';
+        statusEl.style.background = '#fff3f3';
+        statusEl.style.color = '#c62828';
+        statusEl.textContent = '❌ ' + e.message;
     }
 }
 
