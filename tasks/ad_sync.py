@@ -5,7 +5,7 @@ import logging
 import httpx
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
-from typing import Optional
+from typing import Optional, List, Tuple
 
 from celery import shared_task
 from sqlalchemy import select, text
@@ -53,22 +53,26 @@ def _run(coro):
     return asyncio.run(wrapper())
 
 
-async def _get_first_key(sf):
+async def _get_all_keys(sf) -> List[Tuple[str, str]]:
+    """Получить все API-ключи (org_id, token) для всех организаций"""
     async with sf() as db:
-        result = await db.execute(select(WbApiKey).limit(1))
-        key_rec = result.scalar_one_or_none()
-        if not key_rec:
-            return None
-        if key_rec.personal_token:
-            decrypted = decrypt_data(key_rec.personal_token)
-            return (str(key_rec.organization_id), decrypted)
-        decrypted = decrypt_data(key_rec.api_key)
-        return (str(key_rec.organization_id), decrypted)
+        result = await db.execute(select(WbApiKey))
+        keys = result.scalars().all()
+        pairs = []
+        for k in keys:
+            token = None
+            if k.personal_token:
+                token = decrypt_data(k.personal_token)
+            elif k.api_key:
+                token = decrypt_data(k.api_key)
+            if token:
+                pairs.append((str(k.organization_id), token))
+        return pairs
 
 
 @shared_task(name="wb.sched.ad_stats")
 def sched_ad_stats(days_back: int = 1):
-    """Синхронизация рекламной статистики за последние N дней"""
+    """Синхронизация рекламной статистики за последние N дней — по ВСЕМ кабинетам"""
 
     async def _main():
         engine, sf = _make_session()
@@ -81,10 +85,35 @@ def sched_ad_stats(days_back: int = 1):
 
 
 async def _do_ad_stats(sf, days_back=1):
-    info = await _get_first_key(sf)
-    if not info:
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
         return {"status": "skipped", "reason": "no_keys"}
-    org_id, api_key = info
+
+    total_result = {"status": "ok", "orgs": {}, "total_stats": 0, "total_campaigns": 0}
+
+    for idx, (org_id, api_key) in enumerate(all_keys):
+        logger.info("[ad_stats] Processing org %s (%d/%d)", org_id, idx + 1, len(all_keys))
+        try:
+            org_result = await _sync_org_ads(sf, org_id, api_key, days_back)
+            total_result["orgs"][org_id] = org_result
+            total_result["total_stats"] += org_result.get("stats_saved", 0)
+            total_result["total_campaigns"] += org_result.get("campaigns", 0)
+        except Exception as e:
+            logger.error("[ad_stats] Org %s failed: %s", org_id, e)
+            total_result["orgs"][org_id] = {"status": "error", "error": str(e)}
+
+        # Пауза между кабинетами (rate limit WB)
+        if idx < len(all_keys) - 1:
+            logger.info("[ad_stats] Waiting 5s before next org...")
+            await asyncio.sleep(5)
+
+    logger.info("[ad_stats] All done: %d orgs, %d stats, %d campaigns",
+                len(all_keys), total_result["total_stats"], total_result["total_campaigns"])
+    return total_result
+
+
+async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
+    """Синхронизация рекламы для одного кабинета"""
 
     async with httpx.AsyncClient(
         base_url=ADVERT_API,
@@ -94,6 +123,9 @@ async def _do_ad_stats(sf, days_back=1):
 
         # 1) Список кампаний
         resp = await client.get("/adv/v1/promotion/count")
+        if resp.status_code in (401, 403):
+            logger.warning("[ad_stats] Org %s: no access to advert API (%d)", org_id, resp.status_code)
+            return {"status": "no_access", "http_code": resp.status_code}
         resp.raise_for_status()
         campaigns_data = resp.json()
 
@@ -109,14 +141,12 @@ async def _do_ad_stats(sf, days_back=1):
                     "changeTime": ad.get("changeTime"),
                 })
 
-        logger.info("[ad_stats] Total campaigns: %d", len(all_campaigns))
+        logger.info("[ad_stats] Org %s: %d campaigns", org_id, len(all_campaigns))
 
-        # 2) Имена кампаний через /adv/v1/upd (история расходов содержит campName)
+        # 2) Имена кампаний через /adv/v1/upd
         campaign_names = {}
         try:
-            # Запрашиваем расходы за последние 30 дней — этого достаточно чтобы покрыть
-            # все активные и недавно завершённые кампании
-            today = datetime.now(ZoneInfo("Europe/Moscow")).date()  # МСК
+            today = datetime.now(ZoneInfo("Europe/Moscow")).date()
             from_date = (today - timedelta(days=30)).isoformat()
             to_date = today.isoformat()
             resp_names = await client.get(
@@ -131,11 +161,11 @@ async def _do_ad_stats(sf, days_back=1):
                         name = item.get("campName", "")
                         if aid and name:
                             campaign_names[aid] = name
-                logger.info("[ad_stats] Got %d campaign names from /adv/v1/upd", len(campaign_names))
+                logger.info("[ad_stats] Org %s: %d campaign names from /adv/v1/upd", org_id, len(campaign_names))
             else:
-                logger.warning("[ad_stats] /adv/v1/upd status %d: %s", resp_names.status_code, resp_names.text[:200])
+                logger.warning("[ad_stats] Org %s: /adv/v1/upd status %d", org_id, resp_names.status_code)
         except Exception as e:
-            logger.warning("[ad_stats] upd names error: %s", e)
+            logger.warning("[ad_stats] Org %s: upd names error: %s", org_id, e)
 
         # 3) Upsert кампаний
         async with sf() as db:
@@ -156,12 +186,12 @@ async def _do_ad_stats(sf, days_back=1):
                 })
             await db.commit()
 
-        # 4) Статистика по дням — только активные/на паузе/завершённые
+        # 4) Статистика по дням
         stat_ids = [str(c["advertId"]) for c in all_campaigns if c["status"] in (7, 9, 11)]
 
         total_saved = 0
         for day_offset in range(days_back):
-            target_date = (datetime.now(ZoneInfo("Europe/Moscow")).date() - timedelta(days=day_offset + 1)).isoformat()  # МСК
+            target_date = (datetime.now(ZoneInfo("Europe/Moscow")).date() - timedelta(days=day_offset + 1)).isoformat()
 
             for batch_start in range(0, len(stat_ids), 50):
                 batch = stat_ids[batch_start:batch_start+50]
@@ -176,7 +206,7 @@ async def _do_ad_stats(sf, days_back=1):
                             params={"ids": ids_str, "beginDate": target_date, "endDate": target_date},
                         )
                         if resp3.status_code == 429:
-                            logger.info("[ad_stats] Rate limited, wait 65s")
+                            logger.info("[ad_stats] Org %s rate limited, wait 65s", org_id)
                             await asyncio.sleep(65)
                             retries += 1
                             continue
@@ -186,7 +216,7 @@ async def _do_ad_stats(sf, days_back=1):
                             stats = []
                         break
                     except Exception as e:
-                        logger.error("[ad_stats] fullstats error: %s", e)
+                        logger.error("[ad_stats] Org %s fullstats error: %s", org_id, e)
                         break
 
                 if not stats:
@@ -221,9 +251,9 @@ async def _do_ad_stats(sf, days_back=1):
                     await db.commit()
                     total_saved += len(stats)
 
-                # Rate limit: 65 сек между батчами
+                # Rate limit между батчами
                 if batch_start + 50 < len(stat_ids):
-                    logger.info("[ad_stats] Wait 65s for next batch")
+                    logger.info("[ad_stats] Org %s: wait 65s for next batch", org_id)
                     await asyncio.sleep(65)
 
             # Между днями
@@ -239,7 +269,7 @@ async def _do_ad_stats(sf, days_back=1):
                     ins = pg_insert(RawApiData)
                     await db.execute(ins.values(
                         organization_id=org_id, api_method="ad_balance",
-                        target_date=datetime.now(ZoneInfo("Europe/Moscow")).date(), raw_response=bal,  # МСК
+                        target_date=datetime.now(ZoneInfo("Europe/Moscow")).date(), raw_response=bal,
                         status="ok", fetched_at=datetime.utcnow(),
                     ).on_conflict_do_update(
                         constraint="raw_api_data_organization_id_api_method_target_date_key",
@@ -247,7 +277,6 @@ async def _do_ad_stats(sf, days_back=1):
                     ))
                     await db.commit()
         except Exception as e:
-            logger.warning("[ad_stats] balance error: %s", e)
+            logger.warning("[ad_stats] Org %s balance error: %s", org_id, e)
 
-    logger.info("[ad_stats] Done: %d stats saved", total_saved)
     return {"status": "ok", "stats_saved": total_saved, "campaigns": len(all_campaigns)}

@@ -417,31 +417,22 @@ async def _do_prices(sf):
                         nm_id = item.get("nmID") or item.get("nmId") or item.get("nm_id")
                         if not nm_id:
                             continue
-                        # Цена на уровне nm (может быть 0 если размерные цены)
-                        nm_price = float(item.get("price") or 0) / 100
-                        discount = float(item.get("discount") or 0)
-                        club_discount = float(item.get("clubDiscount") or 0)
-                        
-                        # Если есть размеры — берём цену из первого размера
                         sizes = item.get("sizes") or []
-                        if sizes:
-                            size_price = float(sizes[0].get("price") or 0) / 100
-                            size_discounted = float(sizes[0].get("discountedPrice") or 0) / 100
-                            price = size_discounted if size_discounted > 0 else (size_price if size_price > 0 else nm_price)
-                        else:
-                            price = nm_price
-                        
-                        if not price:
+                        if not sizes:
                             continue
-                        
-                        price_with_spp = round(price * (1 - discount / 100), 2) if discount > 0 else price
-                        
+                        sz = sizes[0]
+                        # Prices API returns values in kopecks -> convert to rubles
+                        price_retail = float(sz.get("price") or 0) / 100
+                        price_discounted = float(sz.get("discountedPrice") or 0) / 100
+                        price_club = float(sz.get("clubDiscountedPrice") or 0) / 100
+                        if not price_retail:
+                            continue
                         await db.execute(text("""
                             UPDATE tech_status 
-                            SET price = :price, price_spp = :spp, price_discount = :spp
+                            SET price = :price, price_discount = :price_disc, price_spp = :price_spp
                             WHERE organization_id = :org AND nm_id = :nm 
                             AND target_date = CURRENT_DATE
-                        """), {"price": price, "spp": price_with_spp, "org": org_id, "nm": int(nm_id)})
+                        """), {"price": price_retail, "price_disc": price_discounted, "price_spp": price_club, "org": org_id, "nm": int(nm_id)})
                         updated += 1
                     await db.commit()
                     logger.info(f"[sched] prices updated {updated} records in tech_status")
@@ -706,9 +697,9 @@ async def _do_parse_raw(sf):
                 if key not in orders_map:
                     orders_map[key] = {"count": 0, "revenue": 0, "vendor_code": "", "barcode": barcode, "entity_id": entity_id, "nm_id": nm, "price": 0, "price_discount": 0}
                 orders_map[key]["count"] += 1
-                orders_map[key]["revenue"] += float(o.get("totalPrice") or o.get("price") or 0)
-                tp = float(o.get("totalPrice") or 0)
-                pd = float(o.get("priceWithDisc") or 0)
+                orders_map[key]["revenue"] += float(o.get("totalPrice") or o.get("price") or 0) / 100
+                tp = float(o.get("totalPrice") or 0) / 100
+                pd = float(o.get("priceWithDisc") or 0) / 100
                 if tp > 0:
                     orders_map[key]["price"] = tp
                 if pd > 0:
@@ -767,9 +758,9 @@ async def _do_parse_raw(sf):
                 if key not in sales_map:
                     sales_map[key] = {"buyouts": 0, "returns": 0, "revenue": 0, "entity_id": entity_id, "nm_id": nm, "price": 0, "price_discount": 0}
                 sale_id = str(s.get("saleID", "") or "")
-                price = float(s.get("forPay") or s.get("totalPrice") or 0)
-                tp = float(s.get("totalPrice") or 0)
-                pd = float(s.get("priceWithDisc") or 0)
+                price = float(s.get("forPay") or s.get("totalPrice") or 0) / 100
+                tp = float(s.get("totalPrice") or 0) / 100
+                pd = float(s.get("priceWithDisc") or 0) / 100
                 if tp > 0:
                     sales_map[key]["price"] = tp
                 if pd > 0:
@@ -949,7 +940,6 @@ async def _do_parse_raw(sf):
                 _price_discount = sinfo.get("price_discount", 0) or oinfo.get("price_discount", 0) or _wp.get("price_discount", 0) or _tp.get("price_spp", 0)
                 _price_spp = _wp.get("price_spp", 0) or _tp.get("price_spp", 0)
 
-                # Impressions/clicks из sales_funnel (по nm_id)
                 _funnel = funnel_map.get((target_date, n_id), {}) if n_id else {}
                 _impressions = _funnel.get("impressions", 0)
                 _clicks = _funnel.get("clicks", 0)

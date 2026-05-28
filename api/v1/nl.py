@@ -4913,6 +4913,39 @@ async function loadStats() {
             }
         });
         tbody.innerHTML = html;
+        // === ITOGO ===
+        let gStock=0, gOrders=0, gBuyouts=0, gReturns=0, gImpressions=0, gClicks=0, gAd=0, gRatingSum=0, gRatingCount=0;
+        prods.forEach(p => {
+            gStock += p.stock_qty || 0;
+            gOrders += p.orders_count || 0;
+            gBuyouts += p.buyouts_count || 0;
+            gReturns += p.returns_count || 0;
+            gImpressions += p.impressions || 0;
+            gClicks += p.clicks || 0;
+            gAd += p.ad_cost || 0;
+            if (p.rating && p.rating > 0) { gRatingSum += p.rating; gRatingCount++; }
+        });
+        const gCtr = gImpressions > 0 ? (gClicks / gImpressions * 100).toFixed(1) + '%' : '-';
+        const gRating = gRatingCount > 0 ? (gRatingSum / gRatingCount).toFixed(1) : '-';
+        const gBuyoutPct = gOrders > 0 ? (gBuyouts / gOrders * 100).toFixed(1) + '%' : '-';
+        const gActiveCount = prods.filter(p => (p.stock_qty || 0) > 0).length;
+        const totRow = document.createElement('tr');
+        totRow.id = 'stats-total-row';
+        totRow.style.cssText = 'background:linear-gradient(135deg,#6c5ce7,#a29bfe);color:#fff;font-weight:700;position:sticky;top:0;z-index:5';
+        var totLabel = '\u0418\u0422\u041E\u0413\u041E (' + order.length + ' \u0442\u043e\u0432., ' + gActiveCount + ' \u0430\u043a\u0442.)';
+        var rbl = ' \u20bd';
+        totRow.innerHTML = '<td colspan="5" style="text-align:left;padding-left:12px;font-size:.95em">' + totLabel + '</td>' +
+        '<td style="font-size:1em">' + gStock + '</td>' +
+        '<td>' + gOrders + '</td>' +
+        '<td>' + gBuyouts + '</td>' +
+        '<td>' + gReturns + '</td>' +
+        '<td>' + gRating + '</td>' +
+        '<td>' + gImpressions + '</td>' +
+        '<td>' + gClicks + '</td>' +
+        '<td>' + gCtr + '</td>' +
+        '<td>' + fmt(gAd) + rbl + '</td>' +
+        '<td>' + gBuyoutPct + '</td>';
+        tbody.insertBefore(totRow, tbody.firstChild);
     } catch(e) { console.error('loadStats error:', e); }
 }
 
