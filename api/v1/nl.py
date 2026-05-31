@@ -2918,11 +2918,513 @@ async def get_ad_stats(org_id: str, days: str = "7", db: AsyncSession = Depends(
     totals["ctr"] = round(totals["clicks"] / totals["views"] * 100, 2) if totals["views"] else 0
     totals["cpc"] = round(totals["spent"] / totals["clicks"], 2) if totals["clicks"] else 0
     totals["cr"] = round(totals["orders"] / totals["clicks"] * 100, 2) if totals["clicks"] else 0
+
+    # --- Карточки кампаний с nm_ids, фото, группировка по склейкам (imt_id) ---
+    # Получаем все кампании с их nm_ids
+    camp_rows = await db.execute(text("""
+        SELECT c.wb_campaign_id, c.name, c.type, c.status, c.nm_ids,
+               COALESCE(SUM(s.views),0), COALESCE(SUM(s.clicks),0),
+               COALESCE(SUM(s.spent),0), COALESCE(AVG(s.ctr),0),
+               COALESCE(SUM(s.orders),0), COALESCE(SUM(s.atbs),0)
+        FROM ad_campaigns c
+        LEFT JOIN ad_stats s ON s.wb_campaign_id = c.wb_campaign_id AND s.organization_id = c.organization_id
+            AND s.stat_date >= CURRENT_DATE - make_interval(days => :days)
+        WHERE c.organization_id = :org
+        GROUP BY c.wb_campaign_id, c.name, c.type, c.status, c.nm_ids
+        ORDER BY COALESCE(SUM(s.spent),0) DESC
+    """), {"org": org_id, "days": days_int})
+
+    # Собираем все уникальные nm_id из кампаний
+    all_nm_ids = set()
+    campaign_cards = []
+    for r in camp_rows:
+        import json as _json
+        nms_raw = r[4]
+        nm_list = _json.loads(nms_raw) if isinstance(nms_raw, str) else (nms_raw or [])
+        nm_ints = [int(n) for n in nm_list if n]
+        all_nm_ids.update(nm_ints)
+        campaign_cards.append({
+            "campaign_id": r[0],
+            "name": r[1] or "Без названия",
+            "type": r[2],
+            "status": r[3],
+            "nm_ids": nm_ints,
+            "views": int(r[5] or 0),
+            "clicks": int(r[6] or 0),
+            "spent": round(float(r[7] or 0), 2),
+            "ctr": round(float(r[8] or 0), 2),
+            "orders": int(r[9] or 0),
+            "atbs": int(r[10] or 0),
+        })
+
+    # Получаем imt_id и фото для товаров из product_map (raw_api_data)
+    nm_to_info = {}
+    if all_nm_ids:
+        prod_row = await db.execute(text("""
+            SELECT raw_response FROM raw_api_data
+            WHERE api_method = 'products' AND organization_id = :org
+            ORDER BY target_date DESC LIMIT 1
+        """), {"org": org_id})
+        pr = prod_row.first()
+        if pr and pr[0]:
+            cards_data = pr[0] if isinstance(pr[0], list) else (pr[0].get("cards", []) if isinstance(pr[0], dict) else [])
+            for c in cards_data:
+                if not isinstance(c, dict):
+                    continue
+                nm = c.get("nmID")
+                if nm and int(nm) in all_nm_ids:
+                    photos = c.get("photos") or []
+                    photo_url = ""
+                    if photos:
+                        photo_url = photos[0].get("c246x328", "") or photos[0].get("big", "") or photos[0].get("hq", "")
+                    nm_to_info[int(nm)] = {
+                        "imt_id": c.get("imtID"),
+                        "name": c.get("title", ""),
+                        "brand": c.get("brand", ""),
+                        "vendor_code": c.get("vendorCode", ""),
+                        "photo": photo_url,
+                    }
+
+    # Группируем кампании по склейкам (imt_id)
+    # Для каждой кампании — берём первый nm_id, определяем imt_id
+    sleikas = {}  # imt_id -> {info, campaigns}
+    for camp in campaign_cards:
+        if not camp["nm_ids"]:
+            # Нет товаров — в группу "Без склейки"
+            imt_key = "none"
+        else:
+            # Берём первый nm_id (основной товар по расходу)
+            first_nm = camp["nm_ids"][0]
+            info = nm_to_info.get(first_nm, {})
+            imt_key = info.get("imt_id") or f"nm_{first_nm}"
+
+        if imt_key not in sleikas:
+            # Инфо о склейке
+            if imt_key == "none":
+                sleika_info = {"name": "Без склейки", "imt_id": None, "photo": ""}
+            else:
+                first_info = nm_to_info.get(camp["nm_ids"][0] if camp["nm_ids"] else 0, {})
+                sleika_info = {
+                    "name": first_info.get("name", ""),
+                    "brand": first_info.get("brand", ""),
+                    "imt_id": imt_key,
+                    "photo": first_info.get("photo", ""),
+                }
+                # Собираем все товары склейки
+                sleika_info["products"] = []
+                for nm in camp["nm_ids"]:
+                    pinfo = nm_to_info.get(nm, {})
+                    if pinfo:
+                        sleika_info["products"].append({
+                            "nm_id": nm,
+                            "name": pinfo.get("name", ""),
+                            "vendor_code": pinfo.get("vendor_code", ""),
+                            "photo": pinfo.get("photo", ""),
+                        })
+            sleikas[imt_key] = {**sleika_info, "campaigns": [], "total_spent": 0}
+
+        sleikas[imt_key]["campaigns"].append(camp)
+        sleikas[imt_key]["total_spent"] += camp["spent"]
+
+    # Сортируем склейки по расходу
+    sleika_list = sorted(sleikas.values(), key=lambda x: x["total_spent"], reverse=True)
+
     return {
         "daily": daily,
         "top_campaigns": top_campaigns,
         "totals": totals,
         "balance": balance,
+        "sleikas": sleika_list,
+    }
+
+
+
+# ==================== MARKETER DASHBOARD API ====================
+
+@router.get("/api/v1/nl/marketer/products")
+async def get_marketer_products(
+    org_id: str,
+    days: str = "30",
+    search: Optional[str] = None,
+    status: Optional[str] = None,
+    abc_class: Optional[str] = None,
+    brand: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Стол маркетолога — список товаров с рекламными данными"""
+    import decimal as _dec, json as _json
+
+    try:
+        days_int = int(days)
+    except:
+        days_int = 30
+
+    def sf(v):
+        if v is None: return 0
+        return float(v) if isinstance(v, (_dec.Decimal, int)) else (float(v) if v else 0)
+
+    date_from = f"CURRENT_DATE - make_interval(days => {days_int})"
+
+    # 1) Получаем уникальные nm_id из активных/приостановленных кампаний
+    active_statuses = ('7', '9', '11')  # WB status codes: 7=активна, 9=приостановлена, 11=завершена
+
+    # Все РК с их nm_ids за период
+    camp_rows = await db.execute(text(f"""
+        SELECT c.wb_campaign_id, c.name, c.type, c.status, c.nm_ids,
+               COALESCE(SUM(s.views),0), COALESCE(SUM(s.clicks),0),
+               COALESCE(SUM(s.spent),0), COALESCE(AVG(s.ctr),0),
+               COALESCE(SUM(s.orders),0), COALESCE(SUM(s.atbs),0)
+        FROM ad_campaigns c
+        LEFT JOIN ad_stats s ON s.wb_campaign_id = c.wb_campaign_id
+            AND s.organization_id = c.organization_id
+            AND s.stat_date >= {date_from}
+        WHERE c.organization_id = :org
+        GROUP BY c.wb_campaign_id, c.name, c.type, c.status, c.nm_ids
+        ORDER BY COALESCE(SUM(s.spent),0) DESC
+    """), {"org": org_id})
+
+    # Собираем все nm_id → какие РК к ним относятся
+    nm_to_campaigns = {}  # nm_id -> [{campaign_info}]
+    all_campaigns = []
+    all_nm_ids = set()
+
+    for r in camp_rows:
+        nms_raw = r[4]
+        nm_list = _json.loads(nms_raw) if isinstance(nms_raw, str) else (nms_raw or [])
+        nm_ints = [int(n) for n in nm_list if n]
+
+        camp_info = {
+            "campaign_id": r[0],
+            "name": r[1] or "Без названия",
+            "type": r[2],
+            "status": str(r[3]) if r[3] else "",
+            "nm_ids": nm_ints,
+            "views": int(r[5] or 0),
+            "clicks": int(r[6] or 0),
+            "spent": round(sf(r[7]), 2),
+            "ctr": round(sf(r[8]), 2),
+            "orders": int(r[9] or 0),
+            "atbs": int(r[10] or 0),
+        }
+        all_campaigns.append(camp_info)
+        all_nm_ids.update(nm_ints)
+        for nm in nm_ints:
+            if nm not in nm_to_campaigns:
+                nm_to_campaigns[nm] = []
+            nm_to_campaigns[nm].append(camp_info)
+
+    # 2) Получаем инфо о товарах (фото, название, бренд, статус, класс)
+    product_info = {}
+    if all_nm_ids:
+        pe_rows = await db.execute(text("""
+            SELECT DISTINCT ON (pe.nm_id) pe.nm_id, pe.brand, pe.subject_name, pe.photo_main,
+                pe.vendor_code, pe.subject_name
+            FROM product_entities pe
+            WHERE pe.organization_id = :org AND pe.nm_id = ANY(:nms)
+            ORDER BY pe.nm_id, pe.created_at DESC
+        """), {"org": org_id, "nms": list(all_nm_ids)})
+        for r in pe_rows:
+            product_info[r[0]] = {
+                "nm_id": r[0],
+                "brand": r[1] or "",
+                "category": r[2] or "",
+                "photo": r[3] or "",
+                "vendor_code": r[4] or "",
+            }
+
+        # Дополняем из tech_status (цены)
+        ts_rows = await db.execute(text(f"""
+            SELECT DISTINCT ON (ts.nm_id) ts.nm_id,
+                ts.price, ts.price_spp, ts.price_discount
+            FROM tech_status ts
+            WHERE ts.organization_id = :org AND ts.nm_id = ANY(:nms)
+              AND ts.target_date >= {date_from}
+            ORDER BY ts.nm_id, ts.target_date DESC
+        """), {"org": org_id, "nms": list(all_nm_ids)})
+        for r in ts_rows:
+            if r[0] in product_info:
+                product_info[r[0]]["price"] = sf(r[1])
+                product_info[r[0]]["price_spp"] = sf(r[2])
+                product_info[r[0]]["price_discount"] = sf(r[3])
+
+        # Дополняем из reference_book (статус, класс)
+        rb_rows = await db.execute(text("""
+            SELECT DISTINCT ON (rb.nm_id) rb.nm_id,
+                rb.product_status as status,
+                rb.product_class as abc_class
+            FROM reference_book rb
+            WHERE rb.organization_id = :org AND rb.nm_id = ANY(:nms)
+            ORDER BY rb.nm_id, rb.valid_from DESC
+        """), {"org": org_id, "nms": list(all_nm_ids)})
+        for r in rb_rows:
+            if r[0] in product_info:
+                product_info[r[0]]["status"] = r[1] or ""
+                product_info[r[0]]["abc_class"] = r[2] or ""
+
+    # 3) Собираем список товаров
+    products = []
+    for nm_id in sorted(all_nm_ids):
+        info = product_info.get(nm_id, {"nm_id": nm_id})
+        camps = nm_to_campaigns.get(nm_id, [])
+
+        # Суммарные метрики по всем РК товара
+        total_views = sum(c["views"] for c in camps)
+        total_clicks = sum(c["clicks"] for c in camps)
+        total_spent = sum(c["spent"] for c in camps)
+        total_orders = sum(c["orders"] for c in camps)
+
+        active_camps = [c for c in camps if c["status"] in active_statuses]
+
+        products.append({
+            "nm_id": nm_id,
+            "vendor_code": info.get("vendor_code", ""),
+            "brand": info.get("brand", ""),
+            "category": info.get("category", ""),
+            "photo": info.get("photo", ""),
+            "status": info.get("status", ""),
+            "abc_class": info.get("abc_class", ""),
+            "price": info.get("price", 0),
+            "price_spp": info.get("price_spp", 0),
+            "price_discount": info.get("price_discount", 0),
+            "campaign_count": len(camps),
+            "active_campaign_count": len(active_camps),
+            "total_views": total_views,
+            "total_clicks": total_clicks,
+            "total_spent": round(total_spent, 2),
+            "total_orders": total_orders,
+            "ctr": round(total_clicks / total_views * 100, 2) if total_views else 0,
+            "drr": round(total_spent / (total_orders * info.get("price", 0)) * 100, 1) if total_orders and info.get("price") else 0,
+            "campaigns": camps,
+            "plan_orders": 0,  # TODO: из плана
+            "fact_orders": total_orders,
+            "plan_pct": 0,  # TODO: расчёт
+        })
+
+    # Фильтрация
+    if search:
+        s = search.lower()
+        products = [p for p in products if s in str(p.get("vendor_code","")).lower() or s in str(p.get("nm_id","")) or s in str(p.get("brand","")).lower()]
+    if status:
+        products = [p for p in products if p.get("status") == status]
+    if abc_class:
+        products = [p for p in products if p.get("abc_class") == abc_class]
+    if brand:
+        products = [p for p in products if p.get("brand","").lower() == brand.lower()]
+
+    # Список уникальных брендов для фильтра
+    brands = sorted(set(p.get("brand","") for p in products if p.get("brand")))
+
+    return {
+        "products": products,
+        "brands": brands,
+        "total_products": len(products),
+        "total_campaigns": len(all_campaigns),
+    }
+
+
+@router.get("/api/v1/nl/marketer/product/{nm_id}")
+async def get_marketer_product_detail(
+    nm_id: int,
+    org_id: str,
+    days: str = "30",
+    db: AsyncSession = Depends(get_db)
+):
+    """Стол маркетолога — детальная карточка товара с РК по дням"""
+    import decimal as _dec, json as _json
+
+    try:
+        days_int = int(days)
+    except:
+        days_int = 30
+
+    def sf(v):
+        if v is None: return 0
+        return float(v) if isinstance(v, (_dec.Decimal, int)) else (float(v) if v else 0)
+
+    date_from_sql = f"CURRENT_DATE - make_interval(days => {days_int})"
+
+    # Инфо о товаре
+    pe_rows = await db.execute(text("""
+        SELECT DISTINCT ON (pe.nm_id) pe.nm_id, pe.brand, pe.subject_name, pe.photo_main,
+            pe.vendor_code, pe.color, pe.weight, pe.chrt_id
+        FROM product_entities pe
+        WHERE pe.organization_id = :org AND pe.nm_id = :nm
+        ORDER BY pe.nm_id, pe.created_at DESC
+    """), {"org": org_id, "nm": nm_id})
+    pe = pe_rows.first()
+    if not pe:
+        return {"error": "Товар не найден"}
+
+    product = {
+        "nm_id": nm_id,
+        "brand": pe[1] or "",
+        "category": pe[2] or "",
+        "photo": pe[3] or "",
+        "vendor_code": pe[4] or "",
+    }
+
+    # Цены
+    ts_rows = await db.execute(text(f"""
+        SELECT DISTINCT ON (ts.target_date) ts.target_date,
+            ts.price, ts.price_spp, ts.price_discount, ts.impressions, ts.clicks, ts.ad_cost
+        FROM tech_status ts
+        WHERE ts.organization_id = :org AND ts.nm_id = :nm
+          AND ts.target_date >= {date_from_sql}
+        ORDER BY ts.target_date DESC, ts.created_at DESC
+    """), {"org": org_id, "nm": nm_id})
+    prices_by_date = {}
+    organic_by_date = {}
+    for r in ts_rows:
+        prices_by_date[str(r[0])] = {
+            "price": sf(r[1]), "price_spp": sf(r[2]), "price_discount": sf(r[3]),
+            "organic_impressions": int(r[4] or 0), "organic_clicks": int(r[5] or 0), "organic_ad_cost": sf(r[6]),
+        }
+
+    # Статус/класс из справочника
+    rb_rows = await db.execute(text("""
+        SELECT rb.product_status as status,
+               rb.product_class as abc_class
+        FROM reference_book rb
+        WHERE rb.organization_id = :org AND rb.nm_id = :nm
+        ORDER BY rb.valid_from DESC LIMIT 1
+    """), {"org": org_id, "nm": nm_id})
+    rb = rb_rows.first()
+    if rb:
+        product["status"] = rb[0] or ""
+        product["abc_class"] = rb[1] or ""
+    # Акции - TODO: promo_products table not yet created
+    product["in_promo"] = False
+    product["promo_name"] = ""
+
+
+    # РК, которые рекламируют этот nm_id
+    camp_rows = await db.execute(text(f"""
+        SELECT c.wb_campaign_id, c.name, c.type, c.status, c.nm_ids, c.budget,
+               c.daily_budget, c.payment_type, c.bid_type
+        FROM ad_campaigns c
+        WHERE c.organization_id = :org AND c.nm_ids @> CAST(:nm_arr AS jsonb)
+        ORDER BY c.status ASC, c.name
+    """), {"org": org_id, "nm_arr": _json.dumps([nm_id])})
+
+    active_statuses = ('7', '9')
+    campaigns = []
+
+    for r in camp_rows:
+        camp_id = r[0]
+        # Статистика по дням для этой РК — только по конкретному nm_id
+        stat_rows = await db.execute(text(f"""
+            SELECT s.stat_date,
+                   SUM(s.views) as views, SUM(s.clicks) as clicks, SUM(s.spent) as spent,
+                   CASE WHEN SUM(s.views) > 0 THEN ROUND(SUM(s.clicks)::numeric / SUM(s.views) * 100, 2) ELSE 0 END as ctr,
+                   CASE WHEN SUM(s.clicks) > 0 THEN ROUND(SUM(s.spent) / SUM(s.clicks), 2) ELSE 0 END as cpc,
+                   SUM(s.orders) as orders, SUM(s.atbs) as atbs,
+                   CASE WHEN SUM(s.clicks) > 0 THEN ROUND(SUM(s.orders)::numeric / SUM(s.clicks) * 100, 2) ELSE 0 END as cr,
+                   SUM(s.sum_price) as sum_price
+            FROM ad_stats_nm s
+            WHERE s.organization_id = :org AND s.wb_campaign_id = :cid AND s.nm_id = :nm
+              AND s.stat_date >= {date_from_sql}
+            GROUP BY s.stat_date
+            ORDER BY s.stat_date
+        """), {"org": org_id, "cid": camp_id, "nm": nm_id})
+
+        daily_stats = []
+        for sr in stat_rows:
+            daily_stats.append({
+                "date": str(sr[0]),
+                "views": int(sr[1] or 0),
+                "clicks": int(sr[2] or 0),
+                "spent": round(sf(sr[3]), 2),
+                "ctr": round(sf(sr[4]), 2),
+                "cpc": round(sf(sr[5]), 2),
+                "orders": int(sr[6] or 0),
+                "atbs": int(sr[7] or 0),
+                "cr": round(sf(sr[8]), 2),
+                "sum_price": round(sf(sr[9]), 2),
+            })
+
+        # Итого по РК
+        camp_total = {
+            "views": sum(d["views"] for d in daily_stats),
+            "clicks": sum(d["clicks"] for d in daily_stats),
+            "spent": sum(d["spent"] for d in daily_stats),
+            "orders": sum(d["orders"] for d in daily_stats),
+            "atbs": sum(d["atbs"] for d in daily_stats),
+            "sum_price": sum(d["sum_price"] for d in daily_stats),
+        }
+        camp_total["ctr"] = round(camp_total["clicks"] / camp_total["views"] * 100, 2) if camp_total["views"] else 0
+        camp_total["cpc"] = round(camp_total["spent"] / camp_total["clicks"], 2) if camp_total["clicks"] else 0
+        camp_total["cr"] = round(camp_total["orders"] / camp_total["clicks"] * 100, 2) if camp_total["clicks"] else 0
+
+        campaigns.append({
+            "campaign_id": camp_id,
+            "name": r[1] or "Без названия",
+            "type": str(r[2]) if r[2] else "",
+            "status": str(r[3]) if r[3] else "",
+            "nm_ids": [int(n) for n in (_json.loads(r[4]) if isinstance(r[4], str) else (r[4] or [])) if n],
+            "budget": sf(r[5]),
+            "daily_budget": sf(r[6]),
+            "is_active": str(r[3]) in active_statuses,
+            "daily": daily_stats,
+            "totals": camp_total,
+        })
+
+    # Сводка «РК В ОБЩЕМ»
+    all_daily = {}  # date -> aggregated
+    for camp in campaigns:
+        for d in camp["daily"]:
+            dt = d["date"]
+            if dt not in all_daily:
+                all_daily[dt] = {"date": dt, "views": 0, "clicks": 0, "spent": 0, "orders": 0, "atbs": 0, "sum_price": 0}
+            all_daily[dt]["views"] += d["views"]
+            all_daily[dt]["clicks"] += d["clicks"]
+            all_daily[dt]["spent"] += d["spent"]
+            all_daily[dt]["orders"] += d["orders"]
+            all_daily[dt]["atbs"] += d["atbs"]
+            all_daily[dt]["sum_price"] += d["sum_price"]
+
+    # Добавляем органику (из tech_status)
+    for dt, info in organic_by_date.items():
+        if dt in all_daily:
+            all_daily[dt]["organic_impressions"] = info["organic_impressions"]
+            all_daily[dt]["organic_clicks"] = info["organic_clicks"]
+
+    summary_daily = sorted(all_daily.values(), key=lambda x: x["date"])
+
+    grand_total = {
+        "views": sum(d["views"] for d in summary_daily),
+        "clicks": sum(d["clicks"] for d in summary_daily),
+        "spent": sum(d["spent"] for d in summary_daily),
+        "orders": sum(d["orders"] for d in summary_daily),
+    }
+    grand_total["ctr"] = round(grand_total["clicks"] / grand_total["views"] * 100, 2) if grand_total["views"] else 0
+    grand_total["drr"] = round(grand_total["spent"] / grand_total["sum_price"] * 100, 1) if grand_total.get("sum_price") else 0
+
+    # Лучший период — ищем день с макс profit (orders * price - spent)
+    best_day = None
+    best_profit = -float('inf')
+    for d in summary_daily:
+        price_day = prices_by_date.get(d["date"], {}).get("price", 0)
+        profit = d["orders"] * price_day - d["spent"]
+        if profit > best_profit and d["orders"] > 0:
+            best_profit = profit
+            best_day = {
+                "date": d["date"],
+                "orders": d["orders"],
+                "spent": d["spent"],
+                "views": d["views"],
+                "price": price_day,
+                "price_spp": prices_by_date.get(d["date"], {}).get("price_spp", 0),
+                "profit": round(profit, 2),
+                "in_promo": product.get("in_promo", False),
+            }
+
+    return {
+        "product": product,
+        "campaigns": campaigns,
+        "summary_daily": summary_daily,
+        "grand_total": grand_total,
+        "best_period": best_day,
+        "prices_by_date": prices_by_date,
     }
 
 
@@ -3999,6 +4501,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Tabulator JS -->
 <script type="text/javascript" src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
 <!-- NL Grid Module -->
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260522e"></script>
@@ -4049,6 +4553,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <a class="nav-item" onclick="navTo('warehouses',this)"><span class="icon">📦</span>Склады</a>
 <a class="nav-item" onclick="navTo('opexpenses',this)"><span class="icon">📝</span>Опер. расходы</a>
 <a class="nav-item" onclick="navTo('ads',this)"><span class="icon">📢</span>Реклама</a>
+<a class="nav-item" onclick="navTo('marketer',this)"><span class="icon">📊</span>Стол маркетолога</a>
 <a class="nav-item" onclick="navTo('extads',this)"><span class="icon">🎯</span>Внешняя реклама</a>
 <a class="nav-item" onclick="navTo('fboneeds',this)"><span class="icon">🚚</span>Потребность FBO</a>
 <a class="nav-item" onclick="navTo('unitecon',this)"><span class="icon">🧮</span>Юнит Экономика</a>
@@ -4458,6 +4963,10 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div class="metric-card"><div class="mc-label">В корзину</div><div class="mc-value" id="ad-atbs">—</div></div>
 </div>
 
+<!-- Карточки по склейкам -->
+<h3 style="color:#6c5ce7;margin-bottom:10px;font-size:1em">🔗 Кампании по склейкам</h3>
+<div id="ads-sleikas" style="margin-bottom:24px"><div class="empty">Загрузка...</div></div>
+
 <!-- Таблица по дням -->
 <h3 style="color:#6c5ce7;margin-bottom:10px;font-size:1em">📅 Статистика по дням</h3>
 <table id="ads-daily-table" style="margin-bottom:24px">
@@ -4472,6 +4981,43 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <tbody id="ads-campaigns-body"><tr><td colspan="8" class="empty">Загрузка...</td></tr></tbody>
 </table>
 </div>
+
+<div id="page-marketer" class="page-section">
+<!-- Верхняя панель: магазин + период + фильтры -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
+<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
+<select id="mkt-store" onchange="switchMktStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
+<span style="font-size:.9em;color:#666;margin-left:8px">📅 Период:</span>
+<select id="mkt-period" onchange="loadMarketer()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<option value="7">7 дней</option>
+<option value="14">14 дней</option>
+<option value="30" selected>30 дней</option>
+<option value="60">60 дней</option>
+</select>
+<button class="btn" onclick="loadMarketer()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+</div>
+
+<!-- Фильтры -->
+<div id="mkt-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
+<label style="color:#666;font-weight:600">Фильтры:</label>
+<select id="mkt-flt-status" onchange="filterMarketer()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется</option></select>
+<select id="mkt-flt-class" onchange="filterMarketer()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select>
+<select id="mkt-flt-brand" onchange="filterMarketer()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
+<input type="text" id="mkt-flt-search" placeholder="🔍 Поиск по артикулу / названию" oninput="filterMarketer()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
+<button onclick="resetMktFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 10px;font-size:.9em;background:#fff;cursor:pointer">✕ Сбросить</button>
+<span style="margin-left:auto;font-size:.85em;color:#999" id="mkt-count"></span>
+</div>
+
+<!-- Список товаров -->
+<div id="mkt-products-list"></div>
+
+<!-- Карточка товара (скрыта по умолчанию) -->
+<div id="mkt-product-detail" style="display:none">
+<button onclick="closeMktDetail()" style="margin-bottom:12px;padding:6px 14px;font-size:.85em;background:#fff;border:1px solid #ddd;border-radius:6px;cursor:pointer">← Назад к списку</button>
+<div id="mkt-detail-content"></div>
+</div>
+</div>
+
 
 <div id="page-extads" class="page-section">
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
@@ -5030,7 +5576,7 @@ async function navTo(name, el) {
     // Update page title
     var titles = {stats:'Основные показатели',rnp:'РНП',opiu:'ОПиУ',analytics:'Аналитика по товарам',
         costprice:'Справочник',salesplan:'План продаж',warehouses:'Склады',opexpenses:'Опер. расходы',ads:'Реклама',
-        extads:'Внешняя реклама',fboneeds:'Потребность FBO',unitecon:'Юнит Экономика',promo:'Акции',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
+        marketer:'Стол маркетолога',extads:'Внешняя реклама',fboneeds:'Потребность FBO',unitecon:'Юнит Экономика',promo:'Акции',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
     document.getElementById('page-title').textContent = titles[name] || name;
     // Update top-bar filters visibility
     var topFilters = document.getElementById('top-filters');
@@ -5046,6 +5592,7 @@ async function navTo(name, el) {
     else if (name === 'salesplan') loadSalesPlans();
     else if (name === 'warehouses') loadWarehouses();
     else if (name === 'opexpenses') loadOpEx();
+    else if (name === 'marketer') loadMarketer();
     else if (name === 'ads') loadAds();
     else if (name === 'extads') loadExtAds();
     else if (name === 'fboneeds') loadFboNeeds();
@@ -5085,6 +5632,38 @@ async function loadAds() {
         } else {
             db.innerHTML = daily.map(r => '<tr><td>'+r.date+'</td><td class="r">'+r.views.toLocaleString('ru-RU')+'</td><td class="r">'+r.clicks.toLocaleString('ru-RU')+'</td><td class="r">'+r.ctr+'%</td><td class="r">'+r.cpc.toFixed(2)+' ₽</td><td class="r">'+r.spent.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽</td><td class="r">'+r.orders+'</td><td class="r">'+r.cr+'%</td><td class="r">'+r.atbs+'</td></tr>').join('');
         }
+        // Склейки (карточки)
+        const sleikas = d.sleikas || [];
+        const sk = document.getElementById('ads-sleikas');
+        if (!sleikas.length) {
+            sk.innerHTML = '<div style="color:#999;font-size:.9em;padding:12px">Нет данных по склейкам</div>';
+        } else {
+            sk.innerHTML = sleikas.map(sk => {
+                const photo = sk.photo ? '<img src="'+sk.photo+'" style="width:48px;height:48px;object-fit:cover;border-radius:6px">' : '';
+                const products = (sk.products||[]).map(p => p.photo ? '<img src="'+p.photo+'" style="width:32px;height:32px;object-fit:cover;border-radius:4px;margin-right:4px" title="'+(p.vendor_code||p.nm_id)+'">' : '').join('');
+                const camps = (sk.campaigns||[]).map(c => {
+                    const statusMap = {4:'⏳',7:'✅',8:'❌',9:'▶️',11:'⏸'};
+                    const statusIcon = statusMap[c.status] || '❓';
+                    return '<div style="background:#fff;border:1px solid #e8e8e8;border-radius:6px;padding:8px 10px;display:flex;align-items:center;gap:8px;font-size:.82em">'
+                        + '<span>'+statusIcon+'</span>'
+                        + '<div style="flex:1;min-width:0"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+c.name+'">'+c.name+'</div>'
+                        + '<div style="color:#999;font-size:.8em">ID: '+c.campaign_id+(c.nm_ids&&c.nm_ids.length?' · Товаров: '+c.nm_ids.length:'')+'</div></div>'
+                        + '<div style="text-align:right;white-space:nowrap"><div style="font-weight:700;color:#e17055">'+c.spent.toLocaleString('ru-RU',{maximumFractionDigits:0})+' ₽</div>'
+                        + '<div style="color:#999;font-size:.78em">'+c.clicks+' кликов · '+c.orders+' заказов</div></div></div>';
+                }).join('');
+                return '<div style="background:#f8f9fb;border:1px solid #e0e0e0;border-radius:10px;padding:14px;margin-bottom:12px">'
+                    + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+                    + photo
+                    + '<div style="flex:1"><div style="font-weight:700;font-size:.95em">'+(sk.name||'Склейка '+(sk.imt_id||''))+'</div>'
+                    + (sk.brand ? '<div style="color:#999;font-size:.82em">'+sk.brand+'</div>' : '')
+                    + '</div>'
+                    + '<div style="text-align:right"><div style="font-weight:700;color:#6c5ce7;font-size:1.1em">'+sk.total_spent.toLocaleString('ru-RU',{maximumFractionDigits:0})+' ₽</div>'
+                    + '<div style="color:#999;font-size:.78em">'+(sk.campaigns||[]).length+' РК</div></div></div>'
+                    + (products ? '<div style="margin-bottom:8px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><span style="font-size:.78em;color:#999;margin-right:4px">Товары:</span>'+products+'</div>' : '')
+                    + '<div style="display:flex;flex-direction:column;gap:6px">'+camps+'</div></div>';
+            }).join('');
+        }
+
         // Campaigns table
         const camps = d.top_campaigns || [];
         const cb = document.getElementById('ads-campaigns-body');
@@ -5098,6 +5677,417 @@ async function loadAds() {
         console.error('loadAds error:', e);
         document.getElementById('ads-daily-body').innerHTML = '<tr><td colspan="9" class="empty">Ошибка загрузки: '+e.message+'</td></tr>';
     }
+}
+
+
+
+// ===== MARKETER DASHBOARD =====
+var mktAllProducts = [];
+var mktCurrentStore = '';
+
+async function loadMarketer() {
+    var period = document.getElementById('mkt-period').value;
+    var search = document.getElementById('mkt-flt-search').value;
+    var status = document.getElementById('mkt-flt-status').value;
+    var abc = document.getElementById('mkt-flt-class').value;
+    var brand = document.getElementById('mkt-flt-brand').value;
+
+    var params = new URLSearchParams({
+        org_id: ORG_ID,
+        days: period
+    });
+    if (search) params.set('search', search);
+    if (status) params.set('status', status);
+    if (abc) params.set('abc_class', abc);
+    if (brand) params.set('brand', brand);
+
+    try {
+        var r = await fetch('/api/v1/nl/marketer/products?' + params, {
+            headers: {'Authorization': 'Bearer ' + TOKEN}
+        });
+        var d = await r.json();
+
+        mktAllProducts = d.products || [];
+
+        // Update brand filter
+        var bsel = document.getElementById('mkt-flt-brand');
+        var curBrand = bsel.value;
+        bsel.innerHTML = '<option value="">Бренд: все</option>';
+        (d.brands || []).forEach(function(b) {
+            var opt = document.createElement('option');
+            opt.value = b; opt.textContent = b;
+            if (b === curBrand) opt.selected = true;
+            bsel.appendChild(opt);
+        });
+
+        document.getElementById('mkt-count').textContent = mktAllProducts.length + ' товаров, ' + (d.total_campaigns || 0) + ' РК';
+
+        renderMktProducts();
+    } catch(e) {
+        console.error('loadMarketer error:', e);
+        document.getElementById('mkt-products-list').innerHTML = '<div class="empty">Ошибка загрузки: ' + e.message + '</div>';
+    }
+}
+
+function filterMarketer() {
+    // Re-fetch with filters
+    loadMarketer();
+}
+
+function resetMktFilters() {
+    document.getElementById('mkt-flt-status').value = '';
+    document.getElementById('mkt-flt-class').value = '';
+    document.getElementById('mkt-flt-brand').value = '';
+    document.getElementById('mkt-flt-search').value = '';
+    loadMarketer();
+}
+
+function switchMktStore() {
+    var sel = document.getElementById('mkt-store');
+    if (sel && sel.value) {
+        ORG_ID = sel.value;
+        loadMarketer();
+    }
+}
+
+function initMktStores() {
+    // Populate store selector from existing store selectors
+    var ueStore = document.getElementById('ue-store');
+    var mktStore = document.getElementById('mkt-store');
+    if (ueStore && mktStore) {
+        mktStore.innerHTML = ueStore.innerHTML;
+        mktStore.value = ORG_ID;
+    }
+}
+
+function renderMktProducts() {
+    var el = document.getElementById('mkt-products-list');
+    if (!mktAllProducts.length) {
+        el.innerHTML = '<div class="empty">Нет товаров с рекламными данными за выбранный период</div>';
+        return;
+    }
+
+    var fmt = function(v) {
+        if (v == null) return '—';
+        if (v >= 1000) return v.toLocaleString('ru-RU', {maximumFractionDigits: 0});
+        return typeof v === 'number' ? v.toFixed(2) : v;
+    };
+
+    var html = '<table style="width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);font-size:.82em">';
+    html += '<thead><tr style="background:#f8f9fa">';
+    html += '<th style="padding:8px;text-align:left">📷</th>';
+    html += '<th style="padding:8px;text-align:left">Артикул</th>';
+    html += '<th style="padding:8px;text-align:left">Бренд</th>';
+    html += '<th style="padding:8px;text-align:center">Статус</th>';
+    html += '<th style="padding:8px;text-align:center">Класс</th>';
+    html += '<th style="padding:8px;text-align:right">Цена</th>';
+    html += '<th style="padding:8px;text-align:center">РК</th>';
+    html += '<th style="padding:8px;text-align:right">Показы</th>';
+    html += '<th style="padding:8px;text-align:right">Клики</th>';
+    html += '<th style="padding:8px;text-align:right">CTR %</th>';
+    html += '<th style="padding:8px;text-align:right">Расход ₽</th>';
+    html += '<th style="padding:8px;text-align:right">Заказы</th>';
+    html += '<th style="padding:8px;text-align:right">ДРР %</th>';
+    html += '</tr></thead><tbody>';
+
+    mktAllProducts.forEach(function(p) {
+        var photo = p.photo ? '<img src="' + p.photo.replace('/hq/', '/c246x328/') + '" style="width:40px;height:52px;object-fit:cover;border-radius:4px" onerror="this.style.opacity=0">' : '—';
+        var statusBadge = p.status ? '<span style="font-size:.75em;padding:2px 6px;border-radius:3px;background:' + getStatusColor(p.status) + ';color:#fff">' + p.status + '</span>' : '—';
+        var classBadge = p.abc_class ? '<span style="font-size:.8em;font-weight:700;color:' + getClassColor(p.abc_class) + '">' + p.abc_class + '</span>' : '—';
+
+        html += '<tr style="cursor:pointer;border-bottom:1px solid #f0f0f0" onclick="openMktDetail(' + p.nm_id + ')">';
+        html += '<td style="padding:6px">' + photo + '</td>';
+        html += '<td style="padding:6px"><div style="font-weight:600;font-size:.85em">' + (p.vendor_code || p.nm_id) + '</div><div style="font-size:.7em;color:#999">nm ' + p.nm_id + '</div></td>';
+        html += '<td style="padding:6px;font-size:.85em">' + (p.brand || '—') + '</td>';
+        html += '<td style="padding:6px;text-align:center">' + statusBadge + '</td>';
+        html += '<td style="padding:6px;text-align:center">' + classBadge + '</td>';
+        html += '<td style="padding:6px;text-align:right">' + fmt(p.price) + '</td>';
+        html += '<td style="padding:6px;text-align:center"><span style="background:#6c5ce7;color:#fff;padding:2px 8px;border-radius:10px;font-size:.8em">' + p.active_campaign_count + '/' + p.campaign_count + '</span></td>';
+        html += '<td style="padding:6px;text-align:right">' + fmt(p.total_views) + '</td>';
+        html += '<td style="padding:6px;text-align:right">' + fmt(p.total_clicks) + '</td>';
+        html += '<td style="padding:6px;text-align:right">' + fmt(p.ctr) + '</td>';
+        html += '<td style="padding:6px;text-align:right;font-weight:600">' + fmt(p.total_spent) + '</td>';
+        html += '<td style="padding:6px;text-align:right">' + p.total_orders + '</td>';
+        html += '<td style="padding:6px;text-align:right;color:' + (p.drr > 15 ? '#e74c3c' : '#27ae60') + '">' + fmt(p.drr) + '</td>';
+        html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    el.innerHTML = html;
+}
+
+function getStatusColor(s) {
+    var map = {'Новинка':'#27ae60','Выводим':'#e74c3c','ТОП (А)':'#2980b9','Двигаем (В)':'#f39c12','Категория С':'#95a5a6','Планируется к запуску':'#8e44ad'};
+    return map[s] || '#999';
+}
+
+function getClassColor(c) {
+    var map = {'A':'#2980b9','B':'#f39c12','C':'#95a5a6'};
+    return map[c] || '#999';
+}
+
+async function openMktDetail(nmId) {
+    var period = document.getElementById('mkt-period').value;
+    try {
+        var r = await fetch('/api/v1/nl/marketer/product/' + nmId + '?org_id=' + ORG_ID + '&days=' + period, {
+            headers: {'Authorization': 'Bearer ' + TOKEN}
+        });
+        var d = await r.json();
+
+        if (d.error) {
+            alert(d.error);
+            return;
+        }
+
+        document.getElementById('mkt-products-list').style.display = 'none';
+        document.getElementById('mkt-filters').style.display = 'none';
+        document.getElementById('mkt-product-detail').style.display = 'block';
+
+        renderMktDetail(d);
+    } catch(e) {
+        console.error('openMktDetail error:', e);
+        alert('Ошибка: ' + e.message);
+    }
+}
+
+function closeMktDetail() {
+    document.getElementById('mkt-products-list').style.display = 'block';
+    document.getElementById('mkt-filters').style.display = 'flex';
+    document.getElementById('mkt-product-detail').style.display = 'none';
+}
+
+function renderMktDetail(d) {
+    var p = d.product;
+    var el = document.getElementById('mkt-detail-content');
+    var fmt = function(v) { return v != null ? (v >= 1000 ? v.toLocaleString('ru-RU', {maximumFractionDigits:0}) : (typeof v === 'number' ? v.toFixed(2) : v)) : '—'; };
+
+    var html = '';
+
+    // Шапка товара
+    html += '<div style="display:flex;gap:20px;margin-bottom:20px;padding:16px;background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08);flex-wrap:wrap">';
+
+    // Фото
+    if (p.photo) {
+        html += '<img src="' + p.photo.replace('/hq/', '/c246x328/') + '" style="width:100px;height:130px;object-fit:cover;border-radius:8px" onerror="this.style.opacity=0">';
+    }
+
+    html += '<div style="flex:1;min-width:200px">';
+    html += '<h3 style="color:#6c5ce7;margin-bottom:8px">' + (p.vendor_code || 'Арт ' + p.nm_id) + '</h3>';
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">';
+    if (p.status) html += '<span style="font-size:.8em;padding:3px 8px;border-radius:4px;background:' + getStatusColor(p.status) + ';color:#fff">' + p.status + '</span>';
+    if (p.abc_class) html += '<span style="font-size:.8em;padding:3px 8px;border-radius:4px;background:' + getClassColor(p.abc_class) + ';color:#fff">Класс ' + p.abc_class + '</span>';
+    if (p.in_promo) html += '<span style="font-size:.8em;padding:3px 8px;border-radius:4px;background:#e67e22;color:#fff">🏷 В акции</span>';
+    html += '</div>';
+    html += '<div style="font-size:.85em;color:#666">';
+    html += '<div><strong>Арт WB:</strong> ' + p.nm_id + '</div>';
+    html += '<div><strong>Бренд:</strong> ' + (p.brand || '—') + '</div>';
+    html += '<div><strong>Категория:</strong> ' + (p.category || '—') + '</div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Цены
+    html += '<div style="text-align:right;min-width:150px">';
+    html += '<div style="font-size:.85em;color:#666">Цена до СПП</div>';
+    html += '<div style="font-size:1.3em;font-weight:700;color:#333">' + fmt(p.price || 0) + ' ₽</div>';
+    html += '<div style="font-size:.85em;color:#666;margin-top:6px">Цена с СПП</div>';
+    html += '<div style="font-size:1.1em;color:#6c5ce7">' + fmt(p.price_spp || 0) + ' ₽</div>';
+    html += '</div>';
+
+    html += '</div>';
+
+    // Лучший период
+    if (d.best_period) {
+        var bp = d.best_period;
+        html += '<div style="padding:12px 16px;background:#f0fff4;border:1px solid #27ae60;border-radius:8px;margin-bottom:20px">';
+        html += '<div style="font-weight:600;color:#27ae60;margin-bottom:6px">🏆 Лучший период</div>';
+        html += '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:.85em">';
+        html += '<span><strong>Дата:</strong> ' + bp.date + '</span>';
+        html += '<span><strong>Заказы:</strong> ' + bp.orders + '</span>';
+        html += '<span><strong>Цена:</strong> ' + fmt(bp.price) + ' ₽</span>';
+        html += '<span><strong>Цена с СПП:</strong> ' + fmt(bp.price_spp) + ' ₽</span>';
+        html += '<span><strong>Прибыль:</strong> ' + fmt(bp.profit) + ' ₽</span>';
+        html += '<span><strong>Расход:</strong> ' + fmt(bp.spent) + ' ₽</span>';
+        html += '</div></div>';
+    }
+
+    // Сводка «РК В ОБЩЕМ»
+    var gt = d.grand_total || {};
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:20px">';
+    html += '<div class="metric-card"><div class="mc-label">Показы</div><div class="mc-value">' + fmt(gt.views || 0) + '</div></div>';
+    html += '<div class="metric-card"><div class="mc-label">Клики</div><div class="mc-value">' + fmt(gt.clicks || 0) + '</div></div>';
+    html += '<div class="metric-card"><div class="mc-label">CTR</div><div class="mc-value">' + fmt(gt.ctr || 0) + '%</div></div>';
+    html += '<div class="metric-card"><div class="mc-label">Расход</div><div class="mc-value">' + fmt(gt.spent || 0) + ' ₽</div></div>';
+    html += '<div class="metric-card"><div class="mc-label">Заказы</div><div class="mc-value">' + (gt.orders || 0) + '</div></div>';
+    html += '</div>';
+
+    // Графики по РК
+    var campaigns = d.campaigns || [];
+    var activeCamps = campaigns.filter(function(c) { return c.is_active; });
+    var inactiveCamps = campaigns.filter(function(c) { return !c.is_active; });
+    
+    // График: РК В ОБЩЕМ + Органика
+    html += '<div style="background:#fff;border-radius:8px;margin-bottom:20px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)">';
+    html += '<h4 style="color:#6c5ce7;margin-bottom:12px;font-size:.95em">📊 РК В ОБЩЕМ — тренды по дням</h4>';
+    html += '<canvas id="mkt-chart-summary" height="110"></canvas>';
+    html += '</div>';
+    
+    // Графики по каждой активной РК
+    campaigns.forEach(function(camp, idx) {
+        var statusLabel = camp.is_active ? '🟢' : '🔴';
+        html += '<div style="background:#fff;border-radius:8px;margin-bottom:16px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)">';
+        html += '<h4 style="color:#6c5ce7;margin-bottom:12px;font-size:.95em">' + statusLabel + ' ' + camp.name + ' (ID: ' + camp.campaign_id + ')</h4>';
+        html += '<canvas id="mkt-chart-rk-' + idx + '" height="100"></canvas>';
+        html += '</div>';
+    });
+
+    // По каждой РК
+    var campaigns = d.campaigns || [];
+    if (campaigns.length) {
+        html += '<h3 style="color:#6c5ce7;margin-bottom:12px;font-size:1em">📢 Рекламные кампании (' + campaigns.length + ')</h3>';
+
+        campaigns.forEach(function(camp, idx) {
+            var isActive = camp.is_active;
+            var borderColor = isActive ? '#6c5ce7' : '#ccc';
+            var statusText = isActive ? '🟢 Активна' : '🔴 Приостановлена';
+
+            html += '<div style="border:1px solid ' + borderColor + ';border-radius:8px;margin-bottom:16px;overflow:hidden">';
+
+            // Шапка РК
+            html += '<div style="padding:10px 16px;background:#f8f9fa;border-bottom:1px solid ' + borderColor + ';display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
+            html += '<span style="font-weight:600;font-size:.95em">РК ' + (idx+1) + ': ' + camp.name + '</span>';
+            html += '<span style="font-size:.8em;padding:2px 8px;border-radius:10px;background:' + (isActive ? '#27ae60' : '#e74c3c') + ';color:#fff">' + statusText + '</span>';
+            html += '<span style="font-size:.8em;color:#999">ID: ' + camp.campaign_id + '</span>';
+            html += '<span style="font-size:.8em;color:#999">Тип: ' + camp.type + '</span>';
+            html += '</div>';
+
+            // Метрики РК
+            var ct = camp.totals || {};
+            html += '<div style="padding:12px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;font-size:.85em">';
+            html += '<div><span style="color:#999">Показы:</span> <strong>' + fmt(ct.views) + '</strong></div>';
+            html += '<div><span style="color:#999">Клики:</span> <strong>' + fmt(ct.clicks) + '</strong></div>';
+            html += '<div><span style="color:#999">CTR:</span> <strong>' + fmt(ct.ctr) + '%</strong></div>';
+            html += '<div><span style="color:#999">CPC:</span> <strong>' + fmt(ct.cpc) + ' ₽</strong></div>';
+            html += '<div><span style="color:#999">Расход:</span> <strong>' + fmt(ct.spent) + ' ₽</strong></div>';
+            html += '<div><span style="color:#999">Заказы:</span> <strong>' + (ct.orders || 0) + '</strong></div>';
+            html += '<div><span style="color:#999">CR:</span> <strong>' + fmt(ct.cr) + '%</strong></div>';
+            html += '</div>';
+
+            // Таблица по дням
+            var daily = camp.daily || [];
+            if (daily.length) {
+                html += '<div style="padding:0 16px 12px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.78em">';
+                html += '<thead><tr style="background:#f0f1f5">';
+                html += '<th style="padding:4px 6px;text-align:left">Дата</th>';
+                html += '<th style="padding:4px 6px;text-align:right">Показы</th>';
+                html += '<th style="padding:4px 6px;text-align:right">Клики</th>';
+                html += '<th style="padding:4px 6px;text-align:right">CTR</th>';
+                html += '<th style="padding:4px 6px;text-align:right">CPC ₽</th>';
+                html += '<th style="padding:4px 6px;text-align:right">Расход ₽</th>';
+                html += '<th style="padding:4px 6px;text-align:right">Заказы</th>';
+                html += '<th style="padding:4px 6px;text-align:right">В корзину</th>';
+                html += '</tr></thead><tbody>';
+
+                daily.reverse().forEach(function(d) {
+                    html += '<tr style="border-bottom:1px solid #f0f0f0">';
+                    html += '<td style="padding:3px 6px">' + d.date + '</td>';
+                    html += '<td style="padding:3px 6px;text-align:right">' + d.views + '</td>';
+                    html += '<td style="padding:3px 6px;text-align:right">' + d.clicks + '</td>';
+                    html += '<td style="padding:3px 6px;text-align:right">' + d.ctr + '</td>';
+                    html += '<td style="padding:3px 6px;text-align:right">' + d.cpc + '</td>';
+                    html += '<td style="padding:3px 6px;text-align:right;font-weight:600">' + d.spent + '</td>';
+                    html += '<td style="padding:3px 6px;text-align:right">' + d.orders + '</td>';
+                    html += '<td style="padding:3px 6px;text-align:right">' + d.atbs + '</td>';
+                    html += '</tr>';
+                });
+
+                html += '</tbody></table></div>';
+            }
+
+            html += '</div>';
+        });
+    } else {
+        html += '<div class="empty" style="padding:20px;text-align:center">Нет рекламных кампаний для этого товара за выбранный период</div>';
+    }
+
+    // Ссылки на неработающие разделы
+    html += '<div style="margin-top:20px;padding:12px 16px;background:#f8f9fb;border-radius:8px;font-size:.85em;color:#999">';
+    html += '<div>🔗 <strong>В разработке:</strong></div>';
+    html += '<div>• Ссылка на ОПиУ товара</div>';
+    html += '<div>• План заказов (шт) и % выполнения</div>';
+    html += '<div>• Стратегия РК (ручной ввод)</div>';
+    html += '<div>• Ссылка на РК в кабинете WB</div>';
+    html += '<div>• Графики Chart.js (по дням)</div>';
+    html += '</div>';
+
+    el.innerHTML = html;
+    renderMktCharts(d);
+}
+
+function renderMktCharts(d) {
+    if (window._mktCharts) { window._mktCharts.forEach(function(c) { c.destroy(); }); }
+    window._mktCharts = [];
+
+    var summaryDaily = (d.summary_daily || []).sort(function(a,b) { return a.date < b.date ? -1 : 1; });
+    var labels = summaryDaily.map(function(dd) { return dd.date.substring(5); });
+
+    // Summary chart
+    var ctxS = document.getElementById('mkt-chart-summary');
+    if (ctxS && summaryDaily.length > 1) {
+        var cS = new Chart(ctxS.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: '\u041f\u043e\u043a\u0430\u0437\u044b', data: summaryDaily.map(function(dd) { return dd.views; }), borderColor: '#6c5ce7', backgroundColor: 'rgba(108,92,231,0.1)', yAxisID: 'y', tension: 0.2, pointRadius: 3 },
+                    { label: '\u041a\u043b\u0438\u043a\u0438', data: summaryDaily.map(function(dd) { return dd.clicks; }), borderColor: '#00b894', backgroundColor: 'rgba(0,184,148,0.1)', yAxisID: 'y', tension: 0.2, pointRadius: 3 },
+                    { label: '\u0417\u0430\u043a\u0430\u0437\u044b', data: summaryDaily.map(function(dd) { return dd.orders; }), borderColor: '#fdcb6e', backgroundColor: 'rgba(253,203,110,0.1)', yAxisID: 'y', tension: 0.2, pointRadius: 3 },
+                    { label: '\u0420\u0430\u0441\u0445\u043e\u0434 \u20bd', data: summaryDaily.map(function(dd) { return dd.spent; }), borderColor: '#e17055', backgroundColor: 'rgba(225,112,85,0.1)', yAxisID: 'y1', tension: 0.2, pointRadius: 3 }
+                ]
+            },
+            options: {
+                responsive: true, interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { position: 'top', labels: { font: { size: 11 } } } },
+                scales: {
+                    y: { type: 'linear', position: 'left', title: { display: true, text: '\u041f\u043e\u043a\u0430\u0437\u044b / \u041a\u043b\u0438\u043a\u0438 / \u0417\u0430\u043a\u0430\u0437\u044b' } },
+                    y1: { type: 'linear', position: 'right', title: { display: true, text: '\u0420\u0430\u0441\u0445\u043e\u0434 \u20bd' }, grid: { drawOnChartArea: false } }
+                }
+            }
+        });
+        window._mktCharts.push(cS);
+    }
+
+    // Per-campaign charts
+    var campaigns = d.campaigns || [];
+    campaigns.forEach(function(camp, idx) {
+        var ctx = document.getElementById('mkt-chart-rk-' + idx);
+        if (!ctx) return;
+        var daily = (camp.daily || []).sort(function(a,b) { return a.date < b.date ? -1 : 1; });
+        if (daily.length < 2) return;
+        var campLabels = daily.map(function(dd) { return dd.date.substring(5); });
+        var c = new Chart(ctx.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: campLabels,
+                datasets: [
+                    { label: '\u041f\u043e\u043a\u0430\u0437\u044b', data: daily.map(function(dd) { return dd.views; }), borderColor: '#6c5ce7', backgroundColor: 'rgba(108,92,231,0.1)', yAxisID: 'y', tension: 0.2, pointRadius: 3 },
+                    { label: '\u041a\u043b\u0438\u043a\u0438', data: daily.map(function(dd) { return dd.clicks; }), borderColor: '#00b894', backgroundColor: 'rgba(0,184,148,0.1)', yAxisID: 'y', tension: 0.2, pointRadius: 3 },
+                    { label: '\u0417\u0430\u043a\u0430\u0437\u044b', data: daily.map(function(dd) { return dd.orders; }), borderColor: '#fdcb6e', backgroundColor: 'rgba(253,203,110,0.1)', yAxisID: 'y', tension: 0.2, pointRadius: 3 },
+                    { label: '\u0420\u0430\u0441\u0445\u043e\u0434 \u20bd', data: daily.map(function(dd) { return dd.spent; }), borderColor: '#e17055', backgroundColor: 'rgba(225,112,85,0.1)', yAxisID: 'y1', tension: 0.2, pointRadius: 3 },
+                    { label: 'CTR %', data: daily.map(function(dd) { return dd.ctr; }), borderColor: '#e84393', backgroundColor: 'rgba(232,67,147,0.1)', yAxisID: 'y2', tension: 0.2, pointRadius: 3, borderDash: [5,5] }
+                ]
+            },
+            options: {
+                responsive: true, interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { position: 'top', labels: { font: { size: 11 } } } },
+                scales: {
+                    y: { type: 'linear', position: 'left', title: { display: true, text: '\u041f\u043e\u043a\u0430\u0437\u044b / \u041a\u043b\u0438\u043a\u0438' } },
+                    y1: { type: 'linear', position: 'right', title: { display: true, text: '\u0420\u0430\u0441\u0445\u043e\u0434 \u20bd' }, grid: { drawOnChartArea: false } },
+                    y2: { type: 'linear', position: 'right', display: false }
+                }
+            }
+        });
+        window._mktCharts.push(c);
+    });
 }
 
 
@@ -6898,6 +7888,18 @@ async function loadOrgs() {
             fSel.appendChild(opt);
         });
     }
+    // Sync mkt-store dropdown in Стол маркетолога
+    const mktSel = document.getElementById("mkt-store");
+    if (mktSel) {
+        mktSel.innerHTML = "";
+        orgs.forEach(o => {
+            const opt = document.createElement("option");
+            opt.value = o.id;
+            opt.textContent = o.name + (o.wb_seller_id ? " (ID " + o.wb_seller_id + ")" : "");
+            if (o.id === ORG_ID) opt.selected = true;
+            mktSel.appendChild(opt);
+        });
+    }
 }
 
 async function switchOrg() {
@@ -6917,6 +7919,8 @@ async function switchOrg() {
     if (anSel2) anSel2.value = ORG_ID;
     const fSel2 = document.getElementById('filter-store');
     if (fSel2) fSel2.value = ORG_ID;
+    const mktSel2 = document.getElementById('mkt-store');
+    if (mktSel2) mktSel2.value = ORG_ID;
     showApp();
     // Reload current active tab data for new org
     var activeTab = document.querySelector('.page-section.active');
@@ -6930,6 +7934,7 @@ async function switchOrg() {
         else if (tabName === 'ads') loadAds();
         else if (tabName === 'extads') loadExtAds();
         else if (tabName === 'analytics') loadAnalytics();
+        else if (tabName === 'marketer') loadMarketer();
     }
 }
 
@@ -6947,6 +7952,8 @@ async function switchCostStore() {
     if (ueSel3) ueSel3.value = ORG_ID;
     const promoSel4 = document.getElementById('promo-store');
     if (promoSel4) promoSel4.value = ORG_ID;
+    const mktSel4 = document.getElementById('mkt-store');
+    if (mktSel4) mktSel4.value = ORG_ID;
     history.replaceState(null, '', '/nl/v2?org=' + ORG_ID);
     showApp();
     // Reload cost prices for new org
@@ -6967,6 +7974,8 @@ async function switchUEStore() {
     if (cpSel) cpSel.value = ORG_ID;
     const promoSel3 = document.getElementById("promo-store");
     if (promoSel3) promoSel3.value = ORG_ID;
+    const mktSel3 = document.getElementById("mkt-store");
+    if (mktSel3) mktSel3.value = ORG_ID;
     history.replaceState(null, "", "/nl/v2?org=" + ORG_ID);
     loadUEData();
 }

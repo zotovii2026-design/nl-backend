@@ -1,5 +1,6 @@
 """Celery задача: синхронизация рекламной статистики WB"""
 
+import json
 import asyncio
 import logging
 import httpx
@@ -186,7 +187,7 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
                 })
             await db.commit()
 
-        # 4) Статистика по дням
+        # 5) Статистика по дням
         stat_ids = [str(c["advertId"]) for c in all_campaigns if c["status"] in (7, 9, 11)]
 
         total_saved = 0
@@ -248,6 +249,67 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
                             "canceled": s.get("canceled", 0), "shks": s.get("shks", 0),
                             "sum_price": s.get("sum_price", 0), "currency": s.get("currency", "RUB"),
                         })
+                    # Сохраняем статистику по каждому nm_id внутри кампании
+                    for s in stats:
+                        for day in (s.get("days") or []):
+                            dt_raw = day.get("date", "")
+                            if not dt_raw:
+                                continue
+                            try:
+                                dt_str = dt_raw[:10]
+                            except:
+                                continue
+                            for app in (day.get("apps") or []):
+                                app_type = app.get("appType", 1)
+                                for nm in (app.get("nms") or []):
+                                    nm_id = nm.get("nmId")
+                                    if not nm_id:
+                                        continue
+                                    try:
+                                        await db.execute(text("""
+                                            INSERT INTO ad_stats_nm (
+                                                organization_id, wb_campaign_id, nm_id, stat_date, app_type,
+                                                views, clicks, spent, ctr, cpc, orders, atbs, cr,
+                                                canceled, shks, sum_price
+                                            ) VALUES (
+                                                :org, :cid, :nm, :sdate, :apptype,
+                                                :views, :clicks, :spent, :ctr, :cpc, :orders, :atbs, :cr,
+                                                :canceled, :shks, :sum_price
+                                            )
+                                            ON CONFLICT (organization_id, wb_campaign_id, nm_id, stat_date, app_type) DO UPDATE SET
+                                                views=EXCLUDED.views, clicks=EXCLUDED.clicks, spent=EXCLUDED.spent,
+                                                ctr=EXCLUDED.ctr, cpc=EXCLUDED.cpc, orders=EXCLUDED.orders,
+                                                atbs=EXCLUDED.atbs, cr=EXCLUDED.cr, canceled=EXCLUDED.canceled,
+                                                shks=EXCLUDED.shks, sum_price=EXCLUDED.sum_price
+                                        """), {
+                                            "org": org_id, "cid": s.get("advertId"), "nm": int(nm_id),
+                                            "sdate": date.fromisoformat(dt_str), "apptype": app_type,
+                                            "views": int(nm.get("views", 0)), "clicks": int(nm.get("clicks", 0)),
+                                            "spent": float(nm.get("sum", 0)), "ctr": float(nm.get("ctr", 0)),
+                                            "cpc": float(nm.get("cpc", 0)), "orders": int(nm.get("orders", 0)),
+                                            "atbs": int(nm.get("atbs", 0)), "cr": float(nm.get("cr", 0)),
+                                            "canceled": int(nm.get("canceled", 0)), "shks": int(nm.get("shks", 0)),
+                                            "sum_price": float(nm.get("sum_price", 0)),
+                                        })
+                                    except Exception as e:
+                                        logger.warning("[ad_stats] nm save error camp=%s nm=%s: %s", s.get("advertId"), nm_id, e)
+
+                    # Обновляем nm_ids для кампаний (уникальные nm из fullstats)
+                    for s in stats:
+                        aid = s.get("advertId")
+                        nm_set = set()
+                        for day in (s.get("days") or []):
+                            for app in (day.get("apps") or []):
+                                for nm in (app.get("nms") or []):
+                                    nm_id = nm.get("nmId")
+                                    if nm_id:
+                                        nm_set.add(int(nm_id))
+                        if nm_set:
+                            await db.execute(text("""
+                                UPDATE ad_campaigns SET nm_ids = CAST(:nms AS jsonb), updated_at = now()
+                                WHERE organization_id = :org AND wb_campaign_id = :cid
+                            """), {"org": org_id, "cid": aid, "nms": json.dumps(sorted(nm_set))})
+
                     await db.commit()
                     total_saved += len(stats)
 
@@ -260,7 +322,7 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
             if day_offset < days_back - 1:
                 await asyncio.sleep(65)
 
-        # 5) Баланс
+        # 6) Баланс
         try:
             resp4 = await client.get("/adv/v1/balance")
             if resp4.status_code == 200:
