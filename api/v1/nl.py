@@ -581,6 +581,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
         select(
             func.count(TechStatus.id).label("total_products"),
             func.sum(TechStatus.stock_qty).label("total_stock"),
+            func.sum(TechStatus.stock_fbo_qty).label("total_stock_fbo"),
             func.sum(TechStatus.orders_count).label("total_orders"),
             func.sum(TechStatus.buyouts_count).label("total_buyouts"),
             func.sum(TechStatus.returns_count).label("total_returns"),
@@ -622,7 +623,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
     products_detail = await db.execute(
         select(
             TechStatus.entity_id, TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name,
-            TechStatus.photo_main, TechStatus.stock_qty, TechStatus.orders_count,
+            TechStatus.photo_main, TechStatus.stock_qty, TechStatus.stock_fbo_qty, TechStatus.orders_count,
             TechStatus.buyouts_count, TechStatus.returns_count, TechStatus.rating,
             TechStatus.impressions, TechStatus.clicks, TechStatus.ad_cost,
             TechStatus.price, TechStatus.price_discount, TechStatus.tariff,
@@ -741,7 +742,9 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
         "date": str(d),
         "summary": {
             "total_products": safe_int(row.total_products) or 0,
-            "total_stock": safe_int(row.total_stock) or 0,
+            "total_stock": (safe_int(row.total_stock) or 0) + (safe_int(row.total_stock_fbo) or 0),
+            "total_stock_fbo": safe_int(row.total_stock_fbo) or 0,
+            "total_stock_fbs": safe_int(row.total_stock) or 0,
             "total_orders": safe_int(row.total_orders) or 0,
             "total_buyouts": safe_int(row.total_buyouts) or 0,
             "total_returns": safe_int(row.total_returns) or 0,
@@ -763,18 +766,19 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
                 "product_name": r[3],
                 "photo_main": r[4],
                 "stock_qty": safe_int(r[5]),
-                "orders_count": safe_int(r[6]),
-                "buyouts_count": safe_int(r[7]),
-                "returns_count": safe_int(r[8]),
-                "rating": safe_float(r[9]),
-                "impressions": safe_int(r[10]),
-                "clicks": safe_int(r[11]),
-                "ad_cost": safe_float(r[12]),
-                "price": safe_float(r[13]),
-                "price_discount": safe_float(r[14]),
-                "tariff": safe_float(r[15]),
-                "barcode": r[16] or "",
-                "barcodes": ", ".join(barcodes_map.get(str(r[0]), [])) or (r[16] or ""),
+                "stock_fbo_qty": safe_int(r[6]),
+                "orders_count": safe_int(r[7]),
+                "buyouts_count": safe_int(r[8]),
+                "returns_count": safe_int(r[9]),
+                "rating": safe_float(r[10]),
+                "impressions": safe_int(r[11]),
+                "clicks": safe_int(r[12]),
+                "ad_cost": safe_float(r[13]),
+                "price": safe_float(r[14]),
+                "price_discount": safe_float(r[15]),
+                "tariff": safe_float(r[16]),
+                "barcode": r[17] or "",
+                "barcodes": ", ".join(barcodes_map.get(str(r[0]), [])) or (r[17] or ""),
                 "size_name": size_map.get(str(r[0]), "") if r[0] else "",
                 "subject_name": subject_map.get(str(r[0]), "") if r[0] else "",
                 **(dims_map.get(str(r[0]), {}) if r[0] else {}),
@@ -5363,6 +5367,8 @@ async function loadStats() {
         document.getElementById('v-sold').textContent = fmt(s.total_orders);
         document.getElementById('v-returned').textContent = fmt(s.total_returns);
         document.getElementById('v-stock-total').textContent = fmt(s.total_stock, ' шт');
+        document.getElementById('v-stock-wb').textContent = fmt(s.total_stock_fbo, ' шт');
+        document.getElementById('v-stock-my').textContent = fmt(s.total_stock_fbs, ' шт');
         document.getElementById('v-ads').textContent = fmt(adCost, ' ₽');
         document.getElementById('v-buyout').textContent = s.total_orders ? (s.total_buyouts / s.total_orders * 100).toFixed(1) + '%' : '—';
         // Доп. карточки

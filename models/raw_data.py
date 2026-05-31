@@ -125,6 +125,7 @@ class TechStatus(Base):
     # 4. Логистика и деньги
     warehouse_name = Column(String(200), nullable=True)  # Склад
     stock_qty = Column(Integer, nullable=True)  # Остаток
+    stock_fbo_qty = Column(Integer, nullable=True, default=0)  # Остаток FBO (склады WB)
     tariff = Column(Numeric(10, 2), nullable=True)  # Тариф склада
     price = Column(Numeric(10, 2), nullable=True)  # Цена
     price_discount = Column(Numeric(10, 2), nullable=True)  # Цена после скидки

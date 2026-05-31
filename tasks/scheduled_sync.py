@@ -321,6 +321,39 @@ async def _do_stocks(sf):
             results[org_id[:8]] = {"status": "error", "error": str(e)}
 
     return results
+
+
+
+@shared_task(name="wb.sched.stocks_fbo")
+def sched_stocks_fbo():
+    """FBO остатки со складов WB"""
+    return _run(_do_stocks_fbo)
+
+
+async def _do_stocks_fbo(sf):
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
+        return {"status": "skipped", "reason": "no_keys"}
+    results = {}
+    for org_id, api_key in all_keys:
+        today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+        try:
+            async with WBApiClient(api_key) as client:
+                try:
+                    stocks = await client.get_stocks_warehouses(is_archive=False)
+                    count = len(stocks) if isinstance(stocks, list) else 0
+                    async with sf() as db:
+                        await _save_raw(db, org_id, "stocks_fbo", today, stocks, count=count)
+                    logger.info(f"[sched] stocks_fbo org={org_id[:8]}: {count} records")
+                    results[org_id[:8]] = {"status": "ok", "count": count}
+                except Exception as e:
+                    logger.error(f"[sched] stocks_fbo error org={org_id}: {e}")
+                    results[org_id[:8]] = {"status": "error", "error": str(e)}
+        except Exception as e:
+            logger.error(f"[sched] stocks_fbo error org={org_id}: {e}")
+            results[org_id[:8]] = {"status": "error", "error": str(e)}
+    return results
+
 @shared_task(name="wb.sched.tariffs")
 def sched_tariffs():
     """Тарифы складов на сегодня"""
@@ -810,6 +843,39 @@ async def _do_parse_raw(sf):
                     stock_map[key]["warehouses"].add(wh)
             stocks_by_date[td] = stock_map
 
+        # --- FBO Stocks (остатки на складах WB) ---
+        fbo_by_date = {}  # key = date -> {nm_id: {qty, chrt_id}}
+        async with sf() as db:
+            result = await db.execute(text("""
+                SELECT target_date, raw_response FROM raw_api_data 
+                WHERE api_method = 'stocks_fbo' AND status = 'ok' AND organization_id = :org
+                AND target_date >= :start_date
+                ORDER BY target_date
+            """), {"org": org_id, "start_date": window_dates[-1]})
+            fbo_rows = result.all()
+
+        for frow in fbo_rows:
+            ftd, fresp = frow
+            fbo_map = {}
+            fitems = fresp if isinstance(fresp, list) else (fresp.get("data", {}).get("items", []) if isinstance(fresp, dict) else [])
+            for fi in fitems:
+                if not isinstance(fi, dict):
+                    continue
+                nm = fi.get("nmId") or fi.get("nm_id")
+                if not nm:
+                    continue
+                nm = int(nm)
+                chrt = fi.get("chrtId")
+                qty = int(fi.get("quantity", 0) or 0)
+                key = nm  # aggregate by nm_id (FBO data is per warehouse, not per entity)
+                if key not in fbo_map:
+                    fbo_map[key] = {"qty": 0, "chrt_ids": set()}
+                fbo_map[key]["qty"] += qty
+                if chrt:
+                    fbo_map[key]["chrt_ids"].add(chrt)
+            if fbo_map:
+                fbo_by_date[ftd] = fbo_map
+
         # --- Цены из tariff_snapshot (fallback) ---
         async with sf() as db:
             price_result = await db.execute(text("""
@@ -932,6 +998,10 @@ async def _do_parse_raw(sf):
                 oinfo = orders_map.get((target_date, entity_key), {})
                 sinfo = sales_map.get((target_date, entity_key), {})
                 skinfo = date_stock.get(entity_key, {})
+                # FBO stock for this nm_id on this date
+                _date_fbo = fbo_by_date.get(target_date, {})
+                _fbo_info = _date_fbo.get(n_id, {})
+                _fbo_qty = _fbo_info.get("qty", 0) if _fbo_info else 0
 
                 # Цены: приоритет sales > orders > prices raw > tariff_snapshot
                 _tp = tariff_prices.get(n_id, {}) if n_id else {}
@@ -969,6 +1039,7 @@ async def _do_parse_raw(sf):
                         buyouts_count=sinfo.get("buyouts", 0),
                         returns_count=sinfo.get("returns", 0),
                         stock_qty=skinfo.get("qty", 0),
+                        stock_fbo_qty=_fbo_qty,
                         warehouse_name=", ".join(skinfo.get("warehouses", set())) if skinfo.get("warehouses") else None,
                         price=_price if _price else None,
                         price_discount=_price_discount if _price_discount else None,
@@ -992,6 +1063,7 @@ async def _do_parse_raw(sf):
                             "buyouts_count": ins.excluded.buyouts_count,
                             "returns_count": ins.excluded.returns_count,
                             "stock_qty": ins.excluded.stock_qty,
+                            "stock_fbo_qty": ins.excluded.stock_fbo_qty,
                             "warehouse_name": ins.excluded.warehouse_name,
                             "nm_id": ins.excluded.nm_id,
                             "price": ins.excluded.price,

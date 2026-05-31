@@ -51,6 +51,10 @@ celery_app_new.conf.update(
             "task": "wb.sched.stocks",
             "schedule": crontab(hour=11, minute=0),   # UTC 11:00 = MSK 14:00
         },
+        "day-stocks-fbo": {
+            "task": "wb.sched.stocks_fbo",
+            "schedule": crontab(hour=11, minute=3),   # UTC 11:03 = MSK 14:03
+        },
         "day-sales": {
             "task": "wb.sched.sales",
             "schedule": crontab(hour=11, minute=5),   # UTC 11:05
