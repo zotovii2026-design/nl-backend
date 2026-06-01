@@ -4,6 +4,7 @@ import json
 import asyncio
 import logging
 import httpx
+from services.wb_api.keys import get_all_wb_keys as _get_all_keys_imported
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Tuple
@@ -54,22 +55,9 @@ def _run(coro):
     return asyncio.run(wrapper())
 
 
-async def _get_all_keys(sf) -> List[Tuple[str, str]]:
-    """Получить все API-ключи (org_id, token) для всех организаций"""
-    async with sf() as db:
-        result = await db.execute(select(WbApiKey))
-        keys = result.scalars().all()
-        pairs = []
-        for k in keys:
-            token = None
-            if k.personal_token:
-                token = decrypt_data(k.personal_token)
-            elif k.api_key:
-                token = decrypt_data(k.api_key)
-            if token:
-                pairs.append((str(k.organization_id), token))
-        return pairs
-
+async def _get_all_keys(sf):
+    """Delegate to services.wb_api.keys"""
+    return await _get_all_keys_imported(sf)
 
 @shared_task(name="wb.sched.ad_stats")
 def sched_ad_stats(days_back: int = 1):

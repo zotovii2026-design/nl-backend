@@ -19,6 +19,7 @@ from models.raw_data import RawApiData, TechStatus
 from services.entity_sync import sync_entities_from_raw, find_entity_by_barcode, find_entity_by_nm_and_size, add_unmatched
 from models.product_entity import ProductEntity, EntityBarcode
 from services.wb_api.client import WBApiClient
+from services.wb_api.keys import get_all_wb_keys as _get_all_keys_imported
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 import uuid
@@ -103,28 +104,9 @@ def _run(coro):
     return asyncio.run(wrapper())
 
 
-async def _get_all_keys(sf) -> list:
-    """Получить все org_id + рабочие API ключи"""
-    async with sf() as db:
-        result = await db.execute(select(WbApiKey))
-        key_recs = result.scalars().all()
-        if not key_recs:
-            return []
-        keys = []
-        for key_rec in key_recs:
-            if key_rec.personal_token:
-                decrypted = decrypt_data(key_rec.personal_token)
-            else:
-                decrypted = decrypt_data(key_rec.api_key)
-            keys.append((str(key_rec.organization_id), decrypted))
-        return keys
-
-
-async def _get_first_key(sf) -> Optional[tuple]:
-    """Backward compat — returns first key"""
-    keys = await _get_all_keys(sf)
-    return keys[0] if keys else None
-
+async def _get_all_keys(sf):
+    """Delegate to services.wb_api.keys"""
+    return await _get_all_keys_imported(sf)
 
 async def _save_raw(db, org_id, method, target, response, count=None, status="ok", error=None):
     """Upsert сырых данных"""

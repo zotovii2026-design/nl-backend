@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from core.config import settings
+from services.wb_api.keys import get_all_wb_keys as _get_all_keys_imported
 from core.security import decrypt_data
 from models.organization import WbApiKey
 from models.promotion import WbPromotion, WbPromotionProduct
@@ -36,15 +37,8 @@ def _run(coro):
 
 
 async def _get_all_keys(sf):
-    async with sf() as db:
-        result = await db.execute(select(WbApiKey))
-        key_recs = result.scalars().all()
-        keys = []
-        for kr in key_recs:
-            token = decrypt_data(kr.personal_token) if kr.personal_token else decrypt_data(kr.api_key)
-            keys.append((str(kr.organization_id), token))
-        return keys
-
+    """Delegate to services.wb_api.keys"""
+    return await _get_all_keys_imported(sf)
 
 @shared_task(name="wb.sched.promo_sync")
 def do_promo_sync():
