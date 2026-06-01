@@ -397,32 +397,34 @@ def sched_tariffs():
 
 
 async def _do_tariffs(sf):
-    info = await _get_first_key(sf)
-    if not info:
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
         return {"status": "skipped", "reason": "no_keys"}
-    org_id, api_key = info
-
+    results = {}
     today = datetime.now(ZoneInfo("Europe/Moscow")).date()  # МСК
-    async with WBApiClient(api_key) as client:
-        results = {}
-        for tariff_type in ["box", "pallet"]:
-            try:
-                resp = await client.client.get(
-                    f"https://common-api.wildberries.ru/api/v1/tariffs/{tariff_type}",
-                    params={"date": today.isoformat()}
-                )
-                resp.raise_for_status()
-                data = resp.json()
+    for org_id, api_key in all_keys:
+        try:
+            async with WBApiClient(api_key) as client:
+                for tariff_type in ["box", "pallet"]:
+                    try:
+                        resp = await client.client.get(
+                            f"https://common-api.wildberries.ru/api/v1/tariffs/{tariff_type}",
+                            params={"date": today.isoformat()}
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
 
-                async with sf() as db:
-                    await _save_raw(db, org_id, f"tariffs_{tariff_type}", today, data)
+                        async with sf() as db:
+                            await _save_raw(db, org_id, f"tariffs_{tariff_type}", today, data)
 
-                results[tariff_type] = "ok"
-                logger.info(f"[sched] tariffs_{tariff_type}: ok")
-            except Exception as e:
-                logger.error(f"[sched] tariffs_{tariff_type}: {e}")
-                results[tariff_type] = f"error: {e}"
-        results[org_id[:8]] = {"status": results}
+                        logger.info(f"[sched] tariffs_{tariff_type} org={org_id[:8]}: ok")
+                    except Exception as e:
+                        logger.error(f"[sched] tariffs_{tariff_type} org={org_id[:8]}: {e}")
+            results[org_id[:8]] = {"status": "ok"}
+        except Exception as e:
+            logger.error(f"[sched] tariffs error org={org_id[:8]}: {e}")
+            results[org_id[:8]] = {"status": "error", "error": str(e)}
+    return results
 
 
 @shared_task(name="wb.sched.adverts")
@@ -521,46 +523,47 @@ def sched_warehouses():
 
 
 async def _do_warehouses(sf):
-    info = await _get_first_key(sf)
-    if not info:
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
         return {"status": "skipped", "reason": "no_keys"}
-    org_id, api_key = info
 
     from models.raw_data import WarehouseRef
     results = {}
-    async with WBApiClient(api_key) as client:
-        try:
-            resp = await client.client.get(
-                "https://marketplace-api.wildberries.ru/api/v3/warehouses"
-            )
-            resp.raise_for_status()
-            warehouses = resp.json()
-            if not isinstance(warehouses, list):
-                return {"status": "ok", "count": 0}
+    for org_id, api_key in all_keys:
+        async with WBApiClient(api_key) as client:
+            try:
+                resp = await client.client.get(
+                    "https://marketplace-api.wildberries.ru/api/v3/warehouses"
+                )
+                resp.raise_for_status()
+                warehouses = resp.json()
+                if not isinstance(warehouses, list):
+                    results[org_id[:8]] = {"status": "ok", "count": 0}
+                    continue
 
-            async with sf() as db:
-                for wh in warehouses:
-                    wh_id = wh.get("id") or wh.get("warehouseId")
-                    wh_name = wh.get("name") or wh.get("warehouseName", "")
-                    if wh_id:
-                        ins = pg_insert(WarehouseRef)
-                        stmt = ins.values(
-                            organization_id=org_id,
-                            wb_warehouse_id=wh_id,
-                            name=wh_name,
-                        ).on_conflict_do_update(
-                            constraint="warehouse_refs_wb_warehouse_id_key",
-                            set_={"name": ins.excluded.name}
-                        )
-                        await db.execute(stmt)
-                await db.commit()
+                async with sf() as db:
+                    for wh in warehouses:
+                        wh_id = wh.get("id") or wh.get("warehouseId")
+                        wh_name = wh.get("name") or wh.get("warehouseName", "")
+                        if wh_id:
+                            ins = pg_insert(WarehouseRef)
+                            stmt = ins.values(
+                                organization_id=org_id,
+                                wb_warehouse_id=wh_id,
+                                name=wh_name,
+                            ).on_conflict_do_update(
+                                constraint="warehouse_refs_wb_warehouse_id_key",
+                                set_={"name": ins.excluded.name}
+                            )
+                            await db.execute(stmt)
+                    await db.commit()
 
-            logger.info(f"[sched] warehouses: {len(warehouses)}")
-            results[org_id[:8]] = {"status": "ok", "count": len(warehouses)}
-            return results
-        except Exception as e:
-            logger.error(f"[sched] warehouses: {e}")
-            return {"status": "error", "error": str(e)}
+                logger.info(f"[sched] warehouses org={org_id[:8]}: {len(warehouses)}")
+                results[org_id[:8]] = {"status": "ok", "count": len(warehouses)}
+            except Exception as e:
+                logger.error(f"[sched] warehouses org={org_id[:8]}: {e}")
+                results[org_id[:8]] = {"status": "error", "error": str(e)}
+    return results
 
 @shared_task(name="wb.sched.parse_raw")
 def sched_parse_raw():
@@ -1205,34 +1208,39 @@ def sched_commission():
 
 
 async def _do_commission(sf):
-    """Сохраняет маппинг subjectID -> commission в raw_api_data"""
-    results = {}
-    info = await _get_first_key(sf)
-    if not info:
+    """Сохраняет маппинг subjectID -> commission в raw_api_data для каждой организации"""
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
         return {"status": "skipped", "reason": "no_keys"}
-    org_id, api_key = info
-
+    results = {}
     today = datetime.now(ZoneInfo("Europe/Moscow")).date()  # МСК
 
     import httpx
     async with httpx.AsyncClient() as http:
-        resp = await http.get(
-            "https://common-api.wildberries.ru/api/v1/tariffs/commission",
-            headers={"Authorization": api_key},
-            timeout=30
-        )
-        if resp.status_code != 200:
-            logger.error(f"[commission] API error: {resp.status_code} {resp.text[:200]}")
-            return {"status": "error", "code": resp.status_code}
+        for org_id, api_key in all_keys:
+            try:
+                resp = await http.get(
+                    "https://common-api.wildberries.ru/api/v1/tariffs/commission",
+                    headers={"Authorization": api_key},
+                    timeout=30
+                )
+                if resp.status_code != 200:
+                    logger.error(f"[commission] API error org={org_id[:8]}: {resp.status_code} {resp.text[:200]}")
+                    results[org_id[:8]] = {"status": "error", "code": resp.status_code}
+                    continue
 
-        data = resp.json()
-        report = data.get("report", [])
-        logger.info(f"[commission] got {len(report)} subjects")
+                data = resp.json()
+                report = data.get("report", [])
+                logger.info(f"[commission] org={org_id[:8]} got {len(report)} subjects")
 
-        async with sf() as db:
-            await _save_raw(db, org_id, "tariffs_commission", today, data, count=len(report))
+                async with sf() as db:
+                    await _save_raw(db, org_id, "tariffs_commission", today, data, count=len(report))
 
-        results[org_id[:8]] = {"status": "ok", "subjects": len(report)}
+                results[org_id[:8]] = {"status": "ok", "subjects": len(report)}
+            except Exception as e:
+                logger.error(f"[commission] error org={org_id[:8]}: {e}")
+                results[org_id[:8]] = {"status": "error", "error": str(e)}
+    return results
 
 @shared_task(name="wb.sched.tariff_snapshot")
 def sched_tariff_snapshot():
@@ -1252,7 +1260,7 @@ async def _do_tariff_snapshot(sf):
             import json as _json
             from models.wb_tariff_snapshot import WbTariffSnapshot
 
-            results = {"tariffs": 0, "adverts": 0, "buyout": 0, "total": 0}
+            org_results = {"tariffs": 0, "adverts": 0, "buyout": 0, "total": 0}
 
             # 0b. Загружаем цены из stocks (Price + Discount -> price_retail, price_with_spp)
             prices_by_nm = {}  # nm_id -> {price_retail, price_with_spp}
@@ -1347,7 +1355,7 @@ async def _do_tariff_snapshot(sf):
                                 except: pass
                         logistics_avg = sum(delivery_vals) / len(delivery_vals) if delivery_vals else 0
                         storage_avg = sum(storage_vals) / len(storage_vals) if storage_vals else 0
-                        results["tariffs"] = len(delivery_vals)
+                        org_results["tariffs"] = len(delivery_vals)
                     except Exception as e:
                         logger.error(f"[tariff_snapshot] tariffs parse error: {e}")
 
@@ -1373,7 +1381,7 @@ async def _do_tariff_snapshot(sf):
                 )
                 for r in ad_result.all():
                     ad_by_nm[int(r[0])] = float(r[1] or 0)
-                results["adverts"] = len(ad_by_nm)
+                org_results["adverts"] = len(ad_by_nm)
 
             # 3. % выкупа из tech_status (последние 30 дней)
             buyout_map = {}
@@ -1393,7 +1401,7 @@ async def _do_tariff_snapshot(sf):
                     b = float(r[1] or 0)
                     o = float(r[2] or 0)
                     buyout_map[r[0]] = round(b / o * 100, 1) if o > 0 else 0
-                results["buyout"] = len(buyout_map)
+                org_results["buyout"] = len(buyout_map)
 
             # 4. Список nm_id из product_entities
             entities = {}
@@ -1455,13 +1463,13 @@ async def _do_tariff_snapshot(sf):
                     try:
                         await db.execute(stmt)
                         await db.commit()
-                        results["total"] += 1
+                        org_results["total"] += 1
                     except Exception as e:
                         await db.rollback()
                         logger.error(f"[tariff_snapshot] upsert error nm={nm_id}: {e}")
 
-            logger.info(f"[tariff_snapshot] done: {results}")
-            results[org_id[:8]] = {"status": "ok", "total": results.get("total", 0)}
+            logger.info(f"[tariff_snapshot] org={org_id[:8]}: {org_results}")
+            results[org_id[:8]] = {"status": "ok", "total": org_results.get("total", 0)}
 
         except Exception as e:
             logger.error(f"[sched] error org={org_id}: {e}")
