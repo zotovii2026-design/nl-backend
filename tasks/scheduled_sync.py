@@ -788,7 +788,7 @@ async def _do_parse_raw(sf):
             sales_rows = result.all()
 
         sales_map = {}  # key = (date, entity_id)
-        seen_sale_ids = set()  # дедупликация по saleID
+        seen_sale_ids = set()  # дедупликация по (sale_date, saleID) — один saleID один раз за конкретный день
         for srow in sales_rows:
             td, resp = srow
             sls = resp if isinstance(resp, list) else []
@@ -807,14 +807,7 @@ async def _do_parse_raw(sf):
                 if not entity_id:
                     entity_id = nm_to_first_entity.get(nm)
 
-                # Дедупликация по saleID
-                sale_id = str(s.get("saleID", "") or "")
-                if sale_id and sale_id in seen_sale_ids:
-                    continue
-                if sale_id:
-                    seen_sale_ids.add(sale_id)
-
-                # Используем РЕАЛЬНУЮ дату продажи
+                # Используем РЕАЛЬНУЮ дату продажи (до дедупликации!)
                 sale_date_str = s.get("date", "")[:10]
                 try:
                     sale_date = date.fromisoformat(sale_date_str) if sale_date_str else td
@@ -823,10 +816,17 @@ async def _do_parse_raw(sf):
                 if sale_date not in window_dates_set:
                     continue
 
+                # Дедупликация по (реальная дата, saleID) — один saleID = одна запись за конкретный день
+                sale_id = str(s.get("saleID", "") or "")
+                dedup_key = (sale_date, sale_id)
+                if sale_id and dedup_key in seen_sale_ids:
+                    continue
+                if sale_id:
+                    seen_sale_ids.add(dedup_key)
+
                 key = (sale_date, entity_id or nm)
                 if key not in sales_map:
                     sales_map[key] = {"buyouts": 0, "returns": 0, "revenue": 0, "entity_id": entity_id, "nm_id": nm, "price": 0, "price_discount": 0}
-                sale_id = str(s.get("saleID", "") or "")
                 price = float(s.get("forPay") or s.get("totalPrice") or 0) / 100
                 tp = float(s.get("totalPrice") or 0) / 100
                 pd = float(s.get("priceWithDisc") or 0) / 100
