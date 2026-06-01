@@ -48,6 +48,8 @@ services:
 
   celery-worker:
     build: .
+    volumes:
+      - .:/app
     mem_limit: 900m
     mem_reservation: 256m
     container_name: nl-backend-celery-worker
@@ -61,12 +63,12 @@ services:
     depends_on:
       - postgres
       - redis
-    volumes:
-      - .:/app
     restart: unless-stopped
 
   celery-beat:
     build: .
+    volumes:
+      - .:/app
     mem_limit: 300m
     mem_reservation: 128m
     container_name: nl-backend-celery-beat
@@ -80,8 +82,6 @@ services:
     depends_on:
       - postgres
       - redis
-    volumes:
-      - .:/app
     restart: unless-stopped
 
 volumes:

@@ -5403,10 +5403,11 @@ async function loadStats() {
             const hasSizes = items.length > 1 || (items.length === 1 && items[0].size_name && items[0].size_name !== '0' && items[0].size_name !== 'ONE SIZE');
             
             // Агрегация для родительской строки
-            let totalStock = 0, totalOrders = 0, totalBuyouts = 0, totalReturns = 0;
+            let totalStock = 0, totalStockFbo = 0, totalOrders = 0, totalBuyouts = 0, totalReturns = 0;
             let totalImpressions = 0, totalClicks = 0, totalAd = 0;
             items.forEach(p => {
-                totalStock += p.stock_qty || 0;
+                totalStock += (p.stock_qty || 0) + (p.stock_fbo_qty || 0);
+                totalStockFbo += p.stock_fbo_qty || 0;
                 totalOrders += p.orders_count || 0;
                 totalBuyouts += p.buyouts_count || 0;
                 totalReturns += p.returns_count || 0;
@@ -5418,6 +5419,7 @@ async function loadStats() {
             const avgPrice = items[0].price || 0;
             const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions * 100).toFixed(1) + '%' : '—';
             const thumb = (items[0].photo_main || '').replace('/hq/', '/c246x328/').replace('/big/', '/c246x328/').replace('/tm/', '/c246x328/');
+            const totalStockFbs = totalStock - totalStockFbo;
             const stockColor = totalStock <= 0 ? '#e74c3c' : totalStock <= 5 ? '#e17055' : '';
             
             if (hasSizes) {
@@ -5427,7 +5429,7 @@ async function loadStats() {
                 '<td><b>' + nmId + '</b> <span style="font-size:.7em;color:#6c5ce7">▸ ' + items.length + ' разм.</span></td>' +
                 '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(items[0].product_name) + '">' + esc(items[0].product_name) + '</td>' +
                 '<td></td><td></td>' +
-                '<td style="color:' + stockColor + ';font-weight:600">' + totalStock + '</td>' +
+                '<td style="font-weight:600;line-height:1.1"><div style="color:#0984e3;font-size:.9em">' + totalStockFbo + '</div><div style="color:#6c5ce7;font-size:.75em">' + totalStockFbs + '</div></td>' +
                 '<td>' + totalOrders + '</td><td>' + totalBuyouts + '</td><td>' + totalReturns + '</td>' +
                 '<td>' + (avgRating ? avgRating.toFixed(1) : '—') + '</td>' +
                 '<td>' + totalImpressions + '</td><td>' + totalClicks + '</td><td>' + ctr + '</td>' +
@@ -5437,12 +5439,11 @@ async function loadStats() {
                 items.forEach(p => {
                     const sCtr = p.impressions > 0 ? (p.clicks / p.impressions * 100).toFixed(1) + '%' : '—';
                     const sizeLabel = p.size_name && p.size_name !== '0' && p.size_name !== 'ONE SIZE' ? p.size_name : '—';
-                    const sStockColor = p.stock_qty <= 0 ? '#e74c3c' : p.stock_qty <= 5 ? '#e17055' : '';
                     html += '<tr class="group-child" style="display:none;font-size:.85em">' +
                     '<td></td><td></td><td></td>' +
                     '<td style="color:#6c5ce7;font-weight:500">' + sizeLabel + '</td>' +
                     '<td style="font-size:.7em;color:#999">' + (p.barcode || '') + '</td>' +
-                    '<td style="color:' + sStockColor + ';font-weight:600">' + (p.stock_qty ?? '—') + '</td>' +
+                    '<td style="font-weight:600;line-height:1.1"><div style="color:#0984e3;font-size:.9em">' + (p.stock_fbo_qty ?? '—') + '</div><div style="color:#6c5ce7;font-size:.75em">' + (p.stock_qty ?? '—') + '</div></td>' +
                     '<td>' + (p.orders_count ?? '—') + '</td><td>' + (p.buyouts_count ?? '—') + '</td><td>' + (p.returns_count ?? '—') + '</td>' +
                     '<td>' + (p.rating ?? '—') + '</td><td>' + (p.impressions ?? '—') + '</td><td>' + (p.clicks ?? '—') + '</td><td>' + sCtr + '</td>' +
                     '<td>' + fmt(p.ad_cost) + '</td><td>' + fmt(p.price) + '</td></tr>';
@@ -5456,7 +5457,7 @@ async function loadStats() {
                 '<td>' + (p.nm_id || '') + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name) + '">' + esc(p.product_name) + '</td>' +
                 '<td style="font-size:.8em;color:#636e72">' + sizeLabel + '</td>' +
                 '<td style="font-size:.7em;color:#999">' + (p.barcode || '') + '</td>' +
-                '<td style="color:' + stockColor + ';font-weight:600">' + (p.stock_qty ?? '—') + '</td>' +
+                '<td style="font-weight:600;line-height:1.1"><div style="color:#0984e3;font-size:.9em">' + (p.stock_fbo_qty ?? '—') + '</div><div style="color:#6c5ce7;font-size:.75em">' + (p.stock_qty ?? '—') + '</div></td>' +
                 '<td>' + (p.orders_count ?? '—') + '</td>' +
                 '<td>' + (p.buyouts_count ?? '—') + '</td><td>' + (p.returns_count ?? '—') + '</td>' +
                 '<td>' + (p.rating ?? '—') + '</td><td>' + (p.impressions ?? '—') + '</td>' +
@@ -5466,9 +5467,10 @@ async function loadStats() {
         });
         tbody.innerHTML = html;
         // === ITOGO ===
-        let gStock=0, gOrders=0, gBuyouts=0, gReturns=0, gImpressions=0, gClicks=0, gAd=0, gRatingSum=0, gRatingCount=0;
+        let gStock=0, gStockFbo=0, gOrders=0, gBuyouts=0, gReturns=0, gImpressions=0, gClicks=0, gAd=0, gRatingSum=0, gRatingCount=0;
         prods.forEach(p => {
-            gStock += p.stock_qty || 0;
+            gStock += (p.stock_qty || 0) + (p.stock_fbo_qty || 0);
+            gStockFbo += p.stock_fbo_qty || 0;
             gOrders += p.orders_count || 0;
             gBuyouts += p.buyouts_count || 0;
             gReturns += p.returns_count || 0;
@@ -5480,14 +5482,14 @@ async function loadStats() {
         const gCtr = gImpressions > 0 ? (gClicks / gImpressions * 100).toFixed(1) + '%' : '-';
         const gRating = gRatingCount > 0 ? (gRatingSum / gRatingCount).toFixed(1) : '-';
         const gBuyoutPct = gOrders > 0 ? (gBuyouts / gOrders * 100).toFixed(1) + '%' : '-';
-        const gActiveCount = prods.filter(p => (p.stock_qty || 0) > 0).length;
+        const gActiveCount = prods.filter(p => ((p.stock_qty || 0) + (p.stock_fbo_qty || 0)) > 0).length;
         const totRow = document.createElement('tr');
         totRow.id = 'stats-total-row';
         totRow.style.cssText = 'background:linear-gradient(135deg,#6c5ce7,#a29bfe);color:#fff;font-weight:700;position:sticky;top:0;z-index:5';
         var totLabel = '\u0418\u0422\u041E\u0413\u041E (' + order.length + ' \u0442\u043e\u0432., ' + gActiveCount + ' \u0430\u043a\u0442.)';
         var rbl = ' \u20bd';
         totRow.innerHTML = '<td colspan="5" style="text-align:left;padding-left:12px;font-size:.95em">' + totLabel + '</td>' +
-        '<td style="font-size:1em">' + gStock + '</td>' +
+        '<td style="font-weight:600;line-height:1.1"><div style="color:#0984e3;font-size:.9em">' + gStockFbo + '</div><div style="color:#6c5ce7;font-size:.75em">' + (gStock - gStockFbo) + '</div></td>' +
         '<td>' + gOrders + '</td>' +
         '<td>' + gBuyouts + '</td>' +
         '<td>' + gReturns + '</td>' +

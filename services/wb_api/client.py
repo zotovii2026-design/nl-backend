@@ -427,6 +427,29 @@ class WBApiClient:
 
 
 
+
+    async def get_stocks_seller_warehouses(self, is_archive: bool = False) -> list:
+        """Все остатки (statistics API) — total = FBO + FBS."""
+        from datetime import date
+        response = await self.client.get(
+            f"{self.STATISTICS_URL}/api/v1/supplier/stocks",
+            params={"dateFrom": date.today().isoformat()}
+        )
+        if response.status_code == 204:
+            return []
+        response.raise_for_status()
+        result = response.json()
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict):
+            data = result.get("data", {})
+            if isinstance(data, dict):
+                return data.get("items", [])
+            if isinstance(data, list):
+                return data
+            return result.get("items", [])
+        return []
+
     async def get_fbs_warehouses(self) -> list:
         """Получение списка складов для FBS отгрузки.
         GET /api/v3/passes/offices

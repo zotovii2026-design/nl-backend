@@ -354,6 +354,42 @@ async def _do_stocks_fbo(sf):
             results[org_id[:8]] = {"status": "error", "error": str(e)}
     return results
 
+
+@shared_task(name='wb.sched.stocks_fbs')
+def sched_stocks_fbs():
+    return _run(_do_stocks_fbs)
+
+
+async def _do_stocks_fbs(sf):
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
+        return {'status': 'skipped', 'reason': 'no_keys'}
+    results = {}
+    for org_id, api_key in all_keys:
+        today = datetime.now(ZoneInfo('Europe/Moscow')).date()
+        try:
+            async with WBApiClient(api_key) as client:
+                try:
+                    stocks = await client.get_stocks_seller_warehouses()
+                    if not stocks:
+                        count = 0
+                        data = []
+                    else:
+                        count = len(stocks) if isinstance(stocks, list) else 0
+                        data = stocks if isinstance(stocks, list) else stocks
+                    async with sf() as db:
+                        await _save_raw(db, org_id, 'stocks_total', today, data if data else [], count=count)
+                    logger.info(f'[sched] stocks_fbs org={org_id[:8]}: {count} records')
+                    results[org_id[:8]] = {'status': 'ok', 'count': count}
+                except Exception as e:
+                    logger.error(f'[sched] stocks_fbs error org={org_id}: {e}')
+                    results[org_id[:8]] = {'status': 'error', 'error': str(e)}
+        except Exception as e:
+            logger.error(f'[sched] stocks_fbs error org={org_id}: {e}')
+            results[org_id[:8]] = {'status': 'error', 'error': str(e)}
+    return results
+
+
 @shared_task(name="wb.sched.tariffs")
 def sched_tariffs():
     """Тарифы складов на сегодня"""
@@ -807,41 +843,9 @@ async def _do_parse_raw(sf):
                 if entity_id and not sales_map[key]["entity_id"]:
                     sales_map[key]["entity_id"] = entity_id
 
-        # --- Stocks — ПО КАЖДЫЙ ДЕНЬ отдельно! ---
+        # --- Stocks FBS (склады продавца) — из stocks_fbo, фильтр по имени ---
         stocks_by_date = {}  # key = date -> {entity_id: {qty, warehouses}}
-        async with sf() as db:
-            result = await db.execute(text("""
-                SELECT target_date, raw_response FROM raw_api_data 
-                WHERE api_method = 'stocks' AND status = 'ok' AND organization_id = :org
-                AND target_date >= :start_date
-                ORDER BY target_date
-            """), {"org": org_id, "start_date": window_dates[-1]})
-            stocks_rows = result.all()
-
-        for srow in stocks_rows:
-            td, resp = srow
-            stock_map = {}
-            stks = resp if isinstance(resp, list) else []
-            for st in stks:
-                if not isinstance(st, dict):
-                    continue
-                nm = st.get("nmId") or st.get("nm_id")
-                barcode = str(st.get("barcode", "") or "")
-                if not nm:
-                    continue
-                nm = int(nm)
-                entity_id = entity_by_barcode.get(barcode) if barcode else None
-                if not entity_id:
-                    entity_id = nm_to_first_entity.get(nm)
-
-                key = entity_id or nm
-                if key not in stock_map:
-                    stock_map[key] = {"qty": 0, "warehouses": set(), "entity_id": entity_id, "nm_id": nm}
-                stock_map[key]["qty"] += int(st.get("quantity", st.get("qty", 0)) or 0)
-                wh = st.get("warehouseName", st.get("warehouse_name", ""))
-                if wh:
-                    stock_map[key]["warehouses"].add(wh)
-            stocks_by_date[td] = stock_map
+        # будет заполнен ниже из stocks_fbo (только "склад продавца")
 
         # --- FBO Stocks (остатки на складах WB) ---
         fbo_by_date = {}  # key = date -> {nm_id: {qty, chrt_id}}
@@ -858,6 +862,7 @@ async def _do_parse_raw(sf):
             ftd, fresp = frow
             fbo_map = {}
             fitems = fresp if isinstance(fresp, list) else (fresp.get("data", {}).get("items", []) if isinstance(fresp, dict) else [])
+            fbs_map = {}  # FBS for this date (склад продавца)
             for fi in fitems:
                 if not isinstance(fi, dict):
                     continue
@@ -867,14 +872,38 @@ async def _do_parse_raw(sf):
                 nm = int(nm)
                 chrt = fi.get("chrtId")
                 qty = int(fi.get("quantity", 0) or 0)
-                key = nm  # aggregate by nm_id (FBO data is per warehouse, not per entity)
-                if key not in fbo_map:
-                    fbo_map[key] = {"qty": 0, "chrt_ids": set()}
-                fbo_map[key]["qty"] += qty
-                if chrt:
-                    fbo_map[key]["chrt_ids"].add(chrt)
+                wh_name = fi.get("warehouseName", "")
+                is_seller_wh = "склад продавца" in wh_name.lower()
+                
+                if is_seller_wh:
+                    # FBS — склад продавца
+                    if nm not in fbs_map:
+                        fbs_map[nm] = {"qty": 0, "warehouses": set()}
+                    fbs_map[nm]["qty"] += qty
+                    if wh_name:
+                        fbs_map[nm]["warehouses"].add(wh_name)
+                else:
+                    # FBO — склад WB
+                    key = nm
+                    if key not in fbo_map:
+                        fbo_map[key] = {"qty": 0, "chrt_ids": set()}
+                    fbo_map[key]["qty"] += qty
+                    if chrt:
+                        fbo_map[key]["chrt_ids"].add(chrt)
+            
             if fbo_map:
                 fbo_by_date[ftd] = fbo_map
+            if fbs_map:
+                stocks_by_date[ftd] = {v.get("nm_id", k) if isinstance(v, dict) else k: v for k, v in fbs_map.items()}
+                # re-key by entity_id
+                fbs_stock_map = {}
+                for snm, sval in fbs_map.items():
+                    eid = nm_to_first_entity.get(snm) or snm
+                    if eid not in fbs_stock_map:
+                        fbs_stock_map[eid] = {"qty": 0, "warehouses": set(), "entity_id": eid, "nm_id": snm}
+                    fbs_stock_map[eid]["qty"] += sval["qty"]
+                    fbs_stock_map[eid]["warehouses"].update(sval.get("warehouses", set()))
+                stocks_by_date[ftd] = fbs_stock_map
 
         # --- Цены из tariff_snapshot (fallback) ---
         async with sf() as db:
