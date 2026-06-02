@@ -693,7 +693,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
 
     # Себестоимость и справочник
     ref_result = await db.execute(text(
-        "SELECT entity_id, nm_id, cost_price, product_class, brand, tax_system, tax_rate, vat_rate "
+        "SELECT entity_id, nm_id, cost_price, product_class, brand, tax_system, tax_rate, vat_rate, wb_price_fact "
         "FROM reference_book WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
     ), {"org": org_id})
     ref_by_entity = {}
@@ -706,6 +706,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
             "tax_system": r[5] or "",
             "tax_rate": float(r[6]) if r[6] else 0,
             "vat_rate": float(r[7]) if r[7] else 0,
+            "wb_price_fact": float(r[8]) if r[8] else None,
         }
         if r[0]:
             ref_by_entity[str(r[0])] = d_item
@@ -728,7 +729,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
             }
 
     def _get_ref(eid, nm):
-        return ref_by_nm.get(nm, ref_by_entity.get(eid, {"cost_price":0,"product_class":"","brand":"","tax_system":"","tax_rate":0,"vat_rate":0}))
+        return ref_by_nm.get(nm, ref_by_entity.get(eid, {"cost_price":0,"product_class":"","brand":"","tax_system":"","tax_rate":0,"vat_rate":0,"wb_price_fact":None}))
 
     def _get_snap(nm):
         return snap_by_nm_ts.get(nm, {"logistics_tariff":0,"storage_tariff":0,"commission_pct":0,"buyout_pct_fact":0})
@@ -5603,7 +5604,7 @@ async function loadStats() {
                 totalAd += p.ad_cost || 0;
             });
             const avgRating = items.reduce((s,p) => s + (p.rating||0), 0) / items.length;
-            const avgPrice = items[0].price || 0;
+            const avgPrice = items[0].wb_price_fact || items[0].price || 0;
             const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions * 100).toFixed(1) + '%' : '—';
             const thumb = (items[0].photo_main || '').replace('/hq/', '/c246x328/').replace('/big/', '/c246x328/').replace('/tm/', '/c246x328/');
             const totalStockFbs = totalStock - totalStockFbo;
@@ -5633,7 +5634,7 @@ async function loadStats() {
                     '<td style="font-weight:600;line-height:1.1"><div style="color:#0984e3;font-size:.9em">' + (p.stock_fbo_qty ?? '—') + '</div><div style="color:#6c5ce7;font-size:.75em">' + (p.stock_qty ?? '—') + '</div></td>' +
                     '<td>' + (p.orders_count ?? '—') + '</td><td>' + (p.buyouts_count ?? '—') + '</td><td>' + (p.returns_count ?? '—') + '</td>' +
                     '<td>' + (p.rating ?? '—') + '</td><td>' + (p.impressions ?? '—') + '</td><td>' + (p.clicks ?? '—') + '</td><td>' + sCtr + '</td>' +
-                    '<td>' + fmt(p.ad_cost) + '</td><td>' + fmt(p.price) + '</td></tr>';
+                    '<td>' + fmt(p.ad_cost) + '</td><td>' + fmt(p.wb_price_fact || p.price) + '</td></tr>';
                 });
             } else {
                 // Один размер — обычная строка
@@ -5649,7 +5650,7 @@ async function loadStats() {
                 '<td>' + (p.buyouts_count ?? '—') + '</td><td>' + (p.returns_count ?? '—') + '</td>' +
                 '<td>' + (p.rating ?? '—') + '</td><td>' + (p.impressions ?? '—') + '</td>' +
                 '<td>' + (p.clicks ?? '—') + '</td><td>' + ctr + '</td>' +
-                '<td>' + fmt(p.ad_cost) + '</td><td>' + fmt(p.price) + '</td></tr>';
+                '<td>' + fmt(p.ad_cost) + '</td><td>' + fmt(p.wb_price_fact || p.price) + '</td></tr>';
             }
         });
         tbody.innerHTML = html;
