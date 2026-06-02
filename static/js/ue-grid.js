@@ -57,9 +57,14 @@ function getUEColumns() {
                     headerTooltip: 'Размер', width: 50, headerSort: true },
                 { title: 'Баркод', field: 'barcode',
                     headerTooltip: 'Баркод (по API)', width: 90, headerSort: false, tooltip: true, cssClass: 'truncate-cell' },
-                { title: 'Арт WB', field: 'nm_id',
-                    headerTooltip: 'SKU / Артикул WB', width: 80, headerSort: true,
-                    formatter: function(cell) { return '<b>' + cell.getValue() + '</b>'; }
+                { title: 'Арт WB', field: 'nm_id_display',
+                    headerTooltip: 'SKU / Артикул WB (клик → страница товара)', width: 80, headerSort: true,
+                    formatter: function(cell) {
+                        const nmId = cell.getValue();
+                        if (!nmId) return '';
+                        const url = 'https://www.wildberries.ru/catalog/' + nmId + '/detail.aspx';
+                        return '<a href="' + url + '" target="_blank" style="color:#5b4a9e;text-decoration:none;font-weight:bold" title="Открыть на Wildberries">' + nmId + '</a>';
+                    }
                 },
                 { title: 'Товар', field: 'product_name',
                     headerTooltip: 'Название товара', width: 120, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
@@ -499,6 +504,9 @@ async function loadUEData() {
         const res = await fetch(url);
         const raw = await res.json();
         const data = Array.isArray(raw) ? raw : (raw.items || []);
+
+        // Сохраняем оригинальный nm_id для отображения и ссылок
+        data.forEach(p => { p.nm_id_display = p.nm_id; });
 
         // Помечаем безразмерные товары ПЕРЕД replaceData (для группировки — как в cost-grid.js)
         const nmCounts = {};
