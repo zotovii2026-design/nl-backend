@@ -463,9 +463,12 @@ async def _do_prices(sf):
                 async with sf() as db:
                     await _save_raw(db, org_id, "prices", datetime.now(ZoneInfo("Europe/Moscow")).date(), items, count=count)  # МСК
 
-                # Обновляем цены в tech_status (цены в копейках, переводим в рубли)
+                # Обновляем цены в tech_status + reference_book (WB API возвращает в рублях)
                 async with sf() as db:
-                    updated = 0
+                    updated_ts = 0
+                    updated_rb = 0
+                    from datetime import datetime as _dt, timezone as _tz
+                    now_utc = _dt.now(_tz.utc)
                     for item in items:
                         nm_id = item.get("nmID") or item.get("nmId") or item.get("nm_id")
                         if not nm_id:
@@ -474,21 +477,31 @@ async def _do_prices(sf):
                         if not sizes:
                             continue
                         sz = sizes[0]
-                        # Prices API returns values in kopecks -> convert to rubles
-                        price_retail = float(sz.get("price") or 0) / 100
-                        price_discounted = float(sz.get("discountedPrice") or 0) / 100
-                        price_club = float(sz.get("clubDiscountedPrice") or 0) / 100
+                        discount = item.get("discount", 0)
+                        # WB Prices API возвращает цены в рублях (НЕ в копейках)
+                        price_retail = float(sz.get("price") or 0)
+                        price_discounted = float(sz.get("discountedPrice") or 0)
+                        price_club = float(sz.get("clubDiscountedPrice") or 0)
                         if not price_retail:
                             continue
-                        await db.execute(text("""
+                        # tech_status
+                        r1 = await db.execute(text("""
                             UPDATE tech_status 
                             SET price = :price, price_discount = :price_disc, price_spp = :price_spp
                             WHERE organization_id = :org AND nm_id = :nm 
                             AND target_date = CURRENT_DATE
                         """), {"price": price_retail, "price_disc": price_discounted, "price_spp": price_club, "org": org_id, "nm": int(nm_id)})
-                        updated += 1
+                        updated_ts += r1.rowcount
+                        # reference_book — цена факта из WB API
+                        r2 = await db.execute(text("""
+                            UPDATE reference_book 
+                            SET wb_price_fact = :pf, wb_price_retail = :pr, wb_discount_pct = :disc, wb_prices_updated_at = :now
+                            WHERE organization_id = :org AND nm_id = :nm 
+                            AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+                        """), {"pf": price_discounted, "pr": price_retail, "disc": discount, "now": now_utc, "org": org_id, "nm": int(nm_id)})
+                        updated_rb += r2.rowcount
                     await db.commit()
-                    logger.info(f"[sched] prices updated {updated} records in tech_status")
+                    logger.info(f"[sched] prices updated {updated_ts} tech_status, {updated_rb} reference_book")
 
                 logger.info(f"[sched] prices org={org_id}: {count} items")
                 results[org_id[:8]] = {"status": "ok", "count": count}

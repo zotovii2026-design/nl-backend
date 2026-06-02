@@ -68,6 +68,12 @@ class ReferenceBook(Base):
     change_date = Column(Date, nullable=True)                       # Дата правок
     wb_club_discount_pct = Column(Numeric(5, 2), nullable=True)     # Скидка WB Клуб %
 
+    # === ЦЕНЫ WB API (факт) ===
+    wb_price_fact = Column(Numeric(12, 2), nullable=True)          # Цена со скидкой (discountedPrice из WB API)
+    wb_price_retail = Column(Numeric(12, 2), nullable=True)        # Цена до скидки (price из WB API)
+    wb_discount_pct = Column(Integer, nullable=True)                # Скидка WB % из API
+    wb_prices_updated_at = Column(DateTime(timezone=True), nullable=True)  # Когда обновлено из API
+
     # === РЕКЛАМА ===
     ad_plan_rub = Column(Numeric(10, 2), nullable=True)             # Реклама план руб
 

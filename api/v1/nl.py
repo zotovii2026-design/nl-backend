@@ -3500,7 +3500,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
 
     # 3) Ручные вводы Юнит Экономики — по entity_id, fallback nm_id+barcode
     ue_result = await db.execute(
-        sql_text("SELECT entity_id, nm_id, mp_correction_pct, buyout_niche_pct, extra_costs, ad_plan_rub, price_before_spp_plan, price_before_spp_change, change_date, fulfillment_model, wb_club_discount_pct, storage_pct, product_status, mp_base_pct FROM reference_book WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE) ORDER BY valid_from DESC"),
+        sql_text("SELECT entity_id, nm_id, mp_correction_pct, buyout_niche_pct, extra_costs, ad_plan_rub, price_before_spp_plan, price_before_spp_change, change_date, fulfillment_model, wb_club_discount_pct, storage_pct, product_status, mp_base_pct, wb_price_fact, wb_price_retail, wb_discount_pct, wb_prices_updated_at FROM reference_book WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE) ORDER BY valid_from DESC"),
         {"org": org_id}
     )
     ue_rows = ue_result.all()
@@ -3514,6 +3514,10 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         "wb_club_discount_pct": r[10],
         "product_status": r[12],
         "mp_base_pct": r[13],
+        "wb_price_fact": r[14],
+        "wb_price_retail": r[15],
+        "wb_discount_pct": r[16],
+        "wb_prices_updated_at": r[17],
     }
     # Берём только первую (самую свежую) запись по entity_id
     # ORDER BY valid_from DESC гарантирует что первая = новейшая
@@ -3654,9 +3658,9 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "storage_tariff": snap_by_nm.get(nm_id, {}).get("storage_tariff", 0),
             "storage_actual": 0,  # Будет из финотчётов
             "acceptance_avg": 0,  # Будет из API приёмки
-            "price_before_spp": snap_by_nm.get(nm_id, {}).get("price_retail") or price,
+            "price_before_spp": float(ue.get("wb_price_fact")) if ue.get("wb_price_fact") else (snap_by_nm.get(nm_id, {}).get("price_retail") or price),
             "spp_pct": snap_by_nm.get(nm_id, {}).get("spp_pct") or round((1 - price_discount / price) * 100, 1) if price and price_discount and price_discount < price else 0,
-            "price_with_spp": snap_by_nm.get(nm_id, {}).get("price_with_spp") or price_discount or price,
+            "price_with_spp": float(snap_by_nm.get(nm_id, {}).get("price_with_spp") or price_discount or price),
             "ad_fact_rub": snap_by_nm.get(nm_id, {}).get("ad_cost_fact") or float(p[9] or 0),
             "wb_club_discount_pct_api": 0,
 
@@ -3720,7 +3724,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         item["to_account_fact"] = to_account_fact
 
         # === БЛОК 8: Расчёт по ПЛАНУ ===
-        plan_price = item["price_before_spp_plan"] or item["price_before_spp"]
+        plan_price = float(item["price_before_spp_plan"] or item["price_before_spp"])
         plan_price_spp = round(plan_price * (1 - item["spp_pct"] / 100), 2) if item["spp_pct"] else plan_price
         plan_mp = round(plan_price_spp * mp_total_pct / 100, 2)
         plan_acquiring = round(plan_price_spp * 0.015, 2)
@@ -3757,7 +3761,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         item["to_account_plan"] = to_account_plan
 
         # === БЛОК 9: После изменений ===
-        change_price = item["price_before_spp_change"] or item["price_before_spp"]
+        change_price = float(item["price_before_spp_change"] or item["price_before_spp"])
         change_price_spp = round(change_price * (1 - item["spp_pct"] / 100), 2) if item["spp_pct"] else change_price
         change_mp = round(change_price_spp * mp_total_pct / 100, 2)
         
@@ -3858,6 +3862,161 @@ async def save_unit_economics(data: UnitEconSave, org_id: str, db: AsyncSession 
     await db.execute(stmt)
     await db.commit()
     return {"ok": True}
+
+
+# ─── ОБНОВЛЕНИЕ ЦЕН ИЗ WB API ─────────────────────────────
+
+# Кулдаун: минимальный интервал между обновлениями цен (секунды)
+PRICES_REFRESH_COOLDOWN = 15 * 60  # 15 минут
+
+
+@router.post("/api/v1/nl/prices/refresh")
+async def refresh_prices_from_wb(org_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Обновить цены из WB Prices API и сохранить в reference_book.
+    
+    Тянет discountedPrice (цена со скидкой, реально на витрине),
+    price (цена до скидки), discount (скидка %).
+    
+    Кулдаун 15 мин — защита от бана WB API.
+    """
+    from services.wb_api.keys import get_all_wb_keys as _get_keys
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from core.config import settings
+    from datetime import datetime as _dt, timezone as _tz
+    
+    org_id = await resolve_org_id(org_id, db)
+    
+    # Проверяем кулдаун — когда последний раз обновляли цены
+    cooldown_sql = "SELECT MAX(wb_prices_updated_at) FROM reference_book WHERE organization_id = :org AND wb_prices_updated_at IS NOT NULL"
+    cooldown_result = await db.execute(text(cooldown_sql), {"org": org_id})
+    last_update_row = cooldown_result.first()
+    last_update = last_update_row[0] if last_update_row else None
+    
+    if last_update:
+        now_utc = _dt.now(_tz.utc)
+        if last_update.tzinfo is None:
+            last_update = last_update.replace(tzinfo=_tz.utc)
+        elapsed = (now_utc - last_update).total_seconds()
+        remaining = PRICES_REFRESH_COOLDOWN - elapsed
+        if remaining > 0:
+            mins = int(remaining // 60)
+            secs = int(remaining % 60)
+            raise HTTPException(429, f"Кулдаун. Доступно через {mins}:{secs:02d}")
+    
+    # Получаем API ключи
+    engine = create_async_engine(settings.DATABASE_URL, echo=False)
+    sf = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        all_keys = await _get_keys(sf)
+    finally:
+        await engine.dispose()
+    
+    # Находим ключ для этой организации
+    api_key = None
+    for oid, key in all_keys:
+        if oid == org_id:
+            api_key = key
+            break
+    
+    if not api_key:
+        raise HTTPException(400, "Нет WB API ключа для этой организации")
+    
+    # Запрашиваем цены из WB API
+    from services.wb_api.client import WBApiClient
+    
+    try:
+        async with WBApiClient(api_key) as client:
+            prices_data = await client.get_all_prices()
+    except Exception as e:
+        raise HTTPException(502, f"Ошибка WB API: {str(e)}")
+    
+    items = prices_data if isinstance(prices_data, list) else prices_data.get("items", [])
+    if not items:
+        raise HTTPException(404, "WB API вернул пустой список товаров")
+    
+    # Строим маппинг nm_id -> цены
+    price_map = {}
+    for item in items:
+        nm_id = item.get("nmID") or item.get("nmId") or item.get("nm_id")
+        if not nm_id:
+            continue
+        nm_id = int(nm_id)
+        discount = item.get("discount", 0)
+        sizes = item.get("sizes", [])
+        if sizes:
+            sz = sizes[0]
+            price_retail = float(sz.get("price", 0))
+            price_fact = float(sz.get("discountedPrice", 0))
+            if price_retail > 0:
+                price_map[nm_id] = {
+                    "price_retail": price_retail,
+                    "price_fact": price_fact,
+                    "discount": discount,
+                }
+    
+    # Обновляем reference_book
+    now = _dt.now(_tz.utc)
+    updated_count = 0
+    
+    for nm_id, prices in price_map.items():
+        update_sql = (
+            "UPDATE reference_book "
+            "SET wb_price_fact = :pf, "
+            "    wb_price_retail = :pr, "
+            "    wb_discount_pct = :disc, "
+            "    wb_prices_updated_at = :now "
+            "WHERE organization_id = :org "
+            "  AND nm_id = :nm "
+            "  AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
+        )
+        result = await db.execute(text(update_sql), {
+            "pf": prices["price_fact"],
+            "pr": prices["price_retail"],
+            "disc": prices["discount"],
+            "now": now,
+            "org": org_id,
+            "nm": nm_id,
+        })
+        updated_count += result.rowcount
+    
+    await db.commit()
+    
+    return {
+        "ok": True,
+        "updated": updated_count,
+        "total_items": len(items),
+        "total_with_prices": len(price_map),
+        "updated_at": now.isoformat(),
+        "cooldown_seconds": PRICES_REFRESH_COOLDOWN,
+    }
+
+
+@router.get("/api/v1/nl/prices/last-refresh")
+async def get_last_prices_refresh(org_id: str, db: AsyncSession = Depends(get_db)):
+    """Когда последний раз обновляли цены из WB API"""
+    org_id = await resolve_org_id(org_id, db)
+    last_sql = "SELECT MAX(wb_prices_updated_at) FROM reference_book WHERE organization_id = :org AND wb_prices_updated_at IS NOT NULL"
+    result = await db.execute(text(last_sql), {"org": org_id})
+    row = result.first()
+    last_update = row[0] if row else None
+    
+    remaining = 0
+    if last_update:
+        from datetime import datetime as _dt2, timezone as _tz2
+        now_utc = _dt2.now(_tz2.utc)
+        if last_update.tzinfo is None:
+            last_update = last_update.replace(tzinfo=_tz2.utc)
+        elapsed = (now_utc - last_update).total_seconds()
+        if elapsed < PRICES_REFRESH_COOLDOWN:
+            remaining = int(PRICES_REFRESH_COOLDOWN - elapsed)
+    
+    return {
+        "last_update": last_update.isoformat() if last_update else None,
+        "cooldown_remaining_seconds": remaining,
+        "can_refresh": remaining == 0,
+    }
+
 
 # ─── АКЦИИ WB ─────────────────────────────────────────────
 
@@ -4537,7 +4696,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260522e"></script>
-<script type="text/javascript" src="/static/js/ue-grid.js?v=20260525b"></script>
+<script type="text/javascript" src="/static/js/ue-grid.js?v=20260602a"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 </head>
 <body>
@@ -5164,6 +5323,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
 <button class="btn" onclick="loadUEData()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+<button class="btn" id="btn-refresh-prices" onclick="refreshPricesFromWB()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff" disabled>💱 Цены из WB...</button>
 <button class="btn btn-outline" onclick="exportUEExcel()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
 <span style="font-size:.85em;color:#999;margin-left:auto" id="ue-count"></span>
 <button class="btn" onclick="saveUEData()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>

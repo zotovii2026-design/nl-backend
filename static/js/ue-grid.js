@@ -641,3 +641,89 @@ function exportUEExcel() {
     if (!ueTabulator) return;
     ueTabulator.download('xlsx', 'unit-economics.xlsx', { sheetName: 'Юнит-экономика' });
 }
+
+// ─── ОБНОВЛЕНИЕ ЦЕН ИЗ WB API ────────────────────────────
+
+let _pricesCooldownTimer = null;
+
+/**
+ * Проверить статус кулдауна и обновить кнопку
+ */
+async function checkPricesCooldown() {
+    const btn = document.getElementById('btn-refresh-prices');
+    if (!btn) return;
+    const orgId = getOrgId();
+    if (!orgId) { btn.disabled = true; btn.textContent = '💱 Цены из WB (нет орг.)'; return; }
+    
+    try {
+        const res = await fetch('/api/v1/nl/prices/last-refresh?org_id=' + orgId);
+        const data = await res.json();
+        
+        if (data.can_refresh) {
+            btn.disabled = false;
+            btn.textContent = '💱 Цены из WB';
+            btn.style.background = '#6c5ce7';
+            btn.style.cursor = 'pointer';
+        } else {
+            btn.disabled = true;
+            btn.style.background = '#b2bec3';
+            btn.style.cursor = 'not-allowed';
+            const mins = Math.ceil(data.cooldown_remaining_seconds / 60);
+            btn.textContent = '💱 Цены из WB (' + mins + ' мин)';
+            
+            // Запускаем обратный отсчёт
+            if (!_pricesCooldownTimer) {
+                _pricesCooldownTimer = setInterval(() => {
+                    checkPricesCooldown();
+                }, 30000); // Каждые 30 сек
+            }
+        }
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = '💱 Цены из WB';
+        btn.style.background = '#6c5ce7';
+    }
+}
+
+/**
+ * Обновить цены из WB API
+ */
+async function refreshPricesFromWB() {
+    const btn = document.getElementById('btn-refresh-prices');
+    const orgId = getOrgId();
+    if (!orgId) { alert('Не выбрана организация'); return; }
+    
+    btn.disabled = true;
+    btn.textContent = '💱 Загрузка цен...';
+    btn.style.background = '#b2bec3';
+    
+    try {
+        const res = await fetch('/api/v1/nl/prices/refresh?org_id=' + orgId, { method: 'POST' });
+        const data = await res.json();
+        
+        if (res.ok) {
+            const msg = 'Цены обновлены: ' + data.updated + ' записей из ' + data.total_with_prices + ' товаров';
+            btn.textContent = '💱 Цены из WB ✓';
+            setTimeout(() => {
+                checkPricesCooldown();
+                // Перезагружаем данные таблицы
+                loadUEData();
+            }, 2000);
+        } else {
+            if (res.status === 429) {
+                alert('Подождите: ' + data.detail);
+            } else {
+                alert('Ошибка: ' + (data.detail || 'неизвестная'));
+            }
+            checkPricesCooldown();
+        }
+    } catch (e) {
+        alert('Ошибка: ' + e.message);
+        checkPricesCooldown();
+    }
+}
+
+// Запускаем проверку кулдауна при загрузке
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(checkPricesCooldown, 1000);
+});
