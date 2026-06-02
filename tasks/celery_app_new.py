@@ -35,10 +35,6 @@ celery_app_new.conf.update(
             "task": "wb.sched.warehouses",
             "schedule": crontab(hour=0, minute=15),   # UTC 00:15 = MSK 03:15
         },
-        "night-stocks": {
-            "task": "wb.sched.stocks",
-            "schedule": crontab(hour=0, minute=20),   # UTC 00:20 = MSK 03:20
-        },
         "night-stocks-fbo": {
             "task": "wb.sched.stocks_fbo",
             "schedule": crontab(hour=0, minute=23),   # UTC 00:23 = MSK 03:23
@@ -55,10 +51,6 @@ celery_app_new.conf.update(
         },
 
         # ─── 14:00 MSK — Дневной сбор ────────────────────
-        "day-stocks": {
-            "task": "wb.sched.stocks",
-            "schedule": crontab(hour=11, minute=0),   # UTC 11:00 = MSK 14:00
-        },
         "day-stocks-fbo": {
             "task": "wb.sched.stocks_fbo",
             "schedule": crontab(hour=11, minute=3),   # UTC 11:03 = MSK 14:03

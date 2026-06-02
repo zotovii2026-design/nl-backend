@@ -321,7 +321,7 @@ function prepareCostData(products) {
 
             // Данные продукта (из API /control)
             entity_id: p.entity_id || '',
-            nm_id: p.nm_id,
+            nm_id: isSizeless ? ('_solo_' + (p.entity_id || (p.nm_id + '_0'))) : p.nm_id,
             size_name: p.size_name || '',
             product_name: p.product_name || '',
             vendor_code: p.vendor_code || c.vendor_code || '',
@@ -419,15 +419,18 @@ function initCostTabulator(data) {
         initialSort: [
             {column: '_sizeList', dir: 'asc'},
         ],
-        groupBy: function(data) {
-            // Безразмерные товары — без группы
-            if (data._noGroup) return '';
-            return data.nm_id;
-        },
+        // Группировка по nm_id. Безразмерные получили уникальный _solo_ ключ
+        groupBy: 'nm_id',
         groupStartOpen: true,
         groupToggleElement: 'header',
         groupHeader: function(value, count, data, group) {
-            if (!value) return ''; // безразмерные — пустой заголовок
+            // Скрыть заголовок для соло-товаров (безразмерных)
+            if (value && typeof value === 'string' && value.startsWith('_solo_')) {
+                var el = group.getElement();
+                if (el) el.style.display = 'none';
+                return '';
+            }
+            if (!value) return '';
             const d = data[0] || {};
             const name = (d.product_name || '').substring(0, 40);
             const vc = d.vendor_code || '';

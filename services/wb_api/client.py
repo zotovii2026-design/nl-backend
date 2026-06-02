@@ -359,19 +359,8 @@ class WBApiClient:
                        report_type: str = "sales",
                        date_from: Optional[str] = None,
                        date_to: Optional[str] = None) -> Dict[str, Any]:
-        """Получение отчётов"""
-        params = {"type": report_type}
-        if date_from:
-            params["dateFrom"] = date_from
-        if date_to:
-            params["dateTo"] = date_to
-
-        response = await self.client.get(
-            f"{self.base_url}api/v1/analytics/reports",
-            params=params
-        )
-        response.raise_for_status()
-        return response.json().get("data", {})
+        """DEPRECATED: Не используется. endpoint удалён из WB API."""
+        raise NotImplementedError("get_reports() deprecated — endpoint удалён из WB API")
 
     async def test_connection(self) -> bool:
         """Проверка подключения к WB API"""
@@ -385,7 +374,9 @@ class WBApiClient:
 
 
     async def get_stocks_api(self, date_from: str = None) -> list:
-        """Получение остатков со складов через statistics API"""
+        """DEPRECATED: GET /api/v1/supplier/stocks — отключается 23 июня 2026.
+        Используйте get_stocks_warehouses() (seller-analytics-api).
+        """
         params = {}
         if date_from:
             params["dateFrom"] = date_from
@@ -429,7 +420,9 @@ class WBApiClient:
 
 
     async def get_stocks_seller_warehouses(self, is_archive: bool = False) -> list:
-        """Все остатки (statistics API) — total = FBO + FBS."""
+        """DEPRECATED: GET /api/v1/supplier/stocks — отключается 23 июня 2026.
+        Используйте get_stocks_warehouses() (seller-analytics-api).
+        """
         from datetime import date
         response = await self.client.get(
             f"{self.STATISTICS_URL}/api/v1/supplier/stocks",

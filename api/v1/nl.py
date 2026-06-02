@@ -30,6 +30,26 @@ def get_org_from_token(token: str) -> str:
     return payload.get("org_id")
 
 
+# ─── ORG ID RESOLVER ─────────────────────────────────────
+async def resolve_org_id(org_id: str, db) -> str:
+    """Если org_id — числовой (wb_seller_id), найти UUID организации"""
+    try:
+        uuid.UUID(org_id)
+        return org_id  # Уже UUID
+    except ValueError:
+        pass
+    # Попробовать найти по wb_seller_id
+    from sqlalchemy import text as sql_text
+    result = await db.execute(
+        sql_text("SELECT id FROM organizations WHERE wb_seller_id = :sid"),
+        {"sid": int(org_id)}
+    )
+    row = result.first()
+    if row:
+        return str(row[0])
+    raise HTTPException(status_code=400, detail=f"Организация не найдена: {org_id}")
+
+
 # ─── API ENDPOINTS ─────────────────────────────────────────
 
 class RegisterData(BaseModel):
@@ -143,6 +163,7 @@ async def nl_me(token: str = Query(""), db: AsyncSession = Depends(get_db)):
 
 @router.get("/api/v1/nl/reference")
 async def get_reference(org_id: str, target_date: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    org_id = await resolve_org_id(org_id, db)
     """Справочник — все актуальные записи"""
     from datetime import datetime as dt
     from sqlalchemy import text
@@ -216,6 +237,7 @@ async def save_reference(item: RefItem, org_id: str, db: AsyncSession = Depends(
 
 @router.get("/api/v1/nl/products")
 async def get_products(org_id: str, target_date: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    org_id = await resolve_org_id(org_id, db)
     """Список уникальных карточек из ТС на дату с entity_id и size_name"""
     from datetime import datetime as dt_mod
     from models.product_entity import ProductEntity, EntityBarcode
@@ -569,6 +591,7 @@ async def get_available_dates(org_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/api/v1/nl/control")
 async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    org_id = await resolve_org_id(org_id, db)
     """Оперативный контроль — метрики на дату"""
     from sqlalchemy import func, case, and_
     from datetime import datetime as dt_mod
@@ -1344,6 +1367,7 @@ document.getElementById('submitBtn').addEventListener('click', async function() 
 
 @router.get("/api/v1/nl/analytics")
 async def get_analytics(org_id: str, target_date: Optional[str] = None, search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    org_id = await resolve_org_id(org_id, db)
     """Аналитика по товарам — детальная таблица"""
     from datetime import datetime as dt_mod
     import decimal
@@ -1548,6 +1572,7 @@ async def get_opiu(org_id: str, period: str = "4", db: AsyncSession = Depends(ge
 
 @router.get("/api/v1/nl/cost-prices")
 async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
+    org_id = await resolve_org_id(org_id, db)
     """Справочник товаров — одна запись на entity (nm_id + размер)"""
     from sqlalchemy import text
     # JOIN product_entities с reference_book: каждая entity = своя строка
@@ -3438,6 +3463,7 @@ async def get_marketer_product_detail(
 @router.get("/api/v1/nl/unit-economics")
 async def get_unit_economics(org_id: str, search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """Юнит Экономика — сборка всех данных по SKU"""
+    org_id = await resolve_org_id(org_id, db)
     from models.reference_book import ReferenceBook
     from sqlalchemy import text as sql_text
 
@@ -3782,6 +3808,7 @@ class UnitEconSave(BaseModel):
 @router.post("/api/v1/nl/unit-economics")
 async def save_unit_economics(data: UnitEconSave, org_id: str, db: AsyncSession = Depends(get_db)):
     """Сохранить ручные вводы Юнит Экономики"""
+    org_id = await resolve_org_id(org_id, db)
     from models.reference_book import ReferenceBook
     from datetime import datetime as dt_mod
 

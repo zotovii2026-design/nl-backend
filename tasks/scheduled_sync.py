@@ -1244,34 +1244,43 @@ async def _do_tariff_snapshot(sf):
 
             org_results = {"tariffs": 0, "adverts": 0, "buyout": 0, "total": 0}
 
-            # 0b. Загружаем цены из stocks (Price + Discount -> price_retail, price_with_spp)
+            # 0b. Загружаем цены из prices API (discounts-prices-api v2)
             prices_by_nm = {}  # nm_id -> {price_retail, price_with_spp}
 
             async with sf() as db:
-                stocks_result = await db.execute(
+                prices_result = await db.execute(
                     text("SELECT raw_response FROM raw_api_data "
-                         "WHERE organization_id = :org AND api_method = 'stocks' "
+                         "WHERE organization_id = :org AND api_method = 'prices' "
                          "ORDER BY target_date DESC LIMIT 1"),
                     {"org": org_id}
                 )
-                stocks_row = stocks_result.first()
-                if stocks_row and stocks_row[0]:
+                prices_row = prices_result.first()
+                if prices_row and prices_row[0]:
                     try:
-                        sdata = stocks_row[0] if isinstance(stocks_row[0], list) else _json.loads(stocks_row[0])
-                        items = sdata if isinstance(sdata, list) else sdata.get("response", sdata.get("data", []))
+                        pdata = prices_row[0] if isinstance(prices_row[0], list) else _json.loads(prices_row[0])
+                        items = pdata if isinstance(pdata, list) else (pdata if isinstance(pdata, dict) else [])
+                        if isinstance(items, dict):
+                            items = items.get("items", [])
                         if isinstance(items, list):
-                            for s in items:
-                                nm = int(s.get("nmId", 0))
-                                price = float(s.get("Price", 0) or 0)
-                                discount = float(s.get("Discount", 0) or 0)
+                            for item in items:
+                                nm = int(item.get("nmID") or item.get("nmId") or 0)
+                                if not nm:
+                                    continue
+                                sizes = item.get("sizes") or []
+                                if not sizes:
+                                    continue
+                                sz = sizes[0]
+                                # Цены из discounts-prices-api в копейках
+                                price = float(sz.get("price") or 0) / 100
+                                price_disc = float(sz.get("discountedPrice") or 0) / 100
+                                price_club = float(sz.get("clubDiscountedPrice") or 0) / 100
                                 if nm and price:
-                                    price_with_spp = round(price * (1 - discount / 100), 2)
-                                    # Берём максимальную цену (может быть несколько записей для одного nm)
+                                    price_with_spp = price_disc if price_disc > 0 else price
                                     if nm not in prices_by_nm or price > prices_by_nm[nm]["price_retail"]:
                                         prices_by_nm[nm] = {"price_retail": price, "price_with_spp": price_with_spp}
-                        logger.info(f"[tariff_snapshot] loaded {len(prices_by_nm)} prices from stocks")
+                        logger.info(f"[tariff_snapshot] loaded {len(prices_by_nm)} prices from prices API")
                     except Exception as e:
-                        logger.error(f"[tariff_snapshot] stocks prices parse error: {e}")
+                        logger.error(f"[tariff_snapshot] prices parse error: {e}")
 
             # 1. Извлекаем тарифы (логистика + хранение) из raw_api_data
             logistics_avg = 0

@@ -438,15 +438,17 @@ function initUEGrid() {
         persistenceID: 'ue-grid-state',
 
         // === Группировка по nm_id (как в Справочнике) ===
-        // Безразмерные товары (_noGroup) не группируются
-        groupBy: function(data) {
-            if (data._noGroup) return '';
-            return data.nm_id;
-        },
+        // Группировка по nm_id. Безразмерные товары получили уникальный _solo_ ключ
+        groupBy: 'nm_id',
         groupStartOpen: true,
         groupToggleElement: 'header',
         groupHeader: function(value, count, data, group) {
-            if (!value) return '';
+            // Скрыть заголовок для соло-товаров (безразмерных)
+            if (value && typeof value === 'string' && value.startsWith('_solo_')) {
+                var el = group.getElement();
+                if (el) el.style.display = 'none';
+                return '';
+            }
             const d = data[0] || {};
             const name = (d.product_name || '').substring(0, 40);
             const vc = d.vendor_code || '';
@@ -504,6 +506,7 @@ async function loadUEData() {
         data.forEach(p => {
             p._noGroup = nmCounts[p.nm_id] === 1 && (!p.size_name || p.size_name === '0' || p.size_name === 'ONE SIZE');
             p._hasSizes = !p._noGroup;
+            if (p._noGroup) p.nm_id = '_solo_' + p.entity_id;
         });
 
         if (ueTabulator) {
