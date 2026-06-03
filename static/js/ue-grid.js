@@ -126,8 +126,12 @@ function getUEColumns() {
             title: '🚚 Логистика',
             columns: [
                 { title: 'Лог. тариф', field: 'logistics_tariff',
-                    headerTooltip: 'Тариф логистики (короба)', width: 80, headerSort: true,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
+                    headerTooltip: 'Стоимость логистики до клиента (расчёт по тарифам WB)', width: 85, headerSort: true,
+                    tooltip: function(e, cell) {
+                        var row = cell.getRow().getData();
+                        return row.logistics_tooltip || 'По данным tariffs/box';
+                    },
+                    formatter: function(cell) { var v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ' + String.fromCharCode(8381) : String.fromCharCode(8212); }
                 },
                 { title: 'Лог. факт', field: 'logistics_actual',
                     headerTooltip: 'Логистика факт', width: 80, headerSort: false,

@@ -16,6 +16,7 @@ celery_app_new = Celery(
         "tasks.scheduled_sync",
         "tasks.ad_sync",
         "tasks.promo_sync",
+        "tasks.box_tariffs_sync",
     ]
 )
 
@@ -92,6 +93,10 @@ celery_app_new.conf.update(
         },
 
         # --- 23:00 MSK --- Snapshot tariffov dlya unitki ---
+        "box-tariffs-daily": {
+            "task": "wb.sched.box_tariffs",
+            "schedule": crontab(hour=5, minute=30),   # UTC 05:30 = MSK 08:30
+        },
         "tariff-snapshot": {
             "task": "wb.sched.tariff_snapshot",
             "schedule": crontab(hour=20, minute=0),   # UTC 20:00 = MSK 23:00

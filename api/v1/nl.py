@@ -3484,7 +3484,8 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             SELECT pe.id as entity_id, pe.nm_id, pe.vendor_code, COALESCE(ts.product_name, pe.product_name) as product_name, COALESCE(ts.photo_main, pe.photo_main) as photo_main,
                    (SELECT string_agg(eb.barcode, ', ') FROM entity_barcodes eb WHERE eb.entity_id = pe.id AND eb.is_active = true) as barcode,
                    ts.price, ts.price_discount, ts.tariff, ts.ad_cost,
-                   pe.size_name, pe.subject_name
+                   pe.size_name, pe.subject_name,
+                   pe.width, pe.height, pe.length
             FROM product_entities pe
             LEFT JOIN LATERAL (
                 SELECT product_name, photo_main, price, price_discount, tariff, ad_cost
@@ -3519,6 +3520,8 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         "wb_price_retail": r[15],
         "wb_discount_pct": r[16],
         "wb_prices_updated_at": r[17],
+        "fulfillment_model": r[9],
+        "fbs_warehouse": None,
     }
     # Берём только первую (самую свежую) запись по entity_id
     # ORDER BY valid_from DESC гарантирует что первая = новейшая
@@ -3602,6 +3605,95 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
                 "commission_fbs_pct": float(r[9]) if r[9] else 0,
             }
 
+    # 5b) Тарифы коробной логистики из wb_box_tariffs
+    import math
+    FBO_WH_NAMES = ["Коледино", "Краснодар", "Казань"]
+    box_result = await db.execute(
+        sql_text("""
+            SELECT warehouse_name,
+                   box_delivery_base, box_delivery_liter,
+                   box_delivery_marketplace_base, box_delivery_marketplace_liter
+            FROM wb_box_tariffs
+            WHERE organization_id = :org AND snapshot_date = (
+                SELECT MAX(snapshot_date) FROM wb_box_tariffs WHERE organization_id = :org
+            )
+        """),
+        {"org": org_id}
+    )
+    box_tariffs = {}
+    fbo_delivery_sum = 0
+    fbo_liter_sum = 0
+    fbo_count = 0
+    for r in box_result.all():
+        wh_name = r[0]
+        box_tariffs[wh_name] = {
+            "fbo_base": float(r[1]) if r[1] else None,
+            "fbo_liter": float(r[2]) if r[2] else None,
+            "fbs_base": float(r[3]) if r[3] else None,
+            "fbs_liter": float(r[4]) if r[4] else None,
+        }
+        # Для ФБО — усредняем по трём складам
+        if wh_name in FBO_WH_NAMES:
+            if r[1] is not None and r[2] is not None:
+                fbo_delivery_sum += float(r[1])
+                fbo_liter_sum += float(r[2])
+                fbo_count += 1
+
+    fbo_avg_base = round(fbo_delivery_sum / fbo_count, 2) if fbo_count else 0
+    fbo_avg_liter = round(fbo_liter_sum / fbo_count, 2) if fbo_count else 0
+
+    # 5c) fulfillment_model + fbs_warehouse из reference_book
+    ff_result = await db.execute(
+        sql_text("""
+            SELECT entity_id, nm_id, fulfillment_model, fbs_warehouse
+            FROM reference_book
+            WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+            ORDER BY valid_from DESC
+        """),
+        {"org": org_id}
+    )
+    ff_by_entity = {}
+    ff_by_nm = {}
+    for r in ff_result.all():
+        fful = r[2]
+        fwh = r[3]
+        if r[0]:
+            eid = str(r[0])
+            if eid not in ff_by_entity:
+                ff_by_entity[eid] = (fful, fwh)
+        if r[1]:
+            nm = r[1]
+            if nm not in ff_by_nm:
+                ff_by_nm[nm] = (fful, fwh)
+
+    def _calc_delivery(volume_liters, fulfillment_model, fbs_warehouse):
+        """Расчёт логистики до клиента на основе объёма и тарифов"""
+        if not volume_liters or volume_liters <= 0:
+            return 0
+        vol = math.ceil(volume_liters)  # округление вверх
+
+        if fulfillment_model == "fbs" and fbs_warehouse:
+            # ФБС — конкретный склад
+            wh_tariffs = None
+            for wh_name in box_tariffs:
+                if fbs_warehouse in wh_name or wh_name in fbs_warehouse:
+                    wh_tariffs = box_tariffs[wh_name]
+                    break
+            if wh_tariffs:
+                # Приоритет ФБС-тариф, fallback на ФБО-тариф этого же склада
+                base = wh_tariffs.get("fbs_base") or wh_tariffs.get("fbo_base") or 0
+                liter = wh_tariffs.get("fbs_liter") or wh_tariffs.get("fbo_liter") or 0
+                if base:
+                    return round(base + (vol - 1) * liter, 2)
+            # Последний fallback на ФБО-усреднённое
+            if fbo_avg_base:
+                return round(fbo_avg_base + (vol - 1) * fbo_avg_liter, 2)
+
+        # ФБО — усреднённое по Коледино/Краснодар/Казань
+        if fbo_avg_base:
+            return round(fbo_avg_base + (vol - 1) * fbo_avg_liter, 2)
+        return 0
+
     # 8) Собираем результат
     items = []
     search_q = search.lower() if search else ""
@@ -3620,6 +3712,56 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         # size_name и subject_name из product_entities (индексы 10, 11)
         _pe_size_name = p[10] or ""
         _pe_subject_name = p[11] or ""
+        # Габариты из product_entities (индексы 12, 13, 14) — в см
+        _pe_width = float(p[12]) if p[12] else 0
+        _pe_height = float(p[13]) if p[13] else 0
+        _pe_length = float(p[14]) if p[14] else 0
+        # Объём в литрах (Д×Ш×В см / 1000)
+        _volume_liters = round(_pe_width * _pe_height * _pe_length / 1000, 3) if (_pe_width and _pe_height and _pe_length) else 0
+
+        # Фульфилмент модель и склад ФБС
+        ff_info = ff_by_entity.get(entity_id, ff_by_nm.get(nm_id, (None, None)))
+        _fulfillment_model = ff_info[0] or "fbo"
+        _fbs_warehouse = ff_info[1] if ff_info[1] and ff_info[1] != "0" else None
+
+        # Расчёт логистики до клиента
+        _delivery_to_client = _calc_delivery(_volume_liters, _fulfillment_model, _fbs_warehouse)
+
+        # Tooltip расшифровка логистики
+        _logistics_tooltip_parts = []
+        if _pe_width and _pe_height and _pe_length:
+            _logistics_tooltip_parts.append(f"Габариты: {_pe_length}x{_pe_width}x{_pe_height} см")
+            _logistics_tooltip_parts.append(f"Объём: {_volume_liters:.2f} л (окр. {math.ceil(_volume_liters)})")
+        if _fulfillment_model == "fbs" and _fbs_warehouse:
+            _logistics_tooltip_parts.append(f"Модель: ФБС (склад {_fbs_warehouse})")
+            _wh_tar = None
+            _wh_name_found = None
+            for _wn in box_tariffs:
+                if _fbs_warehouse in _wn or _wn in _fbs_warehouse:
+                    _wh_tar = box_tariffs[_wn]
+                    _wh_name_found = _wn
+                    break
+            if _wh_tar:
+                _used_base = _wh_tar.get("fbs_base") or _wh_tar.get("fbo_base") or 0
+                _used_liter = _wh_tar.get("fbs_liter") or _wh_tar.get("fbo_liter") or 0
+                _tariff_type_label = "ФБС" if _wh_tar.get("fbs_base") else "ФБО"
+                _logistics_tooltip_parts.append(f"Склад: {_wh_name_found} ({_tariff_type_label})")
+                _logistics_tooltip_parts.append(f"Тариф: {_used_base:.2f} + {_used_liter:.2f}/л")
+            else:
+                _logistics_tooltip_parts.append("Склад не найден в тарифах, fallback на ФБО-среднее")
+                _logistics_tooltip_parts.append(f"Усредн. ФБО: {fbo_avg_base:.2f} + {fbo_avg_liter:.2f}/л")
+        else:
+            _logistics_tooltip_parts.append("Модель: ФБО (усреднение)")
+            _kd = box_tariffs.get("Коледино", {})
+            _kr = box_tariffs.get("Краснодар", {})
+            _kz = box_tariffs.get("Казань", {})
+            _logistics_tooltip_parts.append(f"Коледино: {_kd.get('fbo_base', 0):.2f} + {_kd.get('fbo_liter', 0):.2f}/л")
+            _logistics_tooltip_parts.append(f"Краснодар: {_kr.get('fbo_base', 0):.2f} + {_kr.get('fbo_liter', 0):.2f}/л")
+            _logistics_tooltip_parts.append(f"Казань: {_kz.get('fbo_base', 0):.2f} + {_kz.get('fbo_liter', 0):.2f}/л")
+            _logistics_tooltip_parts.append(f"Среднее: {fbo_avg_base:.2f} + {fbo_avg_liter:.2f}/л")
+        if _delivery_to_client and _volume_liters:
+            _logistics_tooltip_parts.append(f"Итого: {_delivery_to_client:.2f} руб.")
+        _logistics_tooltip = chr(10).join(_logistics_tooltip_parts)
 
         # Фильтр поиска
         if search_q and search_q not in str(nm_id) and search_q not in product_name.lower() and search_q not in vendor_code.lower():
@@ -3654,7 +3796,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             # Из wb_tariff_snapshot (автоподтяжка)
             "mp_base_pct": (lambda _s=snap_by_nm.get(nm_id,{}), _u=ue, _p=p: (float(_u.get("mp_base_pct") or 0) if _u.get("mp_base_pct") else ((_s.get("commission_fbs_pct") if (_u.get("tariff_type") or "fbo") == "fbs" else _s.get("commission_pct")) or float(_p[8] or 0))))(),
             "buyout_fact_pct": snap_by_nm.get(nm_id, {}).get("buyout_pct_fact", 0),
-            "logistics_tariff": snap_by_nm.get(nm_id, {}).get("logistics_tariff", 0),
+            "logistics_tariff": _delivery_to_client,
             "logistics_actual": 0,  # Будет из финотчётов
             "storage_tariff": snap_by_nm.get(nm_id, {}).get("storage_tariff", 0),
             "storage_actual": 0,  # Будет из финотчётов
@@ -3678,6 +3820,14 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "change_date": str(ue.get("change_date")) if ue.get("change_date") else None,
             "tariff_type": ue.get("tariff_type") or "box",
             "wb_club_discount_pct": float(ue.get("wb_club_discount_pct") or 0),
+
+            # Логистика до клиента
+            "volume_liters": _volume_liters,
+            "volume_rounded": math.ceil(_volume_liters) if _volume_liters else 0,
+            "fulfillment_model": _fulfillment_model,
+            "fbs_warehouse": _fbs_warehouse or "",
+            "delivery_to_client": _delivery_to_client,
+            "logistics_tooltip": _logistics_tooltip,
         }
 
         # Расчётные формулы
