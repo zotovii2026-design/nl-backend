@@ -99,7 +99,12 @@ function getCostColumns() {
                     headerTooltip: 'Артикул WB (клик — открыть на WB)', width: 85, headerSort: true,
                     formatter: function(cell) {
                         var nmId = cell.getValue();
-                        if (!nmId) return '';
+                        // Если nm_id_display содержит _solo_ (безразмерный товар), достать настоящий nm_id из данных строки
+                        if (!nmId || (typeof nmId === 'string' && nmId.startsWith('_solo_'))) {
+                            var rowData = cell.getRow().getData();
+                            nmId = rowData.nm_id;
+                            if (!nmId || (typeof nmId === 'string' && nmId.startsWith('_solo_'))) return '';
+                        }
                         var url = 'https://www.wildberries.ru/catalog/' + nmId + '/detail.aspx';
                         return '<a href="' + url + '" target="_blank" style="color:#5b4a9e;text-decoration:none;font-weight:bold" title="Открыть на Wildberries">' + nmId + '</a>';
                     }
@@ -328,7 +333,7 @@ function prepareCostData(products) {
 
             // Данные продукта (из API /control)
             entity_id: p.entity_id || '',
-            nm_id_display: p.nm_id,
+            nm_id_display: (typeof p.nm_id === "number" ? p.nm_id : parseInt(p.nm_id)) || p.nm_id,
             nm_id: isSizeless ? ('_solo_' + (p.entity_id || (p.nm_id + '_0'))) : p.nm_id,
             size_name: p.size_name || '',
             product_name: p.product_name || '',
