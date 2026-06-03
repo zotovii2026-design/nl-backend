@@ -3613,7 +3613,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             SELECT warehouse_name,
                    box_delivery_base, box_delivery_liter,
                    box_delivery_marketplace_base, box_delivery_marketplace_liter,
-                   box_delivery_coef
+                   box_delivery_coef, box_delivery_marketplace_coef
             FROM wb_box_tariffs
             WHERE organization_id = :org AND snapshot_date = (
                 SELECT MAX(snapshot_date) FROM wb_box_tariffs WHERE organization_id = :org
@@ -3634,6 +3634,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "fbs_base": float(r[3]) if r[3] else None,
             "fbs_liter": float(r[4]) if r[4] else None,
             "fbo_coef": float(r[5]) if r[5] else None,
+            "fbs_coef": float(r[6]) if len(r) > 6 and r[6] else None,
         }
         # Для ФБО — усредняем по трём складам
         if wh_name in FBO_WH_NAMES:
@@ -3719,15 +3720,16 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             if wh_tariffs:
                 base = wh_tariffs.get("fbs_base") or wh_tariffs.get("fbo_base") or 0
                 liter = wh_tariffs.get("fbs_liter") or wh_tariffs.get("fbo_liter") or 0
-                coef = wh_tariffs.get("fbo_coef") or 100
+                # Приоритет ФБС-коэфф., fallback на ФБО-коэфф., затем 100%
+                coef = wh_tariffs.get("fbs_coef") or wh_tariffs.get("fbo_coef") or 100
                 if base:
                     if volume_liters <= 1.0:
                         rate = _wb_rate_per_liter(volume_liters)
                         cost = round(rate * (coef / 100), 2)
-                        debug = {"method": "ФБС (сетка <=1л)", "warehouse": wh_found, "vol": volume_liters, "tier_rate": rate, "coef": coef, "formula": f"{rate} × {coef}%", "result": cost}
+                        debug = {"method": "ФБС (сетка <=1л)", "warehouse": wh_found, "vol": volume_liters, "tier_rate": rate, "coef": coef, "coef_source": "fbs" if wh_tariffs.get("fbs_coef") else "fbo", "formula": f"{rate} × {coef}%", "result": cost}
                     else:
                         cost = round(base + (vol_ceil - 1) * liter, 2)
-                        debug = {"method": "ФБС (>1л)", "warehouse": wh_found, "vol_ceil": vol_ceil, "base": base, "liter": liter, "formula": f"{base} + {vol_ceil-1}×{liter}", "result": cost}
+                        debug = {"method": "ФБС (>1л)", "warehouse": wh_found, "vol_ceil": vol_ceil, "base": base, "liter": liter, "coef": coef, "coef_source": "fbs" if wh_tariffs.get("fbs_coef") else "fbo", "formula": f"{base} + {vol_ceil-1}×{liter}", "result": cost}
                     return cost, debug
             # Fallback на ФБО-усреднённое
             if fbo_avg_base:
