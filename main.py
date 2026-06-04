@@ -16,6 +16,16 @@ app = FastAPI(
     description="SaaS платформа аналитики Wildberries"
 )
 
+# Cache static files middleware
+from starlette.middleware.base import BaseHTTPMiddleware
+class StaticCacheMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "public, max-age=86400"
+        return response
+app.add_middleware(StaticCacheMiddleware)
+
 # CORS middleware
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
