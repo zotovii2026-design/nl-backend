@@ -351,7 +351,7 @@ function prepareCostData(products) {
             product_class: c.product_class || '',
             brand: c.brand || '',
             fulfillment_model: c.fulfillment_model || 'fbo',
-            fbs_warehouse: c.fbs_warehouse || '',
+            fbs_warehouse: (c.fbs_warehouse && c.fbs_warehouse !== '0') ? c.fbs_warehouse : '',
             cost_price: c.cost_price || '',
             extra_costs: c.extra_costs || '',
             _total_cost: ((parseFloat(c.cost_price)||0) + (parseFloat(c.extra_costs)||0)).toFixed(2),
@@ -463,6 +463,12 @@ function initCostTabulator(data) {
             if (field === 'fulfillment_model') {
                 if (data.fulfillment_model !== 'fbs') {
                     row.update({ 'fbs_warehouse': '' });
+                } else {
+                    // Автоподстановка склада Коледино при выборе ФБС
+                    if (!data.fbs_warehouse || data.fbs_warehouse === '0' || data.fbs_warehouse === '-' || data.fbs_warehouse === '') {
+                        var _kd = (FBS_WAREHOUSES||[]).find(function(w) { return w.name && w.name.indexOf('\u041a\u043e\u043b\u0435\u0434\u0438\u043d\u043e') !== -1; });
+                        row.update({ 'fbs_warehouse': _kd ? _kd.name : '' });
+                    }
                 }
             }
 
@@ -546,6 +552,22 @@ function initCostTabulator(data) {
         if (_autoUpdatingDate) return;
         _costDirty = true;
         var _editedId = cell.getRow().getData().entity_id || cell.getRow().getData()._id; if (_editedId) _costEditedIds.add(_editedId);
+
+        // Обработка смены ФБО/ФБС
+        var field = cell.getField();
+        var row = cell.getRow();
+        var data = row.getData();
+        if (field === 'fulfillment_model') {
+            if (data.fulfillment_model === 'fbs') {
+                if (!data.fbs_warehouse || data.fbs_warehouse === '0' || data.fbs_warehouse === '-' || data.fbs_warehouse === '') {
+                    // Авто: найти Коледино в FBS_WAREHOUSES
+                    var _kd = (FBS_WAREHOUSES||[]).find(function(w) { return w.name && w.name.indexOf('\u041a\u043e\u043b\u0435\u0434\u0438\u043d\u043e') !== -1; });
+                    row.update({ 'fbs_warehouse': _kd ? _kd.name : '' });
+                }
+            } else {
+                row.update({ 'fbs_warehouse': '' });
+            }
+        }
         // Автопростановка даты правок при изменении любой ячейки (кроме самой change_date)
         if (cell.getField() !== 'change_date') {
             _autoUpdatingDate = true;
@@ -583,7 +605,7 @@ function getCostDataForSave() {
     return rows.map(data => ({
         entity_id: data.entity_id || null,
         size_name: data.size_name || '',
-        nm_id: parseInt(data.nm_id),
+        nm_id: parseInt(data.nm_id_display) || parseInt(String(data.nm_id).replace('_solo_','')) || null,
         barcode: null,
         vendor_code: null,
         purchase_cost: 0, logistics_cost: 0, packaging_cost: 0, other_costs: 0,

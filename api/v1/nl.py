@@ -1929,7 +1929,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
             saved += 1
         except Exception as e:
             errors += 1
-            print(f"[batch] error nm={data.get(nm_id)}: {e}")
+            print(f"[batch] error nm={data.get("nm_id")}: {e}")
     await db.commit()
     return {"ok": True, "saved": saved, "errors": errors}
 
@@ -3800,6 +3800,12 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             _logistics_tooltip_parts.append(f"Объём: {_volume_liters:.3f} л (окр. {math.ceil(_volume_liters)})")
 
         _meth = _delivery_debug.get("method", "")
+        # Модель отгрузки
+        if _fulfillment_model == "fbs":
+            _model_label = f"Модель: ФБС (склад: {_fbs_warehouse or 'не указан'})"
+        else:
+            _model_label = "Модель: ФБО"
+        _logistics_tooltip_parts.append(_model_label)
         _logistics_tooltip_parts.append(f"Методика: {_meth}")
 
         if "сетка" in _meth:
@@ -4935,7 +4941,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260522e"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260603f"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260602a"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 </head>
