@@ -504,6 +504,12 @@ async function loadUEData() {
     let url = '/api/v1/nl/unit-economics?org_id=' + ORG_ID;
     if (search) url += '&search=' + encodeURIComponent(search);
 
+    // Лоадер: показываем что данные загружаются
+    const container = document.getElementById('ue-tabulator');
+    const countEl = document.getElementById('ue-count');
+    if (container) container.style.opacity = '0.4';
+    if (countEl) countEl.textContent = '⏳ Загрузка...';
+
     try {
         const res = await fetch(url);
         const raw = await res.json();
@@ -542,8 +548,11 @@ async function loadUEData() {
         populateUEFilterOptions();  // Заполняем фильтры
 
         console.log('[UE Grid] Loaded', data.length, 'rows');
+        if (container) container.style.opacity = '1';
     } catch (e) {
         console.error('[UE Grid] Load error:', e);
+        if (container) container.style.opacity = '1';
+        if (countEl) countEl.textContent = '❌ Ошибка загрузки';
     }
 }
 

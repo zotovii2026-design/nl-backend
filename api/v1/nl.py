@@ -1795,6 +1795,14 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
 @router.post("/api/v1/nl/cost-prices/batch")
 async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession = Depends(get_db)):
     """Batch-сохранение справочника — один запрос вместо N отдельных"""
+
+    # Сбрасываем кэш юнит-экономики (данные справочника влияют на ЮЭ)
+    try:
+        import redis as _rinv2
+        _rinv2.from_url("redis://redis:6379/0").delete(f"ue_cache:{org_id}")
+    except Exception:
+        pass
+
     items = await request.json()
     from sqlalchemy import text
     from datetime import datetime as _dt
@@ -3484,9 +3492,29 @@ async def get_marketer_product_detail(
 @router.get("/api/v1/nl/unit-economics")
 async def get_unit_economics(org_id: str, search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """Юнит Экономика — сборка всех данных по SKU"""
+    import asyncio
     org_id = await resolve_org_id(org_id, db)
     from models.reference_book import ReferenceBook
     from sqlalchemy import text as sql_text
+    from core.database import async_session as _make_session
+
+    # Хелпер для параллельного выполнения SQL через отдельные сессии
+    async def _run_query(query_text, params):
+        async with _make_session() as s:
+            result = await s.execute(sql_text(query_text), params)
+            return result.all()
+
+    # ── Redis-кэш: отдаём готовый результат если есть ──
+    import redis as _redis_lib, json as _json
+    _redis = _redis_lib.from_url("redis://redis:6379/0")
+    _cache_key = f"ue_cache:{org_id}"
+    if not search:
+        _cached = _redis.get(_cache_key)
+        if _cached:
+            try:
+                return _json.loads(_cached)
+            except Exception:
+                pass
 
     # 1) Получаем список товаров из tech_status (последняя дата)
     dates_result = await db.execute(
@@ -3520,99 +3548,119 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
     )
     products = prods_result.all()
 
-    # 3) Ручные вводы Юнит Экономики — по entity_id, fallback nm_id+barcode
-    ue_result = await db.execute(
-        sql_text("SELECT entity_id, nm_id, mp_correction_pct, buyout_niche_pct, extra_costs, ad_plan_rub, price_before_spp_plan, price_before_spp_change, change_date, fulfillment_model, wb_club_discount_pct, storage_pct, product_status, mp_base_pct, wb_price_fact, wb_price_retail, wb_discount_pct, wb_prices_updated_at FROM reference_book WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE) ORDER BY valid_from DESC"),
-        {"org": org_id}
+    # ═══════════════════════════════════════════════════════════
+    # [OPTIMIZED] Параллельное выполнение 5 SQL-запросов (asyncio.gather)
+    # Запросы 3, 4, 5, 5b, 5c не зависят друг от друга → выполняются одновременно
+    # ═══════════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════════
+    # [OPTIMIZED v2] 3 запроса вместо 5:
+    #   - 1 широкий SELECT из reference_book (вместо 3 отдельных)
+    #   - wb_tariff_snapshot
+    #   - wb_box_tariffs
+    # ═══════════════════════════════════════════════════════════
+    _rb_sql = """SELECT entity_id, nm_id,
+            mp_correction_pct, buyout_niche_pct, extra_costs, ad_plan_rub,
+            price_before_spp_plan, price_before_spp_change, change_date,
+            fulfillment_model, wb_club_discount_pct, storage_pct, product_status,
+            mp_base_pct, wb_price_fact, wb_price_retail, wb_discount_pct, wb_prices_updated_at,
+            cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs,
+            vat, product_class, brand, tax_system, tax_rate, vat_rate,
+            fbs_warehouse
+        FROM reference_book
+        WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+        ORDER BY entity_id NULLS LAST, valid_from DESC"""
+    _q5_sql = """SELECT nm_id, logistics_tariff, storage_tariff, ad_cost_fact, buyout_pct_fact, commission_pct, price_retail, price_with_spp, spp_pct, commission_fbs_pct FROM wb_tariff_snapshot WHERE organization_id = :org ORDER BY target_date DESC"""
+    _q5b_sql = """SELECT warehouse_name, box_delivery_base, box_delivery_liter, box_delivery_marketplace_base, box_delivery_marketplace_liter, box_delivery_coef, box_delivery_marketplace_coef FROM wb_box_tariffs WHERE organization_id = :org AND snapshot_date = (SELECT MAX(snapshot_date) FROM wb_box_tariffs WHERE organization_id = :org)"""
+    _p = {"org": org_id}
+
+    rb_rows, tsnap_rows, box_rows = await asyncio.gather(
+        _run_query(_rb_sql, _p),
+        _run_query(_q5_sql, _p),
+        _run_query(_q5b_sql, _p),
     )
-    ue_rows = ue_result.all()
+
+    # ── Обработка единого запроса reference_book ──────────
+    # Колонки rb_rows:
+    #  0: entity_id, 1: nm_id
+    #  2-9: UE fields (mp_correction...fulfillment_model)
+    # 10-12: wb_club_discount_pct, storage_pct, product_status
+    # 13-17: mp_base_pct, wb_price_fact, wb_price_retail, wb_discount_pct, wb_prices_updated_at
+    # 18-24: cost fields (cost_price...vat)
+    # 25-28: product_class, brand, tax_system, tax_rate, vat_rate
+    # 29: fbs_warehouse
+
     ue_by_entity = {}
     ue_by_nm_bc = {}
-    _ue_fields = lambda r: {
-        "mp_correction_pct": r[2], "buyout_niche_pct": r[3],
-        "extra_costs": r[4], "ad_plan_rub": r[5],
-        "price_before_spp_plan": r[6], "price_before_spp_change": r[7],
-        "change_date": r[8], "tariff_type": r[9],
-        "wb_club_discount_pct": r[10],
-        "product_status": r[12],
-        "mp_base_pct": r[13],
-        "wb_price_fact": r[14],
-        "wb_price_retail": r[15],
-        "wb_discount_pct": r[16],
-        "wb_prices_updated_at": r[17],
-        "fulfillment_model": r[9],
-        "fbs_warehouse": None,
-    }
-    # Берём только первую (самую свежую) запись по entity_id
-    # ORDER BY valid_from DESC гарантирует что первая = новейшая
-    for r in ue_rows:
-        eid = str(r[0]) if r[0] else None
-        fields = _ue_fields(r)
-        if eid:
-            if eid not in ue_by_entity:
-                ue_by_entity[eid] = fields
-        else:
-            key = (r[1], "")
-            if key not in ue_by_nm_bc:
-                ue_by_nm_bc[key] = fields
-
-    # 4) Себестоимость из reference_book — приоритет по entity_id, fallback по nm_id
-    cost_result = await db.execute(
-        sql_text("""
-            SELECT entity_id, nm_id, cost_price, purchase_cost, logistics_cost, packaging_cost,
-            other_costs, vat, product_class, brand, tax_system, tax_rate, vat_rate as cost_vat_rate,
-            product_status
-            FROM reference_book WHERE organization_id = :org 
-            AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
-            ORDER BY entity_id NULLS LAST, valid_from DESC
-        """),
-        {"org": org_id}
-    )
-    cost_rows = cost_result.all()
     cost_by_entity = {}
     cost_by_nm = {}
-    # cols: entity_id(0), nm_id(1), cost_price(2), purchase_cost(3), logistics_cost(4),
-    # packaging_cost(5), other_costs(6), vat(7), product_class(8), brand(9), tax_system(10), tax_rate(11), cost_vat_rate(12), product_status(13)
-    _cost_fields = lambda r: {
-        "cost_price": r[2], "purchase_cost": r[3], "logistics_cost": r[4],
-        "packaging_cost": r[5], "other_costs": r[6], "vat": r[7],
-        "product_class": r[8], "brand": r[9], "tax_system": r[10],
-        "tax_rate": r[11], "vat_rate": r[12], "product_status": r[13],
-    }
-    for r in cost_rows:
-        fields = _cost_fields(r)
-        if r[0]:
-            eid = str(r[0])
+    ff_by_entity = {}
+    ff_by_nm = {}
+
+    for r in rb_rows:
+        eid = str(r[0]) if r[0] else None
+        nm = r[1]
+
+        # ─ UE fields ─
+        ue_fields = {
+            "mp_correction_pct": r[2], "buyout_niche_pct": r[3],
+            "extra_costs": r[4], "ad_plan_rub": r[5],
+            "price_before_spp_plan": r[6], "price_before_spp_change": r[7],
+            "change_date": r[8], "tariff_type": r[9],
+            "wb_club_discount_pct": r[10],
+            "product_status": r[12],
+            "mp_base_pct": r[13],
+            "wb_price_fact": r[14],
+            "wb_price_retail": r[15],
+            "wb_discount_pct": r[16],
+            "wb_prices_updated_at": r[17],
+            "fulfillment_model": r[9],
+            "fbs_warehouse": r[29],
+        }
+        if eid:
+            if eid not in ue_by_entity:
+                ue_by_entity[eid] = ue_fields
+        else:
+            key = (nm, "")
+            if key not in ue_by_nm_bc:
+                ue_by_nm_bc[key] = ue_fields
+
+        # ─ Cost fields ─
+        cost_fields = {
+            "cost_price": r[18], "purchase_cost": r[19], "logistics_cost": r[20],
+            "packaging_cost": r[21], "other_costs": r[22], "vat": r[23],
+            "product_class": r[24], "brand": r[25], "tax_system": r[26],
+            "tax_rate": r[27], "vat_rate": r[28],
+            "product_status": r[12],
+        }
+        if eid:
             if eid not in cost_by_entity:
-                cost_by_entity[eid] = fields
+                cost_by_entity[eid] = cost_fields
             else:
-                for k, v in fields.items():
+                for k, v in cost_fields.items():
                     if v is not None and v != 0:
                         cost_by_entity[eid][k] = v
-        if r[1]:
-            nm = r[1]
+        if nm:
             if nm not in cost_by_nm:
-                cost_by_nm[nm] = fields
+                cost_by_nm[nm] = cost_fields
             else:
-                for k, v in fields.items():
+                for k, v in cost_fields.items():
                     if v is not None and v != 0:
                         cost_by_nm[nm][k] = v
 
-    # 5) Автоматические WB-данные из wb_tariff_snapshot
-    tsnap_result = await db.execute(
-        sql_text("""
-            SELECT nm_id, logistics_tariff, storage_tariff, ad_cost_fact,
-                   buyout_pct_fact, commission_pct, price_retail, price_with_spp,
-                   spp_pct, commission_fbs_pct
-            FROM wb_tariff_snapshot
-            WHERE organization_id = :org
-            ORDER BY target_date DESC
-        """),
-        {"org": org_id}
-    )
+        # ─ FF fields ─
+        fful = r[9]  # fulfillment_model
+        fwh = r[29]  # fbs_warehouse
+        if eid:
+            if eid not in ff_by_entity:
+                ff_by_entity[eid] = (fful, fwh)
+        if nm:
+            if nm not in ff_by_nm:
+                ff_by_nm[nm] = (fful, fwh)
+
+    # ── WB-данные из wb_tariff_snapshot ──────────
     snap_by_nm = {}
-    for r in tsnap_result.all():
-        if r[0] not in snap_by_nm:  # Берём только последнюю дату
+    for r in tsnap_rows:
+        if r[0] not in snap_by_nm:
             snap_by_nm[r[0]] = {
                 "logistics_tariff": float(r[1]) if r[1] else 0,
                 "storage_tariff": float(r[2]) if r[2] else 0,
@@ -3625,28 +3673,15 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
                 "commission_fbs_pct": float(r[9]) if r[9] else 0,
             }
 
-    # 5b) Тарифы коробной логистики из wb_box_tariffs
+    # ── Тарифы коробной логистики ──────────
     import math
     FBO_WH_NAMES = ["Коледино", "Краснодар", "Казань"]
-    box_result = await db.execute(
-        sql_text("""
-            SELECT warehouse_name,
-                   box_delivery_base, box_delivery_liter,
-                   box_delivery_marketplace_base, box_delivery_marketplace_liter,
-                   box_delivery_coef, box_delivery_marketplace_coef
-            FROM wb_box_tariffs
-            WHERE organization_id = :org AND snapshot_date = (
-                SELECT MAX(snapshot_date) FROM wb_box_tariffs WHERE organization_id = :org
-            )
-        """),
-        {"org": org_id}
-    )
     box_tariffs = {}
     fbo_delivery_sum = 0
     fbo_liter_sum = 0
     fbo_coef_sum = 0
     fbo_count = 0
-    for r in box_result.all():
+    for r in box_rows:
         wh_name = r[0]
         box_tariffs[wh_name] = {
             "fbo_base": float(r[1]) if r[1] else None,
@@ -3656,7 +3691,6 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "fbo_coef": float(r[5]) if r[5] else None,
             "fbs_coef": float(r[6]) if len(r) > 6 and r[6] else None,
         }
-        # Для ФБО — усредняем по трём складам
         if wh_name in FBO_WH_NAMES:
             if r[1] is not None and r[2] is not None:
                 fbo_delivery_sum += float(r[1])
@@ -3666,32 +3700,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
 
     fbo_avg_base = round(fbo_delivery_sum / fbo_count, 2) if fbo_count else 0
     fbo_avg_liter = round(fbo_liter_sum / fbo_count, 2) if fbo_count else 0
-    # Средний коэфф. склада для расчёта по WB-сетке (<=1л)
     fbo_avg_coef = round(fbo_coef_sum / fbo_count, 2) if fbo_count else 0
-
-    # 5c) fulfillment_model + fbs_warehouse из reference_book
-    ff_result = await db.execute(
-        sql_text("""
-            SELECT entity_id, nm_id, fulfillment_model, fbs_warehouse
-            FROM reference_book
-            WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
-            ORDER BY valid_from DESC
-        """),
-        {"org": org_id}
-    )
-    ff_by_entity = {}
-    ff_by_nm = {}
-    for r in ff_result.all():
-        fful = r[2]
-        fwh = r[3]
-        if r[0]:
-            eid = str(r[0])
-            if eid not in ff_by_entity:
-                ff_by_entity[eid] = (fful, fwh)
-        if r[1]:
-            nm = r[1]
-            if nm not in ff_by_nm:
-                ff_by_nm[nm] = (fful, fwh)
 
     # WB-сетка тарификации для товаров <= 1 литра (базовые ставки без коэфф.)
     _WB_TIER_RATES = [
@@ -4070,7 +4079,14 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
 
         items.append(item)
 
-    return {"items": items, "total": len(items)}
+    # Сохраняем в Redis-кэш на 5 минут
+    _result = {"items": items, "total": len(items)}
+    if not search:
+        try:
+            _redis.setex(_cache_key, 300, _json.dumps(_result, ensure_ascii=False, default=str))
+        except Exception:
+            pass
+    return _result
 
 
 class UnitEconSave(BaseModel):
@@ -4975,7 +4991,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260603f"></script>
-<script type="text/javascript" src="/static/js/ue-grid.js?v=20260602a"></script>
+<script type="text/javascript" src="/static/js/ue-grid.js?v=20260604b"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 </head>
 <body>
