@@ -3793,6 +3793,29 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             return cost, debug
         return 0, {}
 
+
+    def _calc_reverse_delivery(volume_liters):
+        """
+        Расчёт обратной логистики (возврат от покупателя на склад).
+        Обратная логистика = базовый тариф за объём, БЕЗ коэффициента склада.
+        Подтверждено API: прямая ~420₽, обратная ~205₽ (коэфф. склада ~2x не применяется).
+        """
+        if not volume_liters or volume_liters <= 0:
+            return 0, {}
+        
+        debug = {}
+        vol_ceil = math.ceil(volume_liters)
+        
+        if volume_liters <= 1.0:
+            rate = _wb_rate_per_liter(volume_liters)
+            cost = round(rate, 2)  # Без коэффициента склада!
+            debug = {"method": "Обратная лог. (сетка <=1л)", "vol": volume_liters, "tier_rate": rate, "formula": f"{rate} ₽ (без коэфф. склада)", "result": cost}
+        else:
+            cost = round(_WB_BASE_FIRST_LITER + (vol_ceil - 1) * _WB_BASE_NEXT_LITER, 2)
+            debug = {"method": "Обратная лог. (>1л)", "vol_ceil": vol_ceil, "base": _WB_BASE_FIRST_LITER, "liter": _WB_BASE_NEXT_LITER, "formula": f"{_WB_BASE_FIRST_LITER} + {vol_ceil-1}×{_WB_BASE_NEXT_LITER}", "result": cost}
+        
+        return cost, debug
+
     # 8) Собираем результат
     items = []
     search_q = search.lower() if search else ""
@@ -3825,6 +3848,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
 
         # Расчёт логистики до клиента
         _delivery_to_client, _delivery_debug = _calc_delivery(_volume_liters, _fulfillment_model, _fbs_warehouse)
+        _reverse_logistics, _reverse_debug = _calc_reverse_delivery(_volume_liters)
 
         # Tooltip расшифровка логистики (детальная WB-методика)
         _logistics_tooltip_parts = []
@@ -3934,6 +3958,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             "mp_base_pct": (lambda _s=snap_by_nm.get(nm_id,{}), _u=ue, _p=p: (float(_u.get("mp_base_pct") or 0) if _u.get("mp_base_pct") else ((_s.get("commission_fbs_pct") if (_u.get("tariff_type") or "fbo") == "fbs" else _s.get("commission_pct")) or float(_p[8] or 0))))(),
             "buyout_fact_pct": snap_by_nm.get(nm_id, {}).get("buyout_pct_fact", 0),
             "logistics_tariff": _delivery_to_client,
+            "reverse_logistics": _reverse_logistics,
             "logistics_actual": 0,  # Будет из финотчётов
             "storage_tariff": snap_by_nm.get(nm_id, {}).get("storage_tariff", 0),
             "storage_actual": 0,  # Будет из финотчётов
@@ -3993,12 +4018,17 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         item["tax_total"] = tax
 
         # === БЛОК 7: Расчёт по ФАКТУ ===
+        # Обратная логистика на 1 шт (с учётом % невозврата = 100% - %выкупа)
+        # Обратная логистика = базовый тариф за объём, без коэфф. склада, без % выкупа
+        _reverse_log_amount = item["reverse_logistics"] or 0
+
         expenses_fact = (
             item["cost_price"] + item["logistics_cost"] + item["packaging_cost"] +
             item["other_costs"] + item["extra_costs"] +
             mp_commission + item["logistics_actual"] + item["storage_actual"] +
             item["acceptance_avg"] + acquiring + tax +
-            item["ad_fact_rub"]
+            item["ad_fact_rub"] +
+            _reverse_log_amount
         )
         profit_fact = round(item["price_with_spp"] - expenses_fact, 2)
         margin_fact = round(profit_fact / item["price_with_spp"] * 100, 2) if item["price_with_spp"] else 0
@@ -4034,7 +4064,8 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             item["other_costs"] + item["extra_costs"] +
             plan_mp + item["logistics_actual"] + item["storage_actual"] +
             item["acceptance_avg"] + plan_acquiring + plan_tax +
-            item["ad_plan_rub"]
+            item["ad_plan_rub"] +
+            _reverse_log_amount
         )
         profit_plan = round(plan_price_spp - expenses_plan, 2)
         margin_plan = round(profit_plan / plan_price_spp * 100, 2) if plan_price_spp else 0
@@ -4069,7 +4100,8 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
             item["other_costs"] + item["extra_costs"] +
             change_mp + item["logistics_actual"] + item["storage_actual"] +
             item["acceptance_avg"] + round(change_price_spp * 0.015, 2) + change_tax +
-            item["ad_fact_rub"]
+            item["ad_fact_rub"] +
+            _reverse_log_amount
         )
         profit_change = round(change_price_spp - expenses_change, 2)
         roi_change = round(profit_change / item["cost_price"] * 100, 2) if item["cost_price"] else 0

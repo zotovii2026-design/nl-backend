@@ -10,7 +10,7 @@ let _ueAllData = [];  // Полные данные до фильтрации
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ue-grid-v2';
+    const VER = 'ue-grid-v4';
     if (localStorage.getItem('ue-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ue-grid-state-columns');
         localStorage.removeItem('tabulator-ue-grid-state-sort');
@@ -138,8 +138,13 @@ function getUEColumns() {
                     formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
                 },
                 { title: 'Обратная лог.', field: 'reverse_logistics',
-                    headerTooltip: 'Обратная логистика', width: 80, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v || '—'; }
+                    headerTooltip: 'Обратная логистика на 1 шт (тариф × %невозврата)', width: 80, headerSort: false,
+                    tooltip: function(e, cell) {
+                        var row = cell.getRow().getData();
+                        var v = row.volume_liters || 0;
+                        return 'Объём: ' + parseFloat(v).toFixed(3) + ' л\nТариф без коэфф. склада\nИтого: ' + (cell.getValue() || 0).toFixed(2) + ' ₽';
+                    },
+                    formatter: function(cell) { var v = cell.getValue(); if (v) return parseFloat(v).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽'; return '—'; }
                 },
                 { title: 'Лог. с % выкупа', field: 'logistics_with_buyout',
                     headerTooltip: 'Логистика с учётом % выкупа', width: 90, headerSort: false,
