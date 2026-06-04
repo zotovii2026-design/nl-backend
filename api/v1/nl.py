@@ -572,6 +572,26 @@ async def get_fbs_warehouses(org_id: str, db: AsyncSession = Depends(get_db)):
                     "type": type_names.get(ct, "?"),
                     "cargoType": ct,
                 })
+    # Фильтруем: оставляем только склады с ФБС-тарифами в wb_box_tariffs
+    from sqlalchemy import text as sa_text
+    tarif_rows = await db.execute(sa_text(
+        "SELECT DISTINCT warehouse_name FROM wb_box_tariffs "
+        "WHERE box_delivery_marketplace_base IS NOT NULL "
+        "AND organization_id = :org"
+    ), {"org": org_id})
+    tarif_names = set(r[0] for r in tarif_rows.fetchall())
+    
+    if tarif_names:
+        filtered = []
+        for wh in merged:
+            has_tarif = any(
+                wh["name"] in tn or tn in wh["name"]
+                for tn in tarif_names
+            )
+            if has_tarif:
+                filtered.append(wh)
+        merged = filtered
+    
     with open(cache_file, "w") as f:
         json.dump({"ts": time.time(), "data": merged}, f, ensure_ascii=False)
     return merged
@@ -3731,15 +3751,19 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
                         cost = round(base + (vol_ceil - 1) * liter, 2)
                         debug = {"method": "ФБС (>1л)", "warehouse": wh_found, "vol_ceil": vol_ceil, "base": base, "liter": liter, "coef": coef, "coef_source": "fbs" if wh_tariffs.get("fbs_coef") else "fbo", "formula": f"{base} + {vol_ceil-1}×{liter}", "result": cost}
                     return cost, debug
-            # Fallback на ФБО-усреднённое
-            if fbo_avg_base:
+            # Fallback на ФБС-тариф Коледино (План Б)
+            _kd_tariffs = box_tariffs.get("\u041a\u043e\u043b\u0435\u0434\u0438\u043d\u043e")
+            if _kd_tariffs and (_kd_tariffs.get("fbs_base") or _kd_tariffs.get("fbs_liter")):
+                _kd_base = _kd_tariffs.get("fbs_base") or _kd_tariffs.get("fbo_base") or 0
+                _kd_liter = _kd_tariffs.get("fbs_liter") or _kd_tariffs.get("fbo_liter") or 0
+                _kd_coef = _kd_tariffs.get("fbs_coef") or _kd_tariffs.get("fbo_coef") or 100
                 if volume_liters <= 1.0:
                     rate = _wb_rate_per_liter(volume_liters)
-                    cost = round(rate * (fbo_avg_coef / 100), 2)
-                    debug = {"method": "ФБО-среднее (сетка <=1л, fallback)", "tier_rate": rate, "avg_coef": fbo_avg_coef, "formula": f"{rate} × {fbo_avg_coef}%", "result": cost}
+                    cost = round(rate * (_kd_coef / 100), 2)
+                    debug = {"method": "ФБС Коледино (сетка <=1л, fallback)", "warehouse": "\u041a\u043e\u043b\u0435\u0434\u0438\u043d\u043e", "warehouse_requested": fbs_warehouse, "fallback_warehouse": "\u041a\u043e\u043b\u0435\u0434\u0438\u043d\u043e", "tier_rate": rate, "coef": _kd_coef, "formula": f"{rate} \u00d7 {_kd_coef}%", "result": cost}
                 else:
-                    cost = round(fbo_avg_base + (vol_ceil - 1) * fbo_avg_liter, 2)
-                    debug = {"method": "ФБО-среднее (>1л, fallback)", "vol_ceil": vol_ceil, "avg_base": fbo_avg_base, "avg_liter": fbo_avg_liter, "result": cost}
+                    cost = round(_kd_base + (vol_ceil - 1) * _kd_liter, 2)
+                    debug = {"method": "ФБС Коледино (>1л, fallback)", "warehouse": "\u041a\u043e\u043b\u0435\u0434\u0438\u043d\u043e", "warehouse_requested": fbs_warehouse, "fallback_warehouse": "\u041a\u043e\u043b\u0435\u0434\u0438\u043d\u043e", "vol_ceil": vol_ceil, "base": _kd_base, "liter": _kd_liter, "coef": _kd_coef, "formula": f"{_kd_base} + {vol_ceil-1}\u00d7{_kd_liter}", "result": cost}
                 return cost, debug
             return 0, {}
 
@@ -3838,21 +3862,30 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         elif ">1л" in _meth:
             # > 1 литр: показываем формулу
             _logistics_tooltip_parts.append("")
-            _logistics_tooltip_parts.append("Формула (> 1 л):")
-            _logistics_tooltip_parts.append(f"  1-й литр: 46 ₽ × коэфф.")
-            _logistics_tooltip_parts.append(f"  Каждый доп. литр: 14 ₽ × коэфф.")
             _vc = _delivery_debug.get("vol_ceil", 0)
-            _ab = _delivery_debug.get("avg_base", 0)
-            _al = _delivery_debug.get("avg_liter", 0)
-            _logistics_tooltip_parts.append(f"Формула: {_ab:.2f} + ({_vc}-1)×{_al:.2f} = {_delivery_to_client:.2f} ₽")
-            if "ФБО" in _meth:
+            if "ФБС" in _meth:
+                # ФБС: конкретный склад
+                _b = _delivery_debug.get("base", 0)
+                _l = _delivery_debug.get("liter", 0)
+                _c = _delivery_debug.get("coef", 0)
+                _wh = _delivery_debug.get("warehouse", "?")
+                _fw = _delivery_debug.get("warehouse_requested", "")
+                if _fw:
+                    _logistics_tooltip_parts.append(f"Склад: {_fw} → тариф по {_wh}")
+                else:
+                    _logistics_tooltip_parts.append(f"Склад: {_wh}")
+                _logistics_tooltip_parts.append(f"Базовый тариф: {_b:.2f} ₽ + {_l:.2f} ₽/л, коэфф. {_c:.0f}%")
+                _logistics_tooltip_parts.append(f"Формула: {_b:.2f} + ({_vc}-1) × {_l:.2f} = {_delivery_to_client:.2f} ₽")
+            elif "ФБО" in _meth:
                 _kd = box_tariffs.get("Коледино", {})
                 _kr = box_tariffs.get("Краснодар", {})
                 _kz = box_tariffs.get("Казань", {})
+                _ab = round((_kd.get('fbo_base') or 0) + (_kr.get('fbo_base') or 0) + (_kz.get('fbo_base') or 0), 2)
+                _al = round((_kd.get('fbo_liter') or 0) + (_kr.get('fbo_liter') or 0) + (_kz.get('fbo_liter') or 0), 2)
                 _logistics_tooltip_parts.append(f"Коледино: {_kd.get('fbo_base', 0):.2f} + {_kd.get('fbo_liter', 0):.2f}/л (коэфф. {_kd.get('fbo_coef', 0):.0f}%)")
                 _logistics_tooltip_parts.append(f"Краснодар: {_kr.get('fbo_base', 0):.2f} + {_kr.get('fbo_liter', 0):.2f}/л (коэфф. {_kr.get('fbo_coef', 0):.0f}%)")
                 _logistics_tooltip_parts.append(f"Казань: {_kz.get('fbo_base', 0):.2f} + {_kz.get('fbo_liter', 0):.2f}/л (коэфф. {_kz.get('fbo_coef', 0):.0f}%)")
-                _logistics_tooltip_parts.append(f"Среднее: {_ab:.2f} + {_al:.2f}/л")
+                _logistics_tooltip_parts.append(f"Среднее: {_ab/3:.2f} + {_al/3:.2f}/л")
 
         _logistics_tooltip_parts.append("")
         _logistics_tooltip_parts.append(f"Итого логистика: {_delivery_to_client:.2f} ₽")
