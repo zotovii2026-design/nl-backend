@@ -3490,7 +3490,7 @@ async def get_marketer_product_detail(
 # ==================== UNIT ECONOMICS APIs ====================
 
 @router.get("/api/v1/nl/unit-economics")
-async def get_unit_economics(org_id: str, search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: Optional[int] = None, db: AsyncSession = Depends(get_db)):
     """Юнит Экономика — сборка всех данных по SKU"""
     import asyncio
     org_id = await resolve_org_id(org_id, db)
@@ -3512,7 +3512,10 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
         _cached = _redis.get(_cache_key)
         if _cached:
             try:
-                return _json.loads(_cached)
+                _cached_data = _json.loads(_cached)
+                if limit and limit > 0:
+                    _cached_data["items"] = _cached_data["items"][:limit]
+                return _cached_data
             except Exception:
                 pass
 
@@ -4111,14 +4114,18 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
 
         items.append(item)
 
-    # Сохраняем в Redis-кэш на 5 минут
-    _result = {"items": items, "total": len(items)}
+    # Сохраняем в Redis-кэш на 30 минут (ПОЛНЫЙ набор)
+    _result_full = {"items": items, "total": len(items)}
     if not search:
         try:
-            _redis.setex(_cache_key, 1800, _json.dumps(_result, ensure_ascii=False, default=str))
+            _redis.setex(_cache_key, 1800, _json.dumps(_result_full, ensure_ascii=False, default=str))
         except Exception:
             pass
-    return _result
+
+    # Пагинация: если limit указан — обрезаем items
+    if limit and limit > 0:
+        return {"items": items[:limit], "total": len(items)}
+    return _result_full
 
 
 class UnitEconSave(BaseModel):
@@ -5023,7 +5030,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260603f"></script>
-<script type="text/javascript" src="/static/js/ue-grid.js?v=20260605a"></script>
+<script type="text/javascript" src="/static/js/ue-grid.js?v=20260605b"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 </head>
 <body>

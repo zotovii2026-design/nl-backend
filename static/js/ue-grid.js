@@ -10,7 +10,7 @@ let _ueAllData = [];  // Полные данные до фильтрации
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ue-grid-v4';
+    const VER = 'ue-grid-v6';
     if (localStorage.getItem('ue-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ue-grid-state-columns');
         localStorage.removeItem('tabulator-ue-grid-state-sort');
@@ -504,10 +504,12 @@ function initUEGrid() {
 /**
  * Загрузка данных из API
  */
-async function loadUEData() {
+async function loadUEData(loadAll) {
     const search = document.getElementById('ue-search')?.value || '';
     let url = '/api/v1/nl/unit-economics?org_id=' + ORG_ID;
     if (search) url += '&search=' + encodeURIComponent(search);
+    // Пагинация: первые 50 быстро, потом по кнопке — все
+    if (!loadAll && !search) url += '&limit=50';
 
     // Лоадер: показываем что данные загружаются
     const container = document.getElementById('ue-tabulator');
@@ -519,6 +521,7 @@ async function loadUEData() {
         const res = await fetch(url);
         const raw = await res.json();
         const data = Array.isArray(raw) ? raw : (raw.items || []);
+        const totalFromApi = raw.total || data.length;
 
         // Сохраняем оригинальный nm_id для отображения и ссылок
         data.forEach(p => { p.nm_id_display = p.nm_id; });
@@ -547,12 +550,21 @@ async function loadUEData() {
         }
 
         const countEl = document.getElementById('ue-count');
-        if (countEl) countEl.textContent = data.length + ' товаров';
+        const hasMore = data.length < totalFromApi;
+        if (countEl) {
+            if (hasMore) {
+                countEl.innerHTML = data.length + ' из ' + totalFromApi + ' товаров <button id="ue-load-all-btn" style="margin-left:8px;padding:2px 10px;border-radius:4px;border:1px solid #4a90d9;background:#4a90d9;color:#fff;cursor:pointer;font-size:12px;">Загрузить все (' + totalFromApi + ')</button>';
+                const btn = document.getElementById('ue-load-all-btn');
+                if (btn) btn.onclick = function() { loadUEData(true); };
+            } else {
+                countEl.textContent = data.length + ' товаров';
+            }
+        }
 
         _ueAllData = data;  // Сохраняем полные данные
         populateUEFilterOptions();  // Заполняем фильтры
 
-        console.log('[UE Grid] Loaded', data.length, 'rows');
+        console.log('[UE Grid] Loaded', data.length, '/', totalFromApi, 'rows');
         if (container) container.style.opacity = '1';
     } catch (e) {
         console.error('[UE Grid] Load error:', e);
