@@ -5020,14 +5020,14 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-group .tabulator-arrow{color:#999;margin-right:4px}
 </style>
 <!-- Tabulator CSS -->
-<link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator.min.css" rel="stylesheet">
-<link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator_modern.min.css" rel="stylesheet">
+<link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator.min.css?v=6.3.0" rel="stylesheet">
+<link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator_modern.min.css?v=6.3.0" rel="stylesheet">
 <!-- Tabulator JS -->
-<script type="text/javascript" src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
+<script type="text/javascript" src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js?v=6.3.0"></script>
 <!-- NL Grid Module -->
 <!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script type="text/javascript" src="/static/js/nl-grid.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js?v=4.4.7"></script>
+<script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260603f"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260605b"></script>
@@ -5111,8 +5111,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div id="page-stats" class="page-section active">
 <!-- Фильтр по дате -->
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
-<select id="stats-date" onchange="loadStats()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;cursor:pointer"></select>
-<button class="btn" onclick="loadStats()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+<select id="stats-date" onchange="_statsLimit=50;loadStats()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;cursor:pointer"></select>
+<button class="btn" onclick="_statsLimit=50;loadStats()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
 </div>
 
 <!-- Прибыль -->
@@ -5171,6 +5171,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <thead><tr><th>Фото</th><th>Арт WB</th><th>Название</th><th>Размер</th><th>ШК</th><th>Остаток</th><th>Заказы</th><th>Выкупы</th><th>Возвраты</th><th>Рейтинг</th><th>Показы</th><th>Клики</th><th>CTR</th><th>Реклама ₽</th><th>Цена</th></tr></thead>
 <tbody id="stats-products"><tr><td colspan="15" class="empty">Выберите дату</td></tr></tbody>
 </table>
+<div id="stats-pagination" style="margin-top:8px;display:flex;align-items:center;gap:10px;font-size:.85em;color:#666"><span id="stats-shown"></span><button id="stats-more-btn" class="btn" style="padding:4px 12px;font-size:.85em;display:none" onclick="loadStatsMore()">Показать ещё</button></div>
 </div>
 <div id="page-analytics" class="page-section">
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
@@ -5867,6 +5868,8 @@ async function showApp() {
     } catch(e) { console.error('init error:', e); }
 }
 
+var _statsLimit=50;function loadStatsMore(){_statsLimit+=50;loadStats()}
+
 async function loadStats() {
     if (!ORG_ID) return;
     const sel = document.getElementById('stats-date') || document.getElementById('ref-date');
@@ -5919,7 +5922,7 @@ async function loadStats() {
         });
         
         let html = '';
-        order.forEach(nmId => {
+        order.slice(0, _statsLimit).forEach(nmId => {
             const items = groups[nmId];
             const hasSizes = items.length > 1 || (items.length === 1 && items[0].size_name && items[0].size_name !== '0' && items[0].size_name !== 'ONE SIZE');
             
@@ -5946,7 +5949,7 @@ async function loadStats() {
             if (hasSizes) {
                 // Родительская строка (кликабельная)
                 html += '<tr class="group-parent" onclick="toggleGroup(this)" style="cursor:pointer;background:#f8f9ff">' +
-                '<td>' + (thumb ? '<img src="' + thumb + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
+                '<td>' + (thumb ? '<img src="' + thumb + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover" loading="lazy">' : '') + '</td>' +
                 '<td><b>' + nmId + '</b> <span style="font-size:.7em;color:#6c5ce7">▸ ' + items.length + ' разм.</span></td>' +
                 '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(items[0].product_name) + '">' + esc(items[0].product_name) + '</td>' +
                 '<td></td><td></td>' +
@@ -5974,7 +5977,7 @@ async function loadStats() {
                 const p = items[0];
                 const sizeLabel = p.size_name && p.size_name !== '0' && p.size_name !== 'ONE SIZE' ? p.size_name : '';
                 html += '<tr data-entity="' + (p.entity_id||'') + '">' +
-                '<td>' + (thumb ? '<img src="' + thumb + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
+                '<td>' + (thumb ? '<img src="' + thumb + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover" loading="lazy">' : '') + '</td>' +
                 '<td>' + (p.nm_id || '') + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name) + '">' + esc(p.product_name) + '</td>' +
                 '<td style="font-size:.8em;color:#636e72">' + sizeLabel + '</td>' +
                 '<td style="font-size:.7em;color:#999">' + (p.barcode || '') + '</td>' +
@@ -5987,6 +5990,9 @@ async function loadStats() {
             }
         });
         tbody.innerHTML = html;
+        var _pagEl=document.getElementById('stats-shown');var _morBtn=document.getElementById('stats-more-btn');
+        if(_pagEl)_pagEl.textContent='Показано '+Math.min(_statsLimit,order.length)+' из '+order.length+' товаров';
+        if(_morBtn)_morBtn.style.display=_statsLimit>=order.length?'none':'';
         // === ITOGO ===
         let gStock=0, gStockFbo=0, gOrders=0, gBuyouts=0, gReturns=0, gImpressions=0, gClicks=0, gAd=0, gRatingSum=0, gRatingCount=0;
         prods.forEach(p => {
@@ -8121,7 +8127,7 @@ function renderSpTable(data) {
         var origIdx = spData.indexOf(d);
         return '<tr data-idx="' + origIdx + '">' +
         '<td style="position:sticky;left:0;background:#fff;z-index:1"><input type="checkbox" class="sp-row-check" data-idx="' + origIdx + '" onchange="onSpRowCheck(this)" style="cursor:pointer"></td>' +
-        '<td>' + (thumb ? '<img src="' + esc(thumb) + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
+        '<td>' + (thumb ? '<img src="' + esc(thumb) + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover" loading="lazy">' : '') + '</td>' +
         '<td>' + d.nm_id + '</td>' +
         '<td>' + esc(d.vendor_code||'') + '</td>' +
         '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(d.product_name||'') + '">' + esc(d.product_name||'') + '</td>' +
