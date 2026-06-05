@@ -4115,7 +4115,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, db: Asyn
     _result = {"items": items, "total": len(items)}
     if not search:
         try:
-            _redis.setex(_cache_key, 300, _json.dumps(_result, ensure_ascii=False, default=str))
+            _redis.setex(_cache_key, 1800, _json.dumps(_result, ensure_ascii=False, default=str))
         except Exception:
             pass
     return _result
@@ -5023,7 +5023,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/nl-grid.js"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260603f"></script>
-<script type="text/javascript" src="/static/js/ue-grid.js?v=20260604b"></script>
+<script type="text/javascript" src="/static/js/ue-grid.js?v=20260605a"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 </head>
 <body>

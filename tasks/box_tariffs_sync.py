@@ -1,3 +1,4 @@
+from tasks.ue_precompute import run_precompute
 """
 Celery-таск: синхронизация тарифов коробной логистики WB
 GET https://common-api.wildberries.ru/api/v1/tariffs/box
@@ -34,7 +35,16 @@ def _parse_float(val) -> float | None:
 @shared_task(name="wb.sched.box_tariffs")
 def sched_box_tariffs():
     """Синхронизация тарифов коробной логистики WB по складам"""
-    return _run(_do_box_tariffs)
+    result = _run(_do_box_tariffs)
+    try:
+        import asyncio
+        from core.database import async_session as _sf2
+        from tasks.scheduled_sync import _get_org_ids_for_precompute
+        orgs = asyncio.run(_get_org_ids_for_precompute(_sf2))
+        run_precompute(orgs)
+    except Exception as e:
+        logger.warning(f"[box_tariffs] ue_precompute skipped: {e}")
+    return result
 
 
 async def _do_box_tariffs(sf):
