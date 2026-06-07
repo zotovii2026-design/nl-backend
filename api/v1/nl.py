@@ -2890,13 +2890,33 @@ async def sales_plans_summary(org_id: str, period: Optional[str] = None, db: Asy
 # ─── РЕКЛАМА ────────────────────────────────────────────
 
 @router.get("/api/v1/nl/ad-stats")
-async def get_ad_stats(org_id: str, days: str = "7", db: AsyncSession = Depends(get_db)):
+async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = None, date_to: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """Рекламная статистика по дням"""
     import decimal as _dec
-    try:
-        days_int = int(days)
-    except:
-        days_int = 7
+
+    # Определяем период: либо точные даты, либо через days
+    if date_from and date_to:
+        d_from = date_from
+        d_to = date_to
+    else:
+        try:
+            days_int = int(days)
+        except:
+            days_int = 7
+        # Специальные пресеты: 1=сегодня, 2=вчера
+        if days_int == 1:
+            d_from = date.today().isoformat()
+            d_to = date.today().isoformat()
+        elif days_int == 2:
+            d = date.today() - timedelta(days=1)
+            d_from = d.isoformat()
+            d_to = d.isoformat()
+        else:
+            d_from = (date.today() - timedelta(days=days_int)).isoformat()
+            d_to = date.today().isoformat()
+
+    date_cond = "s.stat_date >= :d_from AND s.stat_date <= :d_to"
+    params = {"org": org_id, "d_from": datetime.strptime(d_from, "%Y-%m-%d").date(), "d_to": datetime.strptime(d_to, "%Y-%m-%d").date()}
 
     rows = await db.execute(text("""
         SELECT s.stat_date,
@@ -2910,10 +2930,10 @@ async def get_ad_stats(org_id: str, days: str = "7", db: AsyncSession = Depends(
                AVG(s.cr) as avg_cr
         FROM ad_stats s
         WHERE s.organization_id = :org
-          AND s.stat_date >= CURRENT_DATE - make_interval(days => :days)
+          AND """ + date_cond + """
         GROUP BY s.stat_date
         ORDER BY s.stat_date DESC
-    """), {"org": org_id, "days": days_int})
+    """), params)
     daily = []
     for r in rows:
         def sf(v): return float(v) if v and not isinstance(v, _dec.Decimal) else (float(v) if isinstance(v, _dec.Decimal) else 0)
@@ -2938,11 +2958,11 @@ async def get_ad_stats(org_id: str, days: str = "7", db: AsyncSession = Depends(
         FROM ad_stats s
         LEFT JOIN ad_campaigns c ON c.wb_campaign_id = s.wb_campaign_id AND c.organization_id = s.organization_id
         WHERE s.organization_id = :org
-          AND s.stat_date >= CURRENT_DATE - make_interval(days => :days)
+          AND """ + date_cond + """
         GROUP BY c.name, s.wb_campaign_id
         ORDER BY SUM(s.spent) DESC
         LIMIT 20
-    """), {"org": org_id, "days": days_int})
+    """), params)
     top_campaigns = []
     for r in top_rows:
         def sf(v): return float(v) if v and not isinstance(v, _dec.Decimal) else (float(v) if isinstance(v, _dec.Decimal) else 0)
@@ -2977,45 +2997,51 @@ async def get_ad_stats(org_id: str, days: str = "7", db: AsyncSession = Depends(
     totals["cpc"] = round(totals["spent"] / totals["clicks"], 2) if totals["clicks"] else 0
     totals["cr"] = round(totals["orders"] / totals["clicks"] * 100, 2) if totals["clicks"] else 0
 
-    # --- Карточки кампаний с nm_ids, фото, группировка по склейкам (imt_id) ---
-    # Получаем все кампании с их nm_ids
+    # --- Список кампаний с распределением затрат по товарам ---
     camp_rows = await db.execute(text("""
         SELECT c.wb_campaign_id, c.name, c.type, c.status, c.nm_ids,
                COALESCE(SUM(s.views),0), COALESCE(SUM(s.clicks),0),
                COALESCE(SUM(s.spent),0), COALESCE(AVG(s.ctr),0),
-               COALESCE(SUM(s.orders),0), COALESCE(SUM(s.atbs),0)
+               COALESCE(SUM(s.orders),0), COALESCE(SUM(s.atbs),0),
+               COALESCE(SUM(s.sum_price),0)
         FROM ad_campaigns c
         LEFT JOIN ad_stats s ON s.wb_campaign_id = c.wb_campaign_id AND s.organization_id = c.organization_id
-            AND s.stat_date >= CURRENT_DATE - make_interval(days => :days)
+            AND """ + date_cond + """
         WHERE c.organization_id = :org
         GROUP BY c.wb_campaign_id, c.name, c.type, c.status, c.nm_ids
         ORDER BY COALESCE(SUM(s.spent),0) DESC
-    """), {"org": org_id, "days": days_int})
+    """), params)
 
-    # Собираем все уникальные nm_id из кампаний
+    import json as _json
+    campaigns = []
     all_nm_ids = set()
-    campaign_cards = []
     for r in camp_rows:
-        import json as _json
         nms_raw = r[4]
         nm_list = _json.loads(nms_raw) if isinstance(nms_raw, str) else (nms_raw or [])
         nm_ints = [int(n) for n in nm_list if n]
         all_nm_ids.update(nm_ints)
-        campaign_cards.append({
+        spent = round(float(r[7] or 0), 2)
+        nm_count = len(nm_ints) if nm_ints else 1
+        spent_per_item = round(spent / nm_count, 2) if nm_count > 1 else spent
+        campaigns.append({
             "campaign_id": r[0],
             "name": r[1] or "Без названия",
             "type": r[2],
-            "status": r[3],
+            "status": str(r[3]) if r[3] else "",
             "nm_ids": nm_ints,
+            "nm_count": len(nm_ints),
             "views": int(r[5] or 0),
             "clicks": int(r[6] or 0),
-            "spent": round(float(r[7] or 0), 2),
+            "spent": spent,
+            "spent_per_item": spent_per_item,
             "ctr": round(float(r[8] or 0), 2),
             "orders": int(r[9] or 0),
             "atbs": int(r[10] or 0),
+            "sum_price": round(float(r[11] or 0), 2),
+            "drr": round(spent / float(r[11] or 1) * 100, 2) if float(r[11] or 0) > 0 else 0,
         })
 
-    # Получаем imt_id и фото для товаров из product_map (raw_api_data)
+    # Получаем фото и названия товаров
     nm_to_info = {}
     if all_nm_ids:
         prod_row = await db.execute(text("""
@@ -3036,66 +3062,32 @@ async def get_ad_stats(org_id: str, days: str = "7", db: AsyncSession = Depends(
                     if photos:
                         photo_url = photos[0].get("c246x328", "") or photos[0].get("big", "") or photos[0].get("hq", "")
                     nm_to_info[int(nm)] = {
-                        "imt_id": c.get("imtID"),
                         "name": c.get("title", ""),
                         "brand": c.get("brand", ""),
                         "vendor_code": c.get("vendorCode", ""),
                         "photo": photo_url,
                     }
 
-    # Группируем кампании по склейкам (imt_id)
-    # Для каждой кампании — берём первый nm_id, определяем imt_id
-    sleikas = {}  # imt_id -> {info, campaigns}
-    for camp in campaign_cards:
-        if not camp["nm_ids"]:
-            # Нет товаров — в группу "Без склейки"
-            imt_key = "none"
-        else:
-            # Берём первый nm_id (основной товар по расходу)
-            first_nm = camp["nm_ids"][0]
-            info = nm_to_info.get(first_nm, {})
-            imt_key = info.get("imt_id") or f"nm_{first_nm}"
-
-        if imt_key not in sleikas:
-            # Инфо о склейке
-            if imt_key == "none":
-                sleika_info = {"name": "Без склейки", "imt_id": None, "photo": ""}
-            else:
-                first_info = nm_to_info.get(camp["nm_ids"][0] if camp["nm_ids"] else 0, {})
-                sleika_info = {
-                    "name": first_info.get("name", ""),
-                    "brand": first_info.get("brand", ""),
-                    "imt_id": imt_key,
-                    "photo": first_info.get("photo", ""),
-                }
-                # Собираем все товары склейки
-                sleika_info["products"] = []
-                for nm in camp["nm_ids"]:
-                    pinfo = nm_to_info.get(nm, {})
-                    if pinfo:
-                        sleika_info["products"].append({
-                            "nm_id": nm,
-                            "name": pinfo.get("name", ""),
-                            "vendor_code": pinfo.get("vendor_code", ""),
-                            "photo": pinfo.get("photo", ""),
-                        })
-            sleikas[imt_key] = {**sleika_info, "campaigns": [], "total_spent": 0}
-
-        sleikas[imt_key]["campaigns"].append(camp)
-        sleikas[imt_key]["total_spent"] += camp["spent"]
-
-    # Сортируем склейки по расходу
-    sleika_list = sorted(sleikas.values(), key=lambda x: x["total_spent"], reverse=True)
+    # Добавляем инфо о товарах в каждую кампанию
+    for camp in campaigns:
+        camp["products"] = []
+        for nm_id in camp["nm_ids"]:
+            info = nm_to_info.get(nm_id, {})
+            camp["products"].append({
+                "nm_id": nm_id,
+                "name": info.get("name", ""),
+                "vendor_code": info.get("vendor_code", ""),
+                "photo": info.get("photo", ""),
+                "spent_share": camp["spent_per_item"],
+            })
 
     return {
         "daily": daily,
         "top_campaigns": top_campaigns,
         "totals": totals,
         "balance": balance,
-        "sleikas": sleika_list,
+        "campaigns": campaigns,
     }
-
-
 
 # ==================== MARKETER DASHBOARD API ====================
 
@@ -4908,6 +4900,9 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 .btn:hover{background:#5a4bd1}
 .btn-outline{background:#fff;color:#6c5ce7;border:1px solid #6c5ce7}
 .btn-outline:hover{background:#f0edfc}
+.ads-tab{background:none;border:none;padding:10px 18px;cursor:pointer;font-size:.88em;color:#666;border-bottom:3px solid transparent;transition:all .2s}
+.ads-tab:hover{color:#6c5ce7;background:#f0edfc}
+.ads-tab.active{color:#6c5ce7;font-weight:700;border-bottom-color:#6c5ce7}
 .save-btn{background:#6c5ce7;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:.8em}
 .save-btn:hover{background:#5a4bd1}
 .save-btn.saved{background:#00b894}
@@ -5032,6 +5027,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260603f"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260605b"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260607"></script>
 </head>
 <body>
 
@@ -5464,14 +5460,25 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
 <!-- ─── РЕКЛАМА ──────────────────────────────────────────── -->
 <div id="page-ads" class="page-section">
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-<select id="ads-period" onchange="loadAds()" style="border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
+<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
+<select id="ads-store" onchange="switchAdsStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
+<span style="font-size:.9em;color:#666;margin-left:8px">📅 Период:</span>
+<select id="ads-period" onchange="adsPeriodPreset()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<option value="1">Сегодня</option>
+<option value="2">Вчера</option>
 <option value="7">7 дней</option>
 <option value="14">14 дней</option>
 <option value="30" selected>30 дней</option>
 <option value="60">60 дней</option>
+<option value="calendar">📅 Календарь</option>
 </select>
-<button class="btn" onclick="loadAds()" style="padding:6px 14px;font-size:.85em">Обновить</button>
+<div id="ads-calendar-range" style="display:none;align-items:center;gap:6px">
+<input type="date" id="ads-date-from" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<span style="color:#999;font-size:.85em">—</span>
+<input type="date" id="ads-date-to" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+</div>
+<button class="btn" onclick="loadAds()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
 <div style="margin-left:auto;font-size:.85em;color:#999" id="ads-updated"></div>
 </div>
 
@@ -5488,9 +5495,30 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div class="metric-card"><div class="mc-label">В корзину</div><div class="mc-value" id="ad-atbs">—</div></div>
 </div>
 
-<!-- Карточки по склейкам -->
-<h3 style="color:#6c5ce7;margin-bottom:10px;font-size:1em">🔗 Кампании по склейкам</h3>
-<div id="ads-sleikas" style="margin-bottom:24px"><div class="empty">Загрузка...</div></div>
+<!-- Табулятор статусов РК -->
+<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid #e0e0e0">
+<button class="ads-tab active" data-status="active" onclick="adsTabClick(this)">🟢 Активные</button>
+<button class="ads-tab" data-status="paused" onclick="adsTabClick(this)">⏸ Приостановленные</button>
+<button class="ads-tab" data-status="finished" onclick="adsTabClick(this)">✅ Завершённые</button>
+<button class="ads-tab" data-status="all" onclick="adsTabClick(this)">📋 Все</button>
+</div>
+
+<!-- Таблица кампаний (Tabulator) -->
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+<h3 style="color:#6c5ce7;margin:0;font-size:1em">📢 Рекламные кампании</h3>
+<label style="font-size:.82em;color:#666;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="ads-hide-empty" onchange="applyAdsFilters()" checked> Скрыть пустые</label>
+<button class="btn btn-outline" onclick="exportAdsExcel()" style="padding:4px 12px;font-size:.82em">📥 Excel</button>
+<span style="font-size:.8em;color:#999" id="ads-camp-count"></span>
+</div>
+<div id="ads-campaigns-tabulator" style="margin-bottom:24px"></div>
+
+<!-- Модал детализации РК -->
+<div id="ads-detail-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center" onclick="if(event.target===this)closeAdsDetailModal()">
+<div style="background:#fff;border-radius:12px;padding:24px;width:700px;max-width:90vw;max-height:85vh;overflow-y:auto">
+<button onclick="closeAdsDetailModal()" style="float:right;border:none;background:none;font-size:1.2em;cursor:pointer;color:#999">✕</button>
+<div id="ads-detail-content"></div>
+</div>
+</div>
 
 <!-- Таблица по дням -->
 <h3 style="color:#6c5ce7;margin-bottom:10px;font-size:1em">📅 Статистика по дням</h3>
@@ -6128,7 +6156,7 @@ async function navTo(name, el) {
     else if (name === 'warehouses') loadWarehouses();
     else if (name === 'opexpenses') loadOpEx();
     else if (name === 'marketer') loadMarketer();
-    else if (name === 'ads') loadAds();
+    else if (name === 'ads') { if (!adsTabulator) initAdsGrid(); loadAds(); }
     else if (name === 'extads') loadExtAds();
     else if (name === 'fboneeds') loadFboNeeds();
     else if (name === 'unitecon') { if (!ueTabulator) initUEGrid(); loadUEData(); }
@@ -6137,9 +6165,18 @@ async function navTo(name, el) {
 }
 
 async function loadAds() {
-    const days = document.getElementById('ads-period').value;
+    const periodVal = document.getElementById('ads-period').value;
+    let url;
+    if (periodVal === 'calendar') {
+        const from = document.getElementById('ads-date-from').value;
+        const to = document.getElementById('ads-date-to').value;
+        if (!from || !to) { alert('Укажите обе даты'); return; }
+        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&date_from=' + from + '&date_to=' + to;
+    } else {
+        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=' + periodVal;
+    }
     try {
-        const r = await fetch('/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=' + days, {headers:{'Authorization':'Bearer '+TOKEN}});
+        const r = await fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}});
         const d = await r.json();
         // Totals
         const t = d.totals || {};
@@ -6154,8 +6191,9 @@ async function loadAds() {
         document.getElementById('ad-atbs').textContent = fmt(t.atbs);
         // Balance
         if (d.balance) {
-            const bal = d.balance.balance || d.balance.balanceXdiscount || d.balance;
-            document.getElementById('ad-balance').textContent = typeof bal === 'number' ? fmt(bal, ' ₽') : JSON.stringify(bal);
+            var balNum = d.balance.net || d.balance.balance || d.balance.balanceXdiscount || 0;
+            if (typeof balNum !== 'number') balNum = 0;
+            document.getElementById('ad-balance').textContent = fmt(balNum, ' ₽');
         } else {
             document.getElementById('ad-balance').textContent = '—';
         }
@@ -6167,39 +6205,11 @@ async function loadAds() {
         } else {
             db.innerHTML = daily.map(r => '<tr><td>'+r.date+'</td><td class="r">'+r.views.toLocaleString('ru-RU')+'</td><td class="r">'+r.clicks.toLocaleString('ru-RU')+'</td><td class="r">'+r.ctr+'%</td><td class="r">'+r.cpc.toFixed(2)+' ₽</td><td class="r">'+r.spent.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽</td><td class="r">'+r.orders+'</td><td class="r">'+r.cr+'%</td><td class="r">'+r.atbs+'</td></tr>').join('');
         }
-        // Склейки (карточки)
-        const sleikas = d.sleikas || [];
-        const sk = document.getElementById('ads-sleikas');
-        if (!sleikas.length) {
-            sk.innerHTML = '<div style="color:#999;font-size:.9em;padding:12px">Нет данных по склейкам</div>';
-        } else {
-            sk.innerHTML = sleikas.map(sk => {
-                const photo = sk.photo ? '<img src="'+sk.photo+'" style="width:48px;height:48px;object-fit:cover;border-radius:6px">' : '';
-                const products = (sk.products||[]).map(p => p.photo ? '<img src="'+p.photo+'" style="width:32px;height:32px;object-fit:cover;border-radius:4px;margin-right:4px" title="'+(p.vendor_code||p.nm_id)+'">' : '').join('');
-                const camps = (sk.campaigns||[]).map(c => {
-                    const statusMap = {4:'⏳',7:'✅',8:'❌',9:'▶️',11:'⏸'};
-                    const statusIcon = statusMap[c.status] || '❓';
-                    return '<div style="background:#fff;border:1px solid #e8e8e8;border-radius:6px;padding:8px 10px;display:flex;align-items:center;gap:8px;font-size:.82em">'
-                        + '<span>'+statusIcon+'</span>'
-                        + '<div style="flex:1;min-width:0"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+c.name+'">'+c.name+'</div>'
-                        + '<div style="color:#999;font-size:.8em">ID: '+c.campaign_id+(c.nm_ids&&c.nm_ids.length?' · Товаров: '+c.nm_ids.length:'')+'</div></div>'
-                        + '<div style="text-align:right;white-space:nowrap"><div style="font-weight:700;color:#e17055">'+c.spent.toLocaleString('ru-RU',{maximumFractionDigits:0})+' ₽</div>'
-                        + '<div style="color:#999;font-size:.78em">'+c.clicks+' кликов · '+c.orders+' заказов</div></div></div>';
-                }).join('');
-                return '<div style="background:#f8f9fb;border:1px solid #e0e0e0;border-radius:10px;padding:14px;margin-bottom:12px">'
-                    + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
-                    + photo
-                    + '<div style="flex:1"><div style="font-weight:700;font-size:.95em">'+(sk.name||'Склейка '+(sk.imt_id||''))+'</div>'
-                    + (sk.brand ? '<div style="color:#999;font-size:.82em">'+sk.brand+'</div>' : '')
-                    + '</div>'
-                    + '<div style="text-align:right"><div style="font-weight:700;color:#6c5ce7;font-size:1.1em">'+sk.total_spent.toLocaleString('ru-RU',{maximumFractionDigits:0})+' ₽</div>'
-                    + '<div style="color:#999;font-size:.78em">'+(sk.campaigns||[]).length+' РК</div></div></div>'
-                    + (products ? '<div style="margin-bottom:8px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><span style="font-size:.78em;color:#999;margin-right:4px">Товары:</span>'+products+'</div>' : '')
-                    + '<div style="display:flex;flex-direction:column;gap:6px">'+camps+'</div></div>';
-            }).join('');
-        }
+        // --- Рендер таблицы кампаний (Tabulator) ---
+        window._adsAllCampaigns = d.campaigns || [];
+        updateAdsTabulator(d.campaigns || []);
 
-        // Campaigns table
+        // Топ кампаний (оставляем для совместимости)
         const camps = d.top_campaigns || [];
         const cb = document.getElementById('ads-campaigns-body');
         if (!camps.length) {
@@ -6216,53 +6226,35 @@ async function loadAds() {
 
 
 
-// ===== MARKETER DASHBOARD =====
-var mktAllProducts = [];
-var mktCurrentStore = '';
 
-async function loadMarketer() {
-    var period = document.getElementById('mkt-period').value;
-    var search = document.getElementById('mkt-flt-search').value;
-    var status = document.getElementById('mkt-flt-status').value;
-    var abc = document.getElementById('mkt-flt-class').value;
-    var brand = document.getElementById('mkt-flt-brand').value;
-
-    var params = new URLSearchParams({
-        org_id: ORG_ID,
-        days: period
-    });
-    if (search) params.set('search', search);
-    if (status) params.set('status', status);
-    if (abc) params.set('abc_class', abc);
-    if (brand) params.set('brand', brand);
-
-    try {
-        var r = await fetch('/api/v1/nl/marketer/products?' + params, {
-            headers: {'Authorization': 'Bearer ' + TOKEN}
-        });
-        var d = await r.json();
-
-        mktAllProducts = d.products || [];
-
-        // Update brand filter
-        var bsel = document.getElementById('mkt-flt-brand');
-        var curBrand = bsel.value;
-        bsel.innerHTML = '<option value="">Бренд: все</option>';
-        (d.brands || []).forEach(function(b) {
-            var opt = document.createElement('option');
-            opt.value = b; opt.textContent = b;
-            if (b === curBrand) opt.selected = true;
-            bsel.appendChild(opt);
-        });
-
-        document.getElementById('mkt-count').textContent = mktAllProducts.length + ' товаров, ' + (d.total_campaigns || 0) + ' РК';
-
-        renderMktProducts();
-    } catch(e) {
-        console.error('loadMarketer error:', e);
-        document.getElementById('mkt-products-list').innerHTML = '<div class="empty">Ошибка загрузки: ' + e.message + '</div>';
+// ===== ADS PERIOD & CALENDAR =====
+function adsPeriodPreset() {
+    const val = document.getElementById('ads-period').value;
+    const cal = document.getElementById('ads-calendar-range');
+    if (val === 'calendar') {
+        cal.style.display = 'flex';
+        // Дефолт: последние 30 дней
+        const today = new Date();
+        const from = new Date(today);
+        from.setDate(from.getDate() - 30);
+        document.getElementById('ads-date-from').value = from.toISOString().split('T')[0];
+        document.getElementById('ads-date-to').value = today.toISOString().split('T')[0];
+    } else {
+        cal.style.display = 'none';
+        loadAds();
     }
 }
+
+// ===== ADS TABULATOR & CAMPAIGNS =====
+var _adsCurrentTab = 'active';
+
+function adsTabClick(btn) {
+    document.querySelectorAll('.ads-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    _adsCurrentTab = btn.dataset.status;
+    applyAdsFilters();
+}
+
 
 function filterMarketer() {
     // Re-fetch with filters
@@ -8435,6 +8427,18 @@ async function loadOrgs() {
             mktSel.appendChild(opt);
         });
     }
+    // Sync ads-store dropdown in Реклама
+    const adsSel = document.getElementById("ads-store");
+    if (adsSel) {
+        adsSel.innerHTML = "";
+        orgs.forEach(o => {
+            const opt = document.createElement("option");
+            opt.value = o.id;
+            opt.textContent = o.name + (o.wb_seller_id ? " (ID " + o.wb_seller_id + ")" : "");
+            if (o.id === ORG_ID) opt.selected = true;
+            adsSel.appendChild(opt);
+        });
+    }
 }
 
 async function switchOrg() {
@@ -8456,6 +8460,8 @@ async function switchOrg() {
     if (fSel2) fSel2.value = ORG_ID;
     const mktSel2 = document.getElementById('mkt-store');
     if (mktSel2) mktSel2.value = ORG_ID;
+    const adsSel2 = document.getElementById('ads-store');
+    if (adsSel2) adsSel2.value = ORG_ID;
     showApp();
     // Reload current active tab data for new org
     var activeTab = document.querySelector('.page-section.active');
@@ -8466,7 +8472,7 @@ async function switchOrg() {
         else if (tabName === 'promo') { if (typeof promoTabulator === 'undefined' || !promoTabulator) initPromoGrid(); loadPromoData(); }
         else if (tabName === 'salesplan') loadSalesPlans();
         else if (tabName === 'fboneeds') loadFboNeeds();
-        else if (tabName === 'ads') loadAds();
+        else if (tabName === 'ads') { if (!adsTabulator) initAdsGrid(); loadAds(); }
         else if (tabName === 'extads') loadExtAds();
         else if (tabName === 'analytics') loadAnalytics();
         else if (tabName === 'marketer') loadMarketer();
@@ -8511,8 +8517,31 @@ async function switchUEStore() {
     if (promoSel3) promoSel3.value = ORG_ID;
     const mktSel3 = document.getElementById("mkt-store");
     if (mktSel3) mktSel3.value = ORG_ID;
+    const adsSel4 = document.getElementById("ads-store");
+    if (adsSel4) adsSel4.value = ORG_ID;
     history.replaceState(null, "", "/nl/v2?org=" + ORG_ID);
     loadUEData();
+}
+
+async function switchAdsStore() {
+    const adsSel = document.getElementById("ads-store");
+    const newOrgId = adsSel.value;
+    if (newOrgId === ORG_ID) return;
+    ORG_ID = newOrgId;
+    localStorage.setItem("nl_org_id", ORG_ID);
+    // Sync sidebar + cp-store + ue-store + promo-store + mkt-store
+    const sideSel = document.getElementById("org-select");
+    if (sideSel) sideSel.value = ORG_ID;
+    const cpSel = document.getElementById("cp-store");
+    if (cpSel) cpSel.value = ORG_ID;
+    const ueSel4 = document.getElementById("ue-store");
+    if (ueSel4) ueSel4.value = ORG_ID;
+    const promoSel5 = document.getElementById("promo-store");
+    if (promoSel5) promoSel5.value = ORG_ID;
+    const mktSel5 = document.getElementById("mkt-store");
+    if (mktSel5) mktSel5.value = ORG_ID;
+    history.replaceState(null, "", "/nl/v2?org=" + ORG_ID);
+    loadAds();
 }
 
 async function switchAnalyticsStore() {

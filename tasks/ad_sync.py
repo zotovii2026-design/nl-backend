@@ -1,4 +1,13 @@
-"""Celery задача: синхронизация рекламной статистики WB"""
+"""Celery задача: синхронизация рекламной статистики WB
+
+Логика (v3 от 2026-06-07):
+1. /adv/v1/promotion/count → список ID + changeTime по группам
+2. ФИЛЬТР: оставляем только кампании с changeTime за последние 30 дней
+3. /adv/v1/upd → названия за 30 дней
+4. Upsert в БД только живых кампаний (групповой статус — др. варианта нет)
+5. /adv/v3/fullstats → статистика за N дней
+6. /adv/v1/balance → баланс кабинета
+"""
 
 import json
 import asyncio
@@ -21,18 +30,10 @@ from models.raw_data import RawApiData
 
 logger = logging.getLogger(__name__)
 
-def _parse_dt(v):
-    """Parse datetime string from WB API"""
-    if not v or not isinstance(v, str):
-        return None
-    try:
-        from datetime import datetime as dt
-        return dt.fromisoformat(v)
-    except:
-        return None
-
-
 ADVERT_API = "https://advert-api.wildberries.ru"
+
+# Кампании старше этого количества дней — игнорируются (мусор/архив)
+FRESH_DAYS = 30
 
 
 def _make_session():
@@ -45,7 +46,6 @@ def _make_session():
 
 
 def _run(coro):
-    """Запуск async из Celery"""
     async def wrapper():
         engine, sf = _make_session()
         try:
@@ -56,20 +56,27 @@ def _run(coro):
 
 
 async def _get_all_keys(sf):
-    """Delegate to services.wb_api.keys"""
     return await _get_all_keys_imported(sf)
+
+
+def _parse_change_time(raw: str) -> Optional[datetime]:
+    """Parse changeTime from WB API — handles various ISO formats."""
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
 
 @shared_task(name="wb.sched.ad_stats")
 def sched_ad_stats(days_back: int = 1):
-    """Синхронизация рекламной статистики за последние N дней — по ВСЕМ кабинетам"""
-
     async def _main():
         engine, sf = _make_session()
         try:
             return await _do_ad_stats(sf, days_back)
         finally:
             await engine.dispose()
-
     return asyncio.run(_main())
 
 
@@ -91,7 +98,6 @@ async def _do_ad_stats(sf, days_back=1):
             logger.error("[ad_stats] Org %s failed: %s", org_id, e)
             total_result["orgs"][org_id] = {"status": "error", "error": str(e)}
 
-        # Пауза между кабинетами (rate limit WB)
         if idx < len(all_keys) - 1:
             logger.info("[ad_stats] Waiting 5s before next org...")
             await asyncio.sleep(5)
@@ -102,45 +108,59 @@ async def _do_ad_stats(sf, days_back=1):
 
 
 async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
-    """Синхронизация рекламы для одного кабинета"""
-
     async with httpx.AsyncClient(
         base_url=ADVERT_API,
         headers={"Authorization": "Bearer " + api_key},
         timeout=30.0,
     ) as client:
 
-        # 1) Список кампаний
+        # ═══ ШАГ 1: Список ID кампаний + ФИЛЬТР по changeTime ═══
         resp = await client.get("/adv/v1/promotion/count")
         if resp.status_code in (401, 403):
-            logger.warning("[ad_stats] Org %s: no access to advert API (%d)", org_id, resp.status_code)
+            logger.warning("[ad_stats] Org %s: no access (%d)", org_id, resp.status_code)
             return {"status": "no_access", "http_code": resp.status_code}
         resp.raise_for_status()
         campaigns_data = resp.json()
 
-        all_campaigns = []
+        now = datetime.now(ZoneInfo("UTC"))
+        cutoff = now - timedelta(days=FRESH_DAYS)
+
+        fresh_campaigns = []  # только свежие кампании
+        total_ids = 0
+        skipped_old = 0
+
         for group in campaigns_data.get("adverts", []):
-            camp_type = group.get("type")
-            camp_status = group.get("status")
+            g_type = group.get("type")
+            g_status = group.get("status")
             for ad in group.get("advert_list", []):
-                all_campaigns.append({
+                total_ids += 1
+                ct = _parse_change_time(ad.get("changeTime", ""))
+                if ct is None or ct < cutoff:
+                    skipped_old += 1
+                    continue
+                fresh_campaigns.append({
                     "advertId": ad["advertId"],
-                    "type": camp_type,
-                    "status": camp_status,
-                    "changeTime": ad.get("changeTime"),
+                    "type": str(g_type),
+                    "status": str(g_status),
+                    "changeTime": ct,
                 })
 
-        logger.info("[ad_stats] Org %s: %d campaigns", org_id, len(all_campaigns))
+        logger.info("[ad_stats] Org %s: %d total IDs, %d fresh (last %d days), %d skipped (old)",
+                     org_id, total_ids, len(fresh_campaigns), FRESH_DAYS, skipped_old)
 
-        # 2) Имена кампаний через /adv/v1/upd
+        if not fresh_campaigns:
+            return {"status": "ok", "stats_saved": 0, "campaigns": 0, "skipped_old": skipped_old}
+
+        # ═══ ШАГ 2: Названия через /adv/v1/upd ═══
         campaign_names = {}
         try:
             today = datetime.now(ZoneInfo("Europe/Moscow")).date()
-            from_date = (today - timedelta(days=30)).isoformat()
-            to_date = today.isoformat()
             resp_names = await client.get(
                 "/adv/v1/upd",
-                params={"from": from_date, "to": to_date},
+                params={
+                    "from": (today - timedelta(days=30)).isoformat(),
+                    "to": today.isoformat(),
+                },
             )
             if resp_names.status_code == 200:
                 upd_data = resp_names.json()
@@ -150,40 +170,44 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
                         name = item.get("campName", "")
                         if aid and name:
                             campaign_names[aid] = name
-                logger.info("[ad_stats] Org %s: %d campaign names from /adv/v1/upd", org_id, len(campaign_names))
+                logger.info("[ad_stats] Org %s: %d names from /upd", org_id, len(campaign_names))
             else:
-                logger.warning("[ad_stats] Org %s: /adv/v1/upd status %d", org_id, resp_names.status_code)
+                logger.warning("[ad_stats] Org %s: /upd status %d", org_id, resp_names.status_code)
         except Exception as e:
-            logger.warning("[ad_stats] Org %s: upd names error: %s", org_id, e)
+            logger.warning("[ad_stats] Org %s: /upd error: %s", org_id, e)
 
-        # 3) Upsert кампаний
+        # ═══ ШАГ 3: Upsert в БД — только свежие кампании ═══
         async with sf() as db:
-            for camp in all_campaigns:
+            for camp in fresh_campaigns:
                 aid = camp["advertId"]
                 await db.execute(text("""
-                    INSERT INTO ad_campaigns (id, organization_id, wb_campaign_id, name, type, status, wb_change_time)
-                    VALUES (gen_random_uuid(), :org, :cid, :name, :ctype, :cstatus, :ctime)
+                    INSERT INTO ad_campaigns (
+                        id, organization_id, wb_campaign_id, name, type, status, wb_change_time
+                    ) VALUES (
+                        gen_random_uuid(), :org, :cid, :name, :ctype, :cstatus, :ctime
+                    )
                     ON CONFLICT (organization_id, wb_campaign_id) DO UPDATE SET
                         name = EXCLUDED.name, type = EXCLUDED.type, status = EXCLUDED.status,
                         wb_change_time = EXCLUDED.wb_change_time, updated_at = now()
                 """), {
                     "org": org_id, "cid": aid,
                     "name": campaign_names.get(aid, ""),
-                    "ctype": str(camp["type"]),
-                    "cstatus": str(camp["status"]),
-                    "ctime": _parse_dt(camp.get("changeTime")),
+                    "ctype": camp["type"],
+                    "cstatus": camp["status"],
+                    "ctime": camp["changeTime"],
                 })
             await db.commit()
+            logger.info("[ad_stats] Org %s: upserted %d fresh campaigns", org_id, len(fresh_campaigns))
 
-        # 5) Статистика по дням
-        stat_ids = [str(c["advertId"]) for c in all_campaigns if c["status"] in (7, 9, 11)]
-
+        # ═══ ШАГ 4: Статистика /adv/v3/fullstats ═══
+        stat_ids = [str(c["advertId"]) for c in fresh_campaigns]
         total_saved = 0
+
         for day_offset in range(days_back):
             target_date = (datetime.now(ZoneInfo("Europe/Moscow")).date() - timedelta(days=day_offset + 1)).isoformat()
 
             for batch_start in range(0, len(stat_ids), 50):
-                batch = stat_ids[batch_start:batch_start+50]
+                batch = stat_ids[batch_start:batch_start + 50]
                 ids_str = ",".join(batch)
 
                 retries = 0
@@ -237,7 +261,7 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
                             "canceled": s.get("canceled", 0), "shks": s.get("shks", 0),
                             "sum_price": s.get("sum_price", 0), "currency": s.get("currency", "RUB"),
                         })
-                    # Сохраняем статистику по каждому nm_id внутри кампании
+                    # Детализация по nm_id
                     for s in stats:
                         for day in (s.get("days") or []):
                             dt_raw = day.get("date", "")
@@ -282,35 +306,17 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
                                     except Exception as e:
                                         logger.warning("[ad_stats] nm save error camp=%s nm=%s: %s", s.get("advertId"), nm_id, e)
 
-                    # Обновляем nm_ids для кампаний (уникальные nm из fullstats)
-                    for s in stats:
-                        aid = s.get("advertId")
-                        nm_set = set()
-                        for day in (s.get("days") or []):
-                            for app in (day.get("apps") or []):
-                                for nm in (app.get("nms") or []):
-                                    nm_id = nm.get("nmId")
-                                    if nm_id:
-                                        nm_set.add(int(nm_id))
-                        if nm_set:
-                            await db.execute(text("""
-                                UPDATE ad_campaigns SET nm_ids = CAST(:nms AS jsonb), updated_at = now()
-                                WHERE organization_id = :org AND wb_campaign_id = :cid
-                            """), {"org": org_id, "cid": aid, "nms": json.dumps(sorted(nm_set))})
-
                     await db.commit()
                     total_saved += len(stats)
 
-                # Rate limit между батчами
                 if batch_start + 50 < len(stat_ids):
                     logger.info("[ad_stats] Org %s: wait 65s for next batch", org_id)
                     await asyncio.sleep(65)
 
-            # Между днями
             if day_offset < days_back - 1:
                 await asyncio.sleep(65)
 
-        # 6) Баланс
+        # ═══ ШАГ 5: Баланс ═══
         try:
             resp4 = await client.get("/adv/v1/balance")
             if resp4.status_code == 200:
@@ -329,4 +335,4 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
         except Exception as e:
             logger.warning("[ad_stats] Org %s balance error: %s", org_id, e)
 
-    return {"status": "ok", "stats_saved": total_saved, "campaigns": len(all_campaigns)}
+    return {"status": "ok", "stats_saved": total_saved, "campaigns": len(fresh_campaigns), "skipped_old": skipped_old}
