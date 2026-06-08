@@ -5647,10 +5647,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div style="margin-left:auto;font-size:.85em;color:#999" id="ads-updated"></div>
 </div>
 
-<!-- Метрики + По дням в одну строку -->
-<div style="display:flex;gap:12px;margin-bottom:12px;align-items:flex-start">
 <!-- Карточки метрик -->
-<div style="display:flex;flex-wrap:wrap;gap:6px;flex:1" id="ads-metrics">
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" id="ads-metrics">
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Расход</div><div style="font-size:.95em;font-weight:700;color:#e17055" id="ad-spent">—</div></div>
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Показы</div><div style="font-size:.95em;font-weight:700;color:#6c5ce7" id="ad-views">—</div></div>
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Клики</div><div style="font-size:.95em;font-weight:700;color:#0984e3" id="ad-clicks">—</div></div>
@@ -5661,15 +5659,14 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Артикулов</div><div style="font-size:.95em;font-weight:700;color:#636e72" id="ad-arts-count">—</div></div>
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Баланс</div><div style="font-size:.95em;font-weight:700;color:#2d3436" id="ad-balance">—</div></div>
 </div>
-<!-- Мини-таблица по дням (справа) -->
-<div style="background:#fff;border-radius:8px;border:1px solid #eee;padding:8px;min-width:320px;max-width:420px">
-<div style="font-size:.78em;font-weight:600;color:#6c5ce7;margin-bottom:4px">📅 По дням</div>
-<div style="max-height:210px;overflow-y:auto;font-size:.78em">
+<!-- Статистика по дням (на всю ширину, под метриками) -->
+<div style="background:#fff;border-radius:8px;border:1px solid #eee;padding:8px 12px;margin-bottom:8px">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:.78em;font-weight:600;color:#6c5ce7">📅 По дням</span><span style="font-size:.7em;color:#999" id="ads-daily-count"></span></div>
+<div style="max-height:180px;overflow-y:auto;font-size:.78em">
 <table id="ads-daily-table" style="width:100%">
-<thead><tr><th style="padding:2px 4px;text-align:left">Дата</th><th style="padding:2px 4px;text-align:right">Расход ₽</th><th style="padding:2px 4px;text-align:right">Клики</th><th style="padding:2px 4px;text-align:right">CTR</th><th style="padding:2px 4px;text-align:right">Заказы</th></tr></thead>
-<tbody id="ads-daily-body"><tr><td colspan="5" class="empty" style="padding:4px">Загрузка...</td></tr></tbody>
+<thead><tr><th style="padding:2px 6px;text-align:left">Дата</th><th style="padding:2px 6px;text-align:right">Расход ₽</th><th style="padding:2px 6px;text-align:right">Показы</th><th style="padding:2px 6px;text-align:right">Клики</th><th style="padding:2px 6px;text-align:right">CTR</th><th style="padding:2px 6px;text-align:right">CPC ₽</th><th style="padding:2px 6px;text-align:right">Заказы</th><th style="padding:2px 6px;text-align:right">CR</th><th style="padding:2px 6px;text-align:right">В корзину</th></tr></thead>
+<tbody id="ads-daily-body"><tr><td colspan="9" class="empty" style="padding:4px">Загрузка...</td></tr></tbody>
 </table>
-</div>
 </div>
 </div>
 
@@ -6385,7 +6382,8 @@ async function loadAds() {
         if (!daily.length) {
             db.innerHTML = '<tr><td colspan="5" class="empty" style="padding:4px">Нет данных</td></tr>';
         } else {
-            db.innerHTML = daily.map(r => '<tr><td style="padding:2px 4px">'+r.date+'</td><td style="padding:2px 4px;text-align:right">'+r.spent.toLocaleString('ru-RU',{maximumFractionDigits:0})+'₽</td><td style="padding:2px 4px;text-align:right">'+r.clicks.toLocaleString('ru-RU')+'</td><td style="padding:2px 4px;text-align:right">'+r.ctr+'%</td><td style="padding:2px 4px;text-align:right">'+r.orders+'</td></tr>').join('');
+            db.innerHTML = daily.map(r => '<tr><td style="padding:2px 6px">'+r.date+'</td><td style="padding:2px 6px;text-align:right">'+r.spent.toLocaleString('ru-RU',{maximumFractionDigits:0})+'₽</td><td style="padding:2px 6px;text-align:right">'+r.views.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.clicks.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.ctr+'%</td><td style="padding:2px 6px;text-align:right">'+r.cpc.toFixed(2)+'₽</td><td style="padding:2px 6px;text-align:right">'+r.orders+'</td><td style="padding:2px 6px;text-align:right">'+r.cr+'%</td><td style="padding:2px 6px;text-align:right">'+(r.atbs||0)+'</td></tr>').join('');
+            document.getElementById('ads-daily-count').textContent = daily.length + ' дней';
         }
         // --- Рендер таблицы кампаний (Tabulator) ---
         window._adsAllCampaigns = d.campaigns || [];

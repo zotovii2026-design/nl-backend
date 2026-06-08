@@ -205,11 +205,13 @@ function initAdsGrid() {
     const container = document.getElementById('ads-campaigns-tabulator');
     if (!container) return;
 
+    container.style.width = '100%';
     adsTabulator = new Tabulator(container, {
         data: [],
         columns: getAdsColumns(),
         height: '60vh',
         layout: 'fitColumns',
+        renderHorizontal: 'virtual',
         placeholder: '<div style="padding:20px;text-align:center;color:#999"><div style="font-size:1.2em;margin-bottom:8px">📭 Нет данных</div><div style="font-size:.85em">Попробуйте снять фильтр «Скрыть пустые» или переключить вкладку</div></div>',
         headerSortClickElement: 'header',
         sortable: true,
