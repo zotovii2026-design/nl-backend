@@ -3089,6 +3089,120 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
         "campaigns": campaigns,
     }
 
+
+
+@router.get("/api/v1/nl/ad-stats/by-art")
+async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional[str] = None, date_to: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Рекламная статистика по артикулам (из tech_status)"""
+    import decimal as _dec
+
+    if date_from and date_to:
+        d_from = date_from
+        d_to = date_to
+    else:
+        try:
+            days_int = int(days)
+        except:
+            days_int = 7
+        if days_int == 1:
+            d_from = date.today().isoformat()
+            d_to = date.today().isoformat()
+        elif days_int == 2:
+            d = date.today() - timedelta(days=1)
+            d_from = d.isoformat()
+            d_to = d.isoformat()
+        else:
+            d_from = (date.today() - timedelta(days=days_int)).isoformat()
+            d_to = date.today().isoformat()
+
+    params = {
+        "org": org_id,
+        "d_from": datetime.strptime(d_from, "%Y-%m-%d").date(),
+        "d_to": datetime.strptime(d_to, "%Y-%m-%d").date(),
+    }
+
+    rows = await db.execute(text("""
+        SELECT t.nm_id,
+               SUM(t.ad_cost) as total_spent,
+               SUM(COALESCE(t.impressions, 0)) as total_views,
+               SUM(COALESCE(t.clicks, 0)) as total_clicks,
+               COUNT(DISTINCT t.target_date) as active_days,
+               SUM(COALESCE(t.orders_count, 0)) as total_orders
+        FROM tech_status t
+        WHERE t.organization_id = :org
+          AND t.target_date >= :d_from AND t.target_date <= :d_to
+          AND t.ad_cost > 0
+        GROUP BY t.nm_id
+        ORDER BY SUM(t.ad_cost) DESC
+    """), params)
+
+    def sf(v):
+        if v is None: return 0
+        return float(v) if not isinstance(v, _dec.Decimal) else float(v)
+
+    items = []
+    all_nm_ids = []
+    for r in rows:
+        nm_id = int(r[0])
+        spent = round(sf(r[1]), 2)
+        views = int(r[2] or 0)
+        clicks = int(r[3] or 0)
+        active_days = int(r[4])
+        orders = int(r[5] or 0)
+        ctr = round(clicks / views * 100, 2) if views else 0
+        cpc = round(spent / clicks, 2) if clicks else 0
+        cr = round(orders / clicks * 100, 2) if clicks else 0
+        items.append({
+            "nm_id": nm_id, "spent": spent, "views": views, "clicks": clicks,
+            "ctr": ctr, "cpc": cpc, "cr": cr, "orders": orders, "active_days": active_days,
+        })
+        all_nm_ids.append(nm_id)
+
+    nm_to_info = {}
+    if all_nm_ids:
+        prod_row = await db.execute(text("""
+            SELECT raw_response FROM raw_api_data
+            WHERE api_method = 'products' AND organization_id = :org
+            ORDER BY fetched_at DESC LIMIT 1
+        """), {"org": org_id})
+        pr = prod_row.first()
+        if pr and pr[0]:
+            cards_data = pr[0] if isinstance(pr[0], list) else (pr[0].get("cards", []) if isinstance(pr[0], dict) else [])
+            for c in cards_data:
+                if not isinstance(c, dict): continue
+                nm = c.get("nmID")
+                if nm and int(nm) in all_nm_ids:
+                    photos = c.get("photos") or []
+                    photo_url = ""
+                    if photos:
+                        photo_url = photos[0].get("c246x328", "") or photos[0].get("big", "") or photos[0].get("hq", "")
+                    nm_to_info[int(nm)] = {
+                        "name": c.get("title", ""),
+                        "brand": c.get("brand", ""),
+                        "vendor_code": c.get("vendorCode", ""),
+                        "photo": photo_url,
+                    }
+
+    for item in items:
+        info = nm_to_info.get(item["nm_id"], {})
+        item["name"] = info.get("name", "")
+        item["brand"] = info.get("brand", "")
+        item["vendor_code"] = info.get("vendor_code", "")
+        item["photo"] = info.get("photo", "")
+
+    totals = {
+        "spent": round(sum(i["spent"] for i in items), 2),
+        "views": sum(i["views"] for i in items),
+        "clicks": sum(i["clicks"] for i in items),
+        "orders": sum(i["orders"] for i in items),
+        "ctr": round(sum(i["clicks"] for i in items) / max(sum(i["views"] for i in items), 1) * 100, 2),
+        "cpc": round(sum(i["spent"] for i in items) / max(sum(i["clicks"] for i in items), 1), 2),
+        "cr": round(sum(i["orders"] for i in items) / max(sum(i["clicks"] for i in items), 1) * 100, 2),
+        "items_count": len(items),
+    }
+
+    return {"items": items, "totals": totals}
+
 # ==================== MARKETER DASHBOARD API ====================
 
 @router.get("/api/v1/nl/marketer/products")
@@ -5027,7 +5141,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260603f"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260605b"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260607"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260608a"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260608"></script>
 </head>
 <body>
 
@@ -5503,7 +5618,21 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <button class="ads-tab" data-status="all" onclick="adsTabClick(this)">📋 Все</button>
 </div>
 
+<!-- Переключалка вида: По РК / По артикулам -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:8px 12px;background:#f8f9fa;border-radius:8px">
+<button id="ads-view-rk" class="ads-view-btn active" onclick="switchAdsView('rk')" style="padding:6px 16px;border:1px solid #6c5ce7;background:#6c5ce7;color:#fff;border-radius:6px;font-size:.85em;cursor:pointer;font-weight:600">📊 По РК</button>
+<button id="ads-view-art" class="ads-view-btn" onclick="switchAdsView('art')" style="padding:6px 16px;border:1px solid #ddd;background:#fff;color:#333;border-radius:6px;font-size:.85em;cursor:pointer;font-weight:600">📦 По артикулам</button>
+<span id="ads-arts-totals" style="margin-left:auto;font-size:.82em;color:#666;display:none"></span>
+</div>
+
+<!-- Контейнер для таблицы по артикулам -->
+<div id="ads-arts-container" style="display:none">
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px" id="ads-arts-cards"></div>
+<div id="ads-arts-tabulator" style="margin-bottom:24px"></div>
+</div>
+
 <!-- Таблица кампаний (Tabulator) -->
+<div id="ads-rk-container">
 <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
 <h3 style="color:#6c5ce7;margin:0;font-size:1em">📢 Рекламные кампании</h3>
 <label style="font-size:.82em;color:#666;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="ads-hide-empty" onchange="applyAdsFilters()" checked> Скрыть пустые</label>
@@ -5511,6 +5640,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <span style="font-size:.8em;color:#999" id="ads-camp-count"></span>
 </div>
 <div id="ads-campaigns-tabulator" style="margin-bottom:24px"></div>
+</div><!-- end ads-rk-container -->
 
 <!-- Модал детализации РК -->
 <div id="ads-detail-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center" onclick="if(event.target===this)closeAdsDetailModal()">

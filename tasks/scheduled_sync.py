@@ -442,9 +442,6 @@ async def _do_adverts(sf):
     return results
 
 
-@shared_task(name="wb.sched.prices")
-
-
 async def _get_org_ids_for_precompute(sf):
     """Получить список всех org_id для precompute"""
     async with sf() as db:
@@ -452,6 +449,8 @@ async def _get_org_ids_for_precompute(sf):
         result = await db.execute(text("SELECT id FROM organizations"))
         return [str(r[0]) for r in result.all()]
 
+
+@shared_task(name="wb.sched.prices")
 def sched_prices():
     """Синхронизация цен товаров из WB Marketplace API"""
     result = _run(_do_prices)
