@@ -238,11 +238,39 @@ function initAdsGrid() {
 function updateAdsTabulator(campaigns) {
     if (!adsTabulator) initAdsGrid();
     _adsAllData = campaigns || [];
+    populateAdsFilterOptionsForRK();
     applyAdsFilters();
 }
 
 /**
- * Применить фильтры (табы статусов)
+ * Заполнить бренды для вида По РК (из товаров внутри кампаний)
+ */
+function populateAdsFilterOptionsForRK() {
+    if (!_adsAllData.length) return;
+    var brands = [];
+    var seen = {};
+    _adsAllData.forEach(function(c) {
+        (c.products || []).forEach(function(p) {
+            if (p.brand && !seen[p.brand]) { seen[p.brand] = true; brands.push(p.brand); }
+        });
+    });
+    brands.sort();
+    var brandSel = document.getElementById('ads-flt-brand');
+    if (brandSel) {
+        var current = brandSel.value;
+        brandSel.innerHTML = '<option value="">Бренд: все</option>';
+        brands.forEach(function(b) {
+            var opt = document.createElement('option');
+            opt.value = b;
+            opt.textContent = b;
+            brandSel.appendChild(opt);
+        });
+        brandSel.value = current;
+    }
+}
+
+/**
+ * Применить фильтры (табы статусов + колонки)
  */
 function applyAdsFilters() {
     if (!adsTabulator) return;
@@ -251,9 +279,30 @@ function applyAdsFilters() {
         return activeStatuses.indexOf(c.status) >= 0;
     });
 
+    // Дополнительные фильтры по колонкам (для кампаний — фильтруем по товарам внутри РК)
+    var search = (document.getElementById('ads-flt-search')?.value || '').toLowerCase();
+    var fltBrand = document.getElementById('ads-flt-brand')?.value || '';
+    if (search || fltBrand) {
+        filtered = filtered.filter(function(c) {
+            var prods = c.products || [];
+            // Если хоть один товар подходит — оставляем кампанию
+            return prods.some(function(p) {
+                var matchSearch = !search || 
+                    (p.name || '').toLowerCase().indexOf(search) >= 0 ||
+                    String(p.nm_id || '').indexOf(search) >= 0 ||
+                    (p.vendor_code || '').toLowerCase().indexOf(search) >= 0;
+                var matchBrand = !fltBrand || (p.brand || '') === fltBrand;
+                return matchSearch && matchBrand;
+            });
+        });
+    }
+
     adsTabulator.setData(filtered);
     var cnt = document.getElementById('ads-camp-count');
     if (cnt) cnt.textContent = filtered.length + ' из ' + _adsAllData.length;
+    // Обновляем общий счётчик фильтров
+    var fCnt = document.getElementById('ads-filter-count');
+    if (fCnt) fCnt.textContent = filtered.length + ' из ' + _adsAllData.length;
 }
 
 /**

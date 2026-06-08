@@ -3,6 +3,7 @@ var _adsCurrentView = 'rk';
 var adsArtsTabulator = null;
 var _adsStatusFilters = ['7', '9']; // default: active + paused
 var _adsExpandedRow = null; // текущая раскрытая строка
+var _adsAllArtsData = [];  // Полные данные до фильтрации
 
 function switchAdsView(view) {
     _adsCurrentView = view;
@@ -63,16 +64,15 @@ function toggleAdsStatusFilter(btn) {
 }
 
 function loadAdsArts() {
-    var periodVal = document.getElementById('ads-period').value;
+    var range = getAdsDateRange();
     var statuses = _adsStatusFilters.join(',');
     var url;
-    if (periodVal === 'calendar') {
-        var from = document.getElementById('ads-date-from').value;
-        var to = document.getElementById('ads-date-to').value;
-        if (!from || !to) { alert('Укажите обе даты'); return; }
-        url = '/api/v1/nl/ad-stats/by-art?org_id=' + ORG_ID + '&date_from=' + from + '&date_to=' + to + '&statuses=' + statuses;
+    if (range.days) {
+        url = '/api/v1/nl/ad-stats/by-art?org_id=' + ORG_ID + '&days=' + range.days + '&statuses=' + statuses;
+    } else if (range.date_from && range.date_to) {
+        url = '/api/v1/nl/ad-stats/by-art?org_id=' + ORG_ID + '&date_from=' + range.date_from + '&date_to=' + range.date_to + '&statuses=' + statuses;
     } else {
-        url = '/api/v1/nl/ad-stats/by-art?org_id=' + ORG_ID + '&days=' + periodVal + '&statuses=' + statuses;
+        url = '/api/v1/nl/ad-stats/by-art?org_id=' + ORG_ID + '&days=30&statuses=' + statuses;
     }
     fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}})
         .then(function(r) { return r.json(); })
@@ -103,9 +103,13 @@ function renderAdsArtsTable(items) {
     if (adsArtsTabulator) {
         // Закрываем раскрытую строку при обновлении данных
         closeArtCampaigns();
-        adsArtsTabulator.setData(items);
+        _adsAllArtsData = items || [];
+        populateAdsFilterOptions();
+        applyAdsColumnFilters();
         return;
     }
+    _adsAllArtsData = items || [];
+    populateAdsFilterOptions();
 
     adsArtsTabulator = new Tabulator(container, {
         data: items,
@@ -187,6 +191,65 @@ function renderAdsArtsTable(items) {
     });
 
     setTimeout(function() { initArtsRowExpand(); }, 500);
+}
+
+// ===== COLUMN FILTERS (как в UE) =====
+function applyAdsColumnFilters() {
+    if (!_adsAllArtsData.length) return;
+
+    var search = (document.getElementById('ads-flt-search')?.value || '').toLowerCase();
+    var fltStatus = document.getElementById('ads-flt-status')?.value || '';
+    var fltClass = document.getElementById('ads-flt-class')?.value || '';
+    var fltBrand = document.getElementById('ads-flt-brand')?.value || '';
+
+    var filtered = _adsAllArtsData;
+
+    if (search) {
+        filtered = filtered.filter(function(p) {
+            return (p.name || '').toLowerCase().indexOf(search) >= 0 ||
+                   String(p.nm_id || '').indexOf(search) >= 0 ||
+                   (p.vendor_code || '').toLowerCase().indexOf(search) >= 0;
+        });
+    }
+    if (fltStatus) filtered = filtered.filter(function(p) { return (p.product_status || '') === fltStatus; });
+    if (fltClass) filtered = filtered.filter(function(p) { return (p.product_class || '') === fltClass; });
+    if (fltBrand) filtered = filtered.filter(function(p) { return (p.brand || '') === fltBrand; });
+
+    if (adsArtsTabulator) adsArtsTabulator.replaceData(filtered);
+    var countEl = document.getElementById('ads-filter-count');
+    if (countEl) countEl.textContent = filtered.length + ' из ' + _adsAllArtsData.length;
+}
+
+function resetAdsColumnFilters() {
+    var el;
+    el = document.getElementById('ads-flt-status'); if (el) el.value = '';
+    el = document.getElementById('ads-flt-class'); if (el) el.value = '';
+    el = document.getElementById('ads-flt-brand'); if (el) el.value = '';
+    el = document.getElementById('ads-flt-search'); if (el) el.value = '';
+    applyAdsColumnFilters();
+}
+
+function populateAdsFilterOptions() {
+    if (!_adsAllArtsData.length) return;
+    // Бренды
+    var brands = [];
+    var seen = {};
+    _adsAllArtsData.forEach(function(p) {
+        if (p.brand && !seen[p.brand]) { seen[p.brand] = true; brands.push(p.brand); }
+    });
+    brands.sort();
+    var brandSel = document.getElementById('ads-flt-brand');
+    if (brandSel) {
+        var current = brandSel.value;
+        brandSel.innerHTML = '<option value="">Бренд: все</option>';
+        brands.forEach(function(b) {
+            var opt = document.createElement('option');
+            opt.value = b;
+            opt.textContent = b;
+            brandSel.appendChild(opt);
+        });
+        brandSel.value = current;
+    }
 }
 
 // Refresh wrapper

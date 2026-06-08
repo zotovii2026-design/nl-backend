@@ -5069,9 +5069,6 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 .btn:hover{background:#5a4bd1}
 .btn-outline{background:#fff;color:#6c5ce7;border:1px solid #6c5ce7}
 .btn-outline:hover{background:#f0edfc}
-.ads-tab{background:none;border:none;padding:10px 18px;cursor:pointer;font-size:.88em;color:#666;border-bottom:3px solid transparent;transition:all .2s}
-.ads-tab:hover{color:#6c5ce7;background:#f0edfc}
-.ads-tab.active{color:#6c5ce7;font-weight:700;border-bottom-color:#6c5ce7}
 .save-btn{background:#6c5ce7;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:.8em}
 .save-btn:hover{background:#5a4bd1}
 .save-btn.saved{background:#00b894}
@@ -5196,8 +5193,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260603f"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260605b"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260608e"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260608g"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260608h"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260608h"></script>
 </head>
 <body>
 
@@ -5641,56 +5638,72 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <option value="14">14 дней</option>
 <option value="30" selected>30 дней</option>
 <option value="60">60 дней</option>
-<option value="calendar">📅 Календарь</option>
+<option value="custom">📅 Свой</option>
 </select>
-<div id="ads-calendar-range" style="display:none;align-items:center;gap:6px">
-<input type="date" id="ads-date-from" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<input type="date" id="ads-date-from" onchange="adsCustomDateChange()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
 <span style="color:#999;font-size:.85em">—</span>
-<input type="date" id="ads-date-to" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-</div>
+<input type="date" id="ads-date-to" onchange="adsCustomDateChange()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
 <button class="btn" onclick="refreshAds()" style="padding:6px 14px;font-size:.85em">ð Обновить</button>
 <div style="margin-left:auto;font-size:.85em;color:#999" id="ads-updated"></div>
 </div>
 
-<!-- Карточки метрик (без старого блока баланс/расход) -->
-<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px" id="ads-metrics">
-<div style="background:#fff;border-radius:8px;padding:8px 14px;text-align:center;min-width:90px;border:1px solid #eee"><div style="font-size:.72em;color:#999;margin-bottom:2px">Расход</div><div style="font-size:1em;font-weight:700;color:#e17055" id="ad-spent">—</div></div>
-<div style="background:#fff;border-radius:8px;padding:8px 14px;text-align:center;min-width:90px;border:1px solid #eee"><div style="font-size:.72em;color:#999;margin-bottom:2px">Показы</div><div style="font-size:1em;font-weight:700;color:#6c5ce7" id="ad-views">—</div></div>
-<div style="background:#fff;border-radius:8px;padding:8px 14px;text-align:center;min-width:90px;border:1px solid #eee"><div style="font-size:.72em;color:#999;margin-bottom:2px">Клики</div><div style="font-size:1em;font-weight:700;color:#0984e3" id="ad-clicks">—</div></div>
-<div style="background:#fff;border-radius:8px;padding:8px 14px;text-align:center;min-width:90px;border:1px solid #eee"><div style="font-size:.72em;color:#999;margin-bottom:2px">CTR</div><div style="font-size:1em;font-weight:700;color:#00b894" id="ad-ctr">—</div></div>
-<div style="background:#fff;border-radius:8px;padding:8px 14px;text-align:center;min-width:90px;border:1px solid #eee"><div style="font-size:.72em;color:#999;margin-bottom:2px">CPC</div><div style="font-size:1em;font-weight:700;color:#fdcb6e" id="ad-cpc">—</div></div>
-<div style="background:#fff;border-radius:8px;padding:8px 14px;text-align:center;min-width:90px;border:1px solid #eee"><div style="font-size:.72em;color:#999;margin-bottom:2px">Заказы</div><div style="font-size:1em;font-weight:700;color:#00cec9" id="ad-orders">—</div></div>
-<div style="background:#fff;border-radius:8px;padding:8px 14px;text-align:center;min-width:90px;border:1px solid #eee"><div style="font-size:.72em;color:#999;margin-bottom:2px">CR</div><div style="font-size:1em;font-weight:700;color:#e84393" id="ad-cr">—</div></div>
-<div style="background:#fff;border-radius:8px;padding:8px 14px;text-align:center;min-width:90px;border:1px solid #eee"><div style="font-size:.72em;color:#999;margin-bottom:2px">Артикулов</div><div style="font-size:1em;font-weight:700;color:#636e72" id="ad-arts-count">—</div></div>
-<div style="background:#fff;border-radius:8px;padding:8px 14px;text-align:center;min-width:90px;border:1px solid #eee"><div style="font-size:.72em;color:#999;margin-bottom:2px">Баланс</div><div style="font-size:1em;font-weight:700;color:#2d3436" id="ad-balance">—</div></div>
+<!-- Метрики + По дням в одну строку -->
+<div style="display:flex;gap:12px;margin-bottom:12px;align-items:flex-start">
+<!-- Карточки метрик -->
+<div style="display:flex;flex-wrap:wrap;gap:6px;flex:1" id="ads-metrics">
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Расход</div><div style="font-size:.95em;font-weight:700;color:#e17055" id="ad-spent">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Показы</div><div style="font-size:.95em;font-weight:700;color:#6c5ce7" id="ad-views">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Клики</div><div style="font-size:.95em;font-weight:700;color:#0984e3" id="ad-clicks">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CTR</div><div style="font-size:.95em;font-weight:700;color:#00b894" id="ad-ctr">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CPC</div><div style="font-size:.95em;font-weight:700;color:#fdcb6e" id="ad-cpc">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Заказы</div><div style="font-size:.95em;font-weight:700;color:#00cec9" id="ad-orders">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CR</div><div style="font-size:.95em;font-weight:700;color:#e84393" id="ad-cr">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Артикулов</div><div style="font-size:.95em;font-weight:700;color:#636e72" id="ad-arts-count">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Баланс</div><div style="font-size:.95em;font-weight:700;color:#2d3436" id="ad-balance">—</div></div>
+</div>
+<!-- Мини-таблица по дням (справа) -->
+<div style="background:#fff;border-radius:8px;border:1px solid #eee;padding:8px;min-width:320px;max-width:420px">
+<div style="font-size:.78em;font-weight:600;color:#6c5ce7;margin-bottom:4px">📅 По дням</div>
+<div style="max-height:210px;overflow-y:auto;font-size:.78em">
+<table id="ads-daily-table" style="width:100%">
+<thead><tr><th style="padding:2px 4px;text-align:left">Дата</th><th style="padding:2px 4px;text-align:right">Расход ₽</th><th style="padding:2px 4px;text-align:right">Клики</th><th style="padding:2px 4px;text-align:right">CTR</th><th style="padding:2px 4px;text-align:right">Заказы</th></tr></thead>
+<tbody id="ads-daily-body"><tr><td colspan="5" class="empty" style="padding:4px">Загрузка...</td></tr></tbody>
+</table>
+</div>
+</div>
 </div>
 
-<!-- Переключалка вида -->
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:8px 12px;background:#f8f9fa;border-radius:8px">
-<button id="ads-view-rk" class="ads-view-btn active" onclick="switchAdsView('rk')" style="padding:6px 16px;border:1px solid #6c5ce7;background:#6c5ce7;color:#fff;border-radius:6px;font-size:.85em;cursor:pointer;font-weight:600">📊 По рекламным кампаниям</button>
-<button id="ads-view-art" class="ads-view-btn" onclick="switchAdsView('art')" style="padding:6px 16px;border:1px solid #ddd;background:#fff;color:#333;border-radius:6px;font-size:.85em;cursor:pointer;font-weight:600">📦 По артикулам</button>
+<!-- Переключалка вида + фильтры статусов в одну строку -->
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+<button id="ads-view-rk" class="ads-view-btn active" onclick="switchAdsView('rk')" style="padding:4px 12px;border:1px solid #6c5ce7;background:#6c5ce7;color:#fff;border-radius:6px;font-size:.8em;cursor:pointer;font-weight:600">📊 По РК</button>
+<button id="ads-view-art" class="ads-view-btn" onclick="switchAdsView('art')" style="padding:4px 12px;border:1px solid #ddd;background:#fff;color:#333;border-radius:6px;font-size:.8em;cursor:pointer;font-weight:600">📦 По артикулам</button>
+<span style="width:1px;height:20px;background:#ddd;margin:0 4px"></span>
+<button class="ads-status-btn" data-status="7" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #00b894;background:#00b894;color:#fff;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">🟢 Активные</button>
+<button class="ads-status-btn" data-status="9" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #fdcb6e;background:#fdcb6e;color:#fff;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">⏸ Приостановл.</button>
+<button class="ads-status-btn" data-status="11" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #dfe6e9;background:#fff;color:#636e72;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">✅ Завершённые</button>
+<span style="width:1px;height:20px;background:#ddd;margin:0 4px"></span>
+<select id="ads-flt-status" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется</option></select>
+<select id="ads-flt-class" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Класс: все</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select>
+<select id="ads-flt-brand" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Бренд: все</option></select>
+<input type="text" id="ads-flt-search" placeholder="🔍 Поиск" oninput="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em;width:140px">
+<button onclick="resetAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 8px;font-size:.82em;background:#fff;cursor:pointer">✕</button>
+<span style="font-size:.8em;color:#999" id="ads-filter-count"></span>
 </div>
 
-<!-- Фильтры статусов РК (toggle кнопки) -->
-<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap" id="ads-status-filters">
-<button class="ads-status-btn" data-status="7" onclick="toggleAdsStatusFilter(this)" style="padding:5px 14px;border:1px solid #00b894;background:#00b894;color:#fff;border-radius:6px;font-size:.82em;cursor:pointer;font-weight:600">🟢 Активные</button>
-<button class="ads-status-btn" data-status="9" onclick="toggleAdsStatusFilter(this)" style="padding:5px 14px;border:1px solid #fdcb6e;background:#fdcb6e;color:#fff;border-radius:6px;font-size:.82em;cursor:pointer;font-weight:600">⏸ Приостановленные</button>
-<button class="ads-status-btn" data-status="11" onclick="toggleAdsStatusFilter(this)" style="padding:5px 14px;border:1px solid #dfe6e9;background:#fff;color:#636e72;border-radius:6px;font-size:.82em;cursor:pointer;font-weight:600">✅ Завершённые</button>
-</div>
-
-<!-- Контейнер для таблицы по артикулам -->
+<!-- Таблицы: артикулы / кампании -->
 <div id="ads-arts-container" style="display:none">
-<div id="ads-arts-tabulator" style="margin-bottom:24px"></div>
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+<button class="btn btn-outline" onclick="exportAdsArtsExcel()" style="padding:3px 10px;font-size:.78em">📥 Excel</button>
+<span style="font-size:.8em;color:#999" id="ads-arts-count"></span>
 </div>
-
-<!-- Таблица кампаний (Tabulator) -->
+<div id="ads-arts-tabulator"></div>
+</div>
 <div id="ads-rk-container">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-<h3 style="color:#6c5ce7;margin:0;font-size:1em">📢 Рекламные кампании</h3>
-<button class="btn btn-outline" onclick="exportAdsExcel()" style="padding:4px 12px;font-size:.82em">📥 Excel</button>
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+<button class="btn btn-outline" onclick="exportAdsExcel()" style="padding:3px 10px;font-size:.78em">📥 Excel</button>
 <span style="font-size:.8em;color:#999" id="ads-camp-count"></span>
 </div>
-<div id="ads-campaigns-tabulator" style="margin-bottom:24px"></div>
+<div id="ads-campaigns-tabulator"></div>
 </div><!-- end ads-rk-container -->
 
 <!-- Модал детализации РК -->
@@ -5701,19 +5714,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 </div>
 
-<!-- Таблица по дням -->
-<h3 style="color:#6c5ce7;margin-bottom:10px;font-size:1em">📅 Статистика по дням</h3>
-<table id="ads-daily-table" style="margin-bottom:24px">
-<thead><tr><th>Дата</th><th class="r">Показы</th><th class="r">Клики</th><th class="r">CTR %</th><th class="r">CPC ₽</th><th class="r">Расход ₽</th><th class="r">Заказы</th><th class="r">CR %</th><th class="r">В корзину</th></tr></thead>
-<tbody id="ads-daily-body"><tr><td colspan="9" class="empty">Загрузка...</td></tr></tbody>
-</table>
+<!-- По дням перенесён выше в блок метрик -->
 
-<!-- Топ кампаний -->
-<h3 style="color:#6c5ce7;margin-bottom:10px;font-size:1em">🏆 Топ кампаний по расходу</h3>
-<table id="ads-campaigns-table">
-<thead><tr><th>Кампания</th><th>ID</th><th class="r">Показы</th><th class="r">Клики</th><th class="r">CTR %</th><th class="r">Расход ₽</th><th class="r">Заказы</th><th class="r">В корзину</th></tr></thead>
-<tbody id="ads-campaigns-body"><tr><td colspan="8" class="empty">Загрузка...</td></tr></tbody>
-</table>
 </div>
 
 <div id="page-marketer" class="page-section">
@@ -6346,15 +6348,14 @@ async function navTo(name, el) {
 }
 
 async function loadAds() {
-    const periodVal = document.getElementById('ads-period').value;
+    const range = getAdsDateRange();
     let url;
-    if (periodVal === 'calendar') {
-        const from = document.getElementById('ads-date-from').value;
-        const to = document.getElementById('ads-date-to').value;
-        if (!from || !to) { alert('Укажите обе даты'); return; }
-        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&date_from=' + from + '&date_to=' + to;
+    if (range.days) {
+        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=' + range.days;
+    } else if (range.date_from && range.date_to) {
+        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&date_from=' + range.date_from + '&date_to=' + range.date_to;
     } else {
-        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=' + periodVal;
+        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=30';
     }
     try {
         const r = await fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}});
@@ -6382,26 +6383,18 @@ async function loadAds() {
         const daily = d.daily || [];
         const db = document.getElementById('ads-daily-body');
         if (!daily.length) {
-            db.innerHTML = '<tr><td colspan="9" class="empty">Нет данных за период. Запустите синхронизацию.</td></tr>';
+            db.innerHTML = '<tr><td colspan="5" class="empty" style="padding:4px">Нет данных</td></tr>';
         } else {
-            db.innerHTML = daily.map(r => '<tr><td>'+r.date+'</td><td class="r">'+r.views.toLocaleString('ru-RU')+'</td><td class="r">'+r.clicks.toLocaleString('ru-RU')+'</td><td class="r">'+r.ctr+'%</td><td class="r">'+r.cpc.toFixed(2)+' ₽</td><td class="r">'+r.spent.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽</td><td class="r">'+r.orders+'</td><td class="r">'+r.cr+'%</td><td class="r">'+r.atbs+'</td></tr>').join('');
+            db.innerHTML = daily.map(r => '<tr><td style="padding:2px 4px">'+r.date+'</td><td style="padding:2px 4px;text-align:right">'+r.spent.toLocaleString('ru-RU',{maximumFractionDigits:0})+'₽</td><td style="padding:2px 4px;text-align:right">'+r.clicks.toLocaleString('ru-RU')+'</td><td style="padding:2px 4px;text-align:right">'+r.ctr+'%</td><td style="padding:2px 4px;text-align:right">'+r.orders+'</td></tr>').join('');
         }
         // --- Рендер таблицы кампаний (Tabulator) ---
         window._adsAllCampaigns = d.campaigns || [];
         updateAdsTabulator(d.campaigns || []);
 
-        // Топ кампаний (оставляем для совместимости)
-        const camps = d.top_campaigns || [];
-        const cb = document.getElementById('ads-campaigns-body');
-        if (!camps.length) {
-            cb.innerHTML = '<tr><td colspan="8" class="empty">Нет данных по кампаниям</td></tr>';
-        } else {
-            cb.innerHTML = camps.map(c => '<tr><td>'+c.name+'</td><td>'+c.campaign_id+'</td><td class="r">'+c.views.toLocaleString('ru-RU')+'</td><td class="r">'+c.clicks.toLocaleString('ru-RU')+'</td><td class="r">'+c.ctr+'%</td><td class="r">'+c.spent.toLocaleString('ru-RU',{maximumFractionDigits:2})+' ₽</td><td class="r">'+c.orders+'</td><td class="r">'+c.atbs+'</td></tr>').join('');
-        }
         document.getElementById('ads-updated').textContent = 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
     } catch(e) {
         console.error('loadAds error:', e);
-        document.getElementById('ads-daily-body').innerHTML = '<tr><td colspan="9" class="empty">Ошибка загрузки: '+e.message+'</td></tr>';
+        document.getElementById('ads-daily-body').innerHTML = '<tr><td colspan="5" class="empty" style="padding:4px">Ошибка: '+e.message+'</td></tr>';
     }
 }
 
@@ -6411,27 +6404,51 @@ async function loadAds() {
 // ===== ADS PERIOD & CALENDAR =====
 function adsPeriodPreset() {
     if(typeof _adsCurrentView !== "undefined" && _adsCurrentView === "art") { loadAdsArts(); return; }
-    const val = document.getElementById('ads-period').value;
-    const cal = document.getElementById('ads-calendar-range');
-    if (val === 'calendar') {
-        cal.style.display = 'flex';
-        // Дефолт: последние 30 дней
-        const today = new Date();
-        const from = new Date(today);
-        from.setDate(from.getDate() - 30);
-        document.getElementById('ads-date-from').value = from.toISOString().split('T')[0];
-        document.getElementById('ads-date-to').value = today.toISOString().split('T')[0];
-    } else {
-        cal.style.display = 'none';
+    const sel = document.getElementById('ads-period');
+    const val = sel.value;
+    const df = document.getElementById('ads-date-from');
+    const dt = document.getElementById('ads-date-to');
+    if (val === 'custom') {
+        // Дефолт: последние 30 дней если пусто
+        if (!df.value || !dt.value) {
+            const today = new Date();
+            const from = new Date(today);
+            from.setDate(from.getDate() - 30);
+            df.value = from.toISOString().split('T')[0];
+            dt.value = today.toISOString().split('T')[0];
+        }
+        return; // ждём ручной ввод + кнопку Обновить
+    }
+    // Пресет — обновляем сразу
+    loadAds();
+}
+
+function adsCustomDateChange() {
+    const df = document.getElementById('ads-date-from').value;
+    const dt = document.getElementById('ads-date-to').value;
+    if (df && dt) {
+        document.getElementById('ads-period').value = 'custom';
+        if(typeof _adsCurrentView !== "undefined" && _adsCurrentView === "art") { loadAdsArts(); return; }
         loadAds();
     }
+}
+
+function getAdsDateRange() {
+    const val = document.getElementById('ads-period').value;
+    let days = parseInt(val);
+    if (!isNaN(days)) {
+        return { days: days };
+    }
+    const df = document.getElementById('ads-date-from').value;
+    const dt = document.getElementById('ads-date-to').value;
+    return { date_from: df, date_to: dt };
 }
 
 // ===== ADS TABULATOR & CAMPAIGNS =====
 var _adsCurrentTab = 'active';
 
 function adsTabClick(btn) {
-    document.querySelectorAll('.ads-tab').forEach(t => t.classList.remove('active'));
+;
     btn.classList.add('active');
     _adsCurrentTab = btn.dataset.status;
     applyAdsFilters();
