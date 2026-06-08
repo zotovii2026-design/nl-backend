@@ -4,7 +4,6 @@ var adsArtsTabulator = null;
 
 function switchAdsView(view) {
     _adsCurrentView = view;
-    // Update buttons
     document.querySelectorAll('.ads-view-btn').forEach(function(btn) { btn.classList.remove('active'); });
     var activeBtn = document.getElementById('ads-view-' + view);
     if (activeBtn) {
@@ -19,7 +18,6 @@ function switchAdsView(view) {
         inactiveBtn.style.color = '#333';
         inactiveBtn.style.borderColor = '#ddd';
     }
-    // Toggle containers
     var rkContainer = document.getElementById('ads-rk-container');
     var artContainer = document.getElementById('ads-arts-container');
     var artTotals = document.getElementById('ads-arts-totals');
@@ -165,4 +163,105 @@ function renderAdsArtsTable(items) {
         persistenceID: 'ads-arts-grid-state',
         persistenceMode: 'local',
     });
+
+    // Enable row expand after table is built
+    setTimeout(function() { initArtsRowExpand(); }, 500);
+}
+
+// Refresh wrapper — called by Обновить button
+function refreshAds() {
+    loadAds();
+    if (typeof _adsCurrentView !== 'undefined' && _adsCurrentView === 'art') {
+        loadAdsArts();
+    }
+}
+// ===== Expand row on click — show campaigns for this art =====
+function initArtsRowExpand() {
+    if (!adsArtsTabulator) return;
+    adsArtsTabulator.on('rowClick', function(e, row) {
+        if (e.target.closest("a") || e.target.closest(".art-campaigns-row")) return;
+        toggleArtCampaigns(row);
+    });
+}
+
+function toggleArtCampaigns(row) {
+    var el = row.getElement();
+    var existing = el.nextElementSibling;
+    if (existing && existing.classList.contains('art-campaigns-row')) {
+        existing.remove();
+        return;
+    }
+
+    var data = row.getData();
+    var nmId = data.nm_id;
+    var periodVal = document.getElementById('ads-period').value;
+    var url = '/api/v1/nl/ad-stats/by-art/campaigns?nm_id=' + nmId + '&org_id=' + ORG_ID;
+    if (periodVal === 'calendar') {
+        var from = document.getElementById('ads-date-from').value;
+        var to = document.getElementById('ads-date-to').value;
+        url += '&date_from=' + from + '&date_to=' + to;
+    } else {
+        url += '&days=' + periodVal;
+    }
+
+    var tr = document.createElement('tr');
+    tr.className = 'art-campaigns-row';
+    var td = document.createElement('td');
+    td.colSpan = 12;
+    td.style.cssText = 'padding:12px 16px;background:#f8f9fa;border-bottom:2px solid #6c5ce7';
+    td.innerHTML = '<div style="color:#999;font-size:.85em">⏳ Загрузка РК...</div>';
+    tr.appendChild(td);
+    el.parentNode.insertBefore(tr, el.nextSibling);
+
+    fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}})
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            var camps = d.campaigns || [];
+            if (!camps.length) {
+                td.innerHTML = '<div style="padding:8px;color:#999;font-size:.85em">📭 Нет данных по РК за период</div>';
+                return;
+            }
+
+            var statusMap = {'4':'⏳','7':'🟢','8':'❌','9':'⏸','11':'☑'};
+            var typeMap = {'4':'Авто','5':'Поиск','6':'Каталог','7':'Таргет','8':'Рек.','9':'Аукцион'};
+
+            var html = '<div style="margin-bottom:6px;display:flex;align-items:center;gap:8px">';
+            html += '<span style="font-weight:600;color:#6c5ce7;font-size:.9em">📢 РК для ' + nmId + ' (' + camps.length + ')</span>';
+            html += '<span style="font-size:.75em;color:#999;background:#fff3cd;padding:2px 6px;border-radius:3px">' + (d.note || '') + '</span>';
+            html += '</div>';
+
+            html += '<table style="width:100%;border-collapse:collapse;font-size:.82em">';
+            html += '<tr style="background:#e8e8e8">';
+            html += '<th style="padding:4px 8px;text-align:left">РК</th>';
+            html += '<th style="padding:4px 8px">Статус</th>';
+            html += '<th style="padding:4px 8px">Тип</th>';
+            html += '<th style="padding:4px 8px;text-align:right">Расход</th>';
+            html += '<th style="padding:4px 8px;text-align:right">Показы</th>';
+            html += '<th style="padding:4px 8px;text-align:right">Клики</th>';
+            html += '<th style="padding:4px 8px;text-align:right">CTR</th>';
+            html += '<th style="padding:4px 8px;text-align:right">Заказы</th>';
+            html += '<th style="padding:4px 8px;text-align:right">В корзину</th>';
+            html += '</tr>';
+
+            camps.forEach(function(c, i) {
+                var bg = i % 2 === 0 ? '#fff' : '#f8f9fa';
+                html += '<tr style="background:' + bg + '">';
+                html += '<td style="padding:4px 8px;font-weight:600">' + c.name + '<br><span style="color:#999;font-size:.8em">ID: ' + c.campaign_id + '</span></td>';
+                html += '<td style="padding:4px 8px;text-align:center">' + (statusMap[c.status] || c.status) + '</td>';
+                html += '<td style="padding:4px 8px;text-align:center">' + (typeMap[c.type] || c.type || '—') + '</td>';
+                html += '<td style="padding:4px 8px;text-align:right;font-weight:600;color:#e17055">' + c.spent.toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽</td>';
+                html += '<td style="padding:4px 8px;text-align:right">' + c.views.toLocaleString('ru-RU') + '</td>';
+                html += '<td style="padding:4px 8px;text-align:right">' + c.clicks.toLocaleString('ru-RU') + '</td>';
+                html += '<td style="padding:4px 8px;text-align:right">' + (c.ctr ? c.ctr.toFixed(2) + '%' : '—') + '</td>';
+                html += '<td style="padding:4px 8px;text-align:right">' + c.orders + '</td>';
+                html += '<td style="padding:4px 8px;text-align:right">' + c.atbs + '</td>';
+                html += '</tr>';
+            });
+
+            html += '</table>';
+            td.innerHTML = html;
+        })
+        .catch(function(e) {
+            td.innerHTML = '<div style="padding:8px;color:#e74c3c;font-size:.85em">❌ Ошибка: ' + e.message + '</div>';
+        });
 }

@@ -3203,6 +3203,73 @@ async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional
 
     return {"items": items, "totals": totals}
 
+
+@router.get("/api/v1/nl/ad-stats/by-art/campaigns")
+async def get_art_campaigns(nm_id: int, org_id: str, days: str = "30", date_from: Optional[str] = None, date_to: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """РК для конкретного артикула за период (расчётное распределение)"""
+    import decimal as _dec
+
+    if date_from and date_to:
+        d_from = date_from
+        d_to = date_to
+    else:
+        try:
+            days_int = int(days)
+        except:
+            days_int = 7
+        if days_int == 1:
+            d_from = date.today().isoformat()
+            d_to = date.today().isoformat()
+        elif days_int == 2:
+            d = date.today() - timedelta(days=1)
+            d_from = d.isoformat()
+            d_to = d.isoformat()
+        else:
+            d_from = (date.today() - timedelta(days=days_int)).isoformat()
+            d_to = date.today().isoformat()
+
+    params = {
+        "org": org_id,
+        "d_from": datetime.strptime(d_from, "%Y-%m-%d").date(),
+        "d_to": datetime.strptime(d_to, "%Y-%m-%d").date(),
+        "nm_id": nm_id,
+    }
+
+    # Get all campaigns with stats for the period
+    rows = await db.execute(text("""
+        SELECT c.name, c.wb_campaign_id, c.type, c.status,
+               SUM(s.views) as views, SUM(s.clicks) as clicks,
+               SUM(s.spent) as spent, AVG(s.ctr) as ctr,
+               SUM(s.orders) as orders, SUM(s.atbs) as atbs
+        FROM ad_stats s
+        JOIN ad_campaigns c ON c.wb_campaign_id = s.wb_campaign_id AND c.organization_id = s.organization_id
+        WHERE s.organization_id = :org
+          AND s.stat_date >= :d_from AND s.stat_date <= :d_to
+        GROUP BY c.name, c.wb_campaign_id, c.type, c.status
+        ORDER BY SUM(s.spent) DESC
+    """), params)
+
+    def sf(v):
+        if v is None: return 0
+        return float(v) if not isinstance(v, _dec.Decimal) else float(v)
+
+    campaigns = []
+    for r in rows:
+        campaigns.append({
+            "name": r[0] or "Без названия",
+            "campaign_id": r[1],
+            "type": r[2],
+            "status": str(r[3]) if r[3] else "",
+            "views": int(r[4] or 0),
+            "clicks": int(r[5] or 0),
+            "spent": round(sf(r[6]), 2),
+            "ctr": round(sf(r[7]), 2),
+            "orders": int(r[8] or 0),
+            "atbs": int(r[9] or 0),
+        })
+
+    return {"campaigns": campaigns, "note": "Распределение расчётное. WB API не отдаёт точную привязку товаров к РК."}
+
 # ==================== MARKETER DASHBOARD API ====================
 
 @router.get("/api/v1/nl/marketer/products")
@@ -5141,8 +5208,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260603f"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260605b"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260608a"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260608"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260608b"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260608d"></script>
 </head>
 <body>
 
@@ -5593,7 +5660,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <span style="color:#999;font-size:.85em">—</span>
 <input type="date" id="ads-date-to" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
 </div>
-<button class="btn" onclick="loadAds()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+<button class="btn" onclick="refreshAds()" style="padding:6px 14px;font-size:.85em">ð Обновить</button>
 <div style="margin-left:auto;font-size:.85em;color:#999" id="ads-updated"></div>
 </div>
 
@@ -6359,6 +6426,7 @@ async function loadAds() {
 
 // ===== ADS PERIOD & CALENDAR =====
 function adsPeriodPreset() {
+    if(typeof _adsCurrentView !== "undefined" && _adsCurrentView === "art") { loadAdsArts(); return; }
     const val = document.getElementById('ads-period').value;
     const cal = document.getElementById('ads-calendar-range');
     if (val === 'calendar') {
