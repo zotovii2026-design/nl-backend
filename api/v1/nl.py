@@ -3090,10 +3090,9 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
     }
 
 
-
 @router.get("/api/v1/nl/ad-stats/by-art")
 async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional[str] = None, date_to: Optional[str] = None, statuses: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    """Рекламная статистика по артикулам — распределение расхода РК по кликам товаров"""
+    """Рекламная статистика по артикулам — данные из ad_stats_nm (разбивка WB по nm_id)"""
     import decimal as _dec, json as _json
 
     if date_from and date_to:
@@ -3121,126 +3120,111 @@ async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional
         "d_to": datetime.strptime(d_to, "%Y-%m-%d").date(),
     }
 
-    # Parse status filter
+    # Parse status filter — только реальные статусы WB: 7, 9, 11
     status_list = []
     if statuses:
-        status_list = [s.strip() for s in statuses.split(",") if s.strip()]
+        status_list = [s.strip() for s in statuses.split(",") if s.strip() and s.strip() in ("7", "9", "11")]
 
-    # 1. Get campaigns with stats for period
     status_cond = ""
     if status_list:
         status_cond = "AND c.status = ANY(:statuses)"
         params["statuses"] = status_list
 
-    camp_rows = await db.execute(text("""
-        SELECT c.wb_campaign_id, c.name, c.type, c.status, c.nm_ids,
-               SUM(s.views) as views, SUM(s.clicks) as clicks,
-               SUM(s.spent) as spent, AVG(s.ctr) as ctr,
-               SUM(s.orders) as orders, SUM(s.atbs) as atbs
-        FROM ad_campaigns c
-        JOIN ad_stats s ON s.wb_campaign_id = c.wb_campaign_id
-            AND s.organization_id = c.organization_id
-            AND s.stat_date >= :d_from AND s.stat_date <= :d_to
-        WHERE c.organization_id = :org
-            """ + status_cond + """
-        GROUP BY c.wb_campaign_id, c.name, c.type, c.status, c.nm_ids
-        HAVING SUM(s.spent) > 0
-        ORDER BY SUM(s.spent) DESC
-    """), params)
-
     def sf(v):
         if v is None: return 0
         return float(v) if not isinstance(v, _dec.Decimal) else float(v)
 
-    campaigns = []
+    # ═══ Основной запрос: агрегация по nm_id из ad_stats_nm ═══
+    rows = await db.execute(text("""
+        SELECT
+            sn.nm_id,
+            SUM(sn.spent) as total_spent,
+            SUM(sn.views) as total_views,
+            SUM(sn.clicks) as total_clicks,
+            SUM(sn.orders) as total_orders,
+            SUM(sn.atbs) as total_atbs
+        FROM ad_stats_nm sn
+        JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
+            AND c.organization_id = sn.organization_id
+        WHERE sn.organization_id = :org
+            AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
+            """ + status_cond + """
+        GROUP BY sn.nm_id
+        HAVING SUM(sn.spent) > 0
+        ORDER BY SUM(sn.spent) DESC
+    """), params)
+
+    art_data = {}
+    for r in rows:
+        nm_id = int(r[0])
+        spent = round(sf(r[1]), 2)
+        views = int(r[2] or 0)
+        clicks = int(r[3] or 0)
+        orders = int(r[4] or 0)
+        atbs = int(r[5] or 0)
+        art_data[nm_id] = {
+            "spent": spent,
+            "views": views,
+            "clicks": clicks,
+            "orders": orders,
+            "atbs": atbs,
+        }
+
+    all_nm_ids = list(art_data.keys())
+
+    # ═══ Для каждого артикула — список РК с данными по этому nm_id ═══
+    camp_rows = await db.execute(text("""
+        SELECT
+            sn.nm_id,
+            sn.wb_campaign_id,
+            c.name,
+            c.status,
+            c.type,
+            SUM(sn.spent) as camp_spent,
+            SUM(sn.views) as camp_views,
+            SUM(sn.clicks) as camp_clicks,
+            AVG(sn.ctr) as camp_ctr,
+            SUM(sn.orders) as camp_orders,
+            SUM(sn.atbs) as camp_atbs
+        FROM ad_stats_nm sn
+        JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
+            AND c.organization_id = sn.organization_id
+        WHERE sn.organization_id = :org
+            AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
+            AND sn.nm_id = ANY(:nm_ids)
+            """ + status_cond + """
+        GROUP BY sn.nm_id, sn.wb_campaign_id, c.name, c.status, c.type
+        HAVING SUM(sn.spent) > 0
+        ORDER BY SUM(sn.spent) DESC
+    """), {**params, "nm_ids": all_nm_ids} if all_nm_ids else params)
+
+    nm_campaigns = {}  # nm_id -> [campaigns]
     for r in camp_rows:
-        nms_raw = r[4]
-        nm_list = _json.loads(nms_raw) if isinstance(nms_raw, str) else (nms_raw or [])
-        nm_ints = [int(n) for n in nm_list if n]
-        campaigns.append({
-            "campaign_id": r[0],
-            "name": r[1] or "Без названия",
-            "type": r[2],
+        nm_id = int(r[0])
+        if nm_id not in nm_campaigns:
+            nm_campaigns[nm_id] = []
+        nm_campaigns[nm_id].append({
+            "campaign_id": int(r[1]),
+            "name": r[2] or "Без названия",
             "status": str(r[3]) if r[3] else "",
-            "nm_ids": nm_ints,
-            "views": int(r[5] or 0),
-            "clicks": int(r[6] or 0),
-            "spent": round(sf(r[7]), 2),
+            "type": str(r[4]) if r[4] else "",
+            "spent_share": round(sf(r[5]), 2),
+            "views": int(r[6] or 0),
+            "clicks": int(r[7] or 0),
             "ctr": round(sf(r[8]), 2),
             "orders": int(r[9] or 0),
             "atbs": int(r[10] or 0),
         })
 
-    # 2. Get clicks per nm_id per day from tech_status (for proportional distribution)
-    nm_clicks = {}
-    if campaigns:
-        clicks_rows = await db.execute(text("""
-            SELECT nm_id, SUM(COALESCE(clicks, 0)) as total_clicks
-            FROM tech_status
-            WHERE organization_id = :org
-              AND target_date >= :d_from AND target_date <= :d_to
-              AND clicks > 0
-            GROUP BY nm_id
-        """), params)
-        for r in clicks_rows:
-            nm_clicks[int(r[0])] = int(r[1])
-
-    # 3. Distribute campaign spend to articles
-    # For each campaign: if nm_ids known -> distribute by clicks
-    # If nm_ids empty -> distribute proportionally to all articles with clicks
-    art_data = {}  # nm_id -> {spent, views, clicks, orders, campaigns: []}
-
-    for camp in campaigns:
-        spent = camp["spent"]
-        camp_clicks = camp["clicks"]
-        nm_ids = camp["nm_ids"]
-
-        if nm_ids:
-            # Known nm_ids: distribute by their clicks
-            art_clicks = {nm: nm_clicks.get(nm, 0) for nm in nm_ids}
-            total_art_clicks = sum(art_clicks.values())
-        else:
-            # Unknown nm_ids: distribute proportionally to all articles with clicks
-            art_clicks = dict(nm_clicks)
-            total_art_clicks = sum(art_clicks.values())
-
-        if total_art_clicks == 0:
-            # No clicks data: skip or distribute evenly
-            continue
-
-        for nm_id, cl in art_clicks.items():
-            share = cl / total_art_clicks
-            art_spent = round(spent * share, 2)
-            if art_spent <= 0:
-                continue
-            if nm_id not in art_data:
-                art_data[nm_id] = {"spent": 0, "views": 0, "clicks": 0, "orders": 0, "campaigns": []}
-            art_data[nm_id]["spent"] += art_spent
-            art_data[nm_id]["views"] += int(camp["views"] * share)
-            art_data[nm_id]["clicks"] += int(camp["clicks"] * share)
-            art_data[nm_id]["orders"] += int(camp["orders"] * share)
-            art_data[nm_id]["campaigns"].append({
-                "name": camp["name"],
-                "campaign_id": camp["campaign_id"],
-                "status": camp["status"],
-                "type": camp["type"],
-                "spent_share": art_spent,
-                "views": int(camp["views"] * share),
-                "clicks": int(camp["clicks"] * share),
-                "ctr": round(camp["ctr"], 2) if camp["ctr"] else 0,
-                "orders": int(camp["orders"] * share),
-                "atbs": int(camp["atbs"] * share),
-            })
-
-    # 4. Build items sorted by spend
-    all_nm_ids = sorted(art_data.keys(), key=lambda n: art_data[n]["spent"], reverse=True)
+    # ═══ Собираем items ═══
     items = []
     for nm_id in all_nm_ids:
         d = art_data[nm_id]
-        spent = round(d["spent"], 2)
+        spent = d["spent"]
         views = d["views"]
         clicks = d["clicks"]
         orders = d["orders"]
+        campaigns = nm_campaigns.get(nm_id, [])
         items.append({
             "nm_id": nm_id,
             "spent": spent,
@@ -3250,11 +3234,11 @@ async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional
             "cpc": round(spent / clicks, 2) if clicks else 0,
             "orders": orders,
             "cr": round(orders / clicks * 100, 2) if clicks else 0,
-            "campaigns_count": len(d["campaigns"]),
-            "campaigns": d["campaigns"],
+            "campaigns_count": len(campaigns),
+            "campaigns": campaigns,
         })
 
-    # 5. Get product info
+    # ═══ Информация о товарах (название, фото, vendor_code) ═══
     nm_to_info = {}
     if all_nm_ids:
         prod_row = await db.execute(text("""
@@ -3265,10 +3249,11 @@ async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional
         pr = prod_row.first()
         if pr and pr[0]:
             cards_data = pr[0] if isinstance(pr[0], list) else (pr[0].get("cards", []) if isinstance(pr[0], dict) else [])
+            nm_set = set(all_nm_ids)
             for c in cards_data:
                 if not isinstance(c, dict): continue
                 nm = c.get("nmID")
-                if nm and int(nm) in set(all_nm_ids):
+                if nm and int(nm) in nm_set:
                     photos = c.get("photos") or []
                     photo_url = ""
                     if photos:
@@ -3296,11 +3281,10 @@ async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional
         "cpc": round(sum(i["spent"] for i in items) / max(sum(i["clicks"] for i in items), 1), 2),
         "cr": round(sum(i["orders"] for i in items) / max(sum(i["clicks"] for i in items), 1) * 100, 2),
         "items_count": len(items),
-        "campaigns_count": len(campaigns),
+        "campaigns_count": sum(i["campaigns_count"] for i in items),
     }
 
     return {"items": items, "totals": totals}
-
 @router.get("/api/v1/nl/ad-stats/by-art/campaigns")
 async def get_art_campaigns(nm_id: int, org_id: str, days: str = "30", date_from: Optional[str] = None, date_to: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """РК для конкретного артикула за период (расчётное распределение)"""
@@ -5306,7 +5290,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260605b"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260608e"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260608f"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260608g"></script>
 </head>
 <body>
 
@@ -5785,7 +5769,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <button class="ads-status-btn" data-status="7" onclick="toggleAdsStatusFilter(this)" style="padding:5px 14px;border:1px solid #00b894;background:#00b894;color:#fff;border-radius:6px;font-size:.82em;cursor:pointer;font-weight:600">🟢 Активные</button>
 <button class="ads-status-btn" data-status="9" onclick="toggleAdsStatusFilter(this)" style="padding:5px 14px;border:1px solid #fdcb6e;background:#fdcb6e;color:#fff;border-radius:6px;font-size:.82em;cursor:pointer;font-weight:600">⏸ Приостановленные</button>
 <button class="ads-status-btn" data-status="11" onclick="toggleAdsStatusFilter(this)" style="padding:5px 14px;border:1px solid #dfe6e9;background:#fff;color:#636e72;border-radius:6px;font-size:.82em;cursor:pointer;font-weight:600">✅ Завершённые</button>
-<button class="ads-status-btn" data-status="archive" onclick="toggleAdsStatusFilter(this)" style="padding:5px 14px;border:1px solid #b2bec3;background:#fff;color:#636e72;border-radius:6px;font-size:.82em;cursor:pointer;font-weight:600">📦 В архиве</button>
+</div>
 </div>
 
 <!-- Контейнер для таблицы по артикулам -->

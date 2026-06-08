@@ -2,6 +2,7 @@
 var _adsCurrentView = 'rk';
 var adsArtsTabulator = null;
 var _adsStatusFilters = ['7', '9']; // default: active + paused
+var _adsExpandedRow = null; // текущая раскрытая строка
 
 function switchAdsView(view) {
     _adsCurrentView = view;
@@ -32,19 +33,26 @@ function switchAdsView(view) {
 }
 
 // ===== STATUS FILTER TOGGLE =====
+// Статусы WB API: 7=Активна, 9=Приостановлена, 11=Завершена
+var _statusColors = {
+    '7':  { on: '#00b894', off: '#fff', offText: '#636e72' },
+    '9':  { on: '#fdcb6e', off: '#fff', offText: '#636e72' },
+    '11': { on: '#dfe6e9', off: '#fff', offText: '#636e72' }
+};
+
 function toggleAdsStatusFilter(btn) {
     var status = btn.dataset.status;
     var idx = _adsStatusFilters.indexOf(status);
     if (idx >= 0) {
         _adsStatusFilters.splice(idx, 1);
-        btn.style.background = '#fff';
-        btn.style.color = '#636e72';
+        var sc = _statusColors[status] || { off: '#fff', offText: '#636e72' };
+        btn.style.background = sc.off;
+        btn.style.color = sc.offText;
     } else {
         _adsStatusFilters.push(status);
-        if (status === '7') { btn.style.background = '#00b894'; btn.style.color = '#fff'; }
-        else if (status === '9') { btn.style.background = '#fdcb6e'; btn.style.color = '#fff'; }
-        else if (status === '11') { btn.style.background = '#dfe6e9'; btn.style.color = '#2d3436'; }
-        else { btn.style.background = '#b2bec3'; btn.style.color = '#fff'; }
+        var sc = _statusColors[status] || { on: '#b2bec3' };
+        btn.style.background = sc.on;
+        btn.style.color = '#fff';
     }
     // Re-apply filters to current view
     if (_adsCurrentView === 'rk') {
@@ -56,7 +64,7 @@ function toggleAdsStatusFilter(btn) {
 
 function loadAdsArts() {
     var periodVal = document.getElementById('ads-period').value;
-    var statuses = (typeof _adsStatusFilters !== 'undefined' ? _adsStatusFilters : ['7', '9']).join(',');
+    var statuses = _adsStatusFilters.join(',');
     var url;
     if (periodVal === 'calendar') {
         var from = document.getElementById('ads-date-from').value;
@@ -69,9 +77,23 @@ function loadAdsArts() {
     fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}})
         .then(function(r) { return r.json(); })
         .then(function(d) {
+            // Обновим карточки метрик
+            updateAdsArtsMetrics(d.totals || {});
             renderAdsArtsTable(d.items || []);
         })
         .catch(function(e) { console.error('loadAdsArts error:', e); });
+}
+
+function updateAdsArtsMetrics(totals) {
+    var el;
+    el = document.getElementById('ad-spent'); if (el) el.textContent = (totals.spent || 0).toLocaleString('ru-RU', {maximumFractionDigits: 0}) + ' ₽';
+    el = document.getElementById('ad-views'); if (el) el.textContent = (totals.views || 0).toLocaleString('ru-RU');
+    el = document.getElementById('ad-clicks'); if (el) el.textContent = (totals.clicks || 0).toLocaleString('ru-RU');
+    el = document.getElementById('ad-ctr'); if (el) el.textContent = (totals.ctr || 0).toFixed(2) + '%';
+    el = document.getElementById('ad-cpc'); if (el) el.textContent = (totals.cpc || 0).toFixed(2) + ' ₽';
+    el = document.getElementById('ad-orders'); if (el) el.textContent = totals.orders || 0;
+    el = document.getElementById('ad-cr'); if (el) el.textContent = (totals.cr || 0).toFixed(1) + '%';
+    el = document.getElementById('ad-arts-count'); if (el) el.textContent = totals.items_count || 0;
 }
 
 function renderAdsArtsTable(items) {
@@ -79,6 +101,8 @@ function renderAdsArtsTable(items) {
     if (!container) return;
 
     if (adsArtsTabulator) {
+        // Закрываем раскрытую строку при обновлении данных
+        closeArtCampaigns();
         adsArtsTabulator.setData(items);
         return;
     }
@@ -104,6 +128,14 @@ function renderAdsArtsTable(items) {
             },
             { title: 'Арт продавца', field: 'vendor_code', width: 100, headerSort: true, tooltip: true },
             { title: 'Товар', field: 'name', width: 200, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
+            {
+                title: 'РК', field: 'campaigns_count', width: 50, headerSort: true, hozAlign: 'center',
+                formatter: function(cell) {
+                    var v = cell.getValue() || 0;
+                    if (v > 0) return '<span style="background:#6c5ce7;color:#fff;padding:2px 6px;border-radius:8px;font-size:.78em;font-weight:600">' + v + '</span>';
+                    return '<span style="color:#999;font-size:.82em">0</span>';
+                }
+            },
             {
                 title: 'Расход ₽', field: 'spent', width: 100, headerSort: true, hozAlign: 'right',
                 formatter: function(cell) {
@@ -141,10 +173,6 @@ function renderAdsArtsTable(items) {
                 title: 'CR %', field: 'cr', width: 60, headerSort: true, hozAlign: 'right',
                 formatter: function(cell) { var v = parseFloat(cell.getValue())||0; return v ? v.toFixed(1) + '%' : '—'; }
             },
-            {
-                title: 'Дней', field: 'active_days', width: 55, headerSort: true, hozAlign: 'right',
-                formatter: function(cell) { return cell.getValue() || 0; }
-            },
         ],
         height: '55vh',
         layout: 'fitColumns',
@@ -164,11 +192,12 @@ function renderAdsArtsTable(items) {
 // Refresh wrapper
 function refreshAds() {
     loadAds();
-    if (typeof _adsCurrentView !== 'undefined' && _adsCurrentView === 'art') {
+    if (_adsCurrentView === 'art') {
         loadAdsArts();
     }
 }
-// ===== Expand row on click — show campaigns for this art =====
+
+// ===== Раскрытие строки — список РК для этого артикула =====
 function initArtsRowExpand() {
     if (!adsArtsTabulator) return;
     adsArtsTabulator.on('rowClick', function(e, row) {
@@ -177,13 +206,33 @@ function initArtsRowExpand() {
     });
 }
 
+// Закрыть раскрытую строку
+function closeArtCampaigns() {
+    if (_adsExpandedRow) {
+        var el = _adsExpandedRow.getElement();
+        var next = el.nextElementSibling;
+        if (next && next.classList.contains('art-campaigns-row')) {
+            next.remove();
+        }
+        _adsExpandedRow = null;
+    }
+}
+
 function toggleArtCampaigns(row) {
     var el = row.getElement();
     var existing = el.nextElementSibling;
-    if (existing && existing.classList.contains('art-campaigns-row')) {
-        existing.remove();
+
+    // Если кликнули на уже раскрытую — закрыть
+    if (_adsExpandedRow === row) {
+        closeArtCampaigns();
         return;
     }
+
+    // Сначала закрыть предыдущую
+    closeArtCampaigns();
+
+    // Раскрыть текущую
+    _adsExpandedRow = row;
 
     var data = row.getData();
     var nmId = data.nm_id;
@@ -202,16 +251,16 @@ function toggleArtCampaigns(row) {
         return;
     }
 
-    var statusMap = {'4':'⏳','7':'🟢','8':'❌','9':'⏸','11':'☑'};
-    var typeMap = {'4':'Авто','5':'Поиск','6':'Каталог','7':'Таргет','8':'Рек.','9':'Аукцион'};
+    var statusIcons = {'4':'⏳','7':'🟢','8':'❌','9':'⏸','11':'☑'};
+    var typeNames = {'4':'Авто','5':'Поиск','6':'Каталог','7':'Таргет','8':'Рек.','9':'Аукцион'};
 
-    var html = '<div style="margin-bottom:6px;display:flex;align-items:center;gap:8px">';
+    var html = '<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">';
     html += '<span style="font-weight:600;color:#6c5ce7;font-size:.9em">📢 РК для ' + nmId + ' (' + camps.length + ')</span>';
-    html += '<span style="font-size:.75em;color:#999;background:#fff3cd;padding:2px 6px;border-radius:3px">Распределение по кликам</span>';
+    html += '<span style="font-size:.75em;color:#999;background:#e8f8f5;padding:2px 6px;border-radius:3px">Данные из WB по nm_id</span>';
     html += '</div>';
 
     html += '<table style="width:100%;border-collapse:collapse;font-size:.82em">';
-    html += '<tr style="background:#e8e8e8">';
+    html += '<tr style="background:#e0e0e0">';
     html += '<th style="padding:4px 8px;text-align:left">РК</th>';
     html += '<th style="padding:4px 8px">Статус</th>';
     html += '<th style="padding:4px 8px">Тип</th>';
@@ -219,20 +268,24 @@ function toggleArtCampaigns(row) {
     html += '<th style="padding:4px 8px;text-align:right">Показы</th>';
     html += '<th style="padding:4px 8px;text-align:right">Клики</th>';
     html += '<th style="padding:4px 8px;text-align:right">CTR</th>';
+    html += '<th style="padding:4px 8px;text-align:right">CPC</th>';
     html += '<th style="padding:4px 8px;text-align:right">Заказы</th>';
     html += '<th style="padding:4px 8px;text-align:right">В корзину</th>';
     html += '</tr>';
 
     camps.forEach(function(c, i) {
         var bg = i % 2 === 0 ? '#fff' : '#f8f9fa';
+        var cpc = c.clicks > 0 ? (c.spent_share / c.clicks).toFixed(2) : '—';
+        var ctr = c.clicks > 0 ? (c.clicks / c.views * 100).toFixed(2) + '%' : '—';
         html += '<tr style="background:' + bg + '">';
         html += '<td style="padding:4px 8px;font-weight:600">' + c.name + '<br><span style="color:#999;font-size:.8em">ID: ' + c.campaign_id + '</span></td>';
-        html += '<td style="padding:4px 8px;text-align:center">' + (statusMap[c.status] || c.status) + '</td>';
-        html += '<td style="padding:4px 8px;text-align:center">' + (typeMap[c.type] || c.type || '—') + '</td>';
+        html += '<td style="padding:4px 8px;text-align:center">' + (statusIcons[c.status] || '') + '</td>';
+        html += '<td style="padding:4px 8px;text-align:center">' + (typeNames[c.type] || c.type || '—') + '</td>';
         html += '<td style="padding:4px 8px;text-align:right;font-weight:600;color:#e17055">' + c.spent_share.toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽</td>';
         html += '<td style="padding:4px 8px;text-align:right">' + (c.views||0).toLocaleString('ru-RU') + '</td>';
         html += '<td style="padding:4px 8px;text-align:right">' + (c.clicks||0).toLocaleString('ru-RU') + '</td>';
-        html += '<td style="padding:4px 8px;text-align:right">' + (c.ctr ? c.ctr.toFixed(2) + '%' : '—') + '</td>';
+        html += '<td style="padding:4px 8px;text-align:right">' + ctr + '</td>';
+        html += '<td style="padding:4px 8px;text-align:right">' + cpc + '</td>';
         html += '<td style="padding:4px 8px;text-align:right">' + (c.orders||0) + '</td>';
         html += '<td style="padding:4px 8px;text-align:right">' + (c.atbs||0) + '</td>';
         html += '</tr>';
