@@ -246,23 +246,10 @@ function updateAdsTabulator(campaigns) {
  */
 function applyAdsFilters() {
     if (!adsTabulator) return;
-    const tab = typeof _adsCurrentTab !== 'undefined' ? _adsCurrentTab : 'active';
-    let filtered = _adsAllData;
-
-    if (tab === 'active') {
-        filtered = _adsAllData.filter(c => c.status === '7');
-    } else if (tab === 'paused') {
-        filtered = _adsAllData.filter(c => c.status === '9');
-    } else if (tab === 'finished') {
-        filtered = _adsAllData.filter(c => c.status === '11');
-    }
-    // 'all' = no filter
-
-    // Hide empty campaigns (no stats)
-    var hideEmpty = document.getElementById('ads-hide-empty');
-    if (hideEmpty && hideEmpty.checked) {
-        filtered = filtered.filter(c => c.spent > 0 || c.views > 0 || c.clicks > 0);
-    }
+    var activeStatuses = typeof _adsStatusFilters !== 'undefined' ? _adsStatusFilters : ['7', '9'];
+    var filtered = _adsAllData.filter(function(c) {
+        return activeStatuses.indexOf(c.status) >= 0;
+    });
 
     adsTabulator.setData(filtered);
     var cnt = document.getElementById('ads-camp-count');
