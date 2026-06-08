@@ -2891,10 +2891,9 @@ async def sales_plans_summary(org_id: str, period: Optional[str] = None, db: Asy
 
 @router.get("/api/v1/nl/ad-stats")
 async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = None, date_to: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    """Рекламная статистика по дням"""
-    import decimal as _dec
+    """Рекламная статистика — из ad_stats_nm (те же данные что по артикулам)"""
+    import decimal as _dec, json as _json
 
-    # Определяем период: либо точные даты, либо через days
     if date_from and date_to:
         d_from = date_from
         d_to = date_to
@@ -2903,7 +2902,6 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
             days_int = int(days)
         except:
             days_int = 7
-        # Специальные пресеты: 1=сегодня, 2=вчера
         if days_int == 1:
             d_from = date.today().isoformat()
             d_to = date.today().isoformat()
@@ -2915,69 +2913,130 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
             d_from = (date.today() - timedelta(days=days_int)).isoformat()
             d_to = date.today().isoformat()
 
-    date_cond = "s.stat_date >= :d_from AND s.stat_date <= :d_to"
-    params = {"org": org_id, "d_from": datetime.strptime(d_from, "%Y-%m-%d").date(), "d_to": datetime.strptime(d_to, "%Y-%m-%d").date()}
+    params = {
+        "org": org_id,
+        "d_from": datetime.strptime(d_from, "%Y-%m-%d").date(),
+        "d_to": datetime.strptime(d_to, "%Y-%m-%d").date(),
+    }
 
-    rows = await db.execute(text("""
-        SELECT s.stat_date,
-               SUM(s.views) as views,
-               SUM(s.clicks) as clicks,
-               SUM(s.spent) as spent,
-               AVG(s.ctr) as avg_ctr,
-               AVG(s.cpc) as avg_cpc,
-               SUM(s.orders) as orders,
-               SUM(s.atbs) as atbs,
-               AVG(s.cr) as avg_cr
-        FROM ad_stats s
-        WHERE s.organization_id = :org
-          AND """ + date_cond + """
-        GROUP BY s.stat_date
-        ORDER BY s.stat_date DESC
+    def sf(v):
+        if v is None: return 0
+        return float(v) if not isinstance(v, _dec.Decimal) else float(v)
+
+    # ═══ Статистика по дням (из ad_stats_nm) ═══
+    daily_rows = await db.execute(text("""
+        SELECT sn.stat_date,
+               SUM(sn.views) as views,
+               SUM(sn.clicks) as clicks,
+               SUM(sn.spent) as spent,
+               SUM(sn.orders) as orders,
+               SUM(sn.atbs) as atbs
+        FROM ad_stats_nm sn
+        WHERE sn.organization_id = :org
+            AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
+        GROUP BY sn.stat_date
+        ORDER BY sn.stat_date DESC
     """), params)
+
     daily = []
-    for r in rows:
-        def sf(v): return float(v) if v and not isinstance(v, _dec.Decimal) else (float(v) if isinstance(v, _dec.Decimal) else 0)
+    for r in daily_rows:
+        views = int(r[1] or 0)
+        clicks = int(r[2] or 0)
+        spent = round(sf(r[3]), 2)
+        orders = int(r[4] or 0)
+        atbs = int(r[5] or 0)
         daily.append({
             "date": str(r[0]),
-            "views": int(r[1] or 0),
-            "clicks": int(r[2] or 0),
-            "spent": round(sf(r[3]), 2),
-            "ctr": round(sf(r[4]), 2),
-            "cpc": round(sf(r[5]), 2),
-            "orders": int(r[6] or 0),
-            "atbs": int(r[7] or 0),
-            "cr": round(sf(r[8]), 2),
+            "views": views,
+            "clicks": clicks,
+            "spent": spent,
+            "ctr": round(clicks / views * 100, 2) if views else 0,
+            "cpc": round(spent / clicks, 2) if clicks else 0,
+            "orders": orders,
+            "atbs": atbs,
+            "cr": round(orders / clicks * 100, 2) if clicks else 0,
         })
 
-    # Топ кампаний за период
-    top_rows = await db.execute(text("""
-        SELECT c.name, s.wb_campaign_id,
-               SUM(s.views) as views, SUM(s.clicks) as clicks,
-               SUM(s.spent) as spent, AVG(s.ctr) as ctr,
-               SUM(s.orders) as orders, SUM(s.atbs) as atbs
-        FROM ad_stats s
-        LEFT JOIN ad_campaigns c ON c.wb_campaign_id = s.wb_campaign_id AND c.organization_id = s.organization_id
-        WHERE s.organization_id = :org
-          AND """ + date_cond + """
-        GROUP BY c.name, s.wb_campaign_id
-        ORDER BY SUM(s.spent) DESC
-        LIMIT 20
+    # ═══ Список кампаний (из ad_stats_nm, агрегировано по РК) ═══
+    camp_rows = await db.execute(text("""
+        SELECT sn.wb_campaign_id, c.name, c.status, c.type,
+               SUM(sn.views) as views,
+               SUM(sn.clicks) as clicks,
+               SUM(sn.spent) as spent,
+               SUM(sn.orders) as orders,
+               SUM(sn.atbs) as atbs,
+               COUNT(DISTINCT sn.nm_id) as nm_count
+        FROM ad_stats_nm sn
+        JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
+            AND c.organization_id = sn.organization_id
+        WHERE sn.organization_id = :org
+            AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
+        GROUP BY sn.wb_campaign_id, c.name, c.status, c.type
+        ORDER BY SUM(sn.spent) DESC
     """), params)
-    top_campaigns = []
-    for r in top_rows:
-        def sf(v): return float(v) if v and not isinstance(v, _dec.Decimal) else (float(v) if isinstance(v, _dec.Decimal) else 0)
-        top_campaigns.append({
-            "name": r[0] or "Без названия",
-            "campaign_id": r[1],
-            "views": int(r[2] or 0),
-            "clicks": int(r[3] or 0),
-            "spent": round(sf(r[4]), 2),
-            "ctr": round(sf(r[5]), 2),
-            "orders": int(r[6] or 0),
-            "atbs": int(r[7] or 0),
+
+    campaigns = []
+    for r in camp_rows:
+        views = int(r[4] or 0)
+        clicks = int(r[5] or 0)
+        spent = round(sf(r[6]), 2)
+        orders = int(r[7] or 0)
+        atbs = int(r[8] or 0)
+        nm_count = int(r[9] or 0)
+
+        # Состав РК — nm_id из ad_stats_nm
+        nm_ids_row = await db.execute(text("""
+            SELECT DISTINCT nm_id FROM ad_stats_nm
+            WHERE organization_id = :org AND wb_campaign_id = :cid
+                AND stat_date >= :d_from AND stat_date <= :d_to AND spent > 0
+            ORDER BY nm_id
+        """), {**params, "cid": r[0]})
+        nm_ids = [int(n[0]) for n in nm_ids_row]
+
+        # Инфо о товарах
+        products = []
+        if nm_ids:
+            prod_row = await db.execute(text("""
+                SELECT raw_response FROM raw_api_data
+                WHERE api_method = 'products' AND organization_id = :org
+                ORDER BY fetched_at DESC LIMIT 1
+            """), {"org": org_id})
+            pr = prod_row.first()
+            if pr and pr[0]:
+                cards_data = pr[0] if isinstance(pr[0], list) else (pr[0].get("cards", []) if isinstance(pr[0], dict) else [])
+                nm_set = set(nm_ids)
+                for cd in cards_data:
+                    if not isinstance(cd, dict): continue
+                    nm = cd.get("nmID")
+                    if nm and int(nm) in nm_set:
+                        photos = cd.get("photos") or []
+                        photo_url = ""
+                        if photos:
+                            photo_url = photos[0].get("c246x328", "") or photos[0].get("big", "") or photos[0].get("hq", "")
+                        products.append({
+                            "nm_id": int(nm),
+                            "vendor_code": cd.get("vendorCode", ""),
+                            "name": cd.get("title", ""),
+                            "photo": photo_url,
+                        })
+
+        campaigns.append({
+            "campaign_id": r[0],
+            "name": r[1] or "Без названия",
+            "status": str(r[2]) if r[2] else "",
+            "type": str(r[3]) if r[3] else "",
+            "views": views,
+            "clicks": clicks,
+            "spent": spent,
+            "ctr": round(clicks / views * 100, 2) if views else 0,
+            "cpc": round(spent / clicks, 2) if clicks else 0,
+            "orders": orders,
+            "atbs": atbs,
+            "nm_count": nm_count,
+            "products": products,
         })
 
-    # Баланс
+    # ═══ Баланс ═══
     balance = None
     bal_row = await db.execute(text("""
         SELECT raw_response FROM raw_api_data
@@ -2988,7 +3047,7 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
     if br and br[0]:
         balance = br[0]
 
-    # Итого
+    # ═══ Итого ═══
     totals = {"views": 0, "clicks": 0, "spent": 0, "orders": 0, "atbs": 0}
     for d in daily:
         for k in totals:
@@ -2997,99 +3056,13 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
     totals["cpc"] = round(totals["spent"] / totals["clicks"], 2) if totals["clicks"] else 0
     totals["cr"] = round(totals["orders"] / totals["clicks"] * 100, 2) if totals["clicks"] else 0
 
-    # --- Список кампаний с распределением затрат по товарам ---
-    camp_rows = await db.execute(text("""
-        SELECT c.wb_campaign_id, c.name, c.type, c.status, c.nm_ids,
-               COALESCE(SUM(s.views),0), COALESCE(SUM(s.clicks),0),
-               COALESCE(SUM(s.spent),0), COALESCE(AVG(s.ctr),0),
-               COALESCE(SUM(s.orders),0), COALESCE(SUM(s.atbs),0),
-               COALESCE(SUM(s.sum_price),0)
-        FROM ad_campaigns c
-        LEFT JOIN ad_stats s ON s.wb_campaign_id = c.wb_campaign_id AND s.organization_id = c.organization_id
-            AND """ + date_cond + """
-        WHERE c.organization_id = :org
-        GROUP BY c.wb_campaign_id, c.name, c.type, c.status, c.nm_ids
-        ORDER BY COALESCE(SUM(s.spent),0) DESC
-    """), params)
-
-    import json as _json
-    campaigns = []
-    all_nm_ids = set()
-    for r in camp_rows:
-        nms_raw = r[4]
-        nm_list = _json.loads(nms_raw) if isinstance(nms_raw, str) else (nms_raw or [])
-        nm_ints = [int(n) for n in nm_list if n]
-        all_nm_ids.update(nm_ints)
-        spent = round(float(r[7] or 0), 2)
-        nm_count = len(nm_ints) if nm_ints else 1
-        spent_per_item = round(spent / nm_count, 2) if nm_count > 1 else spent
-        campaigns.append({
-            "campaign_id": r[0],
-            "name": r[1] or "Без названия",
-            "type": r[2],
-            "status": str(r[3]) if r[3] else "",
-            "nm_ids": nm_ints,
-            "nm_count": len(nm_ints),
-            "views": int(r[5] or 0),
-            "clicks": int(r[6] or 0),
-            "spent": spent,
-            "spent_per_item": spent_per_item,
-            "ctr": round(float(r[8] or 0), 2),
-            "orders": int(r[9] or 0),
-            "atbs": int(r[10] or 0),
-            "sum_price": round(float(r[11] or 0), 2),
-            "drr": round(spent / float(r[11] or 1) * 100, 2) if float(r[11] or 0) > 0 else 0,
-        })
-
-    # Получаем фото и названия товаров
-    nm_to_info = {}
-    if all_nm_ids:
-        prod_row = await db.execute(text("""
-            SELECT raw_response FROM raw_api_data
-            WHERE api_method = 'products' AND organization_id = :org
-            ORDER BY target_date DESC LIMIT 1
-        """), {"org": org_id})
-        pr = prod_row.first()
-        if pr and pr[0]:
-            cards_data = pr[0] if isinstance(pr[0], list) else (pr[0].get("cards", []) if isinstance(pr[0], dict) else [])
-            for c in cards_data:
-                if not isinstance(c, dict):
-                    continue
-                nm = c.get("nmID")
-                if nm and int(nm) in all_nm_ids:
-                    photos = c.get("photos") or []
-                    photo_url = ""
-                    if photos:
-                        photo_url = photos[0].get("c246x328", "") or photos[0].get("big", "") or photos[0].get("hq", "")
-                    nm_to_info[int(nm)] = {
-                        "name": c.get("title", ""),
-                        "brand": c.get("brand", ""),
-                        "vendor_code": c.get("vendorCode", ""),
-                        "photo": photo_url,
-                    }
-
-    # Добавляем инфо о товарах в каждую кампанию
-    for camp in campaigns:
-        camp["products"] = []
-        for nm_id in camp["nm_ids"]:
-            info = nm_to_info.get(nm_id, {})
-            camp["products"].append({
-                "nm_id": nm_id,
-                "name": info.get("name", ""),
-                "vendor_code": info.get("vendor_code", ""),
-                "photo": info.get("photo", ""),
-                "spent_share": camp["spent_per_item"],
-            })
-
     return {
         "daily": daily,
-        "top_campaigns": top_campaigns,
+        "campaigns": campaigns,
+        "top_campaigns": campaigns[:20],  # Топ 20 для совместимости
         "totals": totals,
         "balance": balance,
-        "campaigns": campaigns,
     }
-
-
 @router.get("/api/v1/nl/ad-stats/by-art")
 async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional[str] = None, date_to: Optional[str] = None, statuses: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """Рекламная статистика по артикулам — данные из ad_stats_nm (разбивка WB по nm_id)"""
