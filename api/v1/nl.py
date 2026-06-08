@@ -2938,6 +2938,24 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
         ORDER BY sn.stat_date DESC
     """), params)
 
+    # ═══ Общие заказы и выручка по дням (из tech_status) для расчёта ДРР ═══
+    total_orders_by_day = await db.execute(text("""
+        SELECT ts.target_date,
+               SUM(ts.orders_count) as total_orders,
+               SUM(ts.orders_count * ts.price_discount) as total_revenue
+        FROM tech_status ts
+        WHERE ts.organization_id = :org
+            AND ts.target_date >= :d_from AND ts.target_date <= :d_to
+            AND ts.orders_count > 0
+        GROUP BY ts.target_date
+    """), params)
+    orders_by_date = {}
+    for r in total_orders_by_day:
+        orders_by_date[str(r[0])] = {
+            "total_orders": int(r[1] or 0),
+            "total_revenue": round(sf(r[2]), 2),
+        }
+
     daily = []
     for r in daily_rows:
         views = int(r[1] or 0)
@@ -2945,8 +2963,13 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
         spent = round(sf(r[3]), 2)
         orders = int(r[4] or 0)
         atbs = int(r[5] or 0)
+        date_str = str(r[0])
+        day_totals = orders_by_date.get(date_str, {"total_orders": 0, "total_revenue": 0})
+        total_orders_day = day_totals["total_orders"]
+        total_revenue_day = day_totals["total_revenue"]
+        drr_day = round(spent / total_revenue_day * 100, 1) if total_revenue_day else 0
         daily.append({
-            "date": str(r[0]),
+            "date": date_str,
             "views": views,
             "clicks": clicks,
             "spent": spent,
@@ -2955,6 +2978,9 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
             "orders": orders,
             "atbs": atbs,
             "cr": round(orders / clicks * 100, 2) if clicks else 0,
+            "total_orders": total_orders_day,
+            "total_revenue": total_revenue_day,
+            "drr": drr_day,
         })
 
     # ═══ Список кампаний (из ad_stats_nm, агрегировано по РК) ═══
@@ -3020,6 +3046,36 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
                             "photo": photo_url,
                         })
 
+        # Сумма заказов для ДРР из ad_stats_nm
+        sum_price_row = await db.execute(text("""
+            SELECT COALESCE(SUM(sn.sum_price), 0) as sum_price
+            FROM ad_stats_nm sn
+            WHERE sn.organization_id = :org AND sn.wb_campaign_id = :cid
+                AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
+        """), {**params, "cid": r[0]})
+        sum_price_val = round(sf(sum_price_row.scalar()), 2)
+
+        # Общие заказы и выручка по товарам этой РК из tech_status
+        camp_nm_ids_for_drr = nm_ids  # уже есть nm_ids
+        total_orders_rk = 0
+        total_revenue_rk = 0
+        if camp_nm_ids_for_drr:
+            rk_totals_row = await db.execute(text("""
+                SELECT COALESCE(SUM(ts.orders_count), 0),
+                       COALESCE(SUM(ts.orders_count * ts.price_discount), 0)
+                FROM tech_status ts
+                WHERE ts.organization_id = :org
+                    AND ts.target_date >= :d_from AND ts.target_date <= :d_to
+                    AND ts.nm_id = ANY(:nm_ids)
+            """), {**params, "nm_ids": camp_nm_ids_for_drr})
+            rk_totals = rk_totals_row.first()
+            if rk_totals:
+                total_orders_rk = int(rk_totals[0] or 0)
+                total_revenue_rk = round(sf(rk_totals[1]), 2)
+
+        # ДРР = расход / (все заказы × цена)
+        drr_rk = round(spent / total_revenue_rk * 100, 1) if total_revenue_rk else 0
+
         campaigns.append({
             "campaign_id": r[0],
             "name": r[1] or "Без названия",
@@ -3034,6 +3090,10 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
             "atbs": atbs,
             "nm_count": nm_count,
             "products": products,
+            "sum_price": sum_price_val,
+            "total_orders": total_orders_rk,
+            "total_revenue": total_revenue_rk,
+            "drr": drr_rk,
         })
 
     # ═══ Баланс ═══
@@ -3055,6 +3115,11 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
     totals["ctr"] = round(totals["clicks"] / totals["views"] * 100, 2) if totals["views"] else 0
     totals["cpc"] = round(totals["spent"] / totals["clicks"], 2) if totals["clicks"] else 0
     totals["cr"] = round(totals["orders"] / totals["clicks"] * 100, 2) if totals["clicks"] else 0
+    # ДРР общий = расход / выручка по всем заказам за период
+    all_revenue = sum(d["total_revenue"] for d in daily)
+    totals["drr"] = round(totals["spent"] / all_revenue * 100, 1) if all_revenue else 0
+    totals["total_orders"] = sum(d["total_orders"] for d in daily)
+    totals["total_revenue"] = all_revenue
 
     return {
         "daily": daily,
@@ -3191,6 +3256,25 @@ async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional
             })
 
     # ═══ Собираем items ═══
+    # ═══ Общие заказы и цена по nm_id из tech_status (для ДРР) ═══
+    nm_orders_price = {}
+    if all_nm_ids:
+        ts_rows = await db.execute(text("""
+            SELECT ts.nm_id,
+                   SUM(ts.orders_count) as total_orders,
+                   SUM(ts.orders_count * ts.price_discount) as total_revenue
+            FROM tech_status ts
+            WHERE ts.organization_id = :org
+                AND ts.target_date >= :d_from AND ts.target_date <= :d_to
+                AND ts.nm_id = ANY(:nm_ids)
+            GROUP BY ts.nm_id
+        """), {**params, "nm_ids": all_nm_ids})
+        for r in ts_rows:
+            nm_orders_price[int(r[0])] = {
+                "total_orders": int(r[1] or 0),
+                "total_revenue": round(sf(r[2]), 2),
+            }
+
     items = []
     for nm_id in all_nm_ids:
         d = art_data[nm_id]
@@ -3199,6 +3283,11 @@ async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional
         clicks = d["clicks"]
         orders = d["orders"]
         campaigns = nm_campaigns.get(nm_id, [])
+        # ДРР = расход / (все заказы × цена)
+        op = nm_orders_price.get(nm_id, {"total_orders": 0, "total_revenue": 0})
+        total_orders_art = op["total_orders"]
+        total_revenue_art = op["total_revenue"]
+        drr_art = round(spent / total_revenue_art * 100, 1) if total_revenue_art else 0
         items.append({
             "nm_id": nm_id,
             "spent": spent,
@@ -3210,6 +3299,9 @@ async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional
             "cr": round(orders / clicks * 100, 2) if clicks else 0,
             "campaigns_count": len(campaigns),
             "campaigns": campaigns,
+            "total_orders": total_orders_art,
+            "total_revenue": total_revenue_art,
+            "drr": drr_art,
         })
 
     # ═══ Информация о товарах (название, фото, vendor_code) ═══
@@ -3256,6 +3348,9 @@ async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional
         "cr": round(sum(i["orders"] for i in items) / max(sum(i["clicks"] for i in items), 1) * 100, 2),
         "items_count": len(items),
         "campaigns_count": sum(i["campaigns_count"] for i in items),
+        "total_orders": sum(i["total_orders"] for i in items),
+        "total_revenue": round(sum(i["total_revenue"] for i in items), 2),
+        "drr": round(sum(i["spent"] for i in items) / max(sum(i["total_revenue"] for i in items), 1) * 100, 1),
     }
 
     return {"items": items, "totals": totals}
@@ -5181,20 +5276,20 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-group .tabulator-arrow{color:#999;margin-right:4px}
 </style>
 <!-- Tabulator CSS -->
-<link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator.min.css?v=6.3.0" rel="stylesheet">
-<link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator_modern.min.css?v=6.3.0" rel="stylesheet">
+<link href="/static/lib/tabulator.min.css" rel="stylesheet">
+<link href="/static/lib/tabulator_modern.min.css" rel="stylesheet">
 <!-- Tabulator JS -->
-<script type="text/javascript" src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js?v=6.3.0"></script>
+<script type="text/javascript" src="/static/lib/tabulator.min.js"></script>
 <!-- NL Grid Module -->
 <!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js?v=4.4.7"></script>
+<script src="/static/lib/chart.min.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260603f"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260605b"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260608h"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260608h"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260608j"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260608j"></script>
 </head>
 <body>
 
@@ -5658,6 +5753,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CR</div><div style="font-size:.95em;font-weight:700;color:#e84393" id="ad-cr">—</div></div>
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Артикулов</div><div style="font-size:.95em;font-weight:700;color:#636e72" id="ad-arts-count">—</div></div>
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Баланс</div><div style="font-size:.95em;font-weight:700;color:#2d3436" id="ad-balance">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999" title="Доля рекламных расходов от оборота без учета агрегированных конверсий">ДРР %</div><div style="font-size:.95em;font-weight:700;color:#e17055" id="ad-drr">—</div></div>
 </div>
 <!-- Статистика по дням (на всю ширину, под метриками) -->
 <div style="background:#fff;border-radius:8px;border:1px solid #eee;padding:8px 12px;margin-bottom:8px">
@@ -6345,6 +6441,7 @@ async function navTo(name, el) {
 }
 
 async function loadAds() {
+    if (!ORG_ID || ORG_ID === 'null') { console.warn('loadAds: no ORG_ID'); return; }
     const range = getAdsDateRange();
     let url;
     if (range.days) {
@@ -6367,6 +6464,7 @@ async function loadAds() {
         document.getElementById('ad-cpc').textContent = fmt(t.cpc, ' ₽');
         document.getElementById('ad-orders').textContent = fmt(t.orders);
         document.getElementById('ad-cr').textContent = t.cr ? t.cr + '%' : '—';
+        document.getElementById('ad-drr').textContent = t.drr ? t.drr + '%' : '—';
         document.getElementById('ad-arts-count').textContent = t.views ? '—' : '—'; // placeholder, updated by arts
         // Balance
         if (d.balance) {
@@ -6382,7 +6480,7 @@ async function loadAds() {
         if (!daily.length) {
             db.innerHTML = '<tr><td colspan="5" class="empty" style="padding:4px">Нет данных</td></tr>';
         } else {
-            db.innerHTML = daily.map(r => '<tr><td style="padding:2px 6px">'+r.date+'</td><td style="padding:2px 6px;text-align:right">'+r.spent.toLocaleString('ru-RU',{maximumFractionDigits:0})+'₽</td><td style="padding:2px 6px;text-align:right">'+r.views.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.clicks.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.ctr+'%</td><td style="padding:2px 6px;text-align:right">'+r.cpc.toFixed(2)+'₽</td><td style="padding:2px 6px;text-align:right">'+r.orders+'</td><td style="padding:2px 6px;text-align:right">'+r.cr+'%</td><td style="padding:2px 6px;text-align:right">'+(r.atbs||0)+'</td></tr>').join('');
+            db.innerHTML = daily.map(r => '<tr><td style="padding:2px 6px">'+r.date+'</td><td style="padding:2px 6px;text-align:right">'+r.spent.toLocaleString('ru-RU',{maximumFractionDigits:0})+'₽</td><td style="padding:2px 6px;text-align:right">'+r.views.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.clicks.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.ctr+'%</td><td style="padding:2px 6px;text-align:right">'+r.cpc.toFixed(2)+'₽</td><td style="padding:2px 6px;text-align:right">'+r.orders+'</td><td style="padding:2px 6px;text-align:right">'+r.cr+'%</td><td style="padding:2px 6px;text-align:right">'+(r.atbs||0)+'</td><td style="padding:2px 6px;text-align:right">'+(r.drr ? '<span style="color:'+(r.drr>50?'#e74c3c':r.drr>25?'#e17055':'#00b894')+';font-weight:600">'+r.drr+'%</span>' : '\u2014')+'</td></tr>').join('');
             document.getElementById('ads-daily-count').textContent = daily.length + ' дней';
         }
         // --- Рендер таблицы кампаний (Tabulator) ---

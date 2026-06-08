@@ -94,6 +94,7 @@ function updateAdsArtsMetrics(totals) {
     el = document.getElementById('ad-orders'); if (el) el.textContent = totals.orders || 0;
     el = document.getElementById('ad-cr'); if (el) el.textContent = (totals.cr || 0).toFixed(1) + '%';
     el = document.getElementById('ad-arts-count'); if (el) el.textContent = totals.items_count || 0;
+    el = document.getElementById('ad-drr'); if (el) el.textContent = totals.drr ? totals.drr + '%' : '—';
 }
 
 function renderAdsArtsTable(items) {
@@ -176,6 +177,24 @@ function renderAdsArtsTable(items) {
             {
                 title: 'CR %', field: 'cr', width: 60, headerSort: true, hozAlign: 'right',
                 formatter: function(cell) { var v = parseFloat(cell.getValue())||0; return v ? v.toFixed(1) + '%' : '—'; }
+            },
+            {
+                title: 'ДРР %', field: 'drr', width: 75, headerSort: true, hozAlign: 'right',
+                tooltip: function(e, cell) {
+                    var d = cell.getRow().getData();
+                    var tip = 'ДРР (от оборота без учета агрегир. конверсий)';
+                    tip += '\nРасход: ' + (d.spent||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' \u20bd';
+                    tip += '\nОбщие заказы: ' + (d.total_orders||0);
+                    tip += '\nОборот: ' + (d.total_revenue||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' \u20bd';
+                    return tip;
+                },
+                formatter: function(cell) {
+                    var v = parseFloat(cell.getValue())||0;
+                    if (!v) return '—';
+                    var color = v > 50 ? '#e74c3c' : v > 25 ? '#e17055' : '#00b894';
+                    return '<span style="color:' + color + ';font-weight:600">' + v.toFixed(1) + '%</span>';
+                },
+                bottomCalc: 'sum', bottomCalcFormatter: function(cell) { return ''; },
             },
         ],
         height: '55vh',
