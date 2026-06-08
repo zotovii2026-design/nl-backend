@@ -3146,48 +3146,49 @@ async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional
     all_nm_ids = list(art_data.keys())
 
     # ═══ Для каждого артикула — список РК с данными по этому nm_id ═══
-    camp_rows = await db.execute(text("""
-        SELECT
-            sn.nm_id,
-            sn.wb_campaign_id,
-            c.name,
-            c.status,
-            c.type,
-            SUM(sn.spent) as camp_spent,
-            SUM(sn.views) as camp_views,
-            SUM(sn.clicks) as camp_clicks,
-            AVG(sn.ctr) as camp_ctr,
-            SUM(sn.orders) as camp_orders,
-            SUM(sn.atbs) as camp_atbs
-        FROM ad_stats_nm sn
-        JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
-            AND c.organization_id = sn.organization_id
-        WHERE sn.organization_id = :org
-            AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
-            AND sn.nm_id = ANY(:nm_ids)
-            """ + status_cond + """
-        GROUP BY sn.nm_id, sn.wb_campaign_id, c.name, c.status, c.type
-        HAVING SUM(sn.spent) > 0
-        ORDER BY SUM(sn.spent) DESC
-    """), {**params, "nm_ids": all_nm_ids} if all_nm_ids else params)
-
     nm_campaigns = {}  # nm_id -> [campaigns]
-    for r in camp_rows:
-        nm_id = int(r[0])
-        if nm_id not in nm_campaigns:
-            nm_campaigns[nm_id] = []
-        nm_campaigns[nm_id].append({
-            "campaign_id": int(r[1]),
-            "name": r[2] or "Без названия",
-            "status": str(r[3]) if r[3] else "",
-            "type": str(r[4]) if r[4] else "",
-            "spent_share": round(sf(r[5]), 2),
-            "views": int(r[6] or 0),
-            "clicks": int(r[7] or 0),
-            "ctr": round(sf(r[8]), 2),
-            "orders": int(r[9] or 0),
-            "atbs": int(r[10] or 0),
-        })
+    if all_nm_ids:
+        camp_rows = await db.execute(text("""
+            SELECT
+                sn.nm_id,
+                sn.wb_campaign_id,
+                c.name,
+                c.status,
+                c.type,
+                SUM(sn.spent) as camp_spent,
+                SUM(sn.views) as camp_views,
+                SUM(sn.clicks) as camp_clicks,
+                AVG(sn.ctr) as camp_ctr,
+                SUM(sn.orders) as camp_orders,
+                SUM(sn.atbs) as camp_atbs
+            FROM ad_stats_nm sn
+            JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
+                AND c.organization_id = sn.organization_id
+            WHERE sn.organization_id = :org
+                AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
+                AND sn.nm_id = ANY(:nm_ids)
+                """ + status_cond + """
+            GROUP BY sn.nm_id, sn.wb_campaign_id, c.name, c.status, c.type
+            HAVING SUM(sn.spent) > 0
+            ORDER BY SUM(sn.spent) DESC
+        """), {**params, "nm_ids": all_nm_ids})
+
+        for r in camp_rows:
+            nm_id = int(r[0])
+            if nm_id not in nm_campaigns:
+                nm_campaigns[nm_id] = []
+            nm_campaigns[nm_id].append({
+                "campaign_id": int(r[1]),
+                "name": r[2] or "Без названия",
+                "status": str(r[3]) if r[3] else "",
+                "type": str(r[4]) if r[4] else "",
+                "spent_share": round(sf(r[5]), 2),
+                "views": int(r[6] or 0),
+                "clicks": int(r[7] or 0),
+                "ctr": round(sf(r[8]), 2),
+                "orders": int(r[9] or 0),
+                "atbs": int(r[10] or 0),
+            })
 
     # ═══ Собираем items ═══
     items = []
@@ -5675,7 +5676,6 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <button class="ads-status-btn" data-status="7" onclick="toggleAdsStatusFilter(this)" style="padding:5px 14px;border:1px solid #00b894;background:#00b894;color:#fff;border-radius:6px;font-size:.82em;cursor:pointer;font-weight:600">🟢 Активные</button>
 <button class="ads-status-btn" data-status="9" onclick="toggleAdsStatusFilter(this)" style="padding:5px 14px;border:1px solid #fdcb6e;background:#fdcb6e;color:#fff;border-radius:6px;font-size:.82em;cursor:pointer;font-weight:600">⏸ Приостановленные</button>
 <button class="ads-status-btn" data-status="11" onclick="toggleAdsStatusFilter(this)" style="padding:5px 14px;border:1px solid #dfe6e9;background:#fff;color:#636e72;border-radius:6px;font-size:.82em;cursor:pointer;font-weight:600">✅ Завершённые</button>
-</div>
 </div>
 
 <!-- Контейнер для таблицы по артикулам -->
