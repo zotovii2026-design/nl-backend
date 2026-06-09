@@ -8,7 +8,7 @@ let _adsAllData = [];  // Полные данные до фильтрации
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ads-grid-v2';
+    const VER = 'ads-grid-v8';
     if (localStorage.getItem('ads-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ads-grid-state-columns');
         localStorage.removeItem('tabulator-ads-grid-state-sort');
@@ -33,14 +33,14 @@ function getAdsColumns() {
             title: '📌 Основное',
             columns: [
                 {
-                    title: 'Статус', field: 'status', width: 120, headerSort: true,
+                    title: 'Статус', field: 'status', headerTooltip: 'Статус кампании', width: 100, headerSort: true,
                     formatter: function(cell) {
                         const v = cell.getValue() || '';
                         return '<span style="' + (statusColors[v]||'') + ';padding:2px 8px;border-radius:4px;font-size:.82em;white-space:nowrap">' + (statusMap[v] || v) + '</span>';
                     }
                 },
                 {
-                    title: 'Кампания', field: 'name', width: 180, headerSort: true, tooltip: true, cssClass: 'truncate-cell',
+                    title: 'Кампания', field: 'name', headerTooltip: 'Название кампании', width: 180, headerSort: true, tooltip: true, cssClass: 'truncate-cell',
                     formatter: function(cell) {
                         const rawName = cell.getValue() || ''; const name = rawName || ('РК #' + data.campaign_id);
                         const data = cell.getRow().getData();
@@ -49,7 +49,7 @@ function getAdsColumns() {
                     }
                 },
                 {
-                    title: 'Тип', field: 'type', width: 100, headerSort: true,
+                    title: 'Тип', field: 'type', headerTooltip: 'Тип кампании', width: 100, headerSort: true,
                     formatter: function(cell) {
                         return typeMap[cell.getValue()] || cell.getValue() || '—';
                     }
@@ -61,7 +61,7 @@ function getAdsColumns() {
             title: '📦 Товары',
             columns: [
                 {
-                    title: 'Кол-во', field: 'nm_count', width: 70, headerSort: true, hozAlign: 'center',
+                    title: 'Шт.', field: 'nm_count', headerTooltip: 'Количество товаров в РК', width: 50, headerSort: true, hozAlign: 'center',
                     formatter: function(cell) {
                         const v = cell.getValue() || 0;
                         if (v > 1) return '<span style="background:#6c5ce7;color:#fff;padding:2px 8px;border-radius:10px;font-size:.82em">' + v + '</span>';
@@ -69,7 +69,7 @@ function getAdsColumns() {
                     }
                 },
                 {
-                    title: 'Состав РК', field: 'products', width: 200, headerSort: false, tooltip: true,
+                    title: 'Состав РК', field: 'products', headerTooltip: 'Товары в составе РК', width: 140, headerSort: false, tooltip: true,
                     formatter: function(cell) {
                         const products = cell.getValue();
                         if (!products || !products.length) return '<span style="color:#999;font-size:.8em">—</span>';
@@ -98,7 +98,7 @@ function getAdsColumns() {
             title: '💰 Финансы',
             columns: [
                 {
-                    title: 'Расход ₽', field: 'spent', width: 100, headerSort: true, hozAlign: 'right',
+                    title: 'Расход ₽', field: 'spent', headerTooltip: 'Расход на кампанию', width: 110, headerSort: true, hozAlign: 'right',
                     formatter: function(cell) {
                         const v = parseFloat(cell.getValue()) || 0;
                         return '<b style="color:#e17055">' + v.toLocaleString('ru-RU', {maximumFractionDigits: 0}) + '</b>';
@@ -109,7 +109,7 @@ function getAdsColumns() {
                     }
                 },
                 {
-                    title: 'ДРР %', field: 'drr', width: 70, headerSort: true, hozAlign: 'right',
+                    title: 'ДРР %', field: 'drr', headerTooltip: 'Доля рекламных расходов', width: 85, headerSort: true, hozAlign: 'right',
                     formatter: function(cell) {
                         const v = parseFloat(cell.getValue()) || 0;
                         if (!v) return '—';
@@ -118,7 +118,7 @@ function getAdsColumns() {
                     }
                 },
                 {
-                    title: 'Сумма заказов', field: 'sum_price', width: 110, headerSort: true, hozAlign: 'right',
+                    title: 'Σ заказов ₽', field: 'sum_price', headerTooltip: 'Сумма заказов из РК', width: 100, headerSort: true, hozAlign: 'right',
                     formatter: function(cell) {
                         const v = parseFloat(cell.getValue()) || 0;
                         return v ? v.toLocaleString('ru-RU', {maximumFractionDigits: 0}) + ' ₽' : '—';
@@ -135,7 +135,7 @@ function getAdsColumns() {
             title: '📊 Метрики',
             columns: [
                 {
-                    title: 'Показы', field: 'views', width: 80, headerSort: true, hozAlign: 'right',
+                    title: 'Показы', field: 'views', headerTooltip: 'Количество показов', width: 90, headerSort: true, hozAlign: 'right',
                     formatter: function(cell) {
                         const v = cell.getValue() || 0;
                         return v.toLocaleString('ru-RU');
@@ -146,7 +146,7 @@ function getAdsColumns() {
                     }
                 },
                 {
-                    title: 'Клики', field: 'clicks', width: 70, headerSort: true, hozAlign: 'right',
+                    title: 'Клики', field: 'clicks', headerTooltip: 'Количество кликов', width: 80, headerSort: true, hozAlign: 'right',
                     formatter: function(cell) {
                         const v = cell.getValue() || 0;
                         return v.toLocaleString('ru-RU');
@@ -157,35 +157,35 @@ function getAdsColumns() {
                     }
                 },
                 {
-                    title: 'CTR %', field: 'ctr', width: 65, headerSort: true, hozAlign: 'right',
+                    title: 'CTR %', field: 'ctr', headerTooltip: 'Click-through rate', width: 75, headerSort: true, hozAlign: 'right',
                     formatter: function(cell) {
                         const v = parseFloat(cell.getValue()) || 0;
                         return v ? v.toFixed(2) + '%' : '—';
                     }
                 },
                 {
-                    title: 'CPC ₽', field: 'cpc', width: 65, headerSort: true, hozAlign: 'right',
+                    title: 'CPC ₽', field: 'cpc', headerTooltip: 'Цена за клик', width: 75, headerSort: true, hozAlign: 'right',
                     formatter: function(cell) {
                         const v = parseFloat(cell.getValue()) || 0;
                         return v ? v.toFixed(2) : '—';
                     }
                 },
                 {
-                    title: 'Заказы', field: 'orders', width: 70, headerSort: true, hozAlign: 'right',
+                    title: 'Заказы', field: 'orders', headerTooltip: 'Заказы из рекламы', width: 80, headerSort: true, hozAlign: 'right',
                     bottomCalc: 'sum', bottomCalcFormatter: function(cell) {
                         const v = cell.getValue() || 0;
                         return '<b>' + v + '</b>';
                     }
                 },
                 {
-                    title: 'В корзину', field: 'atbs', width: 75, headerSort: true, hozAlign: 'right',
+                    title: 'В корз.', field: 'atbs', headerTooltip: 'Добавлений в корзину', width: 75, headerSort: true, hozAlign: 'right',
                     bottomCalc: 'sum', bottomCalcFormatter: function(cell) {
                         const v = cell.getValue() || 0;
                         return '<b>' + v + '</b>';
                     }
                 },
                 {
-                    title: 'CR %', field: 'cr', width: 60, headerSort: true, hozAlign: 'right',
+                    title: 'CR %', field: 'cr', headerTooltip: 'Conversion rate', width: 70, headerSort: true, hozAlign: 'right',
                     formatter: function(cell) {
                         const v = parseFloat(cell.getValue()) || 0;
                         return v ? v.toFixed(1) + '%' : '—';
@@ -199,6 +199,13 @@ function getAdsColumns() {
 /**
  * Инициализация Tabulator
  */
+// Force smaller header font for readability
+(function(){
+    var s = document.createElement('style');
+    s.textContent = '#ads-campaigns-tabulator .tabulator-header .tabulator-col-title{font-size:11px;line-height:1.2}';
+    document.head.appendChild(s);
+})();
+
 function initAdsGrid() {
     if (adsTabulator) return;
 
@@ -210,7 +217,7 @@ function initAdsGrid() {
         data: [],
         columns: getAdsColumns(),
         height: '60vh',
-        layout: 'fitColumns',
+        layout: 'fitDataFill',
         renderHorizontal: 'virtual',
         placeholder: '<div style="padding:20px;text-align:center;color:#999"><div style="font-size:1.2em;margin-bottom:8px">📭 Нет данных</div><div style="font-size:.85em">Попробуйте снять фильтр «Скрыть пустые» или переключить вкладку</div></div>',
         headerSortClickElement: 'header',

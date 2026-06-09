@@ -2934,27 +2934,23 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
         FROM ad_stats_nm sn
         WHERE sn.organization_id = :org
             AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
+            AND sn.spent > 0
         GROUP BY sn.stat_date
         ORDER BY sn.stat_date DESC
     """), params)
 
-    # ═══ Общие заказы и выручка по дням (из tech_status) для расчёта ДРР ═══
-    total_orders_by_day = await db.execute(text("""
-        SELECT ts.target_date,
-               SUM(ts.orders_count) as total_orders,
-               SUM(ts.orders_count * ts.price_discount) as total_revenue
-        FROM tech_status ts
-        WHERE ts.organization_id = :org
-            AND ts.target_date >= :d_from AND ts.target_date <= :d_to
-            AND ts.orders_count > 0
-        GROUP BY ts.target_date
+    # ═══ ДРР по дням: sum_price из ad_stats_nm по составу РК ═══
+    sum_price_by_day = await db.execute(text("""
+        SELECT sn.stat_date, COALESCE(SUM(sn.sum_price), 0) as sum_price
+        FROM ad_stats_nm sn
+        WHERE sn.organization_id = :org
+            AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
+            AND sn.spent > 0
+        GROUP BY sn.stat_date
     """), params)
-    orders_by_date = {}
-    for r in total_orders_by_day:
-        orders_by_date[str(r[0])] = {
-            "total_orders": int(r[1] or 0),
-            "total_revenue": round(sf(r[2]), 2),
-        }
+    sp_by_date = {}
+    for r in sum_price_by_day:
+        sp_by_date[str(r[0])] = round(sf(r[1]), 2)
 
     daily = []
     for r in daily_rows:
@@ -2964,10 +2960,8 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
         orders = int(r[4] or 0)
         atbs = int(r[5] or 0)
         date_str = str(r[0])
-        day_totals = orders_by_date.get(date_str, {"total_orders": 0, "total_revenue": 0})
-        total_orders_day = day_totals["total_orders"]
-        total_revenue_day = day_totals["total_revenue"]
-        drr_day = round(spent / total_revenue_day * 100, 1) if total_revenue_day else 0
+        sum_price_day = sp_by_date.get(date_str, 0)
+        drr_day = round(spent / sum_price_day * 100, 1) if sum_price_day else 0
         daily.append({
             "date": date_str,
             "views": views,
@@ -2978,8 +2972,7 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
             "orders": orders,
             "atbs": atbs,
             "cr": round(orders / clicks * 100, 2) if clicks else 0,
-            "total_orders": total_orders_day,
-            "total_revenue": total_revenue_day,
+            "sum_price": sum_price_day,
             "drr": drr_day,
         })
 
@@ -2991,12 +2984,18 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
                SUM(sn.spent) as spent,
                SUM(sn.orders) as orders,
                SUM(sn.atbs) as atbs,
-               COUNT(DISTINCT sn.nm_id) as nm_count
+               (SELECT COUNT(DISTINCT sn2.nm_id) FROM ad_stats_nm sn2
+                    WHERE sn2.organization_id = :org
+                    AND sn2.wb_campaign_id = sn.wb_campaign_id
+                    AND sn2.spent > 0
+                    AND sn2.stat_date >= :d_from AND sn2.stat_date <= :d_to
+               ) as nm_count
         FROM ad_stats_nm sn
         JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
             AND c.organization_id = sn.organization_id
         WHERE sn.organization_id = :org
             AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
+            AND sn.spent > 0
         GROUP BY sn.wb_campaign_id, c.name, c.status, c.type
         ORDER BY SUM(sn.spent) DESC
     """), params)
@@ -3046,12 +3045,13 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
                             "photo": photo_url,
                         })
 
-        # Сумма заказов для ДРР из ad_stats_nm
+        # Сумма заказов для ДРР из ad_stats_nm (только состав РК)
         sum_price_row = await db.execute(text("""
             SELECT COALESCE(SUM(sn.sum_price), 0) as sum_price
             FROM ad_stats_nm sn
             WHERE sn.organization_id = :org AND sn.wb_campaign_id = :cid
                 AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
+                AND sn.spent > 0
         """), {**params, "cid": r[0]})
         sum_price_val = round(sf(sum_price_row.scalar()), 2)
 
@@ -3073,8 +3073,8 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
                 total_orders_rk = int(rk_totals[0] or 0)
                 total_revenue_rk = round(sf(rk_totals[1]), 2)
 
-        # ДРР = расход / (все заказы × цена)
-        drr_rk = round(spent / total_revenue_rk * 100, 1) if total_revenue_rk else 0
+        # ДРР = расход / sum_price (из ad_stats_nm по составу РК)
+        drr_rk = round(spent / sum_price_val * 100, 1) if sum_price_val else 0
 
         campaigns.append({
             "campaign_id": r[0],
@@ -3115,11 +3115,10 @@ async def get_ad_stats(org_id: str, days: str = "7", date_from: Optional[str] = 
     totals["ctr"] = round(totals["clicks"] / totals["views"] * 100, 2) if totals["views"] else 0
     totals["cpc"] = round(totals["spent"] / totals["clicks"], 2) if totals["clicks"] else 0
     totals["cr"] = round(totals["orders"] / totals["clicks"] * 100, 2) if totals["clicks"] else 0
-    # ДРР общий = расход / выручка по всем заказам за период
-    all_revenue = sum(d["total_revenue"] for d in daily)
-    totals["drr"] = round(totals["spent"] / all_revenue * 100, 1) if all_revenue else 0
-    totals["total_orders"] = sum(d["total_orders"] for d in daily)
-    totals["total_revenue"] = all_revenue
+    # ДРР общий = расход / sum_price из ad_stats_nm
+    all_sum_price = sum(d.get("sum_price", 0) for d in daily)
+    totals["drr"] = round(totals["spent"] / all_sum_price * 100, 1) if all_sum_price else 0
+    totals["sum_price"] = round(all_sum_price, 2)
 
     return {
         "daily": daily,
@@ -3225,7 +3224,8 @@ async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional
                 SUM(sn.clicks) as camp_clicks,
                 AVG(sn.ctr) as camp_ctr,
                 SUM(sn.orders) as camp_orders,
-                SUM(sn.atbs) as camp_atbs
+                SUM(sn.atbs) as camp_atbs,
+                SUM(sn.sum_price) as camp_sum_price
             FROM ad_stats_nm sn
             JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
                 AND c.organization_id = sn.organization_id
@@ -3253,6 +3253,7 @@ async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional
                 "ctr": round(sf(r[8]), 2),
                 "orders": int(r[9] or 0),
                 "atbs": int(r[10] or 0),
+                "sum_price": round(sf(r[11]), 2),
             })
 
     # ═══ Собираем items ═══
@@ -3283,11 +3284,12 @@ async def get_ad_stats_by_art(org_id: str, days: str = "30", date_from: Optional
         clicks = d["clicks"]
         orders = d["orders"]
         campaigns = nm_campaigns.get(nm_id, [])
-        # ДРР = расход / (все заказы × цена)
+        # ДРР = расход / sum_price (из ad_stats_nm, только состав РК)
+        sum_price_art = sum(c.get("sum_price", 0) for c in campaigns) if campaigns else 0
         op = nm_orders_price.get(nm_id, {"total_orders": 0, "total_revenue": 0})
         total_orders_art = op["total_orders"]
         total_revenue_art = op["total_revenue"]
-        drr_art = round(spent / total_revenue_art * 100, 1) if total_revenue_art else 0
+        drr_art = round(spent / sum_price_art * 100, 1) if sum_price_art else 0
         items.append({
             "nm_id": nm_id,
             "spent": spent,
@@ -3382,50 +3384,65 @@ async def get_marketer_products(
     # 1) Получаем уникальные nm_id из активных/приостановленных кампаний
     active_statuses = ('7', '9', '11')  # WB status codes: 7=активна, 9=приостановлена, 11=завершена
 
-    # Все РК с их nm_ids за период
+    # Все РК с их составом (из ad_stats_nm, только spent > 0) за период
     camp_rows = await db.execute(text(f"""
-        SELECT c.wb_campaign_id, c.name, c.type, c.status, c.nm_ids,
-               COALESCE(SUM(s.views),0), COALESCE(SUM(s.clicks),0),
-               COALESCE(SUM(s.spent),0), COALESCE(AVG(s.ctr),0),
-               COALESCE(SUM(s.orders),0), COALESCE(SUM(s.atbs),0)
+        SELECT c.wb_campaign_id, c.name, c.type, c.status,
+               COALESCE(SUM(sn.views),0), COALESCE(SUM(sn.clicks),0),
+               COALESCE(SUM(sn.spent),0),
+               COALESCE(SUM(sn.orders),0), COALESCE(SUM(sn.atbs),0),
+               COALESCE(SUM(sn.sum_price),0)
         FROM ad_campaigns c
-        LEFT JOIN ad_stats s ON s.wb_campaign_id = c.wb_campaign_id
-            AND s.organization_id = c.organization_id
-            AND s.stat_date >= {date_from}
+        JOIN ad_stats_nm sn ON sn.wb_campaign_id = c.wb_campaign_id
+            AND sn.organization_id = c.organization_id
+            AND sn.stat_date >= {date_from}
+            AND sn.spent > 0
         WHERE c.organization_id = :org
-        GROUP BY c.wb_campaign_id, c.name, c.type, c.status, c.nm_ids
-        ORDER BY COALESCE(SUM(s.spent),0) DESC
+        GROUP BY c.wb_campaign_id, c.name, c.type, c.status
+        ORDER BY COALESCE(SUM(sn.spent),0) DESC
     """), {"org": org_id})
 
-    # Собираем все nm_id → какие РК к ним относятся
+    # nm_id → какие РК к ним относятся (из ad_stats_nm, только spent > 0)
+    nm_camp_rows = await db.execute(text(f"""
+        SELECT sn.wb_campaign_id, sn.nm_id, c.name, c.type, c.status,
+               COALESCE(SUM(sn.views),0), COALESCE(SUM(sn.clicks),0),
+               COALESCE(SUM(sn.spent),0),
+               COALESCE(SUM(sn.orders),0), COALESCE(SUM(sn.atbs),0),
+               COALESCE(SUM(sn.sum_price),0)
+        FROM ad_stats_nm sn
+        JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
+            AND c.organization_id = sn.organization_id
+        WHERE sn.organization_id = :org
+            AND sn.stat_date >= {date_from}
+            AND sn.spent > 0
+        GROUP BY sn.wb_campaign_id, sn.nm_id, c.name, c.type, c.status
+    """), {"org": org_id})
+
     nm_to_campaigns = {}  # nm_id -> [{campaign_info}]
     all_campaigns = []
     all_nm_ids = set()
+    camp_ids_seen = set()
 
-    for r in camp_rows:
-        nms_raw = r[4]
-        nm_list = _json.loads(nms_raw) if isinstance(nms_raw, str) else (nms_raw or [])
-        nm_ints = [int(n) for n in nm_list if n]
-
+    for r in nm_camp_rows:
+        nm_id = int(r[1])
         camp_info = {
             "campaign_id": r[0],
-            "name": r[1] or "Без названия",
-            "type": r[2],
-            "status": str(r[3]) if r[3] else "",
-            "nm_ids": nm_ints,
-            "views": int(r[5] or 0),
-            "clicks": int(r[6] or 0),
+            "name": r[2] or "Без названия",
+            "type": str(r[3]) if r[3] else "",
+            "status": str(r[4]) if r[4] else "",
+            "views": int(sf(r[5])),
+            "clicks": int(sf(r[6])),
             "spent": round(sf(r[7]), 2),
-            "ctr": round(sf(r[8]), 2),
-            "orders": int(r[9] or 0),
-            "atbs": int(r[10] or 0),
+            "orders": int(sf(r[8])),
+            "atbs": int(sf(r[9])),
+            "sum_price": round(sf(r[10]), 2),
         }
-        all_campaigns.append(camp_info)
-        all_nm_ids.update(nm_ints)
-        for nm in nm_ints:
-            if nm not in nm_to_campaigns:
-                nm_to_campaigns[nm] = []
-            nm_to_campaigns[nm].append(camp_info)
+        if nm_id not in nm_to_campaigns:
+            nm_to_campaigns[nm_id] = []
+        nm_to_campaigns[nm_id].append(camp_info)
+        all_nm_ids.add(nm_id)
+        if r[0] not in camp_ids_seen:
+            camp_ids_seen.add(r[0])
+            all_campaigns.append(camp_info)
 
     # 2) Получаем инфо о товарах (фото, название, бренд, статус, класс)
     product_info = {}
@@ -3507,7 +3524,7 @@ async def get_marketer_products(
             "total_spent": round(total_spent, 2),
             "total_orders": total_orders,
             "ctr": round(total_clicks / total_views * 100, 2) if total_views else 0,
-            "drr": round(total_spent / (total_orders * info.get("price", 0)) * 100, 1) if total_orders and info.get("price") else 0,
+            "drr": round(total_spent / sum(c.get("sum_price", 0) for c in camps) * 100, 1) if sum(c.get("sum_price", 0) for c in camps) else 0,
             "campaigns": camps,
             "plan_orders": 0,  # TODO: из плана
             "fact_orders": total_orders,
@@ -5289,7 +5306,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260605b"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260608j"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260608j"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260609d"></script>
 </head>
 <body>
 
@@ -5742,25 +5759,36 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div style="margin-left:auto;font-size:.85em;color:#999" id="ads-updated"></div>
 </div>
 
-<!-- Карточки метрик -->
-<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" id="ads-metrics">
+<!-- Карточки метрик (сгруппированные) -->
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:stretch" id="ads-metrics">
+<!-- Финансы -->
+<div style="display:flex;gap:6px;align-items:stretch">
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Расход</div><div style="font-size:.95em;font-weight:700;color:#e17055" id="ad-spent">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999" title="Доля рекламных расходов от оборота">ДРР %</div><div style="font-size:.95em;font-weight:700;color:#e17055" id="ad-drr">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Баланс</div><div style="font-size:.95em;font-weight:700;color:#2d3436" id="ad-balance">—</div></div>
+</div>
+<div style="width:1px;background:#e0e0e0;margin:0 4px;align-self:stretch"></div>
+<!-- Трафик -->
+<div style="display:flex;gap:6px;align-items:stretch">
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Показы</div><div style="font-size:.95em;font-weight:700;color:#6c5ce7" id="ad-views">—</div></div>
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Клики</div><div style="font-size:.95em;font-weight:700;color:#0984e3" id="ad-clicks">—</div></div>
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CTR</div><div style="font-size:.95em;font-weight:700;color:#00b894" id="ad-ctr">—</div></div>
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CPC</div><div style="font-size:.95em;font-weight:700;color:#fdcb6e" id="ad-cpc">—</div></div>
+</div>
+<div style="width:1px;background:#e0e0e0;margin:0 4px;align-self:stretch"></div>
+<!-- Конверсии -->
+<div style="display:flex;gap:6px;align-items:stretch">
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Заказы</div><div style="font-size:.95em;font-weight:700;color:#00cec9" id="ad-orders">—</div></div>
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CR</div><div style="font-size:.95em;font-weight:700;color:#e84393" id="ad-cr">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Артикулов</div><div style="font-size:.95em;font-weight:700;color:#636e72" id="ad-arts-count">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Баланс</div><div style="font-size:.95em;font-weight:700;color:#2d3436" id="ad-balance">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999" title="Доля рекламных расходов от оборота без учета агрегированных конверсий">ДРР %</div><div style="font-size:.95em;font-weight:700;color:#e17055" id="ad-drr">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">В корзину</div><div style="font-size:.95em;font-weight:700;color:#636e72" id="ad-arts-count">—</div></div>
+</div>
 </div>
 <!-- Статистика по дням (на всю ширину, под метриками) -->
 <div style="background:#fff;border-radius:8px;border:1px solid #eee;padding:8px 12px;margin-bottom:8px">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:.78em;font-weight:600;color:#6c5ce7">📅 По дням</span><span style="font-size:.7em;color:#999" id="ads-daily-count"></span></div>
-<div style="max-height:180px;overflow-y:auto;font-size:.78em">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;cursor:pointer" onclick="toggleDailyTable()"><span style="font-size:.78em;font-weight:600;color:#6c5ce7">📅 По дням</span><span style="font-size:.7em;color:#999" id="ads-daily-count"></span><span style="font-size:.7em;color:#999" id="ads-daily-toggle">▼</span></div>
+<div id="ads-daily-wrapper" style="display:none;max-height:180px;overflow-y:auto;font-size:.78em">
 <table id="ads-daily-table" style="width:100%">
-<thead><tr><th style="padding:2px 6px;text-align:left">Дата</th><th style="padding:2px 6px;text-align:right">Расход ₽</th><th style="padding:2px 6px;text-align:right">Показы</th><th style="padding:2px 6px;text-align:right">Клики</th><th style="padding:2px 6px;text-align:right">CTR</th><th style="padding:2px 6px;text-align:right">CPC ₽</th><th style="padding:2px 6px;text-align:right">Заказы</th><th style="padding:2px 6px;text-align:right">CR</th><th style="padding:2px 6px;text-align:right">В корзину</th></tr></thead>
+<thead><tr><th style="padding:2px 6px;text-align:left">Дата</th><th style="padding:2px 6px;text-align:right">Расход ₽</th><th style="padding:2px 6px;text-align:right">Показы</th><th style="padding:2px 6px;text-align:right">Клики</th><th style="padding:2px 6px;text-align:right">CTR</th><th style="padding:2px 6px;text-align:right">CPC ₽</th><th style="padding:2px 6px;text-align:right">Заказы</th><th style="padding:2px 6px;text-align:right">CR</th><th style="padding:2px 6px;text-align:right">В корзину</th><th style="padding:2px 6px;text-align:right">ДРР %</th></tr></thead>
 <tbody id="ads-daily-body"><tr><td colspan="9" class="empty" style="padding:4px">Загрузка...</td></tr></tbody>
 </table>
 </div>
@@ -6456,7 +6484,7 @@ async function loadAds() {
         const d = await r.json();
         // Totals
         const t = d.totals || {};
-        const fmt = (v, s='') => v != null ? (v >= 1000 ? v.toLocaleString('ru-RU', {maximumFractionDigits:0}) : v.toFixed(2)) + s : '—';
+        const fmt = (v, s='') => v != null ? Number(v).toLocaleString('ru-RU', {maximumFractionDigits: v >= 1000 ? 0 : 2}) + s : '—';
         document.getElementById('ad-views').textContent = fmt(t.views);
         document.getElementById('ad-clicks').textContent = fmt(t.clicks);
         document.getElementById('ad-spent').textContent = fmt(t.spent, ' ₽');
@@ -6465,7 +6493,9 @@ async function loadAds() {
         document.getElementById('ad-orders').textContent = fmt(t.orders);
         document.getElementById('ad-cr').textContent = t.cr ? t.cr + '%' : '—';
         document.getElementById('ad-drr').textContent = t.drr ? t.drr + '%' : '—';
-        document.getElementById('ad-arts-count').textContent = t.views ? '—' : '—'; // placeholder, updated by arts
+        // Подсчёт уникальных артикулов из кампаний
+        var _nmSet = new Set(); (d.campaigns||[]).forEach(function(c){ (c.products||[]).forEach(function(p){ if(p.nm_id) _nmSet.add(p.nm_id); }); });
+        document.getElementById('ad-arts-count').textContent = _nmSet.size || '—';
         // Balance
         if (d.balance) {
             var balNum = d.balance.net || d.balance.balance || d.balance.balanceXdiscount || 0;
@@ -6480,7 +6510,7 @@ async function loadAds() {
         if (!daily.length) {
             db.innerHTML = '<tr><td colspan="5" class="empty" style="padding:4px">Нет данных</td></tr>';
         } else {
-            db.innerHTML = daily.map(r => '<tr><td style="padding:2px 6px">'+r.date+'</td><td style="padding:2px 6px;text-align:right">'+r.spent.toLocaleString('ru-RU',{maximumFractionDigits:0})+'₽</td><td style="padding:2px 6px;text-align:right">'+r.views.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.clicks.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.ctr+'%</td><td style="padding:2px 6px;text-align:right">'+r.cpc.toFixed(2)+'₽</td><td style="padding:2px 6px;text-align:right">'+r.orders+'</td><td style="padding:2px 6px;text-align:right">'+r.cr+'%</td><td style="padding:2px 6px;text-align:right">'+(r.atbs||0)+'</td><td style="padding:2px 6px;text-align:right">'+(r.drr ? '<span style="color:'+(r.drr>50?'#e74c3c':r.drr>25?'#e17055':'#00b894')+';font-weight:600">'+r.drr+'%</span>' : '\u2014')+'</td></tr>').join('');
+            db.innerHTML = daily.map(r => '<tr><td style="padding:2px 6px">'+r.date+'</td><td style="padding:2px 6px;text-align:right">'+r.spent.toLocaleString('ru-RU',{maximumFractionDigits:0})+'₽</td><td style="padding:2px 6px;text-align:right">'+r.views.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.clicks.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.ctr+'%</td><td style="padding:2px 6px;text-align:right">'+r.cpc.toFixed(2)+'₽</td><td style="padding:2px 6px;text-align:right">'+r.orders+'</td><td style="padding:2px 6px;text-align:right">'+r.cr+'%</td><td style="padding:2px 6px;text-align:right">'+(r.atbs||0)+'</td><td style="padding:2px 6px;text-align:right">'+(r.drr > 100 ? '<span style="color:#b2bec3">н/д</span>' : r.drr ? '<span style="color:'+(r.drr>50?'#e74c3c':r.drr>25?'#e17055':'#00b894')+';font-weight:600">'+r.drr+'%</span>' : '\u2014')+'</td></tr>').join('');
             document.getElementById('ads-daily-count').textContent = daily.length + ' дней';
         }
         // --- Рендер таблицы кампаний (Tabulator) ---
@@ -6496,6 +6526,13 @@ async function loadAds() {
 
 
 
+
+function toggleDailyTable() {
+    var w = document.getElementById('ads-daily-wrapper');
+    var t = document.getElementById('ads-daily-toggle');
+    if (w.style.display === 'none') { w.style.display = 'block'; t.textContent = '▲'; }
+    else { w.style.display = 'none'; t.textContent = '▼'; }
+}
 
 // ===== ADS PERIOD & CALENDAR =====
 function adsPeriodPreset() {
@@ -6539,17 +6576,6 @@ function getAdsDateRange() {
     const dt = document.getElementById('ads-date-to').value;
     return { date_from: df, date_to: dt };
 }
-
-// ===== ADS TABULATOR & CAMPAIGNS =====
-var _adsCurrentTab = 'active';
-
-function adsTabClick(btn) {
-;
-    btn.classList.add('active');
-    _adsCurrentTab = btn.dataset.status;
-    applyAdsFilters();
-}
-
 
 function filterMarketer() {
     // Re-fetch with filters
