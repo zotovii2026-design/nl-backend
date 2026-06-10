@@ -4300,6 +4300,11 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
         # Обратная логистика = базовый тариф за объём, без коэфф. склада, без % выкупа
         _reverse_log_amount = item["reverse_logistics"] or 0
 
+        # Логистика с % выкупа (затраты на 1 отправленный товар)
+        _buyout_pct = item["buyout_fact_pct"] if item["buyout_fact_pct"] and item["buyout_fact_pct"] > 0 else item["buyout_niche_pct"]
+        _buyout_ratio = float(_buyout_pct) / 100 if _buyout_pct else 1
+        item["logistics_with_buyout"] = round(item["delivery_to_client"] + _reverse_log_amount * (1 - _buyout_ratio), 2)
+
         expenses_fact = (
             item["cost_price"] + item["logistics_cost"] + item["packaging_cost"] +
             item["other_costs"] +  # extra_costs уже включена в cost_price

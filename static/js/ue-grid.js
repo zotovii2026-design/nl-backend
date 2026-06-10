@@ -147,8 +147,8 @@ function getUEColumns() {
                     formatter: function(cell) { var v = cell.getValue(); if (v) return parseFloat(v).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽'; return '—'; }
                 },
                 { title: 'Лог. с % выкупа', field: 'logistics_with_buyout',
-                    headerTooltip: 'Логистика с учётом % выкупа', width: 90, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v || '—'; }
+                    headerTooltip: 'Логистика с учётом % выкупа = Лог. тариф + Обратная лог. × (1 - % выкупа)', width: 90, headerSort: true,
+                    formatter: function(cell) { const v = parseFloat(cell.getValue()); return v ? v.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽' : '—'; }
                 },
                 { title: 'ИЛ', field: 'localization_idx',
                     headerTooltip: 'Индекс локализации', width: 45, headerSort: false,
