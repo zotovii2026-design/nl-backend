@@ -288,33 +288,6 @@ function getUEColumns() {
             ]
         },
 
-        // === 📊 Без WB клуба (ФАКТ) ===
-        {
-            title: '📊 Без WB клуба',
-            columns: [
-                { title: 'Расходы', field: 'expenses_fact',
-                    headerTooltip: 'Расходы (без WB клуба)', width: 85, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
-                },
-                { title: 'Прибыль', field: 'profit_fact',
-                    headerTooltip: 'Прибыль (без WB клуба)', width: 85, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
-                },
-                { title: 'Маржа', field: 'margin_fact',
-                    headerTooltip: 'Маржа % (без WB клуба)', width: 65, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? v + '%' : '—'; }
-                },
-                { title: 'ROI', field: 'roi_fact',
-                    headerTooltip: 'ROI % (без WB клуба)', width: 65, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? v + '%' : '—'; }
-                },
-                { title: 'На Р/С', field: 'to_account_fact',
-                    headerTooltip: 'На расчётный счёт', width: 85, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
-                },
-            ]
-        },
-
         // === 🏷 WB Клуб ===
         {
             title: '🏷 WB Клуб / Лояльность',
@@ -373,11 +346,6 @@ function getUEColumns() {
                     headerTooltip: 'Позиция в акции', width: 65, headerSort: true,
                     formatter: function(cell) { const v = cell.getValue(); return v === 'ДА' || v === true ? '<span style="background:#d4edda;padding:2px 6px;border-radius:3px">ДА</span>' : '—'; }
                 },
-                { title: 'Дата правок', field: 'change_date',
-                    headerTooltip: 'Дата внесения правок', width: 95, headerSort: false,
-                    editor: 'date',
-                    formatter: function(cell) { return cell.getValue() || '—'; }
-                },
                 { title: 'Цена к изм. ₽', field: 'price_before_spp_change',
                     headerTooltip: 'Цена до СПП к изменению', width: 95, headerSort: false,
                     editor: 'number', editorParams: { step: 1 },
@@ -404,9 +372,21 @@ function getUEColumns() {
                     headerTooltip: 'Прибыль после правок', width: 85, headerSort: false,
                     formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
                 },
-                { title: 'ROI', field: 'roi_change',
-                    headerTooltip: 'ROI % после правок', width: 65, headerSort: false,
+                { title: 'Маржа', field: 'margin_change',
+                    headerTooltip: 'Маржа % после правок', width: 65, headerSort: false,
                     formatter: function(cell) { const v = cell.getValue(); return v ? v + '%' : '—'; }
+                },
+            ]
+        },
+
+        // === 📅 Дата правок ===
+        {
+            title: '',
+            columns: [
+                { title: 'Дата правок', field: 'change_date',
+                    headerTooltip: 'Дата внесения правок', width: 95, headerSort: false,
+                    editor: 'date',
+                    formatter: function(cell) { return cell.getValue() || '—'; }
                 },
             ]
         },
