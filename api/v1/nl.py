@@ -5448,695 +5448,29 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </table>
 <div id="stats-pagination" style="margin-top:8px;display:flex;align-items:center;gap:10px;font-size:.85em;color:#666"><span id="stats-shown"></span><button id="stats-more-btn" class="btn" style="padding:4px 12px;font-size:.85em;display:none" onclick="loadStatsMore()">Показать ещё</button></div>
 </div>
-<template id="tpl-analytics">
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-<input type="text" id="analytics-search" placeholder="🔍 Поиск по артикулу/названию" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:250px" oninput="loadAnalytics()">
-<select id="analytics-date" onchange="loadAnalytics()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"></select>
-<button class="btn" onclick="loadAnalytics()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
-<button class="btn btn-outline" onclick="exportAnalytics()" style="padding:6px 14px;font-size:.85em">📥 Скачать</button>
-</div>
-<div style="overflow-x:auto">
-<table id="analytics-table" style="font-size:.8em">
-<thead><tr>
-<th>Фото</th>
-<th>Арт продавца</th>
-<th>Арт WB</th>
-<th>Товар</th>
-<th>Остаток</th>
-<th>Заказы</th>
-<th>Выкупы</th>
-<th>Отмены</th>
-<th>Возвраты</th>
-<th>% выкупа</th>
-<th>Цена</th>
-<th>Цена со скидкой</th>
-<th>Комиссия ВБ %</th>
-<th>Комиссия ВБ ₽</th>
-<th>Логистика</th>
-<th>Реклама ₽</th>
-<th>ДРР %</th>
-<th>Штрафы</th>
-<th>Хранение</th>
-<th>Приёмка</th>
-<th>Прочие удерж.</th>
-<th>Средний чек</th>
-<th>Сумма реализации</th>
-<th>К выплате</th>
-<th>Себестоимость</th>
-<th>Маржа</th>
-<th>Маржа/ед.</th>
-<th>Рентабельность</th>
-<th>ROI</th>
-<th>Рейтинг</th>
-<th>Показы</th>
-<th>Клики</th>
-<th>CTR</th>
-<th>Оборачив.</th>
-<th>В пути к клиенту</th>
-</tr></thead>
-<tbody id="analytics-body"><tr><td colspan="50" class="empty">Загрузка...</td></tr></tbody>
-</table>
-</div>
-<div style="margin-top:12px;display:flex;align-items:center;gap:12px;font-size:.85em;color:#999">
-<span id="analytics-count"></span>
-<select id="analytics-pagesize" onchange="loadAnalytics()" style="border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em">
-<option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option>
-</select>
-</div>
-</template>
+
 <div id="page-analytics" class="page-section"></div>
 
 
-<template id="tpl-rnp"><div class="rnp-ctrl">
-<select id="rnp-month" onchange="loadRnp()" style="min-width:130px"></select>
-<label style="font-size:.85em;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="rnp-buyout-pct" onchange="loadRnp()"> Учесть % выкупа</label>
-<select id="rnp-sort" onchange="loadRnp()">
-<option value="orders_revenue">Сортировка: Заказы, руб</option><option value="roi">ROI</option><option value="buyout_pct">% выкупа</option>
-</select>
-<input type="text" id="rnp-search" placeholder="🔍 Поиск" style="width:200px" oninput="loadRnp()">
-<button class="btn" onclick="loadRnp()" style="padding:6px 14px;font-size:.85em">🔄</button>
-</div>
-<div id="rnp-summary" class="rnp-summary-bar"></div>
-<div id="rnp-header-wrap" style="margin-bottom:8px"></div>
-<div id="rnp-cards" style="font-size:.82em"></div>
-<div style="margin-top:12px;font-size:.85em;color:#999" id="rnp-count"></div></template>
+
 <div id="page-rnp" class="page-section"></div>
 
-<div id="page-opiu" class="page-section">
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
-<select id="opiu-period" onchange="loadOpiu()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<option value="4">Последние 4 недели</option><option value="8">8 недель</option><option value="12">12 недель</option>
-</select>
-<button class="btn" onclick="loadOpiu()" style="padding:6px 14px;font-size:.85em">🔄</button>
-<button class="btn btn-outline" onclick="exportOpiu()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
-</div>
-<table id="opiu-table"><thead><tr><th>Статья</th><th>Итого</th><th>%</th></tr></thead>
-<tbody id="opiu-body"><tr><td colspan="3" class="empty">Нажмите обновить</td></tr></tbody></table>
-</div>
+<div id="page-opiu" class="page-section"></div>
+<div id="page-costprice" class="page-section"></div>
+<div id="page-salesplan" class="page-section"></div>
+<div id="page-warehouses" class="page-section"></div>
+<div id="page-opexpenses" class="page-section"></div>
 
-<div id="page-costprice" class="page-section">
-<!-- Верхняя панель: текущий магазин -->
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
-<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
-<select id="cp-store" onchange="switchCostStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
-</div>
+<div id="page-ads" class="page-section"></div><div id="page-marketer" class="page-section"></div>
+<div id="page-extads" class="page-section"></div>
+<div id="page-fboneeds" class="page-section"></div>
+<div id="page-unitecon" class="page-section"></div>
+<div id="page-promo" class="page-section"></div>
+<div id="page-connectors" class="page-section"></div>
+<div id="page-subscription" class="page-section"></div>
+<div id="page-help" class="page-section"></div>
+<div id="page-settings" class="page-section"></div>
 
-
-<!-- Налоговые настройки кабинета -->
-<div id="tax-settings-panel" style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding:12px 16px;background:#fff;border:1px solid #e0e0e0;border-radius:8px;flex-wrap:wrap">
-<div style="display:flex;align-items:center;gap:8px">
-<label style="font-size:.85em;color:#333;font-weight:600;white-space:nowrap">Вид налогообложения</label>
-<select id="tax-system-select" onchange="onTaxSystemChange()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 10px;font-size:.9em;min-width:180px">
-<option value="">— не выбрано —</option>
-<option value="УСН Доходы">УСН "Доходы"</option>
-<option value="УСН Доходы-Расходы">УСН "Доходы-Расходы"</option>
-<option value="ОСНО">ОСНО</option>
-<option value="АУСН Доходы">АУСН "Доходы"</option>
-<option value="АУСН Доходы-Расходы">АУСН "Доходы-Расходы"</option>
-</select>
-<input type="number" id="tax-rate-input" placeholder="% ставки" step="0.01" min="0" max="100" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 10px;font-size:.9em;width:80px">
-</div>
-<div style="display:flex;align-items:center;gap:8px;margin-left:24px">
-<label style="font-size:.85em;color:#333;font-weight:600;white-space:nowrap">НДС от дохода</label>
-<select id="vat-type-select" onchange="onTaxSettingsChange()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 10px;font-size:.9em;min-width:100px">
-<option value="нет">нет</option>
-<option value="5%">5%</option>
-<option value="7%">7%</option>
-</select>
-</div>
-<button id="tax-apply-btn" onclick="applyTaxToAll()" title="Применить налоги ко всем строкам" style="padding:6px 10px;font-size:.85em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px">📋 Применить ко всему</button>
-<button id="tax-lock-btn" onclick="toggleTaxLock()" title="Заблокировать/разблокировать" style="padding:6px 10px;font-size:1.2em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px;transition:all .2s">🔒</button>
-<button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить Excel</button>
-<input type="file" id="cost-file-input" accept=".xlsx,.csv" style="display:none" onchange="uploadCostExcel(this)">
-<button class="btn btn-outline" onclick="downloadEmptyTemplate()" style="padding:6px 14px;font-size:.85em">📥 Скачать шаблон</button>
-<button class="btn btn-outline" onclick="exportCostTemplate()" style="padding:6px 14px;font-size:.85em">📤 Экспорт данных</button>
-<span style="font-size:.85em;color:#999" id="cost-count"></span>
-<button class="btn" onclick="autoFillReference()" style="padding:5px 12px;font-size:.82em;background:#6c5ce7;color:#fff;border-radius:4px">🔄 Автозаполнение</button>
-<button class="btn" onclick="saveAllCostPrices()" style="padding:7px 16px;font-size:.88em;background:#00b894;color:#fff;font-weight:600;border-radius:6px">СОХРАНИТЬ<br><span style="font-size:.65em;font-weight:400;opacity:.7">отправить на сервер</span></button>
-<span style="flex:1"></span>
-<span id="cost-selected-info" style="font-size:.85em;color:#6c5ce7;font-weight:600;display:none">☑ Выделено: <span id="cost-selected-count">0</span></span>
-</div>
-
-<!-- Фильтры по столбцам -->
-<div id="cost-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
-<label style="color:#666;font-weight:600">Фильтры:</label>
-<select id="flt-fulfillment" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
-<select id="flt-tax-system" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Налог. система: все</option><option value="usn">УСН</option><option value="usn_dr">Доходы-Расходы</option><option value="osn">ОСН</option></select>
-<select id="flt-product-class" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option></select>
-<select id="flt-brand" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
-<select id="flt-product-status" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется к запуску</option></select>
-<select id="flt-has-cost" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
-<input type="text" id="cost-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
-<button onclick="clearCostFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сбросить</button>
-</div>
-
-<!-- Таблица -->
-<div id="cost-tabulator-host"></div>
-
-<!-- Плавающая панель массовых действий -->
-<div id="cost-bulk-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:#6c5ce7;color:#fff;padding:10px 16px;border-radius:8px 8px 0 0;display:none;align-items:center;gap:12px;flex-wrap:wrap;z-index:10;box-shadow:0 -2px 10px rgba(0,0,0,.15)">
-<span style="font-weight:600" id="bulk-bar-count">Выделено: 0</span>
-<select id="bulk-field" onchange="onBulkFieldChange()" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333">
-<option value="">Выберите поле...</option>
-<optgroup label="📌 Основное">
-<option value="product_status">Статус товара</option>
-<option value="product_class">Класс товара</option>
-<option value="brand">Бренд</option>
-</optgroup>
-<optgroup label="🚚 Логистика">
-<option value="fulfillment_model">Отгрузка</option>
-<option value="fbs_warehouse">Склад FBS</option>
-</optgroup>
-<optgroup label="💰 Себестоимость">
-<option value="cost_price">Себестоимость ₽</option>
-<option value="extra_costs">Доп расходы ₽</option>
-<option value="vat_rate">НДС от дохода</option>
-</optgroup>
-<optgroup label="📐 Габариты ПЛАН">
-<option value="plan_length">Длина</option><option value="plan_width">Ширина</option><option value="plan_height">Высота</option><option value="plan_volume">Объём, л</option><option value="plan_weight">Вес, гр</option>
-</optgroup>
-<optgroup label="📊 Сезонность">
-<option value="season_jan">янв</option><option value="season_feb">фев</option><option value="season_mar">мар</option><option value="season_apr">апр</option><option value="season_may">май</option><option value="season_jun">июн</option><option value="season_jul">июл</option><option value="season_aug">авг</option><option value="season_sep">сен</option><option value="season_oct">окт</option><option value="season_nov">ноя</option><option value="season_dec">дек</option>
-</optgroup>
-<optgroup label="🔍 ТОП запросы">
-<option value="top_query_1">1</option><option value="top_query_2">2</option><option value="top_query_3">3</option>
-</optgroup>
-<optgroup label="🎯 Расчёты">
-<option value="buyout_niche_pct">% выкупа по кат.</option>
-<option value="mp_correction_pct">Корр. комиссии %</option>
-<option value="ad_plan_rub">Рекл. расходы %</option>
-<option value="supply_days">Скорость достав., дн</option>
-<option value="min_batch_fbo">Мин партия</option>
-<option value="rrc_price">РРЦ</option>
-<option value="min_price">Мин. цена</option>
-
-</optgroup>
-</select>
-<input type="text" id="bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:#fff;color:#333">
-<button onclick="applyBulkEdit()" style="background:#00b894;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer;font-weight:600">✅ Применить</button>
-<button onclick="clearBulkSelection()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer">Снять выделение</button>
-</div>
-
-<div style="margin-top:12px;display:flex;gap:16px;font-size:.85em" id="cost-summary"></div>
-</div>
-
-<div id="page-salesplan" class="page-section">
-<!-- Фильтры -->
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
-<select id="sp-period" onchange="loadSalesPlans()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"></select>
-<select id="sp-type" onchange="loadSalesPlans()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="">Тип: все</option><option value="quantity">Штуки</option><option value="revenue">Сумма</option></select>
-<select id="sp-season" onchange="applySpFilters()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="">Сезонность: все</option><option value="low">Низкая</option><option value="medium">Средняя</option><option value="high">Высокая</option><option value="peak">Пик</option></select>
-<select id="sp-status" onchange="applySpFilters()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="">Статус: все</option><option value="green">🟢 ≥90%</option><option value="yellow">🟡 70-89%</option><option value="red">🔴 <70%</option></select>
-<input type="text" id="sp-search" placeholder="🔍 Артикул / название" oninput="applySpFilters()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:180px">
-<button class="btn" onclick="loadSalesPlans()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
-</div>
-
-<!-- Сводка -->
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px" id="sp-summary-cards">
-<div class="metric-card"><div class="mc-label">План (всего)</div><div class="mc-value" id="sp-total-plan">—</div></div>
-<div class="metric-card"><div class="mc-label">Факт (всего)</div><div class="mc-value" id="sp-total-actual">—</div></div>
-<div class="metric-card"><div class="mc-label">% выполнения</div><div class="mc-value" id="sp-total-pct">—</div></div>
-<div class="metric-card"><div class="mc-label">🟢 Выполняют</div><div class="mc-value" id="sp-green-count">—</div></div>
-<div class="metric-card"><div class="mc-label">🟡 Отстают</div><div class="mc-value" id="sp-yellow-count">—</div></div>
-<div class="metric-card"><div class="mc-label">🔴 Не выполняют</div><div class="mc-value" id="sp-red-count">—</div></div>
-</div>
-
-<!-- Панель действий -->
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
-<button class="btn" onclick="openSpAddModal()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff">➕ Добавить план</button>
-<button class="btn" onclick="openSpBatchModal()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">📋 Массовое назначение</button>
-<span style="font-size:.85em;color:#999" id="sp-count"></span>
-<span style="flex:1"></span>
-<span id="sp-selected-info" style="font-size:.85em;color:#6c5ce7;font-weight:600;display:none">☑ Выделено: <span id="sp-selected-count">0</span></span>
-<button class="btn" onclick="saveAllSpChanges()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff;display:none" id="sp-save-all-btn">💾 Сохранить всё</button>
-</div>
-
-<!-- Таблица -->
-<div style="overflow-x:auto;position:relative">
-<table id="sp-table" style="font-size:.82em"><thead><tr>
-<th style="position:sticky;left:0;z-index:2;background:#fff"><input type="checkbox" id="sp-check-all" onchange="toggleAllSpRows(this.checked)" style="cursor:pointer"></th>
-<th>Фото</th><th>Арт ВБ</th><th>Арт поставщика</th><th>Товар</th><th>Размер</th>
-<th>Период</th><th>Тип плана</th><th>План</th><th>Факт</th><th>% выполн.</th><th>Статус</th>
-<th>Темп продаж</th><th>Сезонность</th><th>Действия</th>
-</tr></thead>
-<tbody id="sp-body"><tr><td colspan="15" class="empty">Загрузка...</td></tr></tbody></table>
-</div>
-
-<!-- Плавающая панель массовых действий -->
-<div id="sp-bulk-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:#6c5ce7;color:#fff;padding:10px 16px;border-radius:8px 8px 0 0;align-items:center;gap:12px;flex-wrap:wrap;z-index:10;box-shadow:0 -2px 10px rgba(0,0,0,.15)">
-<span style="font-weight:600" id="sp-bulk-count">Выделено: 0</span>
-<select id="sp-bulk-field" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333">
-<option value="">Выберите поле...</option>
-<option value="plan_value">План</option>
-<option value="plan_type">Тип плана</option>
-<option value="seasonality">Сезонность</option>
-<option value="actual_value">Факт</option>
-<option value="sales_temp">Темп продаж</option>
-</select>
-<input type="text" id="sp-bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:#fff;color:#333">
-<button onclick="applySpBulkEdit()" style="background:#00b894;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer;font-weight:600">✅ Применить</button>
-<button onclick="clearSpBulkSelection()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer">Снять выделение</button>
-</div>
-</div>
-
-<div id="page-warehouses" class="page-section">
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-<select id="wh-date" onchange="loadWarehouses()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"></select>
-<button class="btn" onclick="loadWarehouses()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
-<label style="font-size:.85em;display:flex;align-items:center;gap:6px"><input type="checkbox" id="wh-sizes" onchange="loadWarehouses()"> Размеры</label>
-</div>
-<div style="overflow-x:auto">
-<table id="wh-table"><thead><tr><th>Арт WB</th><th>Арт продавца</th><th>Товар</th><th>Склад</th><th>Кол-во, шт</th><th>Общая себестоимость</th></tr></thead>
-<tbody id="wh-body"><tr><td colspan="6" class="empty">Выберите дату</td></tr></tbody></table>
-</div>
-<div style="margin-top:12px;font-size:.85em;color:#999" id="wh-count"></div>
-</div>
-
-<div id="page-opexpenses" class="page-section">
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-<button class="btn" onclick="showOpExDialog()" style="padding:6px 14px;font-size:.85em">➕ Добавить</button>
-<div style="font-size:.85em;color:#999;margin-left:auto" id="opex-count"></div>
-</div>
-<table id="opex-table"><thead><tr><th>Дата</th><th>Статья расходов</th><th>Описание</th><th>Сумма ₽</th><th>НДС</th><th>Магазин</th><th></th></tr></thead>
-<tbody id="opex-body"><tr><td colspan="7" class="empty">Нет записей</td></tr></tbody></table>
-
-<div id="opex-dialog" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:100;align-items:center;justify-content:center">
-<div style="background:#fff;padding:24px;border-radius:12px;width:400px;box-shadow:0 4px 20px rgba(0,0,0,.15)">
-<h3 style="color:#6c5ce7;margin-bottom:16px">➕ Операционный расход</h3>
-<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">Дата</label><input type="date" id="opex-date" style="width:100%"></div>
-<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">Статья</label><select id="opex-category" style="width:100%"><option>Аренда</option><option>Зарплата</option><option>Маркетинг</option><option>Логистика</option><option>Упаковка</option><option>Прочее</option></select></div>
-<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">Описание</label><input type="text" id="opex-desc" style="width:100%"></div>
-<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">Сумма ₽</label><input type="number" id="opex-amount" style="width:100%"></div>
-<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">НДС %</label><input type="number" id="opex-vat" placeholder="0" style="width:100%"></div>
-<div style="display:flex;gap:8px;margin-top:16px">
-<button class="btn" onclick="saveOpEx()" style="flex:1">Сохранить</button>
-<button class="btn btn-outline" onclick="hideOpExDialog()" style="flex:1">Отмена</button>
-</div>
-</div>
-</div>
-</div>
-
-
-<!-- ─── РЕКЛАМА ──────────────────────────────────────────── -->
-<template id="tpl-ads">
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
-<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
-<select id="ads-store" onchange="switchAdsStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
-<span style="font-size:.9em;color:#666;margin-left:8px">📅 Период:</span>
-<select id="ads-period" onchange="adsPeriodPreset()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<option value="1">Сегодня</option>
-<option value="2">Вчера</option>
-<option value="7">7 дней</option>
-<option value="14">14 дней</option>
-<option value="30" selected>30 дней</option>
-<option value="60">60 дней</option>
-<option value="custom">📅 Свой</option>
-</select>
-<input type="date" id="ads-date-from" onchange="adsCustomDateChange()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<span style="color:#999;font-size:.85em">—</span>
-<input type="date" id="ads-date-to" onchange="adsCustomDateChange()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<button class="btn" onclick="refreshAds()" style="padding:6px 14px;font-size:.85em">ð Обновить</button>
-<div style="margin-left:auto;font-size:.85em;color:#999" id="ads-updated"></div>
-</div>
-
-<!-- Карточки метрик (сгруппированные) -->
-<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:stretch" id="ads-metrics">
-<!-- Финансы -->
-<div style="display:flex;gap:6px;align-items:stretch">
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Расход</div><div style="font-size:.95em;font-weight:700;color:#e17055" id="ad-spent">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999" title="Доля рекламных расходов от оборота">ДРР %</div><div style="font-size:.95em;font-weight:700;color:#e17055" id="ad-drr">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Баланс</div><div style="font-size:.95em;font-weight:700;color:#2d3436" id="ad-balance">—</div></div>
-</div>
-<div style="width:1px;background:#e0e0e0;margin:0 4px;align-self:stretch"></div>
-<!-- Трафик -->
-<div style="display:flex;gap:6px;align-items:stretch">
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Показы</div><div style="font-size:.95em;font-weight:700;color:#6c5ce7" id="ad-views">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Клики</div><div style="font-size:.95em;font-weight:700;color:#0984e3" id="ad-clicks">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CTR</div><div style="font-size:.95em;font-weight:700;color:#00b894" id="ad-ctr">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CPC</div><div style="font-size:.95em;font-weight:700;color:#fdcb6e" id="ad-cpc">—</div></div>
-</div>
-<div style="width:1px;background:#e0e0e0;margin:0 4px;align-self:stretch"></div>
-<!-- Конверсии -->
-<div style="display:flex;gap:6px;align-items:stretch">
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Заказы</div><div style="font-size:.95em;font-weight:700;color:#00cec9" id="ad-orders">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CR</div><div style="font-size:.95em;font-weight:700;color:#e84393" id="ad-cr">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">В корзину</div><div style="font-size:.95em;font-weight:700;color:#636e72" id="ad-arts-count">—</div></div>
-</div>
-</div>
-<!-- Статистика по дням (на всю ширину, под метриками) -->
-<div style="background:#fff;border-radius:8px;border:1px solid #eee;padding:8px 12px;margin-bottom:8px">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;cursor:pointer" onclick="toggleDailyTable()"><span style="font-size:.78em;font-weight:600;color:#6c5ce7">📅 По дням</span><span style="font-size:.7em;color:#999" id="ads-daily-count"></span><span style="font-size:.7em;color:#999" id="ads-daily-toggle">▼</span></div>
-<div id="ads-daily-wrapper" style="display:none;max-height:180px;overflow-y:auto;font-size:.78em">
-<table id="ads-daily-table" style="width:100%">
-<thead><tr><th style="padding:2px 6px;text-align:left">Дата</th><th style="padding:2px 6px;text-align:right">Расход ₽</th><th style="padding:2px 6px;text-align:right">Показы</th><th style="padding:2px 6px;text-align:right">Клики</th><th style="padding:2px 6px;text-align:right">CTR</th><th style="padding:2px 6px;text-align:right">CPC ₽</th><th style="padding:2px 6px;text-align:right">Заказы</th><th style="padding:2px 6px;text-align:right">CR</th><th style="padding:2px 6px;text-align:right">В корзину</th><th style="padding:2px 6px;text-align:right">ДРР %</th></tr></thead>
-<tbody id="ads-daily-body"><tr><td colspan="9" class="empty" style="padding:4px">Загрузка...</td></tr></tbody>
-</table>
-</div>
-</div>
-
-<!-- Переключалка вида + фильтры статусов в одну строку -->
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-<button id="ads-view-rk" class="ads-view-btn active" onclick="switchAdsView('rk')" style="padding:4px 12px;border:1px solid #6c5ce7;background:#6c5ce7;color:#fff;border-radius:6px;font-size:.8em;cursor:pointer;font-weight:600">📊 По РК</button>
-<button id="ads-view-art" class="ads-view-btn" onclick="switchAdsView('art')" style="padding:4px 12px;border:1px solid #ddd;background:#fff;color:#333;border-radius:6px;font-size:.8em;cursor:pointer;font-weight:600">📦 По артикулам</button>
-<span style="width:1px;height:20px;background:#ddd;margin:0 4px"></span>
-<button class="ads-status-btn" data-status="7" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #00b894;background:#00b894;color:#fff;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">🟢 Активные</button>
-<button class="ads-status-btn" data-status="9" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #fdcb6e;background:#fdcb6e;color:#fff;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">⏸ Приостановл.</button>
-<button class="ads-status-btn" data-status="11" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #dfe6e9;background:#fff;color:#636e72;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">✅ Завершённые</button>
-<span style="width:1px;height:20px;background:#ddd;margin:0 4px"></span>
-<select id="ads-flt-status" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется</option></select>
-<select id="ads-flt-class" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Класс: все</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select>
-<select id="ads-flt-brand" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Бренд: все</option></select>
-<input type="text" id="ads-flt-search" placeholder="🔍 Поиск" oninput="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em;width:140px">
-<button onclick="resetAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 8px;font-size:.82em;background:#fff;cursor:pointer">✕</button>
-<span style="font-size:.8em;color:#999" id="ads-filter-count"></span>
-</div>
-
-<!-- Таблицы: артикулы / кампании -->
-<div id="ads-arts-container" style="display:none">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-<button class="btn btn-outline" onclick="exportAdsArtsExcel()" style="padding:3px 10px;font-size:.78em">📥 Excel</button>
-<span style="font-size:.8em;color:#999" id="ads-arts-count"></span>
-</div>
-<div id="ads-arts-tabulator"></div>
-</div>
-<div id="ads-rk-container">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-<button class="btn btn-outline" onclick="exportAdsExcel()" style="padding:3px 10px;font-size:.78em">📥 Excel</button>
-<span style="font-size:.8em;color:#999" id="ads-camp-count"></span>
-</div>
-<div id="ads-campaigns-tabulator"></div>
-</div><!-- end ads-rk-container -->
-
-<!-- Модал детализации РК -->
-<div id="ads-detail-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center" onclick="if(event.target===this)closeAdsDetailModal()">
-<div style="background:#fff;border-radius:12px;padding:24px;width:700px;max-width:90vw;max-height:85vh;overflow-y:auto">
-<button onclick="closeAdsDetailModal()" style="float:right;border:none;background:none;font-size:1.2em;cursor:pointer;color:#999">✕</button>
-<div id="ads-detail-content"></div>
-</div>
-</div>
-
-<!-- По дням перенесён выше в блок метрик -->
-
-</div></template>
-<div id="page-ads" class="page-section"></div><div id="page-marketer" class="page-section">
-<!-- Верхняя панель: магазин + период + фильтры -->
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
-<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
-<select id="mkt-store" onchange="switchMktStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
-<span style="font-size:.9em;color:#666;margin-left:8px">📅 Период:</span>
-<select id="mkt-period" onchange="loadMarketer()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<option value="7">7 дней</option>
-<option value="14">14 дней</option>
-<option value="30" selected>30 дней</option>
-<option value="60">60 дней</option>
-</select>
-<button class="btn" onclick="loadMarketer()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
-</div>
-
-<!-- Фильтры -->
-<div id="mkt-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
-<label style="color:#666;font-weight:600">Фильтры:</label>
-<select id="mkt-flt-status" onchange="filterMarketer()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется</option></select>
-<select id="mkt-flt-class" onchange="filterMarketer()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select>
-<select id="mkt-flt-brand" onchange="filterMarketer()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
-<input type="text" id="mkt-flt-search" placeholder="🔍 Поиск по артикулу / названию" oninput="filterMarketer()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
-<button onclick="resetMktFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 10px;font-size:.9em;background:#fff;cursor:pointer">✕ Сбросить</button>
-<span style="margin-left:auto;font-size:.85em;color:#999" id="mkt-count"></span>
-</div>
-
-<!-- Список товаров -->
-<div id="mkt-products-list"></div>
-
-<!-- Карточка товара (скрыта по умолчанию) -->
-<div id="mkt-product-detail" style="display:none">
-<button onclick="closeMktDetail()" style="margin-bottom:12px;padding:6px 14px;font-size:.85em;background:#fff;border:1px solid #ddd;border-radius:6px;cursor:pointer">← Назад к списку</button>
-<div id="mkt-detail-content"></div>
-</div>
-</div>
-
-
-<div id="page-extads" class="page-section">
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
-<select id="ext-type" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<option value="">Все типы</option><option value="ad">Реклама</option><option value="buyout">Самовыкуп</option></select>
-<select id="ext-source" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:140px"><option value="">Все источники</option></select>
-<input type="date" id="ext-date-from" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<input type="date" id="ext-date-to" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<input type="text" id="ext-search" placeholder="🔍 Поиск..." oninput="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:160px">
-<span style="flex:1"></span>
-<button class="btn" onclick="showExtAdModal()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff">➕ Добавить</button>
-<button class="btn" onclick="loadExtAds()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
-</div>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">
-<div style="background:#fff;border-radius:8px;padding:12px;text-align:center;border:1px solid #e0e0e0"><div style="font-size:1.4em;font-weight:700;color:#6c5ce7" id="ext-total-count">0</div><div style="font-size:.75em;color:#999">Всего записей</div></div>
-<div style="background:#fff;border-radius:8px;padding:12px;text-align:center;border:1px solid #e0e0e0"><div style="font-size:1.4em;font-weight:700;color:#e17055" id="ext-total-amount">0 ₽</div><div style="font-size:.75em;color:#999">Общая сумма</div></div>
-<div style="background:#fff;border-radius:8px;padding:12px;text-align:center;border:1px solid #e0e0e0"><div style="font-size:1.4em;font-weight:700;color:#00b894" id="ext-total-orders">0</div><div style="font-size:.75em;color:#999">Заказов</div></div>
-<div style="background:#fff;border-radius:8px;padding:12px;text-align:center;border:1px solid #e0e0e0"><div style="font-size:1.4em;font-weight:700;color:#0984e3" id="ext-total-reach">0</div><div style="font-size:.75em;color:#999">Охват</div></div>
-</div>
-<div style="overflow-x:auto;position:relative">
-<table id="ext-table" style="font-size:.82em"><thead><tr>
-<th style="position:sticky;left:0;z-index:2;background:#fff"><input type="checkbox" id="ext-check-all" onchange="toggleAllExtRows(this.checked)"></th>
-<th>Фото</th><th>Артикул</th><th>Арт WB</th><th>Арт продавца</th><th>Товар</th>
-<th>Карточка</th><th>Подменная</th><th>UTM</th>
-<th>Источник</th><th>Запрос</th><th>Дата</th>
-<th>Охват</th><th>Сумма ₽</th><th>Заказы</th><th>Заказов/нед</th>
-<th>Тип</th><th>Заметки</th><th>⚡</th>
-</tr></thead>
-<tbody id="ext-body"><tr><td colspan="20" class="empty">Нажмите "Добавить" для создания записи</td></tr></tbody></table>
-</div>
-<div id="ext-bulk-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:#6c5ce7;color:#fff;padding:10px 16px;border-radius:8px 8px 0 0;align-items:center;gap:12px;flex-wrap:wrap;z-index:10;box-shadow:0 -2px 10px rgba(0,0,0,.15)">
-<span style="font-weight:600" id="ext-bulk-count">Выделено: 0</span>
-<select id="ext-bulk-field" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333">
-<option value="">Поле...</option><option value="source">Источник</option><option value="ad_type">Тип</option><option value="amount">Сумма</option><option value="notes">Заметки</option></select>
-<input type="text" id="ext-bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:#fff;color:#333">
-<button onclick="applyExtBulkEdit()" style="background:#00b894;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer;font-weight:600">✅ Применить</button>
-<button onclick="clearExtBulkSelection()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer">Снять</button>
-</div>
-</div>
-
-<div id="ext-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center">
-<div style="background:#fff;border-radius:12px;padding:24px;width:600px;max-width:90vw;max-height:85vh;overflow-y:auto">
-<h3 id="ext-modal-title" style="margin-bottom:16px;color:#1a1a2e">Добавить запись</h3>
-<input type="hidden" id="ext-edit-id">
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-<div><label style="font-size:.85em;color:#666">Артикул WB (nm_id)</label><input type="number" id="ext-nm-id" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px" oninput="extAutoFill()"></div>
-<div><label style="font-size:.85em;color:#666">Арт продавца</label><input type="text" id="ext-vendor-code" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
-<div><label style="font-size:.85em;color:#666">Артикул (свой)</label><input type="text" id="ext-article" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
-<div><label style="font-size:.85em;color:#666">Тип</label><select id="ext-ad-type" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"><option value="ad">Реклама</option><option value="buyout">Самовыкуп</option></select></div>
-<div><label style="font-size:.85em;color:#666">Источник</label><input type="text" id="ext-source-input" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px" placeholder="Telegram-канал, блогер..."></div>
-<div><label style="font-size:.85em;color:#666">Запрос</label><input type="text" id="ext-query" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
-<div><label style="font-size:.85em;color:#666">Дата</label><input type="date" id="ext-ad-date" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
-<div><label style="font-size:.85em;color:#666">Охват</label><input type="number" id="ext-reach" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
-<div><label style="font-size:.85em;color:#666">Сумма ₽</label><input type="number" step="0.01" id="ext-amount" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
-<div><label style="font-size:.85em;color:#666">Заказов</label><input type="number" id="ext-orders-count" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
-<div><label style="font-size:.85em;color:#666">Заказов/нед (ср.)</label><input type="number" step="0.01" id="ext-orders-avg" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
-<div><label style="font-size:.85em;color:#666">Фото (URL)</label><input type="text" id="ext-photo-url" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
-<div style="grid-column:span 2"><label style="font-size:.85em;color:#666">Подменная ссылка</label><input type="text" id="ext-sub-url" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
-<div style="grid-column:span 2"><label style="font-size:.85em;color:#666">UTM ссылка</label><input type="text" id="ext-utm-url" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
-<div style="grid-column:span 2"><label style="font-size:.85em;color:#666">Заметки</label><textarea id="ext-notes" rows="2" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px;resize:vertical"></textarea></div>
-</div>
-<div style="display:flex;gap:12px;margin-top:16px;justify-content:flex-end">
-<button onclick="closeExtAdModal()" style="padding:8px 16px;border:1px solid #e0e0e0;border-radius:6px;cursor:pointer;font-size:.9em">Отмена</button>
-<button onclick="saveExtAd()" style="padding:8px 16px;background:#6c5ce7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:.9em;font-weight:600">💾 Сохранить</button>
-</div>
-</div>
-</div>
-
-<div id="page-fboneeds" class="page-section">
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;background:#f8f9fb;padding:10px 16px;border-radius:8px">
-<select id="fbo-warehouse-filter" onchange="filterFboTable()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:160px"><option value="">Все склады</option></select>
-<select id="fbo-period" onchange="loadFboNeeds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<option value="7">7 дней</option><option value="14" selected>14 дней</option><option value="21">21 день</option><option value="30">30 дней</option></select>
-<label style="font-size:.85em;color:#666;display:flex;align-items:center;gap:4px"><input type="checkbox" id="fbo-only-needs" onchange="filterFboTable()" checked> Только с потребностью</label>
-</div>
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-<button class="btn" onclick="loadFboNeeds()" style="padding:6px 14px;font-size:.85em">🔄 Рассчитать</button>
-<input type="text" id="fbo-search" placeholder="🔍 Поиск по артикулу/названию" oninput="filterFboTable()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:240px">
-<button class="btn btn-outline" onclick="exportFboExcel()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
-<span style="font-size:.85em;color:#999;margin-left:auto" id="fbo-count"></span>
-<button class="btn" onclick="saveFboEdits()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
-</div>
-<div style="overflow-x:auto;max-height:65vh;position:relative">
-<table id="fbo-table" style="font-size:.82em"><thead><tr>
-<th>Фото</th><th>Арт WB</th><th>Товар</th><th>Размер</th><th>Склад</th>
-<th class="r">Остаток</th><th class="r">Заказов</th><th class="r">Темп/день</th>
-<th class="r">Дней до 0</th><th>Срок поставки</th><th>Мин. партия</th>
-<th class="r" style="background:#ffeaa7">Потребность</th>
-<th class="r" style="background:#fdcb6e;color:#d63031;font-weight:700">✏ К отправке</th>
-</tr></thead>
-<tbody id="fbo-body"><tr><td colspan="13" class="empty">Нажмите «Рассчитать» для загрузки данных</td></tr></tbody>
-</table>
-</div>
-</div>
-
-<div id="page-unitecon" class="page-section">
-<!-- Верхняя панель: магазин (как в Справочнике) -->
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
-<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
-<select id="ue-store" onchange="switchUEStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
-</div>
-
-<!-- Фильтры по столбцам (как в Справочнике) -->
-<div id="ue-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
-<label style="color:#666;font-weight:600">Фильтры:</label>
-<select id="ue-flt-status" onchange="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется</option></select>
-<select id="ue-flt-class" onchange="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select>
-<select id="ue-flt-brand" onchange="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
-<select id="ue-flt-ff" onchange="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
-<input type="text" id="ue-flt-search" placeholder="🔍 Поиск по названию / артикулу" oninput="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
-<button onclick="resetUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 10px;font-size:.9em;background:#fff;cursor:pointer">✕ Сбросить</button>
-</div>
-
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-<button class="btn" onclick="loadUEData()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
-<button class="btn" id="btn-refresh-prices" onclick="refreshPricesFromWB()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff" disabled>💱 Цены из WB...</button>
-<button class="btn btn-outline" onclick="exportUEExcel()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
-<span style="font-size:.85em;color:#999;margin-left:auto" id="ue-count"></span>
-<button class="btn" onclick="saveUEData()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
-</div>
-
-<div id="ue-tabulator" style="overflow-x:auto;max-height:70vh"></div>
-
-<div style="margin-top:12px;display:flex;gap:16px;font-size:.85em;flex-wrap:wrap" id="ue-summary"></div>
-</div>
-
-<div id="page-promo" class="page-section">
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
-<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
-<select id="promo-store" onchange="switchPromoStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
-</div>
-<div id="promo-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
-<label style="color:#666;font-weight:600">Фильтры:</label>
-<select id="promo-flt-action" onchange="applyPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Акция: все</option></select>
-<select id="promo-flt-status" onchange="applyPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Участие: все</option><option value="in">В акции</option><option value="plan">План</option><option value="out">Не участвует</option></select>
-<select id="promo-flt-brand" onchange="applyPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
-<input type="text" id="promo-flt-search" placeholder="🔍 Поиск по названию / артикулу" oninput="applyPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
-<button onclick="resetPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 10px;font-size:.9em;background:#fff;cursor:pointer">✕ Сбросить</button>
-</div>
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-<button class="btn" onclick="loadPromoData()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
-<button class="btn btn-outline" onclick="exportPromoExcel()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
-<button class="btn btn-outline" onclick="document.getElementById('promo-upload-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить шаблон</button>
-<input type="file" id="promo-upload-input" accept=".xlsx,.xls" style="display:none" onchange="uploadPromoTemplate(this)">
-<button class="btn" onclick="savePromoData()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
-<span style="font-size:.85em;color:#999;margin-left:auto" id="promo-count"></span>
-</div>
-<div id="promo-tabulator" style="overflow-x:auto;max-height:70vh"></div>
-<div style="margin-top:12px;display:flex;gap:16px;font-size:.85em;flex-wrap:wrap" id="promo-summary"></div>
-</div>
-
-
-<div id="page-connectors" class="page-section">
-<div style="max-width:700px;margin:0 auto;padding:20px">
-<h3 style="color:#6c5ce7;margin-bottom:16px">🔌 Подключения</h3>
-
-<!-- Profile -->
-<div style="background:#fff;border-radius:8px;padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px;display:flex;align-items:center;gap:12px">
-<div style="width:40px;height:40px;border-radius:50%;background:#6c5ce7;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.2em;font-weight:700" id="profile-avatar">?</div>
-<div>
-<div style="font-weight:600" id="profile-email">Загрузка...</div>
-<div style="font-size:.85em;color:#666" id="profile-summary"></div>
-</div>
-</div>
-
-<!-- My shops -->
-<div style="margin-bottom:16px">
-<div style="font-weight:600;margin-bottom:10px;font-size:1.05em">🏪 Мои магазины</div>
-<div id="shops-list">Загрузка...</div>
-</div>
-
-<!-- Add new shop -->
-<div style="background:#fff;border-radius:8px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px;border-left:4px solid #6c5ce7">
-<div style="font-weight:600;margin-bottom:12px;font-size:1.1em">➕ Подключить новый магазин</div>
-<div style="margin-bottom:10px">
-<input type="text" id="new-shop-name" placeholder="Название магазина" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box">
-</div>
-<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-<input type="text" id="new-shop-key" placeholder="API ключ WB (JWT токен)" style="flex:1;min-width:300px;padding:8px 12px;border:1px solid #ddd;border-radius:6px">
-<button class="btn" onclick="connectNewShop()" id="btn-connect-shop" style="background:#6c5ce7;color:#fff;padding:8px 20px;border-radius:6px;border:none;cursor:pointer;font-weight:600">Подключить</button>
-</div>
-<p style="color:#999;font-size:.8em;margin-top:4px">Кабинет WB → Настройки → Доступ к API → Создать токен</p>
-<div id="connect-status" style="display:none;margin-top:10px;padding:10px;border-radius:6px;font-size:.9em"></div>
-</div>
-
-<!-- Invite colleague -->
-<div style="background:#fff;border-radius:8px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px;border-left:4px solid #00b894">
-<div style="font-weight:600;margin-bottom:12px;font-size:1.1em">👥 Пригласить коллегу</div>
-<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-<input type="email" id="invite-email" placeholder="Email коллеги" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid #ddd;border-radius:6px">
-<select id="invite-role" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px">
-<option value="VIEWER">Просмотр (VIEWER)</option>
-<option value="ADMIN">Администратор (ADMIN)</option>
-</select>
-<select id="invite-org" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px">
-<option value="">Выберите магазин</option>
-</select>
-<button class="btn" onclick="inviteColleague()" style="background:#00b894;color:#fff;padding:8px 20px;border-radius:6px;border:none;cursor:pointer;font-weight:600">Пригласить</button>
-</div>
-<div id="invite-status" style="display:none;margin-top:10px;padding:10px;border-radius:6px;font-size:.9em"></div>
-</div>
-
-</div>
-</div>
-
-<div id="page-subscription" class="page-section">
-<div style="max-width:900px;margin:0 auto;padding:20px;text-align:center">
-<h3 style="color:#6c5ce7;margin-bottom:24px">Тарифные планы</h3>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px">
-<div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
-<h4>Новичок</h4><div style="font-size:1.5em;font-weight:700;color:#6c5ce7;margin:12px 0">990 ₽/мес</div>
-<ul style="text-align:left;font-size:.85em;color:#666;list-style:none;padding:0"><li>✅ 1 магазин</li><li>✅ Дашборд + ОПиУ</li><li>✅ Аналитика по товарам</li></ul>
-<button class="btn" style="width:100%;margin-top:12px">Выбрать</button>
-</div>
-<div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);border:2px solid #6c5ce7">
-<h4>Старт ⭐</h4><div style="font-size:1.5em;font-weight:700;color:#6c5ce7;margin:12px 0">1490 ₽/мес</div>
-<ul style="text-align:left;font-size:.85em;color:#666;list-style:none;padding:0"><li>✅ 2 магазина</li><li>✅ Всё из Новичок</li><li>✅ РНП + Склады</li></ul>
-<button class="btn" style="width:100%;margin-top:12px">Выбрать</button>
-</div>
-<div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
-<h4>Бизнес</h4><div style="font-size:1.5em;font-weight:700;color:#6c5ce7;margin:12px 0">3990 ₽/мес</div>
-<ul style="text-align:left;font-size:.85em;color:#666;list-style:none;padding:0"><li>✅ 5 магазинов</li><li>✅ Всё из Старт</li><li>✅ Приоритетная поддержка</li></ul>
-<button class="btn" style="width:100%;margin-top:12px">Выбрать</button>
-</div>
-</div>
-</div>
-</div>
-
-<div id="page-help" class="page-section">
-<div style="max-width:600px;margin:0 auto;padding:40px;text-align:center;color:#999"><div style="font-size:3em;margin-bottom:16px">❓</div><h3>Помощь</h3><p>support@nl-table.ru</p></div>
-</div>
-
-<div id="page-settings" class="page-section">
-<h3 style="margin-bottom:12px;color:#6c5ce7">🔑 WB API ключи</h3>
-<div id="seller-id-display" style="margin-bottom:12px;font-size:.9em;color:#666"></div>
-<div id="wb-keys-list"></div>
-<div style="margin-top:16px;padding:16px;background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
-<h4 style="margin-bottom:10px">Добавить ключ</h4>
-<div style="display:flex;gap:8px;flex-wrap:wrap">
-<input type="text" id="wb-key-name" placeholder="Название" style="width:150px">
-<input type="text" id="wb-key-value" placeholder="API ключ WB" style="flex:1;min-width:200px">
-<button class="btn" onclick="addWbKey()">Добавить</button>
-</div>
-<p style="color:#999;font-size:.8em;margin-top:8px">Получить ключ: Кабинет WB → Настройки → Доступ к API</p>
-</div>
-</div>
-</div>
-</div>
-
-<!-- New org dialog -->
-<div id="new-org-dialog" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:100;display:none;align-items:center;justify-content:center">
-<div style="background:#fff;padding:24px;border-radius:12px;width:360px;box-shadow:0 4px 20px rgba(0,0,0,.15)">
-<h3 style="color:#6c5ce7;margin-bottom:12px">Новый магазин</h3>
-<input type="text" id="new-org-name" placeholder="Название магазина" style="width:100%;margin-bottom:12px">
-<div style="display:flex;gap:8px">
-<button class="btn" onclick="createNewOrg()" style="flex:1">Создать</button>
-<button class="btn btn-outline" onclick="hideNewOrgDialog()" style="flex:1">Отмена</button>
-</div>
-</div>
-</div>
-
-</div>
-</div>
 
 <script>
 function esc(s) { return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
@@ -6455,62 +5789,751 @@ var _sectionRegistry = {
 };
 
 // Загрузчик данных для каждой секции (lazy init + data fetch)
+
+// === Lazy Loading Section Store ===
+var _sectionHTML = {
+    'opiu': `
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+<select id="opiu-period" onchange="loadOpiu()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<option value="4">Последние 4 недели</option><option value="8">8 недель</option><option value="12">12 недель</option>
+</select>
+<button class="btn" onclick="loadOpiu()" style="padding:6px 14px;font-size:.85em">🔄</button>
+<button class="btn btn-outline" onclick="exportOpiu()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
+</div>
+<table id="opiu-table"><thead><tr><th>Статья</th><th>Итого</th><th>%</th></tr></thead>
+<tbody id="opiu-body"><tr><td colspan="3" class="empty">Нажмите обновить</td></tr></tbody></table>
+`,
+    'costprice': `
+<!-- Верхняя панель: текущий магазин -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
+<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
+<select id="cp-store" onchange="switchCostStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
+</div>
+
+
+<!-- Налоговые настройки кабинета -->
+<div id="tax-settings-panel" style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding:12px 16px;background:#fff;border:1px solid #e0e0e0;border-radius:8px;flex-wrap:wrap">
+<div style="display:flex;align-items:center;gap:8px">
+<label style="font-size:.85em;color:#333;font-weight:600;white-space:nowrap">Вид налогообложения</label>
+<select id="tax-system-select" onchange="onTaxSystemChange()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 10px;font-size:.9em;min-width:180px">
+<option value="">— не выбрано —</option>
+<option value="УСН Доходы">УСН "Доходы"</option>
+<option value="УСН Доходы-Расходы">УСН "Доходы-Расходы"</option>
+<option value="ОСНО">ОСНО</option>
+<option value="АУСН Доходы">АУСН "Доходы"</option>
+<option value="АУСН Доходы-Расходы">АУСН "Доходы-Расходы"</option>
+</select>
+<input type="number" id="tax-rate-input" placeholder="% ставки" step="0.01" min="0" max="100" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 10px;font-size:.9em;width:80px">
+</div>
+<div style="display:flex;align-items:center;gap:8px;margin-left:24px">
+<label style="font-size:.85em;color:#333;font-weight:600;white-space:nowrap">НДС от дохода</label>
+<select id="vat-type-select" onchange="onTaxSettingsChange()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 10px;font-size:.9em;min-width:100px">
+<option value="нет">нет</option>
+<option value="5%">5%</option>
+<option value="7%">7%</option>
+</select>
+</div>
+<button id="tax-apply-btn" onclick="applyTaxToAll()" title="Применить налоги ко всем строкам" style="padding:6px 10px;font-size:.85em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px">📋 Применить ко всему</button>
+<button id="tax-lock-btn" onclick="toggleTaxLock()" title="Заблокировать/разблокировать" style="padding:6px 10px;font-size:1.2em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px;transition:all .2s">🔒</button>
+<button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить Excel</button>
+<input type="file" id="cost-file-input" accept=".xlsx,.csv" style="display:none" onchange="uploadCostExcel(this)">
+<button class="btn btn-outline" onclick="downloadEmptyTemplate()" style="padding:6px 14px;font-size:.85em">📥 Скачать шаблон</button>
+<button class="btn btn-outline" onclick="exportCostTemplate()" style="padding:6px 14px;font-size:.85em">📤 Экспорт данных</button>
+<span style="font-size:.85em;color:#999" id="cost-count"></span>
+<button class="btn" onclick="autoFillReference()" style="padding:5px 12px;font-size:.82em;background:#6c5ce7;color:#fff;border-radius:4px">🔄 Автозаполнение</button>
+<button class="btn" onclick="saveAllCostPrices()" style="padding:7px 16px;font-size:.88em;background:#00b894;color:#fff;font-weight:600;border-radius:6px">СОХРАНИТЬ<br><span style="font-size:.65em;font-weight:400;opacity:.7">отправить на сервер</span></button>
+<span style="flex:1"></span>
+<span id="cost-selected-info" style="font-size:.85em;color:#6c5ce7;font-weight:600;display:none">☑ Выделено: <span id="cost-selected-count">0</span></span>
+</div>
+
+<!-- Фильтры по столбцам -->
+<div id="cost-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
+<label style="color:#666;font-weight:600">Фильтры:</label>
+<select id="flt-fulfillment" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
+<select id="flt-tax-system" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Налог. система: все</option><option value="usn">УСН</option><option value="usn_dr">Доходы-Расходы</option><option value="osn">ОСН</option></select>
+<select id="flt-product-class" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option></select>
+<select id="flt-brand" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
+<select id="flt-product-status" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется к запуску</option></select>
+<select id="flt-has-cost" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
+<input type="text" id="cost-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
+<button onclick="clearCostFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сбросить</button>
+</div>
+
+<!-- Таблица -->
+<div id="cost-tabulator-host"></div>
+
+<!-- Плавающая панель массовых действий -->
+<div id="cost-bulk-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:#6c5ce7;color:#fff;padding:10px 16px;border-radius:8px 8px 0 0;display:none;align-items:center;gap:12px;flex-wrap:wrap;z-index:10;box-shadow:0 -2px 10px rgba(0,0,0,.15)">
+<span style="font-weight:600" id="bulk-bar-count">Выделено: 0</span>
+<select id="bulk-field" onchange="onBulkFieldChange()" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333">
+<option value="">Выберите поле...</option>
+<optgroup label="📌 Основное">
+<option value="product_status">Статус товара</option>
+<option value="product_class">Класс товара</option>
+<option value="brand">Бренд</option>
+</optgroup>
+<optgroup label="🚚 Логистика">
+<option value="fulfillment_model">Отгрузка</option>
+<option value="fbs_warehouse">Склад FBS</option>
+</optgroup>
+<optgroup label="💰 Себестоимость">
+<option value="cost_price">Себестоимость ₽</option>
+<option value="extra_costs">Доп расходы ₽</option>
+<option value="vat_rate">НДС от дохода</option>
+</optgroup>
+<optgroup label="📐 Габариты ПЛАН">
+<option value="plan_length">Длина</option><option value="plan_width">Ширина</option><option value="plan_height">Высота</option><option value="plan_volume">Объём, л</option><option value="plan_weight">Вес, гр</option>
+</optgroup>
+<optgroup label="📊 Сезонность">
+<option value="season_jan">янв</option><option value="season_feb">фев</option><option value="season_mar">мар</option><option value="season_apr">апр</option><option value="season_may">май</option><option value="season_jun">июн</option><option value="season_jul">июл</option><option value="season_aug">авг</option><option value="season_sep">сен</option><option value="season_oct">окт</option><option value="season_nov">ноя</option><option value="season_dec">дек</option>
+</optgroup>
+<optgroup label="🔍 ТОП запросы">
+<option value="top_query_1">1</option><option value="top_query_2">2</option><option value="top_query_3">3</option>
+</optgroup>
+<optgroup label="🎯 Расчёты">
+<option value="buyout_niche_pct">% выкупа по кат.</option>
+<option value="mp_correction_pct">Корр. комиссии %</option>
+<option value="ad_plan_rub">Рекл. расходы %</option>
+<option value="supply_days">Скорость достав., дн</option>
+<option value="min_batch_fbo">Мин партия</option>
+<option value="rrc_price">РРЦ</option>
+<option value="min_price">Мин. цена</option>
+
+</optgroup>
+</select>
+<input type="text" id="bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:#fff;color:#333">
+<button onclick="applyBulkEdit()" style="background:#00b894;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer;font-weight:600">✅ Применить</button>
+<button onclick="clearBulkSelection()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer">Снять выделение</button>
+</div>
+
+<div style="margin-top:12px;display:flex;gap:16px;font-size:.85em" id="cost-summary"></div>
+`,
+    'salesplan': `
+<!-- Фильтры -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
+<select id="sp-period" onchange="loadSalesPlans()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"></select>
+<select id="sp-type" onchange="loadSalesPlans()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="">Тип: все</option><option value="quantity">Штуки</option><option value="revenue">Сумма</option></select>
+<select id="sp-season" onchange="applySpFilters()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="">Сезонность: все</option><option value="low">Низкая</option><option value="medium">Средняя</option><option value="high">Высокая</option><option value="peak">Пик</option></select>
+<select id="sp-status" onchange="applySpFilters()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"><option value="">Статус: все</option><option value="green">🟢 ≥90%</option><option value="yellow">🟡 70-89%</option><option value="red">🔴 <70%</option></select>
+<input type="text" id="sp-search" placeholder="🔍 Артикул / название" oninput="applySpFilters()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:180px">
+<button class="btn" onclick="loadSalesPlans()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+</div>
+
+<!-- Сводка -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px" id="sp-summary-cards">
+<div class="metric-card"><div class="mc-label">План (всего)</div><div class="mc-value" id="sp-total-plan">—</div></div>
+<div class="metric-card"><div class="mc-label">Факт (всего)</div><div class="mc-value" id="sp-total-actual">—</div></div>
+<div class="metric-card"><div class="mc-label">% выполнения</div><div class="mc-value" id="sp-total-pct">—</div></div>
+<div class="metric-card"><div class="mc-label">🟢 Выполняют</div><div class="mc-value" id="sp-green-count">—</div></div>
+<div class="metric-card"><div class="mc-label">🟡 Отстают</div><div class="mc-value" id="sp-yellow-count">—</div></div>
+<div class="metric-card"><div class="mc-label">🔴 Не выполняют</div><div class="mc-value" id="sp-red-count">—</div></div>
+</div>
+
+<!-- Панель действий -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+<button class="btn" onclick="openSpAddModal()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff">➕ Добавить план</button>
+<button class="btn" onclick="openSpBatchModal()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">📋 Массовое назначение</button>
+<span style="font-size:.85em;color:#999" id="sp-count"></span>
+<span style="flex:1"></span>
+<span id="sp-selected-info" style="font-size:.85em;color:#6c5ce7;font-weight:600;display:none">☑ Выделено: <span id="sp-selected-count">0</span></span>
+<button class="btn" onclick="saveAllSpChanges()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff;display:none" id="sp-save-all-btn">💾 Сохранить всё</button>
+</div>
+
+<!-- Таблица -->
+<div style="overflow-x:auto;position:relative">
+<table id="sp-table" style="font-size:.82em"><thead><tr>
+<th style="position:sticky;left:0;z-index:2;background:#fff"><input type="checkbox" id="sp-check-all" onchange="toggleAllSpRows(this.checked)" style="cursor:pointer"></th>
+<th>Фото</th><th>Арт ВБ</th><th>Арт поставщика</th><th>Товар</th><th>Размер</th>
+<th>Период</th><th>Тип плана</th><th>План</th><th>Факт</th><th>% выполн.</th><th>Статус</th>
+<th>Темп продаж</th><th>Сезонность</th><th>Действия</th>
+</tr></thead>
+<tbody id="sp-body"><tr><td colspan="15" class="empty">Загрузка...</td></tr></tbody></table>
+</div>
+
+<!-- Плавающая панель массовых действий -->
+<div id="sp-bulk-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:#6c5ce7;color:#fff;padding:10px 16px;border-radius:8px 8px 0 0;align-items:center;gap:12px;flex-wrap:wrap;z-index:10;box-shadow:0 -2px 10px rgba(0,0,0,.15)">
+<span style="font-weight:600" id="sp-bulk-count">Выделено: 0</span>
+<select id="sp-bulk-field" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333">
+<option value="">Выберите поле...</option>
+<option value="plan_value">План</option>
+<option value="plan_type">Тип плана</option>
+<option value="seasonality">Сезонность</option>
+<option value="actual_value">Факт</option>
+<option value="sales_temp">Темп продаж</option>
+</select>
+<input type="text" id="sp-bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:#fff;color:#333">
+<button onclick="applySpBulkEdit()" style="background:#00b894;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer;font-weight:600">✅ Применить</button>
+<button onclick="clearSpBulkSelection()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer">Снять выделение</button>
+</div>
+`,
+    'warehouses': `
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<select id="wh-date" onchange="loadWarehouses()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"></select>
+<button class="btn" onclick="loadWarehouses()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+<label style="font-size:.85em;display:flex;align-items:center;gap:6px"><input type="checkbox" id="wh-sizes" onchange="loadWarehouses()"> Размеры</label>
+</div>
+<div style="overflow-x:auto">
+<table id="wh-table"><thead><tr><th>Арт WB</th><th>Арт продавца</th><th>Товар</th><th>Склад</th><th>Кол-во, шт</th><th>Общая себестоимость</th></tr></thead>
+<tbody id="wh-body"><tr><td colspan="6" class="empty">Выберите дату</td></tr></tbody></table>
+</div>
+<div style="margin-top:12px;font-size:.85em;color:#999" id="wh-count"></div>
+`,
+    'opexpenses': `
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<button class="btn" onclick="showOpExDialog()" style="padding:6px 14px;font-size:.85em">➕ Добавить</button>
+<div style="font-size:.85em;color:#999;margin-left:auto" id="opex-count"></div>
+</div>
+<table id="opex-table"><thead><tr><th>Дата</th><th>Статья расходов</th><th>Описание</th><th>Сумма ₽</th><th>НДС</th><th>Магазин</th><th></th></tr></thead>
+<tbody id="opex-body"><tr><td colspan="7" class="empty">Нет записей</td></tr></tbody></table>
+
+<div id="opex-dialog" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:100;align-items:center;justify-content:center">
+<div style="background:#fff;padding:24px;border-radius:12px;width:400px;box-shadow:0 4px 20px rgba(0,0,0,.15)">
+<h3 style="color:#6c5ce7;margin-bottom:16px">➕ Операционный расход</h3>
+<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">Дата</label><input type="date" id="opex-date" style="width:100%"></div>
+<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">Статья</label><select id="opex-category" style="width:100%"><option>Аренда</option><option>Зарплата</option><option>Маркетинг</option><option>Логистика</option><option>Упаковка</option><option>Прочее</option></select></div>
+<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">Описание</label><input type="text" id="opex-desc" style="width:100%"></div>
+<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">Сумма ₽</label><input type="number" id="opex-amount" style="width:100%"></div>
+<div style="margin-bottom:10px"><label style="font-size:.8em;color:#666">НДС %</label><input type="number" id="opex-vat" placeholder="0" style="width:100%"></div>
+<div style="display:flex;gap:8px;margin-top:16px">
+<button class="btn" onclick="saveOpEx()" style="flex:1">Сохранить</button>
+<button class="btn btn-outline" onclick="hideOpExDialog()" style="flex:1">Отмена</button>
+</div>
+</div>
+</div>
+`,
+    'marketer': `
+<!-- Верхняя панель: магазин + период + фильтры -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
+<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
+<select id="mkt-store" onchange="switchMktStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
+<span style="font-size:.9em;color:#666;margin-left:8px">📅 Период:</span>
+<select id="mkt-period" onchange="loadMarketer()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<option value="7">7 дней</option>
+<option value="14">14 дней</option>
+<option value="30" selected>30 дней</option>
+<option value="60">60 дней</option>
+</select>
+<button class="btn" onclick="loadMarketer()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+</div>
+
+<!-- Фильтры -->
+<div id="mkt-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
+<label style="color:#666;font-weight:600">Фильтры:</label>
+<select id="mkt-flt-status" onchange="filterMarketer()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется</option></select>
+<select id="mkt-flt-class" onchange="filterMarketer()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select>
+<select id="mkt-flt-brand" onchange="filterMarketer()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
+<input type="text" id="mkt-flt-search" placeholder="🔍 Поиск по артикулу / названию" oninput="filterMarketer()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
+<button onclick="resetMktFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 10px;font-size:.9em;background:#fff;cursor:pointer">✕ Сбросить</button>
+<span style="margin-left:auto;font-size:.85em;color:#999" id="mkt-count"></span>
+</div>
+
+<!-- Список товаров -->
+<div id="mkt-products-list"></div>
+
+<!-- Карточка товара (скрыта по умолчанию) -->
+<div id="mkt-product-detail" style="display:none">
+<button onclick="closeMktDetail()" style="margin-bottom:12px;padding:6px 14px;font-size:.85em;background:#fff;border:1px solid #ddd;border-radius:6px;cursor:pointer">← Назад к списку</button>
+<div id="mkt-detail-content"></div>
+</div>
+`,
+    'extads': `
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
+<select id="ext-type" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<option value="">Все типы</option><option value="ad">Реклама</option><option value="buyout">Самовыкуп</option></select>
+<select id="ext-source" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:140px"><option value="">Все источники</option></select>
+<input type="date" id="ext-date-from" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<input type="date" id="ext-date-to" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<input type="text" id="ext-search" placeholder="🔍 Поиск..." oninput="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:160px">
+<span style="flex:1"></span>
+<button class="btn" onclick="showExtAdModal()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff">➕ Добавить</button>
+<button class="btn" onclick="loadExtAds()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">
+<div style="background:#fff;border-radius:8px;padding:12px;text-align:center;border:1px solid #e0e0e0"><div style="font-size:1.4em;font-weight:700;color:#6c5ce7" id="ext-total-count">0</div><div style="font-size:.75em;color:#999">Всего записей</div></div>
+<div style="background:#fff;border-radius:8px;padding:12px;text-align:center;border:1px solid #e0e0e0"><div style="font-size:1.4em;font-weight:700;color:#e17055" id="ext-total-amount">0 ₽</div><div style="font-size:.75em;color:#999">Общая сумма</div></div>
+<div style="background:#fff;border-radius:8px;padding:12px;text-align:center;border:1px solid #e0e0e0"><div style="font-size:1.4em;font-weight:700;color:#00b894" id="ext-total-orders">0</div><div style="font-size:.75em;color:#999">Заказов</div></div>
+<div style="background:#fff;border-radius:8px;padding:12px;text-align:center;border:1px solid #e0e0e0"><div style="font-size:1.4em;font-weight:700;color:#0984e3" id="ext-total-reach">0</div><div style="font-size:.75em;color:#999">Охват</div></div>
+</div>
+<div style="overflow-x:auto;position:relative">
+<table id="ext-table" style="font-size:.82em"><thead><tr>
+<th style="position:sticky;left:0;z-index:2;background:#fff"><input type="checkbox" id="ext-check-all" onchange="toggleAllExtRows(this.checked)"></th>
+<th>Фото</th><th>Артикул</th><th>Арт WB</th><th>Арт продавца</th><th>Товар</th>
+<th>Карточка</th><th>Подменная</th><th>UTM</th>
+<th>Источник</th><th>Запрос</th><th>Дата</th>
+<th>Охват</th><th>Сумма ₽</th><th>Заказы</th><th>Заказов/нед</th>
+<th>Тип</th><th>Заметки</th><th>⚡</th>
+</tr></thead>
+<tbody id="ext-body"><tr><td colspan="20" class="empty">Нажмите "Добавить" для создания записи</td></tr></tbody></table>
+</div>
+<div id="ext-bulk-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:#6c5ce7;color:#fff;padding:10px 16px;border-radius:8px 8px 0 0;align-items:center;gap:12px;flex-wrap:wrap;z-index:10;box-shadow:0 -2px 10px rgba(0,0,0,.15)">
+<span style="font-weight:600" id="ext-bulk-count">Выделено: 0</span>
+<select id="ext-bulk-field" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333">
+<option value="">Поле...</option><option value="source">Источник</option><option value="ad_type">Тип</option><option value="amount">Сумма</option><option value="notes">Заметки</option></select>
+<input type="text" id="ext-bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:#fff;color:#333">
+<button onclick="applyExtBulkEdit()" style="background:#00b894;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer;font-weight:600">✅ Применить</button>
+<button onclick="clearExtBulkSelection()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer">Снять</button>
+</div>
+</div>
+
+<div id="ext-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center">
+<div style="background:#fff;border-radius:12px;padding:24px;width:600px;max-width:90vw;max-height:85vh;overflow-y:auto">
+<h3 id="ext-modal-title" style="margin-bottom:16px;color:#1a1a2e">Добавить запись</h3>
+<input type="hidden" id="ext-edit-id">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+<div><label style="font-size:.85em;color:#666">Артикул WB (nm_id)</label><input type="number" id="ext-nm-id" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px" oninput="extAutoFill()"></div>
+<div><label style="font-size:.85em;color:#666">Арт продавца</label><input type="text" id="ext-vendor-code" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Артикул (свой)</label><input type="text" id="ext-article" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Тип</label><select id="ext-ad-type" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"><option value="ad">Реклама</option><option value="buyout">Самовыкуп</option></select></div>
+<div><label style="font-size:.85em;color:#666">Источник</label><input type="text" id="ext-source-input" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px" placeholder="Telegram-канал, блогер..."></div>
+<div><label style="font-size:.85em;color:#666">Запрос</label><input type="text" id="ext-query" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Дата</label><input type="date" id="ext-ad-date" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Охват</label><input type="number" id="ext-reach" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Сумма ₽</label><input type="number" step="0.01" id="ext-amount" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Заказов</label><input type="number" id="ext-orders-count" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Заказов/нед (ср.)</label><input type="number" step="0.01" id="ext-orders-avg" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div><label style="font-size:.85em;color:#666">Фото (URL)</label><input type="text" id="ext-photo-url" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div style="grid-column:span 2"><label style="font-size:.85em;color:#666">Подменная ссылка</label><input type="text" id="ext-sub-url" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div style="grid-column:span 2"><label style="font-size:.85em;color:#666">UTM ссылка</label><input type="text" id="ext-utm-url" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px"></div>
+<div style="grid-column:span 2"><label style="font-size:.85em;color:#666">Заметки</label><textarea id="ext-notes" rows="2" style="width:100%;border:1px solid #e0e0e0;border-radius:6px;padding:6px 8px;margin-top:4px;resize:vertical"></textarea></div>
+</div>
+<div style="display:flex;gap:12px;margin-top:16px;justify-content:flex-end">
+<button onclick="closeExtAdModal()" style="padding:8px 16px;border:1px solid #e0e0e0;border-radius:6px;cursor:pointer;font-size:.9em">Отмена</button>
+<button onclick="saveExtAd()" style="padding:8px 16px;background:#6c5ce7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:.9em;font-weight:600">💾 Сохранить</button>
+</div>
+</div>
+`,
+    'fboneeds': `
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;background:#f8f9fb;padding:10px 16px;border-radius:8px">
+<select id="fbo-warehouse-filter" onchange="filterFboTable()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:160px"><option value="">Все склады</option></select>
+<select id="fbo-period" onchange="loadFboNeeds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<option value="7">7 дней</option><option value="14" selected>14 дней</option><option value="21">21 день</option><option value="30">30 дней</option></select>
+<label style="font-size:.85em;color:#666;display:flex;align-items:center;gap:4px"><input type="checkbox" id="fbo-only-needs" onchange="filterFboTable()" checked> Только с потребностью</label>
+</div>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<button class="btn" onclick="loadFboNeeds()" style="padding:6px 14px;font-size:.85em">🔄 Рассчитать</button>
+<input type="text" id="fbo-search" placeholder="🔍 Поиск по артикулу/названию" oninput="filterFboTable()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:240px">
+<button class="btn btn-outline" onclick="exportFboExcel()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
+<span style="font-size:.85em;color:#999;margin-left:auto" id="fbo-count"></span>
+<button class="btn" onclick="saveFboEdits()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
+</div>
+<div style="overflow-x:auto;max-height:65vh;position:relative">
+<table id="fbo-table" style="font-size:.82em"><thead><tr>
+<th>Фото</th><th>Арт WB</th><th>Товар</th><th>Размер</th><th>Склад</th>
+<th class="r">Остаток</th><th class="r">Заказов</th><th class="r">Темп/день</th>
+<th class="r">Дней до 0</th><th>Срок поставки</th><th>Мин. партия</th>
+<th class="r" style="background:#ffeaa7">Потребность</th>
+<th class="r" style="background:#fdcb6e;color:#d63031;font-weight:700">✏ К отправке</th>
+</tr></thead>
+<tbody id="fbo-body"><tr><td colspan="13" class="empty">Нажмите «Рассчитать» для загрузки данных</td></tr></tbody>
+</table>
+</div>
+`,
+    'unitecon': `
+<!-- Верхняя панель: магазин (как в Справочнике) -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
+<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
+<select id="ue-store" onchange="switchUEStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
+</div>
+
+<!-- Фильтры по столбцам (как в Справочнике) -->
+<div id="ue-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
+<label style="color:#666;font-weight:600">Фильтры:</label>
+<select id="ue-flt-status" onchange="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется</option></select>
+<select id="ue-flt-class" onchange="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select>
+<select id="ue-flt-brand" onchange="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
+<select id="ue-flt-ff" onchange="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
+<input type="text" id="ue-flt-search" placeholder="🔍 Поиск по названию / артикулу" oninput="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
+<button onclick="resetUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 10px;font-size:.9em;background:#fff;cursor:pointer">✕ Сбросить</button>
+</div>
+
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<button class="btn" onclick="loadUEData()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+<button class="btn" id="btn-refresh-prices" onclick="refreshPricesFromWB()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff" disabled>💱 Цены из WB...</button>
+<button class="btn btn-outline" onclick="exportUEExcel()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
+<span style="font-size:.85em;color:#999;margin-left:auto" id="ue-count"></span>
+<button class="btn" onclick="saveUEData()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
+</div>
+
+<div id="ue-tabulator" style="overflow-x:auto;max-height:70vh"></div>
+
+<div style="margin-top:12px;display:flex;gap:16px;font-size:.85em;flex-wrap:wrap" id="ue-summary"></div>
+`,
+    'promo': `
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
+<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
+<select id="promo-store" onchange="switchPromoStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
+</div>
+<div id="promo-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
+<label style="color:#666;font-weight:600">Фильтры:</label>
+<select id="promo-flt-action" onchange="applyPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Акция: все</option></select>
+<select id="promo-flt-status" onchange="applyPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Участие: все</option><option value="in">В акции</option><option value="plan">План</option><option value="out">Не участвует</option></select>
+<select id="promo-flt-brand" onchange="applyPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
+<input type="text" id="promo-flt-search" placeholder="🔍 Поиск по названию / артикулу" oninput="applyPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
+<button onclick="resetPromoFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 10px;font-size:.9em;background:#fff;cursor:pointer">✕ Сбросить</button>
+</div>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<button class="btn" onclick="loadPromoData()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+<button class="btn btn-outline" onclick="exportPromoExcel()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
+<button class="btn btn-outline" onclick="document.getElementById('promo-upload-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить шаблон</button>
+<input type="file" id="promo-upload-input" accept=".xlsx,.xls" style="display:none" onchange="uploadPromoTemplate(this)">
+<button class="btn" onclick="savePromoData()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
+<span style="font-size:.85em;color:#999;margin-left:auto" id="promo-count"></span>
+</div>
+<div id="promo-tabulator" style="overflow-x:auto;max-height:70vh"></div>
+<div style="margin-top:12px;display:flex;gap:16px;font-size:.85em;flex-wrap:wrap" id="promo-summary"></div>
+`,
+    'connectors': `
+<div style="max-width:700px;margin:0 auto;padding:20px">
+<h3 style="color:#6c5ce7;margin-bottom:16px">🔌 Подключения</h3>
+
+<!-- Profile -->
+<div style="background:#fff;border-radius:8px;padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px;display:flex;align-items:center;gap:12px">
+<div style="width:40px;height:40px;border-radius:50%;background:#6c5ce7;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.2em;font-weight:700" id="profile-avatar">?</div>
+<div>
+<div style="font-weight:600" id="profile-email">Загрузка...</div>
+<div style="font-size:.85em;color:#666" id="profile-summary"></div>
+</div>
+</div>
+
+<!-- My shops -->
+<div style="margin-bottom:16px">
+<div style="font-weight:600;margin-bottom:10px;font-size:1.05em">🏪 Мои магазины</div>
+<div id="shops-list">Загрузка...</div>
+</div>
+
+<!-- Add new shop -->
+<div style="background:#fff;border-radius:8px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px;border-left:4px solid #6c5ce7">
+<div style="font-weight:600;margin-bottom:12px;font-size:1.1em">➕ Подключить новый магазин</div>
+<div style="margin-bottom:10px">
+<input type="text" id="new-shop-name" placeholder="Название магазина" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box">
+</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+<input type="text" id="new-shop-key" placeholder="API ключ WB (JWT токен)" style="flex:1;min-width:300px;padding:8px 12px;border:1px solid #ddd;border-radius:6px">
+<button class="btn" onclick="connectNewShop()" id="btn-connect-shop" style="background:#6c5ce7;color:#fff;padding:8px 20px;border-radius:6px;border:none;cursor:pointer;font-weight:600">Подключить</button>
+</div>
+<p style="color:#999;font-size:.8em;margin-top:4px">Кабинет WB → Настройки → Доступ к API → Создать токен</p>
+<div id="connect-status" style="display:none;margin-top:10px;padding:10px;border-radius:6px;font-size:.9em"></div>
+</div>
+
+<!-- Invite colleague -->
+<div style="background:#fff;border-radius:8px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px;border-left:4px solid #00b894">
+<div style="font-weight:600;margin-bottom:12px;font-size:1.1em">👥 Пригласить коллегу</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+<input type="email" id="invite-email" placeholder="Email коллеги" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid #ddd;border-radius:6px">
+<select id="invite-role" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px">
+<option value="VIEWER">Просмотр (VIEWER)</option>
+<option value="ADMIN">Администратор (ADMIN)</option>
+</select>
+<select id="invite-org" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px">
+<option value="">Выберите магазин</option>
+</select>
+<button class="btn" onclick="inviteColleague()" style="background:#00b894;color:#fff;padding:8px 20px;border-radius:6px;border:none;cursor:pointer;font-weight:600">Пригласить</button>
+</div>
+<div id="invite-status" style="display:none;margin-top:10px;padding:10px;border-radius:6px;font-size:.9em"></div>
+</div>
+
+</div>
+`,
+    'subscription': `
+<div style="max-width:900px;margin:0 auto;padding:20px;text-align:center">
+<h3 style="color:#6c5ce7;margin-bottom:24px">Тарифные планы</h3>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px">
+<div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+<h4>Новичок</h4><div style="font-size:1.5em;font-weight:700;color:#6c5ce7;margin:12px 0">990 ₽/мес</div>
+<ul style="text-align:left;font-size:.85em;color:#666;list-style:none;padding:0"><li>✅ 1 магазин</li><li>✅ Дашборд + ОПиУ</li><li>✅ Аналитика по товарам</li></ul>
+<button class="btn" style="width:100%;margin-top:12px">Выбрать</button>
+</div>
+<div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);border:2px solid #6c5ce7">
+<h4>Старт ⭐</h4><div style="font-size:1.5em;font-weight:700;color:#6c5ce7;margin:12px 0">1490 ₽/мес</div>
+<ul style="text-align:left;font-size:.85em;color:#666;list-style:none;padding:0"><li>✅ 2 магазина</li><li>✅ Всё из Новичок</li><li>✅ РНП + Склады</li></ul>
+<button class="btn" style="width:100%;margin-top:12px">Выбрать</button>
+</div>
+<div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+<h4>Бизнес</h4><div style="font-size:1.5em;font-weight:700;color:#6c5ce7;margin:12px 0">3990 ₽/мес</div>
+<ul style="text-align:left;font-size:.85em;color:#666;list-style:none;padding:0"><li>✅ 5 магазинов</li><li>✅ Всё из Старт</li><li>✅ Приоритетная поддержка</li></ul>
+<button class="btn" style="width:100%;margin-top:12px">Выбрать</button>
+</div>
+</div>
+</div>
+`,
+    'help': `
+<div style="max-width:600px;margin:0 auto;padding:40px;text-align:center;color:#999"><div style="font-size:3em;margin-bottom:16px">❓</div><h3>Помощь</h3><p>support@nl-table.ru</p></div>
+`,
+    'settings': `
+<h3 style="margin-bottom:12px;color:#6c5ce7">🔑 WB API ключи</h3>
+<div id="seller-id-display" style="margin-bottom:12px;font-size:.9em;color:#666"></div>
+<div id="wb-keys-list"></div>
+<div style="margin-top:16px;padding:16px;background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+<h4 style="margin-bottom:10px">Добавить ключ</h4>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<input type="text" id="wb-key-name" placeholder="Название" style="width:150px">
+<input type="text" id="wb-key-value" placeholder="API ключ WB" style="flex:1;min-width:200px">
+<button class="btn" onclick="addWbKey()">Добавить</button>
+</div>
+<p style="color:#999;font-size:.8em;margin-top:8px">Получить ключ: Кабинет WB → Настройки → Доступ к API</p>
+</div>
+</div>
+</div>
+</div>
+
+<!-- New org dialog -->
+<div id="new-org-dialog" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:100;display:none;align-items:center;justify-content:center">
+<div style="background:#fff;padding:24px;border-radius:12px;width:360px;box-shadow:0 4px 20px rgba(0,0,0,.15)">
+<h3 style="color:#6c5ce7;margin-bottom:12px">Новый магазин</h3>
+<input type="text" id="new-org-name" placeholder="Название магазина" style="width:100%;margin-bottom:12px">
+<div style="display:flex;gap:8px">
+<button class="btn" onclick="createNewOrg()" style="flex:1">Создать</button>
+<button class="btn btn-outline" onclick="hideNewOrgDialog()" style="flex:1">Отмена</button>
+</div>
+</div>
+</div>
+
+</div>
+`,
+    'analytics': `
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+<input type="text" id="analytics-search" placeholder="🔍 Поиск по артикулу/названию" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:250px" oninput="loadAnalytics()">
+<select id="analytics-date" onchange="loadAnalytics()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"></select>
+<button class="btn" onclick="loadAnalytics()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+<button class="btn btn-outline" onclick="exportAnalytics()" style="padding:6px 14px;font-size:.85em">📥 Скачать</button>
+</div>
+<div style="overflow-x:auto">
+<table id="analytics-table" style="font-size:.8em">
+<thead><tr>
+<th>Фото</th>
+<th>Арт продавца</th>
+<th>Арт WB</th>
+<th>Товар</th>
+<th>Остаток</th>
+<th>Заказы</th>
+<th>Выкупы</th>
+<th>Отмены</th>
+<th>Возвраты</th>
+<th>% выкупа</th>
+<th>Цена</th>
+<th>Цена со скидкой</th>
+<th>Комиссия ВБ %</th>
+<th>Комиссия ВБ ₽</th>
+<th>Логистика</th>
+<th>Реклама ₽</th>
+<th>ДРР %</th>
+<th>Штрафы</th>
+<th>Хранение</th>
+<th>Приёмка</th>
+<th>Прочие удерж.</th>
+<th>Средний чек</th>
+<th>Сумма реализации</th>
+<th>К выплате</th>
+<th>Себестоимость</th>
+<th>Маржа</th>
+<th>Маржа/ед.</th>
+<th>Рентабельность</th>
+<th>ROI</th>
+<th>Рейтинг</th>
+<th>Показы</th>
+<th>Клики</th>
+<th>CTR</th>
+<th>Оборачив.</th>
+<th>В пути к клиенту</th>
+</tr></thead>
+<tbody id="analytics-body"><tr><td colspan="50" class="empty">Загрузка...</td></tr></tbody>
+</table>
+</div>
+<div style="margin-top:12px;display:flex;align-items:center;gap:12px;font-size:.85em;color:#999">
+<span id="analytics-count"></span>
+<select id="analytics-pagesize" onchange="loadAnalytics()" style="border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em">
+<option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option>
+</select>
+</div>
+`,
+    'rnp': `<div class="rnp-ctrl">
+<select id="rnp-month" onchange="loadRnp()" style="min-width:130px"></select>
+<label style="font-size:.85em;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="rnp-buyout-pct" onchange="loadRnp()"> Учесть % выкупа</label>
+<select id="rnp-sort" onchange="loadRnp()">
+<option value="orders_revenue">Сортировка: Заказы, руб</option><option value="roi">ROI</option><option value="buyout_pct">% выкупа</option>
+</select>
+<input type="text" id="rnp-search" placeholder="🔍 Поиск" style="width:200px" oninput="loadRnp()">
+<button class="btn" onclick="loadRnp()" style="padding:6px 14px;font-size:.85em">🔄</button>
+</div>
+<div id="rnp-summary" class="rnp-summary-bar"></div>
+<div id="rnp-header-wrap" style="margin-bottom:8px"></div>
+<div id="rnp-cards" style="font-size:.82em"></div>
+<div style="margin-top:12px;font-size:.85em;color:#999" id="rnp-count"></div>`,
+    'ads': `
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
+<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
+<select id="ads-store" onchange="switchAdsStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
+<span style="font-size:.9em;color:#666;margin-left:8px">📅 Период:</span>
+<select id="ads-period" onchange="adsPeriodPreset()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<option value="1">Сегодня</option>
+<option value="2">Вчера</option>
+<option value="7">7 дней</option>
+<option value="14">14 дней</option>
+<option value="30" selected>30 дней</option>
+<option value="60">60 дней</option>
+<option value="custom">📅 Свой</option>
+</select>
+<input type="date" id="ads-date-from" onchange="adsCustomDateChange()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<span style="color:#999;font-size:.85em">—</span>
+<input type="date" id="ads-date-to" onchange="adsCustomDateChange()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
+<button class="btn" onclick="refreshAds()" style="padding:6px 14px;font-size:.85em">ð Обновить</button>
+<div style="margin-left:auto;font-size:.85em;color:#999" id="ads-updated"></div>
+</div>
+
+<!-- Карточки метрик (сгруппированные) -->
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:stretch" id="ads-metrics">
+<!-- Финансы -->
+<div style="display:flex;gap:6px;align-items:stretch">
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Расход</div><div style="font-size:.95em;font-weight:700;color:#e17055" id="ad-spent">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999" title="Доля рекламных расходов от оборота">ДРР %</div><div style="font-size:.95em;font-weight:700;color:#e17055" id="ad-drr">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Баланс</div><div style="font-size:.95em;font-weight:700;color:#2d3436" id="ad-balance">—</div></div>
+</div>
+<div style="width:1px;background:#e0e0e0;margin:0 4px;align-self:stretch"></div>
+<!-- Трафик -->
+<div style="display:flex;gap:6px;align-items:stretch">
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Показы</div><div style="font-size:.95em;font-weight:700;color:#6c5ce7" id="ad-views">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Клики</div><div style="font-size:.95em;font-weight:700;color:#0984e3" id="ad-clicks">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CTR</div><div style="font-size:.95em;font-weight:700;color:#00b894" id="ad-ctr">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CPC</div><div style="font-size:.95em;font-weight:700;color:#fdcb6e" id="ad-cpc">—</div></div>
+</div>
+<div style="width:1px;background:#e0e0e0;margin:0 4px;align-self:stretch"></div>
+<!-- Конверсии -->
+<div style="display:flex;gap:6px;align-items:stretch">
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Заказы</div><div style="font-size:.95em;font-weight:700;color:#00cec9" id="ad-orders">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CR</div><div style="font-size:.95em;font-weight:700;color:#e84393" id="ad-cr">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">В корзину</div><div style="font-size:.95em;font-weight:700;color:#636e72" id="ad-arts-count">—</div></div>
+</div>
+</div>
+<!-- Статистика по дням (на всю ширину, под метриками) -->
+<div style="background:#fff;border-radius:8px;border:1px solid #eee;padding:8px 12px;margin-bottom:8px">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;cursor:pointer" onclick="toggleDailyTable()"><span style="font-size:.78em;font-weight:600;color:#6c5ce7">📅 По дням</span><span style="font-size:.7em;color:#999" id="ads-daily-count"></span><span style="font-size:.7em;color:#999" id="ads-daily-toggle">▼</span></div>
+<div id="ads-daily-wrapper" style="display:none;max-height:180px;overflow-y:auto;font-size:.78em">
+<table id="ads-daily-table" style="width:100%">
+<thead><tr><th style="padding:2px 6px;text-align:left">Дата</th><th style="padding:2px 6px;text-align:right">Расход ₽</th><th style="padding:2px 6px;text-align:right">Показы</th><th style="padding:2px 6px;text-align:right">Клики</th><th style="padding:2px 6px;text-align:right">CTR</th><th style="padding:2px 6px;text-align:right">CPC ₽</th><th style="padding:2px 6px;text-align:right">Заказы</th><th style="padding:2px 6px;text-align:right">CR</th><th style="padding:2px 6px;text-align:right">В корзину</th><th style="padding:2px 6px;text-align:right">ДРР %</th></tr></thead>
+<tbody id="ads-daily-body"><tr><td colspan="9" class="empty" style="padding:4px">Загрузка...</td></tr></tbody>
+</table>
+</div>
+</div>
+
+<!-- Переключалка вида + фильтры статусов в одну строку -->
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+<button id="ads-view-rk" class="ads-view-btn active" onclick="switchAdsView('rk')" style="padding:4px 12px;border:1px solid #6c5ce7;background:#6c5ce7;color:#fff;border-radius:6px;font-size:.8em;cursor:pointer;font-weight:600">📊 По РК</button>
+<button id="ads-view-art" class="ads-view-btn" onclick="switchAdsView('art')" style="padding:4px 12px;border:1px solid #ddd;background:#fff;color:#333;border-radius:6px;font-size:.8em;cursor:pointer;font-weight:600">📦 По артикулам</button>
+<span style="width:1px;height:20px;background:#ddd;margin:0 4px"></span>
+<button class="ads-status-btn" data-status="7" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #00b894;background:#00b894;color:#fff;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">🟢 Активные</button>
+<button class="ads-status-btn" data-status="9" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #fdcb6e;background:#fdcb6e;color:#fff;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">⏸ Приостановл.</button>
+<button class="ads-status-btn" data-status="11" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #dfe6e9;background:#fff;color:#636e72;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">✅ Завершённые</button>
+<span style="width:1px;height:20px;background:#ddd;margin:0 4px"></span>
+<select id="ads-flt-status" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется</option></select>
+<select id="ads-flt-class" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Класс: все</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select>
+<select id="ads-flt-brand" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Бренд: все</option></select>
+<input type="text" id="ads-flt-search" placeholder="🔍 Поиск" oninput="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em;width:140px">
+<button onclick="resetAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 8px;font-size:.82em;background:#fff;cursor:pointer">✕</button>
+<span style="font-size:.8em;color:#999" id="ads-filter-count"></span>
+</div>
+
+<!-- Таблицы: артикулы / кампании -->
+<div id="ads-arts-container" style="display:none">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+<button class="btn btn-outline" onclick="exportAdsArtsExcel()" style="padding:3px 10px;font-size:.78em">📥 Excel</button>
+<span style="font-size:.8em;color:#999" id="ads-arts-count"></span>
+</div>
+<div id="ads-arts-tabulator"></div>
+</div>
+<div id="ads-rk-container">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+<button class="btn btn-outline" onclick="exportAdsExcel()" style="padding:3px 10px;font-size:.78em">📥 Excel</button>
+<span style="font-size:.8em;color:#999" id="ads-camp-count"></span>
+</div>
+<div id="ads-campaigns-tabulator"></div>
+</div><!-- end ads-rk-container -->
+
+<!-- Модал детализации РК -->
+<div id="ads-detail-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center" onclick="if(event.target===this)closeAdsDetailModal()">
+<div style="background:#fff;border-radius:12px;padding:24px;width:700px;max-width:90vw;max-height:85vh;overflow-y:auto">
+<button onclick="closeAdsDetailModal()" style="float:right;border:none;background:none;font-size:1.2em;cursor:pointer;color:#999">✕</button>
+<div id="ads-detail-content"></div>
+</div>
+</div>
+
+<!-- По дням перенесён выше в блок метрик -->
+
+</div>`,
+};
+
+function _lazyInit(name) {
+    var html = _sectionHTML[name];
+    if (html) document.getElementById('page-' + name).innerHTML = html;
+}
+
+function _clearSection(id) {
+    var el = document.getElementById(id);
+    if (el) el.innerHTML = '';
+}
+
 async function _sectionEnter(name) {
     switch(name) {
         case 'stats': loadStats(); break;
         case 'analytics':
-            if (!_analyticsInited) {
-                var tpl = document.getElementById('tpl-analytics');
-                if (tpl) document.getElementById('page-analytics').appendChild(tpl.content.cloneNode(true));
-                await loadDates(); // Заполнить analytics-date select
-                _analyticsInited = true;
-            }
-            loadAnalytics();
-            break;
+            if (!_analyticsInited) { _lazyInit('analytics'); await loadDates(); _analyticsInited = true; }
+            loadAnalytics(); break;
         case 'rnp':
-            if (!_rnpInited) {
-                var tpl = document.getElementById('tpl-rnp');
-                if (tpl) document.getElementById('page-rnp').appendChild(tpl.content.cloneNode(true));
-                if (typeof initRnpMonths === 'function') initRnpMonths();
-                _rnpInited = true;
-            }
+            if (!_rnpInited) { _lazyInit('rnp'); if (typeof initRnpMonths === 'function') initRnpMonths(); _rnpInited = true; }
             if (_rnpState) {
                 var m = document.getElementById('rnp-month'); if (m) m.value = _rnpState.month;
                 var s = document.getElementById('rnp-sort'); if (s) s.value = _rnpState.sort;
                 var q = document.getElementById('rnp-search'); if (q) q.value = _rnpState.search;
                 var b = document.getElementById('rnp-buyout-pct'); if (b) b.checked = _rnpState.buyoutPct;
             }
-            loadRnp();
-            break;
-        case 'opiu': loadOpiu(); break;
-        case 'costprice': loadTaxSettings(); loadCostPrices(); break;
-        case 'salesplan': loadSalesPlans(); break;
-        case 'warehouses': loadWarehouses(); break;
-        case 'opexpenses': loadOpEx(); break;
-        case 'marketer': loadMarketer(); break;
-        case 'analytics':
-            var anEl = document.getElementById('page-analytics');
-            if (anEl) anEl.innerHTML = '';
-            _analyticsInited = false;
-            break;
+            loadRnp(); break;
+        case 'opiu':
+            if (!_opiuInited) { _lazyInit('opiu'); _opiuInited = true; }
+            loadOpiu(); break;
+        case 'costprice':
+            if (!_costpriceInited) { _lazyInit('costprice'); _costpriceInited = true; }
+            loadTaxSettings(); loadCostPrices(); break;
+        case 'salesplan':
+            if (!_salesplanInited) { _lazyInit('salesplan'); _salesplanInited = true; }
+            loadSalesPlans(); break;
+        case 'warehouses':
+            if (!_warehousesInited) { _lazyInit('warehouses'); _warehousesInited = true; }
+            loadWarehouses(); break;
+        case 'opexpenses':
+            if (!_opexpensesInited) { _lazyInit('opexpenses'); _opexpensesInited = true; }
+            loadOpEx(); break;
         case 'ads':
-            if (!_adsInited) {
-                var tpl = document.getElementById('tpl-ads');
-                if (tpl) document.getElementById('page-ads').appendChild(tpl.content.cloneNode(true));
-                _adsInited = true;
-            }
-            if (!adsTabulator) initAdsGrid();
-            loadAds();
+            if (!_adsInited) { _lazyInit('ads'); _adsInited = true; }
+            if (!adsTabulator) initAdsGrid(); loadAds(); break;
+        case 'marketer':
+            if (!_marketerInited) { _lazyInit('marketer'); _marketerInited = true; }
+            loadMarketer(); break;
+        case 'extads':
+            if (!_extadsInited) { _lazyInit('extads'); _extadsInited = true; }
+            loadExtAds(); break;
+        case 'fboneeds':
+            if (!_fboneedsInited) { _lazyInit('fboneeds'); _fboneedsInited = true; }
+            loadFboNeeds(); break;
+        case 'unitecon':
+            if (!_uniteconInited) { _lazyInit('unitecon'); _uniteconInited = true; }
+            if (!ueTabulator) initUEGrid(); loadUEData(); break;
+        case 'promo':
+            if (!_promoInited) { _lazyInit('promo'); _promoInited = true; }
+            if (typeof promoTabulator === 'undefined' || !promoTabulator) initPromoGrid(); loadPromoData(); break;
+        case 'connectors':
+            if (!_connectorsInited) { _lazyInit('connectors'); _connectorsInited = true; }
+            loadProfile(); loadWbKeys(); break;
+        case 'subscription':
+            if (!_subscriptionInited) { _lazyInit('subscription'); _subscriptionInited = true; }
             break;
-        case 'extads': loadExtAds(); break;
-        case 'fboneeds': loadFboNeeds(); break;
-        case 'unitecon': if (!ueTabulator) initUEGrid(); loadUEData(); break;
-        case 'promo': if (typeof promoTabulator === 'undefined' || !promoTabulator) initPromoGrid(); loadPromoData(); break;
-        case 'connectors': loadProfile(); loadWbKeys(); break;
+        case 'settings':
+            if (!_settingsInited) { _lazyInit('settings'); _settingsInited = true; }
+            break;
+        case 'help':
+            if (!_helpInited) { _lazyInit('help'); _helpInited = true; }
+            break;
     }
 }
 
-// Очистка при уходе со секции
 function _sectionLeave(name) {
     switch(name) {
         case 'rnp':
@@ -6520,32 +6543,42 @@ function _sectionLeave(name) {
                 search: document.getElementById('rnp-search')?.value || '',
                 buyoutPct: document.getElementById('rnp-buyout-pct')?.checked || false
             };
-            var el = document.getElementById('page-rnp');
-            if (el) el.innerHTML = '';
-            _rnpInited = false;
-            break;
-        case 'analytics':
-            var anEl = document.getElementById('page-analytics');
-            if (anEl) anEl.innerHTML = '';
-            _analyticsInited = false;
-            break;
+            _clearSection('page-rnp'); _rnpInited = false; break;
+        case 'analytics': _clearSection('page-analytics'); _analyticsInited = false; break;
+        case 'opiu': _clearSection('page-opiu'); _opiuInited = false; break;
+        case 'costprice':
+            if (typeof costTabulator !== 'undefined' && costTabulator) { costTabulator.destroy(); costTabulator = null; }
+            _clearSection('page-costprice'); _costpriceInited = false; break;
+        case 'salesplan': _clearSection('page-salesplan'); _salesplanInited = false; break;
+        case 'warehouses': _clearSection('page-warehouses'); _warehousesInited = false; break;
+        case 'opexpenses': _clearSection('page-opexpenses'); _opexpensesInited = false; break;
         case 'ads':
-            // Destroy Tabulator instances
             if (typeof adsTabulator !== 'undefined' && adsTabulator) { adsTabulator.destroy(); adsTabulator = null; }
             if (typeof adsArtsTabulator !== 'undefined' && adsArtsTabulator) { adsArtsTabulator.destroy(); adsArtsTabulator = null; }
-            var adEl = document.getElementById('page-ads');
-            if (adEl) adEl.innerHTML = '';
-            _adsInited = false;
-            break;
+            _clearSection('page-ads'); _adsInited = false; break;
+        case 'marketer': _clearSection('page-marketer'); _marketerInited = false; break;
+        case 'extads': _clearSection('page-extads'); _extadsInited = false; break;
+        case 'fboneeds': _clearSection('page-fboneeds'); _fboneedsInited = false; break;
+        case 'unitecon':
+            if (typeof ueTabulator !== 'undefined' && ueTabulator) { ueTabulator.destroy(); ueTabulator = null; }
+            _clearSection('page-unitecon'); _uniteconInited = false; break;
+        case 'promo':
+            if (typeof promoTabulator !== 'undefined' && promoTabulator) { promoTabulator.destroy(); promoTabulator = null; }
+            _clearSection('page-promo'); _promoInited = false; break;
+        case 'connectors': _clearSection('page-connectors'); _connectorsInited = false; break;
+        case 'subscription': _clearSection('page-subscription'); _subscriptionInited = false; break;
+        case 'settings': _clearSection('page-settings'); _settingsInited = false; break;
+        case 'help': _clearSection('page-help'); _helpInited = false; break;
     }
 }
 
-var _rnpState = null;
-var _rnpInited = false;
-var _adsInited = false;
-var _analyticsInited = false;
-
+var _rnpState = null, _rnpInited = false, _adsInited = false, _analyticsInited = false;
+var _opiuInited = false, _costpriceInited = false, _salesplanInited = false, _warehousesInited = false;
+var _opexpensesInited = false, _marketerInited = false, _extadsInited = false, _fboneedsInited = false;
+var _uniteconInited = false, _promoInited = false, _connectorsInited = false, _subscriptionInited = false;
+var _settingsInited = false, _helpInited = false;
 var _currentSection = 'stats';
+
 
 async function navTo(name, el) {
     if (_costDirty) await confirmDirty();
