@@ -257,12 +257,7 @@ function getUEColumns() {
         {
             title: '⚠️ Прочие',
             columns: [
-                { title: 'Прочие ₽', field: 'other_deductions',
-                    headerTooltip: 'Прочие удержания (ручной ввод)', width: 85, headerSort: false,
-                    editor: 'number', editorParams: { step: 1 },
-                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
-                },
-                { title: 'Прочие финотчет ₽', field: 'other_deductions_finreport',
+                { title: 'Прочие ₽', field: 'other_deductions_finreport',
                     headerTooltip: 'Прочие удержания (фин. отчёт)', width: 100, headerSort: false,
                     formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
                 },
