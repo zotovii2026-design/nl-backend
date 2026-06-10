@@ -5776,7 +5776,7 @@ var _sectionRegistry = {
     salesplan:  { title:'План продаж' },
     warehouses: { title:'Склады' },
     opexpenses: { title:'Опер. расходы' },
-    ads:        { title:'Реклама' },
+    ads:        { title:'Реклама', topFilters:true },
     marketer:   { title:'Стол маркетолога' },
     extads:     { title:'Внешняя реклама' },
     fboneeds:   { title:'Потребность FBO' },
@@ -6502,13 +6502,13 @@ async function _sectionEnter(name) {
             if (!_opexpensesInited) { _lazyInit('opexpenses'); _opexpensesInited = true; }
             loadOpEx(); break;
         case 'ads':
-            if (!_adsInited) { _lazyInit('ads'); _adsInited = true; }
+            if (!_adsInited) { _lazyInit('ads'); loadOrgs(); _adsInited = true; }
             if (!adsTabulator) initAdsGrid(); loadAds(); break;
         case 'marketer':
-            if (!_marketerInited) { _lazyInit('marketer'); _marketerInited = true; }
+            if (!_marketerInited) { _lazyInit('marketer'); loadOrgs(); _marketerInited = true; }
             loadMarketer(); break;
         case 'extads':
-            if (!_extadsInited) { _lazyInit('extads'); _extadsInited = true; }
+            if (!_extadsInited) { _lazyInit('extads'); loadOrgs(); _extadsInited = true; }
             loadExtAds(); break;
         case 'fboneeds':
             if (!_fboneedsInited) { _lazyInit('fboneeds'); _fboneedsInited = true; }
@@ -9038,6 +9038,12 @@ async function switchTopStore() {
     if (promoSel) promoSel.value = ORG_ID;
     const anSel = document.getElementById('analytics-store');
     if (anSel) anSel.value = ORG_ID;
+    const adsSel = document.getElementById("ads-store");
+    if (adsSel) adsSel.value = ORG_ID;
+    const mktSel = document.getElementById("mkt-store");
+    if (mktSel) mktSel.value = ORG_ID;
+    const extAdsSel = document.getElementById("ext-ad-store");
+    if (extAdsSel) extAdsSel.value = ORG_ID;
     history.replaceState(null, '', '/nl/v2?org=' + ORG_ID);
     // Reload current tab data
     var activeTab = document.querySelector('.page-section.active');
@@ -9047,6 +9053,9 @@ async function switchTopStore() {
         else if (tabName === 'analytics') loadAnalytics();
         else if (tabName === 'rnp') loadRnp();
         else if (tabName === 'opiu') loadOpiu();
+        else if (tabName === 'ads') loadAds();
+        else if (tabName === 'marketer') loadMarketer();
+        else if (tabName === 'extads') loadExtAds();
     }
 }
 
