@@ -10,7 +10,7 @@ let _ueAllData = [];  // Полные данные до фильтрации
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ue-grid-v6';
+    const VER = 'ue-grid-v7';
     if (localStorage.getItem('ue-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ue-grid-state-columns');
         localStorage.removeItem('tabulator-ue-grid-state-sort');
@@ -76,12 +76,8 @@ function getUEColumns() {
             title: '💰 Себестоимость',
             columns: [
                 { title: 'Себестоимость ₽', field: 'cost_price',
-                    headerTooltip: 'Себестоимость (из справочника)', width: 95, headerSort: true,
+                    headerTooltip: 'Себестоимость итого (из справочника)', width: 110, headerSort: true,
                     formatter: function(cell) { const v = parseFloat(cell.getValue()); return v ? '<b>' + v.toLocaleString('ru-RU') + '</b>' : '—'; }
-                },
-                { title: 'Доп расходы ₽', field: 'extra_costs',
-                    headerTooltip: 'Дополнительные расходы', width: 85, headerSort: true,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? v : '—'; }
                 },
             ]
         },

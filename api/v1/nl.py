@@ -4219,7 +4219,8 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
             "sku": f"{vendor_code}_{main_barcode}" if vendor_code else str(nm_id),
 
             # Из справочника / себестоимости
-            "cost_price": float(cost.get("cost_price") or 0),
+            # Себестоимость в Юните = Итого из справочника (cost_price + extra_costs)
+            "cost_price": (float(cost.get("cost_price") or 0)) + (float(ue.get("extra_costs") or 0)),
             "purchase_cost": float(cost.get("purchase_cost") or 0),
             "logistics_cost": float(cost.get("logistics_cost") or 0),
             "packaging_cost": float(cost.get("packaging_cost") or 0),
@@ -4251,7 +4252,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
             # Ручные вводы
             "mp_correction_pct": float(ue.get("mp_correction_pct") or 0),
             "buyout_niche_pct": float(ue.get("buyout_niche_pct") or 0),
-            "extra_costs": float(ue.get("extra_costs") or 0),
+            "extra_costs": 0,  # Уже включена в cost_price (Итого из справочника)
             "ad_plan_rub": min(99, max(0, float(ue.get("ad_plan_rub")) if ue.get("ad_plan_rub") not in (None, "", 0) else 5)),
             "price_before_spp_plan": float(ue.get("price_before_spp_plan") or 0),
             "price_before_spp_change": float(ue.get("price_before_spp_change") or 0),
@@ -4284,7 +4285,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
         if ts == "usn":
             tax = round(item["price_with_spp"] * item["tax_rate"] / 100, 2)
         elif ts == "usn_dr":
-            income = item["price_with_spp"] - mp_commission - item["cost_price"] - item["extra_costs"]
+            income = item["price_with_spp"] - mp_commission - item["cost_price"]  # extra_costs уже в cost_price
             tax = round(max(income, 0) * item["tax_rate"] / 100, 2)
         elif ts == "osn":
             nds = round(item["price_with_spp"] * item["vat_rate"] / 100, 2)
@@ -4300,7 +4301,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
 
         expenses_fact = (
             item["cost_price"] + item["logistics_cost"] + item["packaging_cost"] +
-            item["other_costs"] + item["extra_costs"] +
+            item["other_costs"] +  # extra_costs уже включена в cost_price
             mp_commission + item["logistics_actual"] + item["storage_actual"] +
             item["acceptance_avg"] + acquiring + tax +
             item["ad_fact_rub"] +
@@ -4328,7 +4329,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
         if ts == "usn":
             plan_tax = round(plan_price_spp * item["tax_rate"] / 100, 2)
         elif ts == "usn_dr":
-            plan_income = plan_price_spp - plan_mp - item["cost_price"] - item["extra_costs"]
+            plan_income = plan_price_spp - plan_mp - item["cost_price"]  # extra_costs уже в cost_price
             plan_tax = round(max(plan_income, 0) * item["tax_rate"] / 100, 2)
         elif ts == "osn":
             plan_nds = round(plan_price_spp * item["vat_rate"] / 100, 2)
@@ -4337,7 +4338,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
 
         expenses_plan = (
             item["cost_price"] + item["logistics_cost"] + item["packaging_cost"] +
-            item["other_costs"] + item["extra_costs"] +
+            item["other_costs"] +  # extra_costs уже включена в cost_price
             plan_mp + item["logistics_actual"] + item["storage_actual"] +
             item["acceptance_avg"] + plan_acquiring + plan_tax +
             item["ad_plan_rub"] +
@@ -4364,7 +4365,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
         if ts == "usn":
             change_tax = round(change_price_spp * item["tax_rate"] / 100, 2)
         elif ts == "usn_dr":
-            change_income = change_price_spp - change_mp - item["cost_price"] - item["extra_costs"]
+            change_income = change_price_spp - change_mp - item["cost_price"]  # extra_costs уже в cost_price
             change_tax = round(max(change_income, 0) * item["tax_rate"] / 100, 2)
         elif ts == "osn":
             change_nds = round(change_price_spp * item["vat_rate"] / 100, 2)
@@ -4373,7 +4374,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
 
         expenses_change = (
             item["cost_price"] + item["logistics_cost"] + item["packaging_cost"] +
-            item["other_costs"] + item["extra_costs"] +
+            item["other_costs"] +  # extra_costs уже включена в cost_price
             change_mp + item["logistics_actual"] + item["storage_actual"] +
             item["acceptance_avg"] + round(change_price_spp * 0.015, 2) + change_tax +
             item["ad_fact_rub"] +
