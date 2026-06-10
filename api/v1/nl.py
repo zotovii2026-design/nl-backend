@@ -6528,7 +6528,7 @@ async function _sectionEnter(name) {
             if (!_fboneedsInited) { _lazyInit('fboneeds'); _fboneedsInited = true; }
             loadFboNeeds(); break;
         case 'unitecon':
-            if (!_uniteconInited) { _lazyInit('unitecon'); _uniteconInited = true; }
+            if (!_uniteconInited) { _lazyInit('unitecon'); loadOrgs(); _uniteconInited = true; }
             if (!ueTabulator) initUEGrid(); loadUEData(); break;
         case 'promo':
             if (!_promoInited) { _lazyInit('promo'); _promoInited = true; }
