@@ -6433,39 +6433,77 @@ async function confirmDirty() {
     return true;
 }
 
+// === Реестр секций для lazy loading ===
+var _sectionRegistry = {
+    stats:      { title:'Основные показатели', topFilters:true },
+    rnp:        { title:'РНП', topFilters:true },
+    opiu:       { title:'ОПиУ', topFilters:true },
+    analytics:  { title:'Аналитика по товарам', topFilters:true },
+    costprice:  { title:'Справочник' },
+    salesplan:  { title:'План продаж' },
+    warehouses: { title:'Склады' },
+    opexpenses: { title:'Опер. расходы' },
+    ads:        { title:'Реклама' },
+    marketer:   { title:'Стол маркетолога' },
+    extads:     { title:'Внешняя реклама' },
+    fboneeds:   { title:'Потребность FBO' },
+    unitecon:   { title:'Юнит Экономика' },
+    promo:      { title:'Акции' },
+    connectors: { title:'Подключения' },
+    subscription:{ title:'Подписка' },
+    settings:   { title:'Настройки' },
+    help:       { title:'Помощь' }
+};
+
+// Загрузчик данных для каждой секции (lazy init + data fetch)
+function _sectionEnter(name) {
+    switch(name) {
+        case 'stats': loadStats(); break;
+        case 'analytics': loadAnalytics(); break;
+        case 'rnp': loadRnp(); break;
+        case 'opiu': loadOpiu(); break;
+        case 'costprice': loadTaxSettings(); loadCostPrices(); break;
+        case 'salesplan': loadSalesPlans(); break;
+        case 'warehouses': loadWarehouses(); break;
+        case 'opexpenses': loadOpEx(); break;
+        case 'marketer': loadMarketer(); break;
+        case 'ads': if (!adsTabulator) initAdsGrid(); loadAds(); break;
+        case 'extads': loadExtAds(); break;
+        case 'fboneeds': loadFboNeeds(); break;
+        case 'unitecon': if (!ueTabulator) initUEGrid(); loadUEData(); break;
+        case 'promo': if (typeof promoTabulator === 'undefined' || !promoTabulator) initPromoGrid(); loadPromoData(); break;
+        case 'connectors': loadProfile(); loadWbKeys(); break;
+    }
+}
+
+// Очистка при уходе со секции (пока заглушка — будет заполнена на след. шагах)
+function _sectionLeave(name) {
+    // placeholder для будущих destroy
+}
+
+var _currentSection = 'stats';
+
 async function navTo(name, el) {
     if (_costDirty) await confirmDirty();
+    // Leave current section
+    if (_currentSection && _currentSection !== name) _sectionLeave(_currentSection);
+    // Nav UI
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     if (el) el.classList.add('active');
     document.querySelectorAll('.page-section').forEach(t => t.classList.remove('active'));
     var target = document.getElementById('page-' + name);
     if (target) target.classList.add('active');
-    // Update page title
-    var titles = {stats:'Основные показатели',rnp:'РНП',opiu:'ОПиУ',analytics:'Аналитика по товарам',
-        costprice:'Справочник',salesplan:'План продаж',warehouses:'Склады',opexpenses:'Опер. расходы',ads:'Реклама',
-        marketer:'Стол маркетолога',extads:'Внешняя реклама',fboneeds:'Потребность FBO',unitecon:'Юнит Экономика',promo:'Акции',connectors:'Подключения',subscription:'Подписка',settings:'Настройки',help:'Помощь'};
-    document.getElementById('page-title').textContent = titles[name] || name;
-    // Update top-bar filters visibility
+    // Title
+    var reg = _sectionRegistry[name] || {};
+    document.getElementById('page-title').textContent = reg.title || name;
+    // Top filters
     var topFilters = document.getElementById('top-filters');
-    if (topFilters) topFilters.style.display = (name === 'stats' || name === 'analytics' || name === 'rnp' || name === 'opiu') ? 'flex' : 'none';
+    if (topFilters) topFilters.style.display = reg.topFilters ? 'flex' : 'none';
     // Cleanup popups
     if (typeof cleanupCostPopups === 'function') cleanupCostPopups();
-    // Load data for the tab
-    if (name === 'stats') loadStats();
-    else if (name === 'analytics') loadAnalytics();
-    else if (name === 'rnp') loadRnp();
-    else if (name === 'opiu') loadOpiu();
-    else if (name === 'costprice') { loadTaxSettings(); loadCostPrices(); }
-    else if (name === 'salesplan') loadSalesPlans();
-    else if (name === 'warehouses') loadWarehouses();
-    else if (name === 'opexpenses') loadOpEx();
-    else if (name === 'marketer') loadMarketer();
-    else if (name === 'ads') { if (!adsTabulator) initAdsGrid(); loadAds(); }
-    else if (name === 'extads') loadExtAds();
-    else if (name === 'fboneeds') loadFboNeeds();
-    else if (name === 'unitecon') { if (!ueTabulator) initUEGrid(); loadUEData(); }
-    else if (name === 'promo') { if (typeof promoTabulator === 'undefined' || !promoTabulator) initPromoGrid(); loadPromoData(); }
-    else if (name === 'connectors') { loadProfile(); loadWbKeys(); }
+    // Track current & enter
+    _currentSection = name;
+    _sectionEnter(name);
 }
 
 async function loadAds() {
