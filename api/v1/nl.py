@@ -5737,7 +5737,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
 
 <!-- ─── РЕКЛАМА ──────────────────────────────────────────── -->
-<div id="page-ads" class="page-section">
+<template id="tpl-ads">
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
 <span style="font-size:.9em;color:#666">🏪 Магазин:</span>
 <select id="ads-store" onchange="switchAdsStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
@@ -5836,9 +5836,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
 <!-- По дням перенесён выше в блок метрик -->
 
-</div>
-
-<div id="page-marketer" class="page-section">
+</div></template>
+<div id="page-ads" class="page-section"></div><div id="page-marketer" class="page-section">
 <!-- Верхняя панель: магазин + период + фильтры -->
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
 <span style="font-size:.9em;color:#666">🏪 Магазин:</span>
@@ -6463,9 +6462,9 @@ function _sectionEnter(name) {
             if (!_rnpInited) {
                 var tpl = document.getElementById('tpl-rnp');
                 if (tpl) document.getElementById('page-rnp').appendChild(tpl.content.cloneNode(true));
+                if (typeof initRnpMonths === 'function') initRnpMonths();
                 _rnpInited = true;
             }
-            // Восстановить фильтры если были сохранены
             if (_rnpState) {
                 var m = document.getElementById('rnp-month'); if (m) m.value = _rnpState.month;
                 var s = document.getElementById('rnp-sort'); if (s) s.value = _rnpState.sort;
@@ -6480,7 +6479,15 @@ function _sectionEnter(name) {
         case 'warehouses': loadWarehouses(); break;
         case 'opexpenses': loadOpEx(); break;
         case 'marketer': loadMarketer(); break;
-        case 'ads': if (!adsTabulator) initAdsGrid(); loadAds(); break;
+        case 'ads':
+            if (!_adsInited) {
+                var tpl = document.getElementById('tpl-ads');
+                if (tpl) document.getElementById('page-ads').appendChild(tpl.content.cloneNode(true));
+                _adsInited = true;
+            }
+            if (!adsTabulator) initAdsGrid();
+            loadAds();
+            break;
         case 'extads': loadExtAds(); break;
         case 'fboneeds': loadFboNeeds(); break;
         case 'unitecon': if (!ueTabulator) initUEGrid(); loadUEData(); break;
@@ -6493,7 +6500,6 @@ function _sectionEnter(name) {
 function _sectionLeave(name) {
     switch(name) {
         case 'rnp':
-            // Сохраняем фильтры перед очисткой
             _rnpState = {
                 month: document.getElementById('rnp-month')?.value || '',
                 sort: document.getElementById('rnp-sort')?.value || 'orders_revenue',
@@ -6504,11 +6510,20 @@ function _sectionLeave(name) {
             if (el) el.innerHTML = '';
             _rnpInited = false;
             break;
+        case 'ads':
+            // Destroy Tabulator instances
+            if (typeof adsTabulator !== 'undefined' && adsTabulator) { adsTabulator.destroy(); adsTabulator = null; }
+            if (typeof adsArtsTabulator !== 'undefined' && adsArtsTabulator) { adsArtsTabulator.destroy(); adsArtsTabulator = null; }
+            var adEl = document.getElementById('page-ads');
+            if (adEl) adEl.innerHTML = '';
+            _adsInited = false;
+            break;
     }
 }
 
 var _rnpState = null;
 var _rnpInited = false;
+var _adsInited = false;
 
 var _currentSection = 'stats';
 
