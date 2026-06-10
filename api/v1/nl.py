@@ -5448,7 +5448,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </table>
 <div id="stats-pagination" style="margin-top:8px;display:flex;align-items:center;gap:10px;font-size:.85em;color:#666"><span id="stats-shown"></span><button id="stats-more-btn" class="btn" style="padding:4px 12px;font-size:.85em;display:none" onclick="loadStatsMore()">Показать ещё</button></div>
 </div>
-<div id="page-analytics" class="page-section">
+<template id="tpl-analytics">
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
 <input type="text" id="analytics-search" placeholder="🔍 Поиск по артикулу/названию" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:250px" oninput="loadAnalytics()">
 <select id="analytics-date" onchange="loadAnalytics()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"></select>
@@ -5503,7 +5503,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option>
 </select>
 </div>
-</div>
+</template>
+<div id="page-analytics" class="page-section"></div>
 
 
 <template id="tpl-rnp"><div class="rnp-ctrl">
@@ -6454,10 +6455,18 @@ var _sectionRegistry = {
 };
 
 // Загрузчик данных для каждой секции (lazy init + data fetch)
-function _sectionEnter(name) {
+async function _sectionEnter(name) {
     switch(name) {
         case 'stats': loadStats(); break;
-        case 'analytics': loadAnalytics(); break;
+        case 'analytics':
+            if (!_analyticsInited) {
+                var tpl = document.getElementById('tpl-analytics');
+                if (tpl) document.getElementById('page-analytics').appendChild(tpl.content.cloneNode(true));
+                await loadDates(); // Заполнить analytics-date select
+                _analyticsInited = true;
+            }
+            loadAnalytics();
+            break;
         case 'rnp':
             if (!_rnpInited) {
                 var tpl = document.getElementById('tpl-rnp');
@@ -6479,6 +6488,11 @@ function _sectionEnter(name) {
         case 'warehouses': loadWarehouses(); break;
         case 'opexpenses': loadOpEx(); break;
         case 'marketer': loadMarketer(); break;
+        case 'analytics':
+            var anEl = document.getElementById('page-analytics');
+            if (anEl) anEl.innerHTML = '';
+            _analyticsInited = false;
+            break;
         case 'ads':
             if (!_adsInited) {
                 var tpl = document.getElementById('tpl-ads');
@@ -6510,6 +6524,11 @@ function _sectionLeave(name) {
             if (el) el.innerHTML = '';
             _rnpInited = false;
             break;
+        case 'analytics':
+            var anEl = document.getElementById('page-analytics');
+            if (anEl) anEl.innerHTML = '';
+            _analyticsInited = false;
+            break;
         case 'ads':
             // Destroy Tabulator instances
             if (typeof adsTabulator !== 'undefined' && adsTabulator) { adsTabulator.destroy(); adsTabulator = null; }
@@ -6524,6 +6543,7 @@ function _sectionLeave(name) {
 var _rnpState = null;
 var _rnpInited = false;
 var _adsInited = false;
+var _analyticsInited = false;
 
 var _currentSection = 'stats';
 
