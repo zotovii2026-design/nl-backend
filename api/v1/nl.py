@@ -5506,8 +5506,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 
 
-<div id="page-rnp" class="page-section">
-<div class="rnp-ctrl">
+<template id="tpl-rnp"><div class="rnp-ctrl">
 <select id="rnp-month" onchange="loadRnp()" style="min-width:130px"></select>
 <label style="font-size:.85em;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="rnp-buyout-pct" onchange="loadRnp()"> Учесть % выкупа</label>
 <select id="rnp-sort" onchange="loadRnp()">
@@ -5519,8 +5518,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div id="rnp-summary" class="rnp-summary-bar"></div>
 <div id="rnp-header-wrap" style="margin-bottom:8px"></div>
 <div id="rnp-cards" style="font-size:.82em"></div>
-<div style="margin-top:12px;font-size:.85em;color:#999" id="rnp-count"></div>
-</div>
+<div style="margin-top:12px;font-size:.85em;color:#999" id="rnp-count"></div></template>
+<div id="page-rnp" class="page-section"></div>
 
 <div id="page-opiu" class="page-section">
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
@@ -6460,7 +6459,21 @@ function _sectionEnter(name) {
     switch(name) {
         case 'stats': loadStats(); break;
         case 'analytics': loadAnalytics(); break;
-        case 'rnp': loadRnp(); break;
+        case 'rnp':
+            if (!_rnpInited) {
+                var tpl = document.getElementById('tpl-rnp');
+                if (tpl) document.getElementById('page-rnp').appendChild(tpl.content.cloneNode(true));
+                _rnpInited = true;
+            }
+            // Восстановить фильтры если были сохранены
+            if (_rnpState) {
+                var m = document.getElementById('rnp-month'); if (m) m.value = _rnpState.month;
+                var s = document.getElementById('rnp-sort'); if (s) s.value = _rnpState.sort;
+                var q = document.getElementById('rnp-search'); if (q) q.value = _rnpState.search;
+                var b = document.getElementById('rnp-buyout-pct'); if (b) b.checked = _rnpState.buyoutPct;
+            }
+            loadRnp();
+            break;
         case 'opiu': loadOpiu(); break;
         case 'costprice': loadTaxSettings(); loadCostPrices(); break;
         case 'salesplan': loadSalesPlans(); break;
@@ -6476,10 +6489,26 @@ function _sectionEnter(name) {
     }
 }
 
-// Очистка при уходе со секции (пока заглушка — будет заполнена на след. шагах)
+// Очистка при уходе со секции
 function _sectionLeave(name) {
-    // placeholder для будущих destroy
+    switch(name) {
+        case 'rnp':
+            // Сохраняем фильтры перед очисткой
+            _rnpState = {
+                month: document.getElementById('rnp-month')?.value || '',
+                sort: document.getElementById('rnp-sort')?.value || 'orders_revenue',
+                search: document.getElementById('rnp-search')?.value || '',
+                buyoutPct: document.getElementById('rnp-buyout-pct')?.checked || false
+            };
+            var el = document.getElementById('page-rnp');
+            if (el) el.innerHTML = '';
+            _rnpInited = false;
+            break;
+    }
 }
+
+var _rnpState = null;
+var _rnpInited = false;
 
 var _currentSection = 'stats';
 
