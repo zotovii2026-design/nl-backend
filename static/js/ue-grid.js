@@ -234,13 +234,20 @@ function getUEColumns() {
         {
             title: '📢 Реклама',
             columns: [
+                { title: 'Рекл. факт %', field: 'ad_fact_pct',
+                    headerTooltip: 'Рекламные расходы факт, % от цены (позже из финотчёта)', width: 80, headerSort: false,
+                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toFixed(1) + '%' : '—'; }
+                },
                 { title: 'Рекл. факт ₽', field: 'ad_fact_rub',
-                    headerTooltip: 'Рекламные расходы факт, ₽', width: 85, headerSort: false,
+                    headerTooltip: 'Рекламные расходы факт, ₽ (позже из финотчёта)', width: 85, headerSort: false,
                     formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
                 },
+                { title: 'Рекл. план %', field: 'ad_plan_pct',
+                    headerTooltip: 'Рекламные расходы план, % от цены (из справочника)', width: 80, headerSort: false,
+                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toFixed(1) + '%' : '—'; }
+                },
                 { title: 'Рекл. план ₽', field: 'ad_plan_rub',
-                    headerTooltip: 'Рекламные расходы план, ₽ (ручной ввод)', width: 85, headerSort: false,
-                    editor: 'number', editorParams: { step: 1, min: 0 },
+                    headerTooltip: 'Рекламные расходы план, ₽ (расчёт: цена × %)', width: 85, headerSort: false,
                     formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
                 },
             ]

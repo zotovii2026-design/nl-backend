@@ -4243,7 +4243,8 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
             "price_before_spp": float(ue.get("wb_price_fact")) if ue.get("wb_price_fact") else (snap_by_nm.get(nm_id, {}).get("price_retail") or price),
             "spp_pct": snap_by_nm.get(nm_id, {}).get("spp_pct") or round((1 - price_discount / price) * 100, 1) if price and price_discount and price_discount < price else 0,
             "price_with_spp": float(snap_by_nm.get(nm_id, {}).get("price_with_spp") or price_discount or price),
-            "ad_fact_rub": snap_by_nm.get(nm_id, {}).get("ad_cost_fact") or float(p[9] or 0),
+            "ad_fact_pct": 0,  # заглушка, позже из финотчёта
+            "ad_fact_rub": 0,  # заглушка, позже из финотчёта
             "wb_club_discount_pct_api": 0,
 
             # Из справочника
@@ -4253,7 +4254,8 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
             "mp_correction_pct": float(ue.get("mp_correction_pct") or 0),
             "buyout_niche_pct": float(ue.get("buyout_niche_pct") or 0),
             "extra_costs": 0,  # Уже включена в cost_price (Итого из справочника)
-            "ad_plan_rub": min(99, max(0, float(ue.get("ad_plan_rub")) if ue.get("ad_plan_rub") not in (None, "", 0) else 5)),
+            "ad_plan_pct": min(99, max(0, float(ue.get("ad_plan_rub")) if ue.get("ad_plan_rub") not in (None, "", 0) else 5)),
+            "ad_plan_rub": 0,  # рассчитывается ниже по цене
             "price_before_spp_plan": float(ue.get("price_before_spp_plan") or 0),
             "price_before_spp_change": float(ue.get("price_before_spp_change") or 0),
             "change_date": str(ue.get("change_date")) if ue.get("change_date") else None,
@@ -4272,6 +4274,10 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
         # Расчётные формулы
         mp_total_pct = item["mp_base_pct"] + item["mp_correction_pct"]
         item["mp_total_pct"] = mp_total_pct
+
+        # Реклама: расчёт ₽ из %
+        item["ad_plan_rub"] = round(item["price_before_spp"] * item["ad_plan_pct"] / 100, 2)
+        item["ad_fact_rub"] = round(item["price_with_spp"] * item["ad_fact_pct"] / 100, 2)  # Заглушка
 
         # Комиссия МП
         mp_commission = round(item["price_with_spp"] * mp_total_pct / 100, 2)
@@ -4347,7 +4353,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
             item["other_costs"] +  # extra_costs уже включена в cost_price
             plan_mp + item["logistics_actual"] + item["storage_actual"] +
             item["acceptance_avg"] + plan_acquiring + plan_tax +
-            item["ad_plan_rub"] +
+            round(plan_price_spp * item["ad_plan_pct"] / 100, 2) +
             _reverse_log_amount
         )
         profit_plan = round(plan_price_spp - expenses_plan, 2)
@@ -5310,7 +5316,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260603f"></script>
-<script type="text/javascript" src="/static/js/ue-grid.js?v=20260605b"></script>
+<script type="text/javascript" src="/static/js/ue-grid.js?v=20260610a"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260608j"></script>
 <script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260609d"></script>
