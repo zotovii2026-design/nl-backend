@@ -10,7 +10,7 @@ let _ueAllData = [];  // Полные данные до фильтрации
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ue-grid-v7';
+    const VER = 'ue-grid-v8';
     if (localStorage.getItem('ue-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ue-grid-state-columns');
         localStorage.removeItem('tabulator-ue-grid-state-sort');
@@ -98,6 +98,10 @@ function getUEColumns() {
                 { title: 'Итоговый % МП', field: 'mp_total_pct',
                     headerTooltip: 'Итоговый % МП', width: 75, headerSort: true,
                     formatter: function(cell) { const v = cell.getValue(); return v ? '<b>' + v + '%</b>' : '—'; }
+                },
+                { title: 'Комиссия МП ₽', field: 'mp_commission',
+                    headerTooltip: 'Комиссия МП (расчёт: цена × итоговый % / 100). Заглушка — потом заменить на фин отчёт', width: 100, headerSort: true,
+                    formatter: function(cell) { const v = parseFloat(cell.getValue()); return v ? v.toLocaleString('ru-RU', {minimumFractionDigits: 2}) : '—'; }
                 },
             ]
         },

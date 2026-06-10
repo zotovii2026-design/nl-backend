@@ -4275,6 +4275,7 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
 
         # Комиссия МП
         mp_commission = round(item["price_with_spp"] * mp_total_pct / 100, 2)
+        item["mp_commission"] = mp_commission
 
         # Эквайринг 1.5%
         acquiring = round(item["price_with_spp"] * 0.015, 2)
