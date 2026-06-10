@@ -4241,8 +4241,8 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
             "storage_actual": 0,  # Будет из финотчётов
             "acceptance_avg": 0,  # Будет из API приёмки
             "price_before_spp": float(ue.get("wb_price_fact")) if ue.get("wb_price_fact") else (snap_by_nm.get(nm_id, {}).get("price_retail") or price),
-            "spp_pct": snap_by_nm.get(nm_id, {}).get("spp_pct") or round((1 - price_discount / price) * 100, 1) if price and price_discount and price_discount < price else 0,
-            "price_with_spp": float(snap_by_nm.get(nm_id, {}).get("price_with_spp") or price_discount or price),
+            "spp_pct": 0,  # заглушка, пока нет источника
+            "price_with_spp": 0,  # заглушка, пока нет источника
             "ad_fact_pct": 0,  # заглушка, позже из финотчёта
             "ad_fact_rub": 0,  # заглушка, позже из финотчёта
             "wb_club_discount_pct_api": 0,
