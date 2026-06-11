@@ -43,6 +43,7 @@ from models.product_entity import (
     UnmatchedBarcode
 )
 from models.sales_plan import SalesPlan, PlanType, Seasonality
+from models.celery_task_run import CeleryTaskRun
 
 config = context.config
 

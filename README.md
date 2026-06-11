@@ -42,12 +42,13 @@ nl-backend/
 
 ### Что создано:
 
-1. **Celery задачи** (`tasks/celery_app_new.py`)
-   - `sync_wb_products` — синхронизация товаров (каждые 30 минут)
-   - `sync_wb_sales` — синхронизация продаж (каждый час)
-   - `sync_wb_orders` — синхронизация заказов (каждые 2 часа)
-   - `sync_organization_data` — полная синхронизация организации
-   - `cleanup_old_sync_logs` — очистка старых логов
+1. **Celery**
+   - единое приложение: `tasks/celery_app.py`
+   - расписание: `tasks/celery_schedule.py`
+   - плановые WB-задачи: `tasks/scheduled_sync.py`
+   - журнал запусков: `celery_task_runs`
+   - контроль свежести: `wb.sched.freshness`
+   - опциональные ошибки в webhook: `CELERY_ALERT_WEBHOOK_URL`
 
 2. **Модель логов синхронизации** (`models/sync.py`)
    - SyncLog: task_name, status, synced_count, error_message
@@ -69,13 +70,8 @@ nl-backend/
    - Тесты всех Celery задач
    - Тесты API endpoints
 
-### Расписание (Celery Beat):
-
-| Задача | Расписание | Описание |
-|--------|------------|-----------|
-| sync_wb_products | Каждые 30 минут | Товары |
-| sync_wb_sales | Каждый час | Продажи |
-| sync_wb_orders | Каждые 2 часа | Заказы |
+Текущее расписание и правила эксплуатации описаны в
+[`docs/celery.md`](docs/celery.md).
 
 ### Пример запроса:
 

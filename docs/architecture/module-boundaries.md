@@ -113,20 +113,24 @@ Celery task -> application service
 3. В `nl.py` два обработчика `GET /api/v1/nl/opiu`.
 4. В `models/sync.py` и `models/wb_data.py` объявлены классы `SyncLog` для
    таблицы `sync_logs`.
-5. Существуют `tasks/celery_app.py` и фактически используемый
-   `tasks/celery_app_new.py`.
-6. `tasks/daily_sync.py`, `tasks/scheduled_sync.py`, `tasks/wb_sync.py` и
-   `tasks/stocks_sync.py` частично перекрываются по ответственности.
-7. `scheduled_sync.py` содержит получение WB-данных, retry, запись raw,
+5. `tasks/scheduled_sync.py` содержит получение WB-данных, retry, запись raw,
    нормализацию, SQL и запуск пересчета.
-8. Часть маршрутов `nl.py` использует Bearer JWT, часть query token, часть
+6. Часть маршрутов `nl.py` использует Bearer JWT, часть query token, часть
    только `org_id`; необходим отдельный аудит безопасности.
-9. HTML и значительная клиентская оркестрация находятся в Python-строке.
-10. В коде используются таблицы `ad_campaigns`, `ad_stats`, `ad_stats_nm`,
+7. HTML и значительная клиентская оркестрация находятся в Python-строке.
+8. В коде используются таблицы `ad_campaigns`, `ad_stats`, `ad_stats_nm`,
     `sellers`, `seo_keywords`, которые не представлены отдельными моделями
     SQLAlchemy в текущем каталоге `models`.
 
-Эти пункты не исправляются в рамках карты системы.
+Закрыто 2026-06-11:
+
+- оставлено одно приложение `tasks/celery_app.py`;
+- расписание вынесено в `tasks/celery_schedule.py`;
+- удалены неиспользуемые `celery_app_new.py`, `daily_sync.py` и
+  `sync_tasks.py`;
+- добавлены журнал запусков, контроль свежести и webhook ошибок.
+
+Оставшиеся пункты не исправляются в рамках карты системы.
 
 ## 7. Порядок безопасного выделения модулей
 

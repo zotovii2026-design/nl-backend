@@ -72,7 +72,7 @@ services:
     mem_limit: 900m
     mem_reservation: 256m
     container_name: ${CELERY_WORKER_CONTAINER_NAME:-nl-backend-celery-worker}
-    command: celery -A tasks.celery_app_new worker --loglevel=info
+    command: celery -A tasks.celery_app:celery_app worker --loglevel=info
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -82,7 +82,7 @@ services:
     mem_limit: 300m
     mem_reservation: 128m
     container_name: ${CELERY_BEAT_CONTAINER_NAME:-nl-backend-celery-beat}
-    command: celery -A tasks.celery_app_new beat --loglevel=info
+    command: celery -A tasks.celery_app:celery_app beat --loglevel=info
     dns:
       - 8.8.8.8
       - 8.8.4.4

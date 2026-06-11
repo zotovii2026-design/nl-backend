@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://redis:6379/0"
 
+    # Optional receiver for structured Celery failure alerts.
+    CELERY_ALERT_WEBHOOK_URL: Optional[str] = None
+
     # Wildberries API
     WB_API_BASE_URL: str = "https://suppliers-api.wildberries.ru"
 
