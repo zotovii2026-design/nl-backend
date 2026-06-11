@@ -1,4 +1,5 @@
 import uuid
+import math
 """API для справочного листа, авторизации и фронтенд НЛ"""
 from fastapi import APIRouter, Depends, Query, Request, HTTPException, status
 from fastapi.responses import HTMLResponse
@@ -18,6 +19,17 @@ from models.user import User
 from models.reference_book import ReferenceBook
 from models.raw_data import TechStatus
 from models.sales_plan import SalesPlan, PlanType, Seasonality
+from domain.unit_economics import (
+    apply_financial_formulas,
+    build_box_tariff_context,
+    calculate_delivery,
+    calculate_reverse_delivery,
+)
+from repositories.unit_economics import (
+    get_latest_date as get_unit_economics_latest_date,
+    get_products as get_unit_economics_products,
+    get_supporting_rows as get_unit_economics_supporting_rows,
+)
 
 router = APIRouter(tags=["nl"])
 
@@ -3771,17 +3783,6 @@ async def build_unit_economics(
     limit: Optional[int] = None,
 ):
     """Юнит Экономика — сборка всех данных по SKU"""
-    import asyncio
-    from models.reference_book import ReferenceBook
-    from sqlalchemy import text as sql_text
-    from core.database import async_session as _make_session
-
-    # Хелпер для параллельного выполнения SQL через отдельные сессии
-    async def _run_query(query_text, params):
-        async with _make_session() as s:
-            result = await s.execute(sql_text(query_text), params)
-            return result.all()
-
     # ── Redis-кэш: отдаём готовый результат если есть ──
     import redis as _redis_lib, json as _json
     _redis = _redis_lib.from_url("redis://redis:6379/0")
@@ -3797,68 +3798,11 @@ async def build_unit_economics(
             except Exception:
                 pass
 
-    # 1) Получаем список товаров из tech_status (последняя дата)
-    dates_result = await db.execute(
-        sql_text("SELECT DISTINCT target_date FROM tech_status WHERE organization_id = :org ORDER BY target_date DESC LIMIT 1"),
-        {"org": org_id}
-    )
-    latest_date_row = dates_result.first()
-    if not latest_date_row:
+    latest_date = await get_unit_economics_latest_date(db, org_id)
+    if not latest_date:
         return {"items": [], "total": 0}
-    latest_date = latest_date_row[0]
-
-    # 2) Продукты из product_entities (одна строка на nm_id + размер, как в Справочнике)
-    prods_result = await db.execute(
-        sql_text("""
-            SELECT pe.id as entity_id, pe.nm_id, pe.vendor_code, COALESCE(ts.product_name, pe.product_name) as product_name, COALESCE(ts.photo_main, pe.photo_main) as photo_main,
-                   (SELECT string_agg(eb.barcode, ', ') FROM entity_barcodes eb WHERE eb.entity_id = pe.id AND eb.is_active = true) as barcode,
-                   ts.price, ts.price_discount, ts.tariff, ts.ad_cost,
-                   pe.size_name, pe.subject_name,
-                   pe.width, pe.height, pe.length
-            FROM product_entities pe
-            LEFT JOIN LATERAL (
-                SELECT product_name, photo_main, price, price_discount, tariff, ad_cost
-                FROM tech_status ts
-                WHERE ts.organization_id = :org AND ts.nm_id = pe.nm_id AND ts.target_date = :dt
-                LIMIT 1
-            ) ts ON true
-            WHERE pe.organization_id = :org
-            ORDER BY pe.nm_id, pe.size_name
-        """),
-        {"org": org_id, "dt": latest_date}
-    )
-    products = prods_result.all()
-
-    # ═══════════════════════════════════════════════════════════
-    # [OPTIMIZED] Параллельное выполнение 5 SQL-запросов (asyncio.gather)
-    # Запросы 3, 4, 5, 5b, 5c не зависят друг от друга → выполняются одновременно
-    # ═══════════════════════════════════════════════════════════
-    # ═══════════════════════════════════════════════════════════
-    # [OPTIMIZED v2] 3 запроса вместо 5:
-    #   - 1 широкий SELECT из reference_book (вместо 3 отдельных)
-    #   - wb_tariff_snapshot
-    #   - wb_box_tariffs
-    # ═══════════════════════════════════════════════════════════
-    _rb_sql = """SELECT entity_id, nm_id,
-            mp_correction_pct, buyout_niche_pct, extra_costs, ad_plan_rub,
-            price_before_spp_plan, price_before_spp_change, change_date,
-            fulfillment_model, wb_club_discount_pct, storage_pct, product_status,
-            mp_base_pct, wb_price_fact, wb_price_retail, wb_discount_pct, wb_prices_updated_at,
-            cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs,
-            vat, product_class, brand, tax_system, tax_rate, vat_rate,
-            fbs_warehouse
-        FROM reference_book
-        WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
-        ORDER BY entity_id NULLS LAST, valid_from DESC"""
-    _q5_sql = """SELECT nm_id, logistics_tariff, storage_tariff, ad_cost_fact, buyout_pct_fact, commission_pct, price_retail, price_with_spp, spp_pct, commission_fbs_pct FROM wb_tariff_snapshot WHERE organization_id = :org ORDER BY target_date DESC"""
-    _q5b_sql = """SELECT warehouse_name, box_delivery_base, box_delivery_liter, box_delivery_marketplace_base, box_delivery_marketplace_liter, box_delivery_coef, box_delivery_marketplace_coef FROM wb_box_tariffs WHERE organization_id = :org AND snapshot_date = (SELECT MAX(snapshot_date) FROM wb_box_tariffs WHERE organization_id = :org)"""
-    _p = {"org": org_id}
-
-    rb_rows, tsnap_rows, box_rows = await asyncio.gather(
-        _run_query(_rb_sql, _p),
-        _run_query(_q5_sql, _p),
-        _run_query(_q5b_sql, _p),
-    )
+    products = await get_unit_economics_products(db, org_id, latest_date)
+    rb_rows, tsnap_rows, box_rows = await get_unit_economics_supporting_rows(org_id)
 
     # ── Обработка единого запроса reference_book ──────────
     # Колонки rb_rows:
@@ -3954,148 +3898,8 @@ async def build_unit_economics(
                 "commission_fbs_pct": float(r[9]) if r[9] else 0,
             }
 
-    # ── Тарифы коробной логистики ──────────
-    import math
-    FBO_WH_NAMES = ["Коледино", "Краснодар", "Казань"]
-    box_tariffs = {}
-    fbo_delivery_sum = 0
-    fbo_liter_sum = 0
-    fbo_coef_sum = 0
-    fbo_count = 0
-    for r in box_rows:
-        wh_name = r[0]
-        box_tariffs[wh_name] = {
-            "fbo_base": float(r[1]) if r[1] else None,
-            "fbo_liter": float(r[2]) if r[2] else None,
-            "fbs_base": float(r[3]) if r[3] else None,
-            "fbs_liter": float(r[4]) if r[4] else None,
-            "fbo_coef": float(r[5]) if r[5] else None,
-            "fbs_coef": float(r[6]) if len(r) > 6 and r[6] else None,
-        }
-        if wh_name in FBO_WH_NAMES:
-            if r[1] is not None and r[2] is not None:
-                fbo_delivery_sum += float(r[1])
-                fbo_liter_sum += float(r[2])
-                fbo_coef_sum += float(r[5]) if len(r) > 5 and r[5] else 0
-                fbo_count += 1
-
-    fbo_avg_base = round(fbo_delivery_sum / fbo_count, 2) if fbo_count else 0
-    fbo_avg_liter = round(fbo_liter_sum / fbo_count, 2) if fbo_count else 0
-    fbo_avg_coef = round(fbo_coef_sum / fbo_count, 2) if fbo_count else 0
-
-    # WB-сетка тарификации для товаров <= 1 литра (базовые ставки без коэфф.)
-    _WB_TIER_RATES = [
-        (0.001, 0.200, 23.0),
-        (0.201, 0.400, 26.0),
-        (0.401, 0.600, 29.0),
-        (0.601, 0.800, 30.0),
-        (0.801, 1.000, 32.0),
-    ]
-    _WB_BASE_FIRST_LITER = 46.0   # базовая ставка за 1-й литр (>1л)
-    _WB_BASE_NEXT_LITER = 14.0    # базовая ставка за каждый доп. литр
-
-    def _wb_rate_per_liter(vol):
-        """Получить ставку ₽/л по WB-сетке для объёма <= 1л"""
-        for lo, hi, rate in _WB_TIER_RATES:
-            if lo <= vol <= hi:
-                return rate
-        return _WB_BASE_FIRST_LITER  # fallback
-
-    def _calc_delivery(volume_liters, fulfillment_model, fbs_warehouse):
-        """
-        Расчёт логистики до клиента по WB-методике.
-        
-        WB тарификация:
-        - <= 1 литр: ставка по сетке (23-32 ₽/л) × коэфф. склада
-        - > 1 литр: 46 ₽ за первый + 14 ₽ за каждый доп. литр × коэфф. склада
-        - box_delivery_base/liter в API = уже с коэфф. склада
-        
-        Для ФБО используем усреднённый коэфф. по 3 складам.
-        """
-        if not volume_liters or volume_liters <= 0:
-            return 0, {}
-
-        debug = {}
-        vol_ceil = math.ceil(volume_liters)  # округление вверх до целых литров
-
-        if fulfillment_model == "fbs" and fbs_warehouse:
-            # ФБС — конкретный склад
-            wh_tariffs = None
-            wh_found = None
-            for wh_name in box_tariffs:
-                if fbs_warehouse in wh_name or wh_name in fbs_warehouse:
-                    wh_tariffs = box_tariffs[wh_name]
-                    wh_found = wh_name
-                    break
-            if wh_tariffs:
-                base = wh_tariffs.get("fbs_base") or wh_tariffs.get("fbo_base") or 0
-                liter = wh_tariffs.get("fbs_liter") or wh_tariffs.get("fbo_liter") or 0
-                # Приоритет ФБС-коэфф., fallback на ФБО-коэфф., затем 100%
-                coef = wh_tariffs.get("fbs_coef") or wh_tariffs.get("fbo_coef") or 100
-                if base:
-                    if volume_liters <= 1.0:
-                        rate = _wb_rate_per_liter(volume_liters)
-                        cost = round(rate * (coef / 100), 2)
-                        debug = {"method": "ФБС (сетка <=1л)", "warehouse": wh_found, "vol": volume_liters, "tier_rate": rate, "coef": coef, "coef_source": "fbs" if wh_tariffs.get("fbs_coef") else "fbo", "formula": f"{rate} × {coef}%", "result": cost}
-                    else:
-                        cost = round(base + (vol_ceil - 1) * liter, 2)
-                        debug = {"method": "ФБС (>1л)", "warehouse": wh_found, "vol_ceil": vol_ceil, "base": base, "liter": liter, "coef": coef, "coef_source": "fbs" if wh_tariffs.get("fbs_coef") else "fbo", "formula": f"{base} + {vol_ceil-1}×{liter}", "result": cost}
-                    return cost, debug
-            # Fallback на ФБС-тариф Коледино (План Б)
-            _kd_tariffs = box_tariffs.get("\u041a\u043e\u043b\u0435\u0434\u0438\u043d\u043e")
-            if _kd_tariffs and (_kd_tariffs.get("fbs_base") or _kd_tariffs.get("fbs_liter")):
-                _kd_base = _kd_tariffs.get("fbs_base") or _kd_tariffs.get("fbo_base") or 0
-                _kd_liter = _kd_tariffs.get("fbs_liter") or _kd_tariffs.get("fbo_liter") or 0
-                _kd_coef = _kd_tariffs.get("fbs_coef") or _kd_tariffs.get("fbo_coef") or 100
-                if volume_liters <= 1.0:
-                    rate = _wb_rate_per_liter(volume_liters)
-                    cost = round(rate * (_kd_coef / 100), 2)
-                    debug = {"method": "ФБС Коледино (сетка <=1л, fallback)", "warehouse": "\u041a\u043e\u043b\u0435\u0434\u0438\u043d\u043e", "warehouse_requested": fbs_warehouse, "fallback_warehouse": "\u041a\u043e\u043b\u0435\u0434\u0438\u043d\u043e", "tier_rate": rate, "coef": _kd_coef, "formula": f"{rate} \u00d7 {_kd_coef}%", "result": cost}
-                else:
-                    cost = round(_kd_base + (vol_ceil - 1) * _kd_liter, 2)
-                    debug = {"method": "ФБС Коледино (>1л, fallback)", "warehouse": "\u041a\u043e\u043b\u0435\u0434\u0438\u043d\u043e", "warehouse_requested": fbs_warehouse, "fallback_warehouse": "\u041a\u043e\u043b\u0435\u0434\u0438\u043d\u043e", "vol_ceil": vol_ceil, "base": _kd_base, "liter": _kd_liter, "coef": _kd_coef, "formula": f"{_kd_base} + {vol_ceil-1}\u00d7{_kd_liter}", "result": cost}
-                return cost, debug
-            return 0, {}
-
-        # ФБО — усреднённое по 3 складам (Коледино/Краснодар/Казань)
-        if fbo_avg_base:
-            if volume_liters <= 1.0:
-                rate = _wb_rate_per_liter(volume_liters)
-                cost = round(rate * (fbo_avg_coef / 100), 2)
-                debug = {"method": "ФБО-среднее (сетка <=1л)", "vol": volume_liters, "tier_rate": rate, "avg_coef": fbo_avg_coef,
-                         "kd_coef": box_tariffs.get("Коледино", {}).get("fbo_coef", 0),
-                         "kr_coef": box_tariffs.get("Краснодар", {}).get("fbo_coef", 0),
-                         "kz_coef": box_tariffs.get("Казань", {}).get("fbo_coef", 0),
-                         "formula": f"{rate} × {fbo_avg_coef}% (среднее 3 складов)", "result": cost}
-            else:
-                cost = round(fbo_avg_base + (vol_ceil - 1) * fbo_avg_liter, 2)
-                debug = {"method": "ФБО-среднее (>1л)", "vol_ceil": vol_ceil, "avg_base": fbo_avg_base, "avg_liter": fbo_avg_liter,
-                         "formula": f"{fbo_avg_base} + {vol_ceil-1}×{fbo_avg_liter}", "result": cost}
-            return cost, debug
-        return 0, {}
-
-
-    def _calc_reverse_delivery(volume_liters):
-        """
-        Расчёт обратной логистики (возврат от покупателя на склад).
-        Обратная логистика = базовый тариф за объём, БЕЗ коэффициента склада.
-        Подтверждено API: прямая ~420₽, обратная ~205₽ (коэфф. склада ~2x не применяется).
-        """
-        if not volume_liters or volume_liters <= 0:
-            return 0, {}
-        
-        debug = {}
-        vol_ceil = math.ceil(volume_liters)
-        
-        if volume_liters <= 1.0:
-            rate = _wb_rate_per_liter(volume_liters)
-            cost = round(rate, 2)  # Без коэффициента склада!
-            debug = {"method": "Обратная лог. (сетка <=1л)", "vol": volume_liters, "tier_rate": rate, "formula": f"{rate} ₽ (без коэфф. склада)", "result": cost}
-        else:
-            cost = round(_WB_BASE_FIRST_LITER + (vol_ceil - 1) * _WB_BASE_NEXT_LITER, 2)
-            debug = {"method": "Обратная лог. (>1л)", "vol_ceil": vol_ceil, "base": _WB_BASE_FIRST_LITER, "liter": _WB_BASE_NEXT_LITER, "formula": f"{_WB_BASE_FIRST_LITER} + {vol_ceil-1}×{_WB_BASE_NEXT_LITER}", "result": cost}
-        
-        return cost, debug
+    tariff_context = build_box_tariff_context(box_rows)
+    box_tariffs = tariff_context["tariffs"]
 
     # 8) Собираем результат
     items = []
@@ -4128,8 +3932,15 @@ async def build_unit_economics(
         _fbs_warehouse = ff_info[1] if ff_info[1] and ff_info[1] != "0" else None
 
         # Расчёт логистики до клиента
-        _delivery_to_client, _delivery_debug = _calc_delivery(_volume_liters, _fulfillment_model, _fbs_warehouse)
-        _reverse_logistics, _reverse_debug = _calc_reverse_delivery(_volume_liters)
+        _delivery_to_client, _delivery_debug = calculate_delivery(
+            _volume_liters,
+            _fulfillment_model,
+            _fbs_warehouse,
+            tariff_context,
+        )
+        _reverse_logistics, _reverse_debug = calculate_reverse_delivery(
+            _volume_liters
+        )
 
         # Tooltip расшифровка логистики (детальная WB-методика)
         _logistics_tooltip_parts = []
@@ -4276,135 +4087,7 @@ async def build_unit_economics(
             "logistics_tooltip": _logistics_tooltip,
         }
 
-        # Расчётные формулы
-        mp_total_pct = item["mp_base_pct"] + item["mp_correction_pct"]
-        item["mp_total_pct"] = mp_total_pct
-
-        # Реклама: расчёт ₽ из %
-        item["ad_plan_rub"] = round(item["price_before_spp"] * item["ad_plan_pct"] / 100, 2)
-        item["ad_fact_rub"] = round(item["price_with_spp"] * item["ad_fact_pct"] / 100, 2)  # Заглушка
-
-        # Комиссия МП
-        mp_commission = round(item["price_with_spp"] * mp_total_pct / 100, 2)
-        item["mp_commission"] = mp_commission
-
-        # Эквайринг 1.5%
-        acquiring = round(item["price_with_spp"] * 0.015, 2)
-
-        # Налог
-        tax = 0
-        ts = item["tax_system"]
-        if ts == "usn":
-            tax = round(item["price_with_spp"] * item["tax_rate"] / 100, 2)
-        elif ts == "usn_dr":
-            income = item["price_with_spp"] - mp_commission - item["cost_price"]  # extra_costs уже в cost_price
-            tax = round(max(income, 0) * item["tax_rate"] / 100, 2)
-        elif ts == "osn":
-            nds = round(item["price_with_spp"] * item["vat_rate"] / 100, 2)
-            input_nds = round(item["purchase_cost"] / 120 * item["vat_rate"] if item["purchase_cost"] else 0, 2)
-            tax = round(nds - input_nds, 2)
-
-        item["tax_total"] = tax
-
-        # === БЛОК 7: Расчёт по ФАКТУ ===
-        # Обратная логистика на 1 шт (с учётом % невозврата = 100% - %выкупа)
-        # Обратная логистика = базовый тариф за объём, без коэфф. склада, без % выкупа
-        _reverse_log_amount = item["reverse_logistics"] or 0
-
-        # Логистика с % выкупа (затраты на 1 отправленный товар)
-        _buyout_pct = item["buyout_fact_pct"] if item["buyout_fact_pct"] and item["buyout_fact_pct"] > 0 else item["buyout_niche_pct"]
-        _buyout_ratio = float(_buyout_pct) / 100 if _buyout_pct else 1
-        item["logistics_with_buyout"] = round(item["delivery_to_client"] + _reverse_log_amount * (1 - _buyout_ratio), 2)
-
-        expenses_fact = (
-            item["cost_price"] + item["logistics_cost"] + item["packaging_cost"] +
-            item["other_costs"] +  # extra_costs уже включена в cost_price
-            mp_commission + item["logistics_actual"] + item["storage_actual"] +
-            item["acceptance_avg"] + acquiring + tax +
-            item["ad_fact_rub"] +
-            _reverse_log_amount
-        )
-        profit_fact = round(item["price_with_spp"] - expenses_fact, 2)
-        margin_fact = round(profit_fact / item["price_with_spp"] * 100, 2) if item["price_with_spp"] else 0
-        roi_fact = round(profit_fact / item["cost_price"] * 100, 2) if item["cost_price"] else 0
-        to_account_fact = round(item["price_with_spp"] - mp_commission - tax, 2)
-
-        item["expenses_fact"] = round(expenses_fact, 2)
-        item["profit_fact"] = profit_fact
-        item["margin_fact"] = margin_fact
-        item["roi_fact"] = roi_fact
-        item["to_account_fact"] = to_account_fact
-
-        # === БЛОК 8: Расчёт по ПЛАНУ ===
-        plan_price = float(item["price_before_spp_plan"] or item["price_before_spp"])
-        plan_price_spp = round(plan_price * (1 - item["spp_pct"] / 100), 2) if item["spp_pct"] else plan_price
-        plan_mp = round(plan_price_spp * mp_total_pct / 100, 2)
-        plan_acquiring = round(plan_price_spp * 0.015, 2)
-        
-        # Пересчёт налога для плановой цены
-        plan_tax = 0
-        if ts == "usn":
-            plan_tax = round(plan_price_spp * item["tax_rate"] / 100, 2)
-        elif ts == "usn_dr":
-            plan_income = plan_price_spp - plan_mp - item["cost_price"]  # extra_costs уже в cost_price
-            plan_tax = round(max(plan_income, 0) * item["tax_rate"] / 100, 2)
-        elif ts == "osn":
-            plan_nds = round(plan_price_spp * item["vat_rate"] / 100, 2)
-            plan_input_nds = round(item["purchase_cost"] / 120 * item["vat_rate"] if item["purchase_cost"] else 0, 2)
-            plan_tax = round(plan_nds - plan_input_nds, 2)
-
-        expenses_plan = (
-            item["cost_price"] + item["logistics_cost"] + item["packaging_cost"] +
-            item["other_costs"] +  # extra_costs уже включена в cost_price
-            plan_mp + item["logistics_actual"] + item["storage_actual"] +
-            item["acceptance_avg"] + plan_acquiring + plan_tax +
-            round(plan_price_spp * item["ad_plan_pct"] / 100, 2) +
-            _reverse_log_amount
-        )
-        profit_plan = round(plan_price_spp - expenses_plan, 2)
-        margin_plan = round(profit_plan / plan_price_spp * 100, 2) if plan_price_spp else 0
-        roi_plan = round(profit_plan / item["cost_price"] * 100, 2) if item["cost_price"] else 0
-        to_account_plan = round(plan_price_spp - plan_mp - plan_tax, 2)
-
-        item["plan_price_spp"] = plan_price_spp
-        item["expenses_plan"] = round(expenses_plan, 2)
-        item["profit_plan"] = profit_plan
-        item["margin_plan"] = margin_plan
-        item["roi_plan"] = roi_plan
-        item["to_account_plan"] = to_account_plan
-
-        # === БЛОК 9: После изменений ===
-        change_price = float(item["price_before_spp_change"] or item["price_before_spp"])
-        change_price_spp = round(change_price * (1 - item["spp_pct"] / 100), 2) if item["spp_pct"] else change_price
-        change_mp = round(change_price_spp * mp_total_pct / 100, 2)
-        
-        change_tax = 0
-        if ts == "usn":
-            change_tax = round(change_price_spp * item["tax_rate"] / 100, 2)
-        elif ts == "usn_dr":
-            change_income = change_price_spp - change_mp - item["cost_price"]  # extra_costs уже в cost_price
-            change_tax = round(max(change_income, 0) * item["tax_rate"] / 100, 2)
-        elif ts == "osn":
-            change_nds = round(change_price_spp * item["vat_rate"] / 100, 2)
-            change_input_nds = round(item["purchase_cost"] / 120 * item["vat_rate"] if item["purchase_cost"] else 0, 2)
-            change_tax = round(change_nds - change_input_nds, 2)
-
-        expenses_change = (
-            item["cost_price"] + item["logistics_cost"] + item["packaging_cost"] +
-            item["other_costs"] +  # extra_costs уже включена в cost_price
-            change_mp + item["logistics_actual"] + item["storage_actual"] +
-            item["acceptance_avg"] + round(change_price_spp * 0.015, 2) + change_tax +
-            item["ad_fact_rub"] +
-            _reverse_log_amount
-        )
-        profit_change = round(change_price_spp - expenses_change, 2)
-        roi_change = round(profit_change / item["cost_price"] * 100, 2) if item["cost_price"] else 0
-
-        item["profit_change"] = profit_change
-        item["margin_change"] = round(profit_change / change_price_spp * 100, 2) if change_price_spp else 0
-        item["roi_change"] = roi_change
-
-        items.append(item)
+        items.append(apply_financial_formulas(item))
 
     # Сохраняем в Redis-кэш на 30 минут (ПОЛНЫЙ набор)
     _result_full = {"items": items, "total": len(items)}
