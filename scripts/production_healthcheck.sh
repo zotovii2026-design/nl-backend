@@ -36,10 +36,15 @@ docker compose exec -T postgres sh -c \
 [[ "$(docker compose exec -T redis redis-cli ping 2>/dev/null | tr -d '\r')" == "PONG" ]] \
     || add_failure "Redis ping failed"
 
-docker compose exec -T celery-worker \
-    celery -A tasks.celery_app:celery_app inspect ping --timeout=10 \
-    2>/dev/null | grep -q pong \
-    || add_failure "Celery worker ping failed"
+if celery_ping="$(
+    docker compose exec -T celery-worker \
+        celery -A tasks.celery_app:celery_app inspect ping --timeout=10 \
+        2>/dev/null
+)"; then
+    grep -q pong <<<"$celery_ping" || add_failure "Celery worker ping failed"
+else
+    add_failure "Celery worker ping failed"
+fi
 
 disk_usage="$(df -P / | awk 'NR==2 {gsub("%", "", $5); print $5}')"
 if [[ "$disk_usage" =~ ^[0-9]+$ ]] && (( disk_usage >= DISK_LIMIT_PERCENT )); then
