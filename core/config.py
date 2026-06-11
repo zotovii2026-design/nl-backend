@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "NL Table API"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
+    PUBLIC_BASE_URL: Optional[str] = None
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@postgres:5432/nl_table"

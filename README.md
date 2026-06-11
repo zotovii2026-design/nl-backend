@@ -162,6 +162,17 @@ docker-compose down
 дампа, проверкой Celery и переключением DNS:
 [`docs/server-migration.md`](docs/server-migration.md).
 
+### Production
+
+- Public URL: `https://nl.vsepro100ai.ru`
+- CI: `.github/workflows/ci.yml`
+- Manual production deploy: `.github/workflows/deploy-production.yml`
+- Deploy script with backup and rollback: `scripts/deploy_production.sh`
+- Host monitoring: `nl-table-healthcheck.timer`
+- Reverse proxy template: `deploy/nginx/nl.vsepro100ai.ru.conf`
+
+Подробности: [`docs/production.md`](docs/production.md).
+
 ### API endpoints
 
 - **Health check:** `GET /`

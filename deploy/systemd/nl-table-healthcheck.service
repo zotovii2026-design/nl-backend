@@ -1,0 +1,9 @@
+[Unit]
+Description=NL Table production health check
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/nl-table-monitor.env
+ExecStart=/usr/local/sbin/nl-table-healthcheck

@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "refactor/**"
+      - "infra/**"
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: nl_table_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d nl_table_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/nl_table_test
+      REDIS_URL: redis://127.0.0.1:6379/0
+      SECRET_KEY: ci-secret-key-not-for-production
+      ENCRYPTION_KEY: ci-encryption-key-not-for-production
+      DEBUG: "False"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Static checks
+        run: |
+          python -m compileall -q core models services tasks api tests alembic
+          test "$(alembic heads | wc -l)" -eq 1
+
+      - name: Apply migrations from an empty database
+        run: alembic upgrade head
+
+      - name: Unit and contract tests
+        run: pytest -q --ignore=tests/characterization
+
+      - name: Start isolated application
+        run: |
+          uvicorn main:app --host 127.0.0.1 --port 18000 \
+            > /tmp/nl-table-uvicorn.log 2>&1 &
+          echo $! > /tmp/nl-table-uvicorn.pid
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://127.0.0.1:18000/health && break
+            if [ "$attempt" = "30" ]; then
+              cat /tmp/nl-table-uvicorn.log
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Characterization tests
+        env:
+          NL_TEST_BASE_URL: http://127.0.0.1:18000
+        run: pytest -q tests/characterization
+
+      - name: Show application log on failure
+        if: failure()
+        run: cat /tmp/nl-table-uvicorn.log 2>/dev/null || true
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: nl-table:${{ github.sha }}
