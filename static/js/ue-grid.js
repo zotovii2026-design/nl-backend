@@ -500,7 +500,19 @@ async function loadUEData(loadAll) {
     if (countEl) countEl.textContent = '⏳ Загрузка...';
 
     try {
-        const res = await fetch(url);
+        const res = await fetch(url, {
+            headers: { 'Authorization': 'Bearer ' + TOKEN }
+        });
+        if (res.status === 401) {
+            showAuth();
+            throw new Error('Сессия истекла. Войдите снова.');
+        }
+        if (res.status === 403) {
+            throw new Error('Нет доступа к выбранной организации.');
+        }
+        if (!res.ok) {
+            throw new Error('Ошибка API: ' + res.status);
+        }
         const raw = await res.json();
         const data = Array.isArray(raw) ? raw : (raw.items || []);
         const totalFromApi = raw.total || data.length;
@@ -640,9 +652,19 @@ async function saveUEData() {
     try {
         const res = await fetch('/api/v1/nl/unit-economics?org_id=' + ORG_ID, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + TOKEN
+            },
             body: JSON.stringify({ items: edited })
         });
+        if (res.status === 401) {
+            showAuth();
+            throw new Error('Сессия истекла. Войдите снова.');
+        }
+        if (res.status === 403) {
+            throw new Error('Недостаточно прав для сохранения.');
+        }
         const result = await res.json();
         if (result.ok) {
             alert('Сохранено: ' + edited.length + ' строк');

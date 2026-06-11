@@ -12,6 +12,8 @@ from datetime import datetime, date, timedelta
 from core.database import get_db
 from core.security import verify_password, get_password_hash, create_access_token, decode_token, encrypt_data, decrypt_data
 from core.dependencies import get_current_user
+from core.role_deps import require_organization_role
+from models.organization import Role
 from models.user import User
 from models.reference_book import ReferenceBook
 from models.raw_data import TechStatus
@@ -3762,11 +3764,14 @@ async def get_marketer_product_detail(
 
 # ==================== UNIT ECONOMICS APIs ====================
 
-@router.get("/api/v1/nl/unit-economics")
-async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: Optional[int] = None, db: AsyncSession = Depends(get_db)):
+async def build_unit_economics(
+    org_id: str,
+    db: AsyncSession,
+    search: Optional[str] = None,
+    limit: Optional[int] = None,
+):
     """Юнит Экономика — сборка всех данных по SKU"""
     import asyncio
-    org_id = await resolve_org_id(org_id, db)
     from models.reference_book import ReferenceBook
     from sqlalchemy import text as sql_text
     from core.database import async_session as _make_session
@@ -4415,6 +4420,20 @@ async def get_unit_economics(org_id: str, search: Optional[str] = None, limit: O
     return _result_full
 
 
+@router.get("/api/v1/nl/unit-economics")
+async def get_unit_economics(
+    org_id: str,
+    search: Optional[str] = None,
+    limit: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Юнит Экономика — только для участников организации."""
+    org_id = await resolve_org_id(org_id, db)
+    await require_organization_role(uuid.UUID(org_id), Role.VIEWER, current_user, db)
+    return await build_unit_economics(org_id, db, search=search, limit=limit)
+
+
 class UnitEconSave(BaseModel):
     nm_id: int
     barcode: Optional[str] = None
@@ -4431,9 +4450,15 @@ class UnitEconSave(BaseModel):
 
 
 @router.post("/api/v1/nl/unit-economics")
-async def save_unit_economics(data: UnitEconSave, org_id: str, db: AsyncSession = Depends(get_db)):
+async def save_unit_economics(
+    data: UnitEconSave,
+    org_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Сохранить ручные вводы Юнит Экономики"""
     org_id = await resolve_org_id(org_id, db)
+    await require_organization_role(uuid.UUID(org_id), Role.ADMIN, current_user, db)
     from models.reference_book import ReferenceBook
     from datetime import datetime as dt_mod
 
@@ -4482,6 +4507,11 @@ async def save_unit_economics(data: UnitEconSave, org_id: str, db: AsyncSession 
     )
     await db.execute(stmt)
     await db.commit()
+    try:
+        import redis as _redis_lib
+        _redis_lib.from_url("redis://redis:6379/0").delete(f"ue_cache:{org_id}")
+    except Exception:
+        pass
     return {"ok": True}
 
 
@@ -5317,7 +5347,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260603f"></script>
-<script type="text/javascript" src="/static/js/ue-grid.js?v=20260610c"></script>
+<script type="text/javascript" src="/static/js/ue-grid.js?v=20260611-auth"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260608j"></script>
 <script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260609d"></script>
