@@ -24,8 +24,10 @@ timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup_path="$BACKUP_DIR/pre-deploy-$timestamp.dump"
 
 mkdir -p "$BACKUP_DIR"
+echo "Creating pre-deploy database backup"
 docker compose exec -T postgres sh -c \
-    'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' >"$backup_path"
+    'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
+    </dev/null >"$backup_path"
 chmod 600 "$backup_path"
 
 rollback() {
@@ -39,12 +41,17 @@ rollback() {
 }
 trap rollback ERR
 
+echo "Checking out $target_ref"
 git checkout --detach "$target_ref"
+echo "Building production images"
 docker compose config --quiet
 docker compose build app celery-worker celery-beat
+echo "Applying database migrations"
 docker compose run --rm app alembic upgrade head
+echo "Restarting application services"
 docker compose up -d app celery-worker celery-beat
 
+echo "Waiting for application health"
 for attempt in $(seq 1 30); do
     if curl --fail --silent --max-time 5 \
         http://127.0.0.1:8000/health >/dev/null; then

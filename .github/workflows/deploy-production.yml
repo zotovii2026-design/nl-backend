@@ -37,5 +37,9 @@ jobs:
           PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
           PRODUCTION_USER: ${{ secrets.PRODUCTION_USER }}
         run: |
+          scp scripts/deploy_production.sh \
+            "$PRODUCTION_USER@$PRODUCTION_HOST:/tmp/nl-table-deploy.sh"
           ssh "$PRODUCTION_USER@$PRODUCTION_HOST" \
-            "bash -s -- '$GITHUB_SHA'" < scripts/deploy_production.sh
+            "chmod 0700 /tmp/nl-table-deploy.sh && \
+             /tmp/nl-table-deploy.sh '$GITHUB_SHA'; \
+             status=\$?; rm -f /tmp/nl-table-deploy.sh; exit \$status"
