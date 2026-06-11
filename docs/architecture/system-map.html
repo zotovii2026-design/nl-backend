@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NL Table - карта системы</title>
+<style>
+  :root {
+    --bg: #f6f8fb;
+    --panel: #ffffff;
+    --text: #172033;
+    --muted: #5c677d;
+    --line: #64748b;
+    --external: #e8f1ff;
+    --process: #edf9f0;
+    --storage: #fff4df;
+    --ui: #f3edff;
+    --risk: #fff0f0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 28px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  main {
+    max-width: 1440px;
+    margin: 0 auto;
+    background: var(--panel);
+    border: 1px solid #dce2ea;
+    border-radius: 14px;
+    padding: 26px;
+  }
+  h1 { margin: 0 0 8px; font-size: 28px; }
+  p { margin: 0 0 22px; color: var(--muted); }
+  svg { width: 100%; height: auto; display: block; }
+  .box { stroke: #526177; stroke-width: 1.5; rx: 10; }
+  .group { fill: none; stroke: #aab4c2; stroke-width: 1.5; stroke-dasharray: 7 5; rx: 14; }
+  .external { fill: var(--external); }
+  .process { fill: var(--process); }
+  .storage { fill: var(--storage); }
+  .ui { fill: var(--ui); }
+  .risk { fill: var(--risk); stroke: #c85f5f; }
+  .title { font-size: 16px; font-weight: bold; fill: var(--text); }
+  .small { font-size: 13px; fill: var(--muted); }
+  .group-title { font-size: 15px; font-weight: bold; fill: #3e4b60; }
+  .arrow { fill: none; stroke: var(--line); stroke-width: 2; marker-end: url(#arrow); }
+  .dashed { stroke-dasharray: 6 5; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 16px; color: var(--muted); font-size: 13px; }
+  .swatch { width: 14px; height: 14px; border: 1px solid #667085; display: inline-block; margin-right: 6px; vertical-align: -2px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>NL Table: карта системы и границ</h1>
+  <p>Текущее развертывание и целевые владельцы логики внутри модульного монолита.</p>
+
+  <svg viewBox="0 0 1380 940" role="img" aria-label="Архитектурная карта NL Table">
+    <defs>
+      <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+        <path d="M0,0 L0,6 L9,3 z" fill="#64748b"></path>
+      </marker>
+    </defs>
+
+    <!-- Connectors -->
+    <path class="arrow" d="M180 160 H275"></path>
+    <path class="arrow" d="M455 160 H550"></path>
+    <path class="arrow" d="M730 160 H825"></path>
+    <path class="arrow" d="M1005 160 H1100"></path>
+    <path class="arrow" d="M1190 205 V280"></path>
+    <path class="arrow" d="M1100 330 H1010"></path>
+    <path class="arrow" d="M825 330 H730"></path>
+    <path class="arrow" d="M640 375 V450"></path>
+    <path class="arrow" d="M550 500 H455"></path>
+    <path class="arrow" d="M365 545 V620"></path>
+    <path class="arrow" d="M455 670 H550"></path>
+    <path class="arrow" d="M730 670 H825"></path>
+    <path class="arrow" d="M1005 670 H1100"></path>
+    <path class="arrow dashed" d="M915 620 V545 H730"></path>
+    <path class="arrow dashed" d="M1190 620 V545 H730"></path>
+    <path class="arrow dashed" d="M640 620 V545"></path>
+    <path class="arrow dashed" d="M365 620 V545"></path>
+
+    <!-- External and runtime -->
+    <rect class="box external" x="20" y="110" width="160" height="100"></rect>
+    <text class="title" x="100" y="145" text-anchor="middle">Wildberries API</text>
+    <text class="small" x="100" y="170" text-anchor="middle">Content, Statistics,</text>
+    <text class="small" x="100" y="190" text-anchor="middle">Ads, Promotions, Tariffs</text>
+
+    <rect class="box process" x="275" y="110" width="180" height="100"></rect>
+    <text class="title" x="365" y="145" text-anchor="middle">WB integration</text>
+    <text class="small" x="365" y="170" text-anchor="middle">client.py, keys.py</text>
+    <text class="small" x="365" y="190" text-anchor="middle">адаптер внешнего API</text>
+
+    <rect class="box process" x="550" y="110" width="180" height="100"></rect>
+    <text class="title" x="640" y="145" text-anchor="middle">Sync services</text>
+    <text class="small" x="640" y="170" text-anchor="middle">получение, retry, raw</text>
+    <text class="small" x="640" y="190" text-anchor="middle">нормализация данных</text>
+
+    <rect class="box process" x="825" y="110" width="180" height="100"></rect>
+    <text class="title" x="915" y="145" text-anchor="middle">Celery worker</text>
+    <text class="small" x="915" y="170" text-anchor="middle">фоновые сценарии</text>
+    <text class="small" x="915" y="190" text-anchor="middle">задачи wb.*</text>
+
+    <rect class="box process" x="1100" y="110" width="180" height="100"></rect>
+    <text class="title" x="1190" y="145" text-anchor="middle">Celery beat</text>
+    <text class="small" x="1190" y="170" text-anchor="middle">расписание</text>
+    <text class="small" x="1190" y="190" text-anchor="middle">Europe/Moscow</text>
+
+    <rect class="box storage" x="1100" y="280" width="180" height="100"></rect>
+    <text class="title" x="1190" y="315" text-anchor="middle">Redis 7</text>
+    <text class="small" x="1190" y="340" text-anchor="middle">broker и backend</text>
+    <text class="small" x="1190" y="360" text-anchor="middle">Celery</text>
+
+    <rect class="box process" x="825" y="280" width="180" height="100"></rect>
+    <text class="title" x="915" y="315" text-anchor="middle">Application services</text>
+    <text class="small" x="915" y="340" text-anchor="middle">сценарии модулей</text>
+    <text class="small" x="915" y="360" text-anchor="middle">и бизнес-правила</text>
+
+    <rect class="box process" x="550" y="280" width="180" height="100"></rect>
+    <text class="title" x="640" y="315" text-anchor="middle">Repositories</text>
+    <text class="small" x="640" y="340" text-anchor="middle">SQL и SQLAlchemy</text>
+    <text class="small" x="640" y="360" text-anchor="middle">доступ к данным</text>
+
+    <rect class="box storage" x="550" y="450" width="180" height="100"></rect>
+    <text class="title" x="640" y="485" text-anchor="middle">PostgreSQL 16</text>
+    <text class="small" x="640" y="510" text-anchor="middle">единая БД</text>
+    <text class="small" x="640" y="530" text-anchor="middle">изоляция organization_id</text>
+
+    <rect class="box process" x="275" y="450" width="180" height="100"></rect>
+    <text class="title" x="365" y="485" text-anchor="middle">FastAPI routers</text>
+    <text class="small" x="365" y="510" text-anchor="middle">HTTP-контракты</text>
+    <text class="small" x="365" y="530" text-anchor="middle">JWT + membership</text>
+
+    <rect class="box process" x="275" y="620" width="180" height="100"></rect>
+    <text class="title" x="365" y="655" text-anchor="middle">FastAPI app</text>
+    <text class="small" x="365" y="680" text-anchor="middle">main.py, middleware</text>
+    <text class="small" x="365" y="700" text-anchor="middle">static и health</text>
+
+    <rect class="box ui" x="550" y="620" width="180" height="100"></rect>
+    <text class="title" x="640" y="655" text-anchor="middle">Web UI</text>
+    <text class="small" x="640" y="680" text-anchor="middle">HTML + JS modules</text>
+    <text class="small" x="640" y="700" text-anchor="middle">Tabulator</text>
+
+    <rect class="box external" x="825" y="620" width="180" height="100"></rect>
+    <text class="title" x="915" y="655" text-anchor="middle">Браузер</text>
+    <text class="small" x="915" y="680" text-anchor="middle">JWT, выбор магазина</text>
+    <text class="small" x="915" y="700" text-anchor="middle">пользовательские действия</text>
+
+    <rect class="box external" x="1100" y="620" width="180" height="100"></rect>
+    <text class="title" x="1190" y="655" text-anchor="middle">Пользователь</text>
+    <text class="small" x="1190" y="680" text-anchor="middle">владелец или участник</text>
+    <text class="small" x="1190" y="700" text-anchor="middle">организации</text>
+
+    <!-- Module ownership group -->
+    <rect class="group" x="70" y="780" width="1240" height="120"></rect>
+    <text class="group-title" x="95" y="810">Целевые бизнес-модули внутри монолита</text>
+    <text class="small" x="95" y="845">identity | organizations | wb_credentials | catalog | sync | analytics | reference | unit_economics</text>
+    <text class="small" x="95" y="872">tariffs | advertising | external_advertising | promotions | sales_plans | operations | content_tools | admin</text>
+
+    <!-- Risk note -->
+    <rect class="box risk" x="20" y="280" width="430" height="100"></rect>
+    <text class="title" x="235" y="315" text-anchor="middle">Текущая зона смешанной ответственности</text>
+    <text class="small" x="235" y="340" text-anchor="middle">api/v1/nl.py: 62 маршрута, SQL, формулы, auth, HTML</text>
+    <text class="small" x="235" y="360" text-anchor="middle">Разделяется постепенно с сохранением API-контрактов</text>
+  </svg>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--external)"></i>внешний участник или система</span>
+    <span><i class="swatch" style="background:var(--process)"></i>процесс или слой приложения</span>
+    <span><i class="swatch" style="background:var(--storage)"></i>хранилище</span>
+    <span><i class="swatch" style="background:var(--ui)"></i>интерфейс</span>
+    <span><i class="swatch" style="background:var(--risk)"></i>зафиксированный риск</span>
+  </div>
+</main>
+</body>
+</html>
