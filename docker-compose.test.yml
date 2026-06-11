@@ -1,0 +1,48 @@
+name: nl-backend-test
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.test}
+      POSTGRES_DB: nl_table_test
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nl_table_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  app:
+    build: .
+    env_file:
+      - .env.test
+    ports:
+      - "${TEST_APP_BIND:-127.0.0.1}:${TEST_APP_PORT:-18000}:8000"
+    command:
+      - sh
+      - -c
+      - alembic upgrade head && exec uvicorn main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 700m
+    restart: unless-stopped
+
+volumes:
+  postgres_test_data:
