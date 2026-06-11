@@ -57,7 +57,11 @@ for attempt in $(seq 1 30); do
     sleep 2
 done
 
-"$PROJECT_DIR/scripts/install_production_monitoring.sh" "$PROJECT_DIR"
+if [[ "$EUID" -eq 0 ]]; then
+    "$PROJECT_DIR/scripts/install_production_monitoring.sh" "$PROJECT_DIR"
+elif systemctl is-enabled nl-table-healthcheck.timer >/dev/null 2>&1; then
+    /usr/local/sbin/nl-table-healthcheck
+fi
 docker compose ps
 
 trap - ERR
