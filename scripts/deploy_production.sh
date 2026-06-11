@@ -64,6 +64,31 @@ for attempt in $(seq 1 30); do
     sleep 2
 done
 
+echo "Waiting for Docker health checks"
+for attempt in $(seq 1 60); do
+    all_healthy=true
+    for service in app celery-worker celery-beat; do
+        container_id="$(docker compose ps -q "$service")"
+        health="$(
+            docker inspect \
+                --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+                "$container_id"
+        )"
+        if [[ "$health" != "healthy" ]]; then
+            all_healthy=false
+            break
+        fi
+    done
+    if [[ "$all_healthy" == "true" ]]; then
+        break
+    fi
+    if [[ "$attempt" == "60" ]]; then
+        echo "Docker health checks did not become healthy" >&2
+        false
+    fi
+    sleep 2
+done
+
 if [[ "$EUID" -eq 0 ]]; then
     "$PROJECT_DIR/scripts/install_production_monitoring.sh" "$PROJECT_DIR"
 elif systemctl is-enabled nl-table-healthcheck.timer >/dev/null 2>&1; then
