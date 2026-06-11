@@ -31,6 +31,21 @@ ssh -L 18000:127.0.0.1:18000 root@5.42.115.20
 
 Then open `http://127.0.0.1:18000/nl/login`.
 
+## Characterization tests
+
+The minimal suite checks health, public pages, registration, login, profile,
+organization listing, and rejection of access to another organization. It
+creates only synthetic records in the isolated test database.
+
+```bash
+python -m venv .venv-test
+.venv-test/bin/pip install -r requirements-dev.txt
+NL_TEST_BASE_URL=http://127.0.0.1:18000 \
+  .venv-test/bin/pytest tests/characterization -v
+```
+
+The suite refuses to run when `NL_TEST_BASE_URL` is not a loopback address.
+
 ## Operations
 
 ```bash
