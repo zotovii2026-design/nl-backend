@@ -26,7 +26,7 @@ curl http://127.0.0.1:18000/health
 Use an SSH tunnel to open it from another machine:
 
 ```bash
-ssh -L 18000:127.0.0.1:18000 root@5.42.115.20
+ssh -L 18000:127.0.0.1:18000 root@your-test-server
 ```
 
 Then open `http://127.0.0.1:18000/nl/login`.

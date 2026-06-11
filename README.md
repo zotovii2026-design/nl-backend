@@ -159,6 +159,13 @@ docker-compose logs -f app
 docker-compose down
 ```
 
+### Перенос на другой сервер или домен
+
+Параметры Docker, порты и имена ресурсов задаются через `.env`; публичный IP
+или домен в коде приложения не зашит. Пошаговая инструкция с восстановлением
+дампа, проверкой Celery и переключением DNS:
+[`docs/server-migration.md`](docs/server-migration.md).
+
 ### API endpoints
 
 - **Health check:** `GET /`

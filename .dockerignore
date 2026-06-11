@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+!.env.test.example
+.git
+.gitignore
+__pycache__
+*.py[cod]
+*.log
+*.bak
+*.bak.*
+celerybeat-schedule
+docs/baseline/screenshots
+secrets
+*.key
+*.pem
