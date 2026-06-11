@@ -17,6 +17,38 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # This table also predated its first Alembic migration in production.
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS unit_economics_user (
+            id UUID PRIMARY KEY,
+            organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+            nm_id INTEGER NOT NULL,
+            barcode VARCHAR(50),
+            size_name VARCHAR(50),
+            mp_correction_pct NUMERIC(5, 2),
+            buyout_niche_pct NUMERIC(5, 2),
+            extra_costs NUMERIC(10, 2),
+            ad_plan_rub NUMERIC(10, 2),
+            price_before_spp_plan NUMERIC(10, 2),
+            price_before_spp_change NUMERIC(10, 2),
+            change_date DATE,
+            tariff_type VARCHAR(20) DEFAULT 'box',
+            wb_club_discount_pct NUMERIC(5, 2),
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+            updated_at TIMESTAMP WITH TIME ZONE,
+            CONSTRAINT unit_economics_user_organization_id_nm_id_barcode_key
+                UNIQUE (organization_id, nm_id, barcode)
+        )
+    """)
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS ix_unit_economics_user_organization_id
+        ON unit_economics_user(organization_id)
+    """)
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS ix_unit_economics_user_nm_id
+        ON unit_economics_user(nm_id)
+    """)
+
     # 1. Добавляем entity_id (nullable)
     op.add_column('unit_economics_user', sa.Column('entity_id', UUID(as_uuid=True), nullable=True))
 
