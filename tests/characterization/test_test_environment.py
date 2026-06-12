@@ -73,7 +73,7 @@ def test_registration_login_profile_and_organization_contract(client):
 
     me_response = client.get(
         "/api/v1/nl/me",
-        params={"token": login_payload["access_token"]},
+        headers={"Authorization": f"Bearer {login_payload['access_token']}"},
     )
     assert me_response.status_code == 200, me_response.text
     assert me_response.json() == {
@@ -83,7 +83,7 @@ def test_registration_login_profile_and_organization_contract(client):
 
     organizations_response = client.get(
         "/api/v1/nl/organizations",
-        params={"token": login_payload["access_token"]},
+        headers={"Authorization": f"Bearer {login_payload['access_token']}"},
     )
     assert organizations_response.status_code == 200, organizations_response.text
     organizations = organizations_response.json()

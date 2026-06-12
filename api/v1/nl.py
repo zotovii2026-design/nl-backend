@@ -165,18 +165,19 @@ async def nl_login(data: LoginData, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/api/v1/nl/me")
-async def nl_me(token: str = Query(""), db: AsyncSession = Depends(get_db)):
+async def nl_me(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Текущий пользователь"""
-    payload = decode_token(token)
-    if not payload:
-        raise HTTPException(401, "Не авторизован")
-    user_id = payload.get("sub")
-    org_id = payload.get("org_id")
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(401, "Пользователь не найден")
-    return {"email": user.email, "org_id": org_id}
+    from models.organization import Membership
+
+    result = await db.execute(
+        select(Membership).where(Membership.user_id == current_user.id)
+    )
+    membership = result.scalars().first()
+    org_id = str(membership.organization_id) if membership else None
+    return {"email": current_user.email, "org_id": org_id}
 
 
 @router.get("/api/v1/nl/reference")
@@ -315,17 +316,16 @@ async def get_products(org_id: str, target_date: Optional[str] = None, db: Async
 
 
 @router.get("/api/v1/nl/organizations")
-async def nl_organizations(token: str = Query(""), db: AsyncSession = Depends(get_db)):
+async def nl_organizations(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Список организаций пользователя"""
     from models.organization import Membership, Organization, WbApiKey
-    payload = decode_token(token)
-    if not payload:
-        raise HTTPException(401, "Не авторизован")
-    user_id = payload.get("sub")
     result = await db.execute(
         select(Membership, Organization)
         .join(Organization, Membership.organization_id == Organization.id)
-        .where(Membership.user_id == user_id)
+        .where(Membership.user_id == current_user.id)
     )
     rows = result.all()
     orgs = []
@@ -346,33 +346,32 @@ async def nl_organizations(token: str = Query(""), db: AsyncSession = Depends(ge
 
 
 @router.post("/api/v1/nl/organizations")
-async def nl_create_org(data: dict, token: str = Query(""), db: AsyncSession = Depends(get_db)):
+async def nl_create_org(
+    data: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Создать новую организацию"""
     from models.organization import Organization, Membership, Role, SubscriptionTier, SubscriptionStatus
-    payload = decode_token(token)
-    if not payload:
-        raise HTTPException(401, "Не авторизован")
-    user_id = payload.get("sub")
     org = Organization(name=data.get("name", "Новый магазин"), subscription_tier=SubscriptionTier.TRIAL, subscription_status=SubscriptionStatus.ACTIVE)
     db.add(org)
     await db.flush()
-    membership = Membership(user_id=user_id, organization_id=org.id, role=Role.OWNER)
+    membership = Membership(user_id=current_user.id, organization_id=org.id, role=Role.OWNER)
     db.add(membership)
     await db.commit()
     return {"id": str(org.id), "name": org.name}
 
 
 @router.post("/api/v1/nl/connect-wb")
-async def nl_connect_wb(data: dict, token: str = Query(""), db: AsyncSession = Depends(get_db)):
+async def nl_connect_wb(
+    data: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Подключить новый магазин WB: создать организацию + ключ + membership"""
     import base64, json as _json
     from models.organization import Organization, Membership, WbApiKey, Role, SubscriptionTier, SubscriptionStatus
     from core.security import encrypt_data
-    
-    payload = decode_token(token)
-    if not payload:
-        raise HTTPException(401, "Не авторизован")
-    user_id = payload.get("sub")
     
     name = data.get("name", "").strip()
     api_key = data.get("api_key", "").strip()
@@ -401,7 +400,10 @@ async def nl_connect_wb(data: dict, token: str = Query(""), db: AsyncSession = D
         result = await db.execute(
             select(Organization, Membership)
             .join(Membership, Membership.organization_id == Organization.id)
-            .where(Organization.wb_seller_id == oid, Membership.user_id == user_id)
+            .where(
+                Organization.wb_seller_id == oid,
+                Membership.user_id == current_user.id,
+            )
         )
         existing = result.first()
         if existing:
@@ -418,7 +420,7 @@ async def nl_connect_wb(data: dict, token: str = Query(""), db: AsyncSession = D
     await db.flush()
     
     # Create membership (OWNER)
-    membership = Membership(user_id=user_id, organization_id=org.id, role=Role.OWNER)
+    membership = Membership(user_id=current_user.id, organization_id=org.id, role=Role.OWNER)
     db.add(membership)
     
     # Create WB API key (encrypted)
@@ -4360,23 +4362,16 @@ async def get_last_prices_refresh(org_id: str, db: AsyncSession = Depends(get_db
 
 
 @router.get("/api/v1/nl/profile")
-async def nl_profile(token: str = Query(""), db: AsyncSession = Depends(get_db)):
+async def nl_profile(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Профиль текущего пользователя + список магазинов (быстро, без подсчётов)"""
     from models.organization import Membership, Organization, WbApiKey
-    payload = decode_token(token)
-    if not payload:
-        raise HTTPException(401, "Не авторизован")
-    user_id = payload.get("sub")
-    
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(401, "Пользователь не найден")
-    
     result = await db.execute(
         select(Membership, Organization)
         .join(Organization, Membership.organization_id == Organization.id)
-        .where(Membership.user_id == user_id)
+        .where(Membership.user_id == current_user.id)
     )
     rows = result.all()
     
@@ -4398,22 +4393,28 @@ async def nl_profile(token: str = Query(""), db: AsyncSession = Depends(get_db))
             "keys_count": len(keys),
         })
     
-    return {"email": user.email, "is_superuser": user.is_superuser or False, "shops": shops, "shops_count": len(shops)}
+    return {"email": current_user.email, "is_superuser": current_user.is_superuser or False, "shops": shops, "shops_count": len(shops)}
 
 
 @router.post("/api/v1/nl/verify-wb-key")
-async def nl_verify_wb_key(data: dict, token: str = Query(""), db: AsyncSession = Depends(get_db)):
+async def nl_verify_wb_key(
+    data: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Проверить работает ли WB API ключ магазина — реальный запрос к WB"""
     import httpx
     from core.security import decrypt_data
     
-    payload = decode_token(token)
-    if not payload:
-        raise HTTPException(401, "Не авторизован")
-    
     org_id = data.get("org_id", "").strip()
     if not org_id:
         raise HTTPException(400, "org_id обязателен")
+    await require_organization_role(
+        uuid.UUID(org_id),
+        Role.ADMIN,
+        current_user,
+        db,
+    )
     
     # Get first active key for this org
     from models.organization import WbApiKey
@@ -4472,14 +4473,13 @@ async def nl_verify_wb_key(data: dict, token: str = Query(""), db: AsyncSession 
 
 
 @router.post("/api/v1/nl/rename-org")
-async def nl_rename_org(data: dict, token: str = Query(""), db: AsyncSession = Depends(get_db)):
+async def nl_rename_org(
+    data: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Переименовать магазин (организацию)"""
     from models.organization import Membership, Role
-    payload = decode_token(token)
-    if not payload:
-        raise HTTPException(401, "Не авторизован")
-    user_id = payload.get("sub")
-    
     org_id = data.get("org_id", "").strip()
     new_name = data.get("name", "").strip()
     
@@ -4491,7 +4491,7 @@ async def nl_rename_org(data: dict, token: str = Query(""), db: AsyncSession = D
     # Check user is OWNER or ADMIN in this org
     result = await db.execute(
         select(Membership).where(
-            Membership.user_id == user_id,
+            Membership.user_id == current_user.id,
             Membership.organization_id == org_id
         )
     )
@@ -4511,15 +4511,14 @@ async def nl_rename_org(data: dict, token: str = Query(""), db: AsyncSession = D
     return {"status": "ok", "name": new_name}
 
 @router.post("/api/v1/nl/invite")
-async def nl_invite(data: dict, token: str = Query(""), db: AsyncSession = Depends(get_db)):
+async def nl_invite(
+    data: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Пригласить коллегу в организацию"""
     from models.organization import Membership, Role
     import secrets
-    
-    payload = decode_token(token)
-    if not payload:
-        raise HTTPException(401, "Не авторизован")
-    user_id = payload.get("sub")
     
     org_id = data.get("org_id", "").strip()
     email = data.get("email", "").strip().lower()
@@ -4531,7 +4530,7 @@ async def nl_invite(data: dict, token: str = Query(""), db: AsyncSession = Depen
     # Check inviter is ADMIN+ in this org
     result = await db.execute(
         select(Membership).where(
-            Membership.user_id == user_id,
+            Membership.user_id == current_user.id,
             Membership.organization_id == org_id
         )
     )
@@ -8234,7 +8233,7 @@ async function saveRowBtn(btn) {
 
 // Org & WB key management
 async function loadOrgs() {
-    const res = await fetch('/api/v1/nl/organizations?token=' + TOKEN);
+    const res = await fetch('/api/v1/nl/organizations');
     if (!res.ok) return;
     const orgs = await res.json();
     const sel = document.getElementById('org-select');
@@ -8514,7 +8513,7 @@ function hideNewOrgDialog() {
 
 async function createNewOrg() {
     const name = document.getElementById('new-org-name').value || 'Новый магазин';
-    const res = await fetch('/api/v1/nl/organizations?token=' + TOKEN, {
+    const res = await fetch('/api/v1/nl/organizations', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({name})
     });
@@ -8532,7 +8531,7 @@ async function createNewOrg() {
 async function loadProfile() {
     if (!TOKEN) return;
     try {
-        const res = await fetch('/api/v1/nl/profile?token=' + TOKEN);
+        const res = await fetch('/api/v1/nl/profile');
         if (!res.ok) return;
         const data = await res.json();
         
@@ -8597,7 +8596,7 @@ async function verifyShopKey(btn) {
     statusEl.style.color = '#999';
     
     try {
-        const res = await fetch('/api/v1/nl/verify-wb-key?token=' + TOKEN, {
+        const res = await fetch('/api/v1/nl/verify-wb-key', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({org_id: orgId})
@@ -8657,7 +8656,7 @@ async function startRenameShop(btn) {
     const newName = prompt('Новое название:', currentName);
     if (!newName || newName.trim() === '' || newName.trim() === currentName) return;
     try {
-        const res = await fetch('/api/v1/nl/rename-org?token=' + TOKEN, {
+        const res = await fetch('/api/v1/nl/rename-org', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({org_id: orgId, name: newName.trim()})
@@ -8695,7 +8694,7 @@ async function connectNewShop() {
     statusEl.textContent = '⏳ Подключаем магазин...';
     
     try {
-        const res = await fetch('/api/v1/nl/connect-wb?token=' + TOKEN, {
+        const res = await fetch('/api/v1/nl/connect-wb', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({name: name || 'Новый магазин', api_key})
@@ -8748,7 +8747,7 @@ async function inviteColleague() {
     }
     
     try {
-        const res = await fetch('/api/v1/nl/invite?token=' + TOKEN, {
+        const res = await fetch('/api/v1/nl/invite', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({email, role, org_id: orgId})
@@ -8901,7 +8900,7 @@ loadDates = async function() {
 // Auto-login
 try {
     if (TOKEN && ORG_ID) {
-        fetch('/api/v1/nl/me?token=' + TOKEN).then(r => {
+        fetch('/api/v1/nl/me').then(r => {
             if (r.ok) return r.json(); throw '';
         }).then(d => {
             document.getElementById('user-email').textContent = d.email;
