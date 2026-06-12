@@ -78,3 +78,60 @@ async def test_wb_connection_check_handles_http_status_without_network():
         assert await client.test_connection() is False
     finally:
         await client.client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code, body", [(204, b""), (200, b"")])
+async def test_fbo_stocks_treats_empty_success_response_as_no_stocks(
+    status_code, body
+):
+    async def handler(request):
+        return httpx.Response(status_code, content=body, request=request)
+
+    client = WBApiClient("fake-key")
+    await client.client.aclose()
+    client.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        assert await client.get_stocks_warehouses() == []
+    finally:
+        await client.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_fbo_stocks_reports_invalid_json_response_details():
+    async def handler(request):
+        return httpx.Response(
+            200,
+            text="<html>temporary upstream error</html>",
+            headers={"content-type": "text/html"},
+            request=request,
+        )
+
+    client = WBApiClient("fake-key")
+    await client.client.aclose()
+    client.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ValueError, match=r"status=200.*content-type=text/html"):
+            await client.get_stocks_warehouses()
+    finally:
+        await client.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_fbo_stocks_unwraps_nested_items():
+    async def handler(request):
+        return httpx.Response(
+            200,
+            json={"data": {"items": [{"nmID": 123, "quantity": 4}]}},
+            request=request,
+        )
+
+    client = WBApiClient("fake-key")
+    await client.client.aclose()
+    client.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        assert await client.get_stocks_warehouses() == [
+            {"nmID": 123, "quantity": 4}
+        ]
+    finally:
+        await client.client.aclose()

@@ -1,7 +1,11 @@
 import importlib
 
+import httpx
+import pytest
+
 from tasks.celery_observability import find_result_errors
 from tasks.celery_schedule import BEAT_SCHEDULE, TASK_MODULES
+from tasks.scheduled_sync import _fetch_with_retry
 
 
 EXPECTED_LOCAL_TIMES = {
@@ -71,3 +75,34 @@ def test_nested_wb_errors_are_not_reported_as_success():
 def test_successful_or_skipped_results_do_not_trigger_alerts():
     assert find_result_errors({"status": "ok", "count": 3}) == []
     assert find_result_errors({"status": "skipped", "reason": "no_keys"}) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [429, 502])
+async def test_wb_retry_handles_rate_limit_and_server_errors(
+    monkeypatch, status_code
+):
+    attempts = 0
+
+    async def request():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            response = httpx.Response(
+                status_code,
+                request=httpx.Request("POST", "https://wb.test/fbo"),
+            )
+            raise httpx.HTTPStatusError(
+                "temporary WB error",
+                request=response.request,
+                response=response,
+            )
+        return ["ok"]
+
+    async def no_sleep(_delay):
+        return None
+
+    monkeypatch.setattr("tasks.scheduled_sync.asyncio.sleep", no_sleep)
+
+    assert await _fetch_with_retry(request, label="test", max_retries=1) == ["ok"]
+    assert attempts == 2

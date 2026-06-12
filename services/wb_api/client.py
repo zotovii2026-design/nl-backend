@@ -1,4 +1,5 @@
 import asyncio
+import json
 import httpx
 from typing import Optional, List, Dict, Any
 from core.config import settings
@@ -402,7 +403,18 @@ class WBApiClient:
             json=payload
         )
         response.raise_for_status()
-        result = response.json()
+        if response.status_code == 204 or not response.content.strip():
+            return []
+        try:
+            result = response.json()
+        except json.JSONDecodeError as exc:
+            content_type = response.headers.get("content-type", "unknown")
+            body_preview = response.text[:200].replace("\n", " ")
+            raise ValueError(
+                "WB FBO stocks API returned invalid JSON "
+                f"(status={response.status_code}, content-type={content_type}, "
+                f"body={body_preview!r})"
+            ) from exc
         # API возвращает list записей с полями вроде nmID, vendorCode, warehouseName, quantity и т.д.
         if isinstance(result, list):
             return result

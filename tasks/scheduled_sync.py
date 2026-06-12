@@ -51,7 +51,7 @@ def _get_retry_delay(attempt: int, response=None) -> float:
 
 
 async def _fetch_with_retry(coro_factory, label="", max_retries=3):
-    """Retry async call on 429 с Retry-After + jitter."""
+    """Retry async call on transient WB errors with Retry-After + jitter."""
     import httpx
     last_exc = None
     for attempt in range(max_retries + 1):
@@ -62,9 +62,14 @@ async def _fetch_with_retry(coro_factory, label="", max_retries=3):
             return result
         except httpx.HTTPStatusError as e:
             last_exc = e
-            if e.response.status_code == 429 and attempt < max_retries:
+            is_transient = e.response.status_code == 429 or e.response.status_code >= 500
+            if is_transient and attempt < max_retries:
                 delay = _get_retry_delay(attempt, e.response)
-                logger.warning(f"[retry] {label} 429 (attempt {attempt+1}/{max_retries}), waiting {delay:.1f}s [Retry-After: {e.response.headers.get('retry-after', 'none')}]")
+                logger.warning(
+                    f"[retry] {label} HTTP {e.response.status_code} "
+                    f"(attempt {attempt+1}/{max_retries}), waiting {delay:.1f}s "
+                    f"[Retry-After: {e.response.headers.get('retry-after', 'none')}]"
+                )
                 await asyncio.sleep(delay)
             else:
                 raise
@@ -323,7 +328,10 @@ async def _do_stocks_fbo(sf):
         try:
             async with WBApiClient(api_key) as client:
                 try:
-                    stocks = await client.get_stocks_warehouses(is_archive=False)
+                    stocks = await _fetch_with_retry(
+                        lambda: client.get_stocks_warehouses(is_archive=False),
+                        label=f"stocks_fbo org={org_id[:8]}",
+                    )
                     count = len(stocks) if isinstance(stocks, list) else 0
                     async with sf() as db:
                         await _save_raw(db, org_id, "stocks_fbo", today, stocks, count=count)
