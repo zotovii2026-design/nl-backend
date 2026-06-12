@@ -1,6 +1,8 @@
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Literal
 from typing import Optional
+from urllib.parse import unquote, urlparse
 
 
 class Settings(BaseSettings):
@@ -10,6 +12,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "NL Table API"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
+    ENVIRONMENT: Literal["development", "test", "production"] = "development"
     PUBLIC_BASE_URL: Optional[str] = None
     CORS_ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
 
@@ -47,5 +50,33 @@ class Settings(BaseSettings):
 
     # Шифрование
     ENCRYPTION_KEY: str = "your-32-byte-encryption-key-here-change-me"
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self):
+        if self.ENVIRONMENT != "production":
+            return self
+
+        weak_markers = ("change-me", "change-in-production", "your-secret")
+        secret_values = {
+            "SECRET_KEY": self.SECRET_KEY,
+            "ENCRYPTION_KEY": self.ENCRYPTION_KEY,
+        }
+        errors = []
+        for name, value in secret_values.items():
+            normalized = value.lower()
+            if len(value) < 32 or any(marker in normalized for marker in weak_markers):
+                errors.append(f"{name} must be a strong value of at least 32 characters")
+
+        database_password = unquote(urlparse(self.DATABASE_URL).password or "")
+        if (
+            len(database_password) < 16
+            or database_password.lower() in {"postgres", "password", "change-me"}
+            or any(marker in database_password.lower() for marker in weak_markers)
+        ):
+            errors.append("DATABASE_URL must contain a strong database password")
+
+        if errors:
+            raise ValueError("; ".join(errors))
+        return self
 
 settings = Settings()
