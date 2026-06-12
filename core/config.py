@@ -41,6 +41,8 @@ class Settings(BaseSettings):
 
     # Redis
     REDIS_URL: str = "redis://redis:6379/0"
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_PREFIX: str = "nl:rate-limit"
 
     # Optional receiver for structured Celery failure alerts.
     CELERY_ALERT_WEBHOOK_URL: Optional[str] = None

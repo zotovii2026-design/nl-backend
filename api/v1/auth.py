@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime
@@ -11,6 +11,7 @@ from core.security import (
     decode_token
 )
 from core.dependencies import get_current_user
+from core.rate_limit import enforce_rate_limit
 from models.user import User
 from schemas.auth import UserRegister, UserLogin, TokenResponse, TokenRefresh, UserResponse
 
@@ -19,10 +20,14 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/register", response_model=UserResponse)
 async def register(
+    request: Request,
     user_data: UserRegister,
     db: AsyncSession = Depends(get_db)
 ):
     """Регистрация нового пользователя"""
+    await enforce_rate_limit(
+        request, "auth-register", 3, 3600, user_data.email
+    )
     # Проверка существования пользователя
     result = await db.execute(
         select(User).where(User.email == user_data.email)
@@ -50,10 +55,12 @@ async def register(
 
 @router.post("/login")
 async def login(
+    request: Request,
     user_data: UserLogin,
     db: AsyncSession = Depends(get_db)
 ):
     """Логин пользователя"""
+    await enforce_rate_limit(request, "auth-login", 5, 60, user_data.email)
     # Поиск пользователя
     result = await db.execute(
         select(User).where(User.email == user_data.email)
@@ -88,10 +95,14 @@ async def login(
 
 @router.post("/refresh")
 async def refresh_token(
+    request: Request,
     token_data: TokenRefresh,
     db: AsyncSession = Depends(get_db)
 ):
     """Обновление access токена"""
+    await enforce_rate_limit(
+        request, "auth-refresh", 20, 60, token_data.refresh_token
+    )
     payload = decode_token(token_data.refresh_token)
 
     if not payload or payload.get("type") != "refresh":

@@ -13,6 +13,7 @@ from datetime import datetime, date, timedelta
 from core.database import get_db
 from core.security import verify_password, get_password_hash, create_access_token, decode_token, encrypt_data, decrypt_data
 from core.dependencies import get_current_user
+from core.rate_limit import enforce_rate_limit
 from core.role_deps import require_organization_role
 from core.tenant_auth import require_query_organization_access
 from models.organization import Role
@@ -113,8 +114,13 @@ class SalesPlanItem(BaseModel):
 
 
 @router.post("/api/v1/nl/register")
-async def nl_register(data: RegisterData, db: AsyncSession = Depends(get_db)):
+async def nl_register(
+    request: Request,
+    data: RegisterData,
+    db: AsyncSession = Depends(get_db),
+):
     """Регистрация нового пользователя + создание организации"""
+    await enforce_rate_limit(request, "nl-register", 3, 3600, data.email)
     from models.organization import Organization, Membership, WbApiKey, Role
     from models.organization import SubscriptionTier, SubscriptionStatus
 
@@ -144,8 +150,13 @@ async def nl_register(data: RegisterData, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/api/v1/nl/login")
-async def nl_login(data: LoginData, db: AsyncSession = Depends(get_db)):
+async def nl_login(
+    request: Request,
+    data: LoginData,
+    db: AsyncSession = Depends(get_db),
+):
     """Логин"""
+    await enforce_rate_limit(request, "nl-login", 5, 60, data.email)
     from models.organization import Membership
 
     result = await db.execute(select(User).where(User.email == data.email))
@@ -4398,6 +4409,7 @@ async def nl_profile(
 
 @router.post("/api/v1/nl/verify-wb-key")
 async def nl_verify_wb_key(
+    request: Request,
     data: dict,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -4409,6 +4421,7 @@ async def nl_verify_wb_key(
     org_id = data.get("org_id", "").strip()
     if not org_id:
         raise HTTPException(400, "org_id обязателен")
+    await enforce_rate_limit(request, "wb-key-verify", 10, 300, org_id)
     await require_organization_role(
         uuid.UUID(org_id),
         Role.ADMIN,
@@ -4512,6 +4525,7 @@ async def nl_rename_org(
 
 @router.post("/api/v1/nl/invite")
 async def nl_invite(
+    request: Request,
     data: dict,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -4526,6 +4540,13 @@ async def nl_invite(
     
     if not org_id or not email:
         raise HTTPException(400, "org_id и email обязательны")
+    await enforce_rate_limit(
+        request,
+        "organization-invite",
+        10,
+        3600,
+        f"{org_id}:{email}",
+    )
     
     # Check inviter is ADMIN+ in this org
     result = await db.execute(

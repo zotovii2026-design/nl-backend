@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime, timedelta
@@ -6,6 +6,7 @@ from uuid import UUID
 import secrets
 from core.database import get_db
 from core.dependencies import get_current_user
+from core.rate_limit import enforce_rate_limit
 from core.role_deps import require_organization_role
 from core.security import encrypt_data
 from models.organization import Organization, Membership, Invitation, WbApiKey, SubscriptionTier, Role, InvitationStatus
@@ -164,12 +165,20 @@ async def list_members(
 
 @router.post("/{org_id}/members/invite", response_model=InvitationResponse)
 async def invite_member(
+    request: Request,
     org_id: UUID,
     invite_data: InvitationCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Приглашение участника (admin+)"""
+    await enforce_rate_limit(
+        request,
+        "organization-invite",
+        10,
+        3600,
+        f"{org_id}:{invite_data.email}",
+    )
     await require_organization_role(org_id, Role.ADMIN, current_user, db)
 
     # Генерация токена
