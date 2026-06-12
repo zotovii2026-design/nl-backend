@@ -20,6 +20,14 @@ def test_production_accepts_strong_secrets():
     assert settings.ENVIRONMENT == "production"
 
 
+def test_missing_environment_fails_closed(monkeypatch):
+    for name in ("ENVIRONMENT", "SECRET_KEY", "ENCRYPTION_KEY", "DATABASE_URL"):
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(ValidationError, match="SECRET_KEY"):
+        Settings(_env_file=None)
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [

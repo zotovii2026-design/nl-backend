@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "NL Table API"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
-    ENVIRONMENT: Literal["development", "test", "production"] = "development"
+    ENVIRONMENT: Literal["development", "test", "production"] = "production"
     PUBLIC_BASE_URL: Optional[str] = None
     CORS_ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
 
