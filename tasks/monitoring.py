@@ -12,8 +12,10 @@ from models.raw_data import RawApiData
 
 FRESHNESS_LIMITS = {
     "products": timedelta(hours=30),
-    "sales": timedelta(hours=10),
-    "orders": timedelta(hours=10),
+    # Sales run at 08:00 and 14:05 Moscow time; the longest gap is 17h55m.
+    "sales": timedelta(hours=20),
+    # Orders run once daily at 08:05 Moscow time.
+    "orders": timedelta(hours=27),
     "stocks_fbo": timedelta(hours=16),
     "adverts": timedelta(hours=30),
 }

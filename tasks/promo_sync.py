@@ -59,6 +59,22 @@ def _parse_dt(dt_str):
         return None
 
 
+def _is_nomenclature_sync_eligible(promotion, detail, now):
+    """Nomenclatures are available only for regular, non-expired promotions."""
+    promo_type = detail.get("type") or promotion.get("type")
+    if promo_type != "regular":
+        return False
+
+    end_date = _parse_dt(
+        detail.get("endDateTime") or promotion.get("endDateTime")
+    )
+    if end_date is None:
+        return True
+    if end_date.tzinfo is None:
+        end_date = end_date.replace(tzinfo=timezone.utc)
+    return end_date >= now
+
+
 async def _do_promo_sync(sf):
     all_keys = await _get_all_keys(sf)
     if not all_keys:
@@ -152,9 +168,18 @@ async def _do_promo_sync(sf):
 
                 # 4. Get nomenclatures for regular promotions
                 product_count = 0
-                regular_promos = [p for p in promotions if p.get("type") != "auto"]
+                eligible_promos = [
+                    p
+                    for p in promotions
+                    if _is_nomenclature_sync_eligible(
+                        p,
+                        all_details.get(p["id"], {}),
+                        now,
+                    )
+                ]
+                skipped_promos = len(promotions) - len(eligible_promos)
 
-                for p in regular_promos:
+                for p in eligible_promos:
                     pid = p["id"]
                     for in_action_val in [True, False]:
                         try:
@@ -216,6 +241,7 @@ async def _do_promo_sync(sf):
                     "status": "ok",
                     "promotions": promo_count,
                     "products": product_count,
+                    "nomenclature_skipped": skipped_promos,
                 }
 
         except Exception as e:
