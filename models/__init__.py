@@ -35,6 +35,7 @@ from models.wb_tariff_snapshot import WbTariffSnapshot
 from models.sales_plan import SalesPlan, PlanType, Seasonality
 from models.external_ad import ExternalAd
 from models.celery_task_run import CeleryTaskRun
+from models.wb_finance import WbFinanceRow, WbFinanceSync, WbOpiuSnapshot
 
 __all__ = [
     "User",
@@ -65,6 +66,9 @@ __all__ = [
     "PlanType",
     "Seasonality",
     "CeleryTaskRun",
+    "WbFinanceRow",
+    "WbFinanceSync",
+    "WbOpiuSnapshot",
 ]
 
 from models.promotion import WbPromotion, WbPromotionProduct

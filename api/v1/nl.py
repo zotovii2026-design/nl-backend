@@ -1517,109 +1517,6 @@ async def add_operating_expense(data: dict, org_id: str, db: AsyncSession = Depe
     return {"ok": True}
 
 
-@router.get("/api/v1/nl/opiu")
-async def get_opiu(org_id: str, period: str = "4", db: AsyncSession = Depends(get_db)):
-    """ОПиУ — отчёт о прибылях и убытках по неделям"""
-    from sqlalchemy import func
-    from datetime import timedelta
-    import decimal
-
-    weeks = int(period) if period.isdigit() else 4
-    today = date.today()
-    
-    # Получаем данные за N недель
-    start_date = today - timedelta(weeks=weeks)
-    
-    result = await db.execute(
-        select(
-            TechStatus.target_date,
-            func.sum(TechStatus.orders_count).label("orders"),
-            func.sum(TechStatus.buyouts_count).label("buyouts"),
-            func.sum(TechStatus.returns_count).label("returns"),
-            func.sum(TechStatus.stock_qty).label("stock"),
-            func.sum(TechStatus.ad_cost).label("ad_cost"),
-            func.sum(TechStatus.impressions).label("impressions"),
-            func.sum(TechStatus.clicks).label("clicks"),
-            func.avg(TechStatus.tariff).label("avg_tariff"),
-            func.sum(TechStatus.price_discount).label("revenue"),
-        ).where(
-            TechStatus.organization_id == org_id,
-            TechStatus.target_date >= start_date
-        ).group_by(TechStatus.target_date)
-        .order_by(TechStatus.target_date.desc())
-    )
-    rows = result.all()
-    
-    # Группируем по неделям
-    from collections import OrderedDict
-    weeks_data = OrderedDict()
-    for r in rows:
-        d = r[0]
-        # ISO week
-        week_start = d - timedelta(days=d.weekday())
-        week_key = week_start.isoformat()
-        week_label = week_start.strftime("%d.%m") + " - " + (week_start + timedelta(days=6)).strftime("%d.%m.%Y")
-        
-        if week_key not in weeks_data:
-            weeks_data[week_key] = {"label": week_label, "orders": 0, "buyouts": 0, "returns": 0, "revenue": 0, "ad_cost": 0, "stock": 0}
-        
-        def safe(v): return float(v) if v and not isinstance(v, decimal.Decimal) else (float(v) if isinstance(v, decimal.Decimal) else 0)
-        
-        w = weeks_data[week_key]
-        w["orders"] += safe(r[1])
-        w["buyouts"] += safe(r[2])
-        w["returns"] += safe(r[3])
-        w["stock"] += safe(r[4]) or 0
-        w["ad_cost"] += safe(r[5])
-        w["revenue"] += safe(r[9])
-    
-    # Считаем итоги
-    total = {"orders": 0, "buyouts": 0, "returns": 0, "revenue": 0, "ad_cost": 0}
-    for w in weeks_data.values():
-        for k in total:
-            total[k] += w.get(k, 0)
-    
-    return {
-        "total": total,
-        "weeks": [{"key": k, **v} for k, v in weeks_data.items()]
-    }
-
-
-@router.get("/api/v1/nl/opiu")
-async def get_opiu(org_id: str, period: str = "4", db: AsyncSession = Depends(get_db)):
-    """ОПиУ по неделям"""
-    from sqlalchemy import func
-    from datetime import timedelta
-    import decimal
-    weeks = int(period) if period.isdigit() else 4
-    start_date = date.today() - timedelta(weeks=weeks)
-    result = await db.execute(
-        select(TechStatus.target_date,
-            func.sum(TechStatus.orders_count).label("orders"),
-            func.sum(TechStatus.buyouts_count).label("buyouts"),
-            func.sum(TechStatus.returns_count).label("returns"),
-            func.sum(TechStatus.ad_cost).label("ad_cost"),
-            func.sum(TechStatus.price_discount).label("revenue"),
-        ).where(TechStatus.organization_id == org_id, TechStatus.target_date >= start_date)
-        .group_by(TechStatus.target_date).order_by(TechStatus.target_date.desc())
-    )
-    from collections import OrderedDict
-    weeks_data = OrderedDict()
-    total = {"orders": 0, "buyouts": 0, "returns": 0, "revenue": 0, "ad_cost": 0}
-    for r in result.all():
-        d = r[0]
-        ws = d - timedelta(days=d.weekday())
-        wk = ws.isoformat()
-        if wk not in weeks_data:
-            weeks_data[wk] = {"label": ws.strftime("%d.%m") + " - " + (ws + timedelta(days=6)).strftime("%d.%m"), "orders": 0, "buyouts": 0, "returns": 0, "revenue": 0, "ad_cost": 0}
-        def sf(v): return float(v) if v else 0
-        w = weeks_data[wk]
-        w["orders"] += sf(r[1]); w["buyouts"] += sf(r[2]); w["returns"] += sf(r[3]); w["ad_cost"] += sf(r[4]); w["revenue"] += sf(r[5])
-        total["orders"] += sf(r[1]); total["buyouts"] += sf(r[2]); total["returns"] += sf(r[3]); total["ad_cost"] += sf(r[4]); total["revenue"] += sf(r[5])
-    return {"total": total, "weeks": [{"key": k, **v} for k, v in weeks_data.items()]}
-
-
-
 # ==================== USER DATA APIs ====================
 
 @router.get("/api/v1/nl/cost-prices")
@@ -4754,6 +4651,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Chart.js -->
 <script src="/static/lib/chart.min.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
+<script type="text/javascript" src="/static/js/opiu-grid.js?v=20260612c"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260603f"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260611-auth"></script>
@@ -4831,7 +4729,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <span class="page-title" id="page-title">Основные показатели</span>
 <div class="filters" id="top-filters">
 <select id="filter-store" onchange="switchTopStore()" style="min-width:160px;border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em"></select>
-<select id="filter-period"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option></select>
+<select id="filter-period" onchange="if (_currentSection === 'opiu') onOpiuPeriodChange()"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option><option value="custom">Произвольный период</option></select>
 <input type="text" id="filter-article" placeholder="Артикул" style="width:120px">
 </div>
 </div>
@@ -5258,15 +5156,24 @@ var _sectionRegistry = {
 // === Lazy Loading Section Store ===
 var _sectionHTML = {
     'opiu': `
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
-<select id="opiu-period" onchange="loadOpiu()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<option value="4">Последние 4 недели</option><option value="8">8 недель</option><option value="12">12 недель</option>
-</select>
-<button class="btn" onclick="loadOpiu()" style="padding:6px 14px;font-size:.85em">🔄</button>
-<button class="btn btn-outline" onclick="exportOpiu()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+<select id="opiu-filter-class" onchange="applyOpiuFilters()" style="border:1px solid #ddd;border-radius:6px;padding:6px 10px"><option value="">Класс: все</option></select>
+<select id="opiu-filter-status" onchange="applyOpiuFilters()" style="border:1px solid #ddd;border-radius:6px;padding:6px 10px"><option value="">Статус: все</option></select>
+<select id="opiu-filter-brand" onchange="applyOpiuFilters()" style="border:1px solid #ddd;border-radius:6px;padding:6px 10px"><option value="">Бренд: все</option></select>
+<select id="opiu-filter-category" onchange="applyOpiuFilters()" style="border:1px solid #ddd;border-radius:6px;padding:6px 10px"><option value="">Категория: все</option></select>
+<input id="opiu-search" type="search" oninput="applyOpiuFilters()" placeholder="Название или бренд" style="min-width:220px;border:1px solid #ddd;border-radius:6px;padding:6px 10px">
+<button class="btn btn-outline" onclick="resetOpiuFilters()" style="padding:6px 12px;font-size:.85em">Сбросить</button>
+<div id="opiu-custom-period" style="display:none;align-items:center;gap:6px">
+<input id="opiu-date-from" type="date" onchange="loadOpiu()" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px">
+<span>-</span>
+<input id="opiu-date-to" type="date" onchange="loadOpiu()" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px">
 </div>
-<table id="opiu-table"><thead><tr><th>Статья</th><th>Итого</th><th>%</th></tr></thead>
-<tbody id="opiu-body"><tr><td colspan="3" class="empty">Нажмите обновить</td></tr></tbody></table>
+<button id="opiu-sync-btn" class="btn" onclick="syncOpiu()" style="padding:6px 12px;font-size:.85em">Обновить из WB</button>
+<button class="btn btn-outline" onclick="exportOpiuExcel()" style="padding:6px 12px;font-size:.85em">Excel</button>
+<span id="opiu-count" style="margin-left:auto;color:#777;font-size:.85em"></span>
+</div>
+<div id="opiu-sync-info" style="margin:-4px 0 10px;color:#888;font-size:.8em"></div>
+<div id="opiu-tabulator"></div>
 `,
     'costprice': `
 <!-- Верхняя панель: текущий магазин -->
@@ -6010,7 +5917,12 @@ function _sectionLeave(name) {
             };
             _clearSection('page-rnp'); _rnpInited = false; break;
         case 'analytics': _clearSection('page-analytics'); _analyticsInited = false; break;
-        case 'opiu': _clearSection('page-opiu'); _opiuInited = false; break;
+        case 'opiu':
+            if (typeof opiuTabulator !== 'undefined' && opiuTabulator) {
+                opiuTabulator.destroy();
+                opiuTabulator = null;
+            }
+            _clearSection('page-opiu'); _opiuInited = false; break;
         case 'costprice':
             if (typeof costTabulator !== 'undefined' && costTabulator) { costTabulator.destroy(); costTabulator = null; }
             _clearSection('page-costprice'); _costpriceInited = false; break;
@@ -6061,6 +5973,8 @@ async function navTo(name, el) {
     // Top filters
     var topFilters = document.getElementById('top-filters');
     if (topFilters) topFilters.style.display = reg.topFilters ? 'flex' : 'none';
+    var topArticle = document.getElementById('filter-article');
+    if (topArticle) topArticle.style.display = name === 'opiu' ? 'none' : '';
     // Cleanup popups
     if (typeof cleanupCostPopups === 'function') cleanupCostPopups();
     // Track current & enter
@@ -6839,11 +6753,9 @@ async function loadDates() {
             spPeriodSel.appendChild(opt);
         }
     }
-    ['ref-date', 'stats-date', 'analytics-date', 'wh-date', 'opiu-period'].forEach(id => {
+    ['ref-date', 'stats-date', 'analytics-date', 'wh-date'].forEach(id => {
         const sel = document.getElementById(id);
         if (!sel || sel.tagName !== 'SELECT') return;
-        // Keep period selects
-        if (id === 'opiu-period') return;
         sel.innerHTML = '';
         if (!dates.length) { sel.innerHTML = '<option>Нет данных</option>'; return; }
         dates.forEach(d => {
@@ -6914,99 +6826,6 @@ async function loadAnalytics() {
         }).join('');
     } catch(e) { console.error('loadAnalytics error:', e); }
 }
-
-async function loadOpiu() {
-    if (!ORG_ID) return;
-    const period = document.getElementById('opiu-period')?.value || '4';
-    try {
-        const res = await fetch('/api/v1/nl/opiu?org_id=' + ORG_ID + '&period=' + period);
-        if (!res.ok) return;
-        const data = await res.json();
-        const weeks = data.weeks || [];
-        const total = data.total || {};
-        const fmt = (v) => v != null ? Number(v).toLocaleString('ru-RU', {maximumFractionDigits:0}) : '—';
-        
-        // Строим таблицу
-        const thead = document.querySelector('#opiu-table thead tr');
-        thead.innerHTML = '<th>Статья</th><th>Итого ₽</th><th>Итого %</th>';
-        weeks.forEach(w => { thead.innerHTML += '<th>' + w.label + ' ₽</th><th>%</th>'; });
-        
-        const tbody = document.getElementById('opiu-body');
-        const rows = [
-            {name: 'Реализация', key: 'revenue'},
-            {name: 'Продажи', key: 'buyouts'},
-            {name: 'Возвраты', key: 'returns'},
-            {name: 'Расходы', key: 'ad_cost'},
-            {name: 'Комиссия ВБ', key: null},
-            {name: 'Реклама', key: 'ad_cost'},
-            {name: 'Логистика', key: null},
-        ];
-        
-        const totalRev = total.revenue || 1;
-        let html = '';
-        rows.forEach(r => {
-            const t = r.key ? total[r.key] : 0;
-            const tp = totalRev ? (t / totalRev * 100).toFixed(1) : '—';
-            html += '<tr><td><strong>' + r.name + '</strong></td><td>' + fmt(t) + '</td><td>' + tp + '%</td>';
-            weeks.forEach(w => {
-                const v = r.key ? w[r.key] : 0;
-                const p = totalRev ? (v / totalRev * 100).toFixed(1) : '—';
-                html += '<td>' + fmt(v) + '</td><td>' + p + '%</td>';
-            });
-            html += '</tr>';
-        });
-        
-        // Чистая прибыль
-        const profit = (total.revenue || 0) - (total.ad_cost || 0);
-        const profitP = totalRev ? (profit / totalRev * 100).toFixed(1) : '—';
-        html += '<tr style="font-weight:700;background:#f0edfc"><td>Чистая прибыль</td><td>' + fmt(profit) + '</td><td>' + profitP + '%</td>';
-        weeks.forEach(w => {
-            const p = (w.revenue || 0) - (w.ad_cost || 0);
-            const pp = totalRev ? (p / totalRev * 100).toFixed(1) : '—';
-            html += '<td>' + fmt(p) + '</td><td>' + pp + '%</td>';
-        });
-        html += '</tr>';
-        
-        tbody.innerHTML = html || '<tr><td colspan="3" class="empty">Нет данных</td></tr>';
-    } catch(e) { console.error('loadOpiu error:', e); }
-}
-
-async function exportOpiu() { alert('Экспорт ОПиУ в разработке'); }
-
-async function loadOpiu() {
-    if (!ORG_ID) return;
-    const period = document.getElementById('opiu-period')?.value || '4';
-    try {
-        const res = await fetch('/api/v1/nl/opiu?org_id=' + ORG_ID + '&period=' + period);
-        if (!res.ok) return;
-        const data = await res.json();
-        const weeks = data.weeks || [];
-        const total = data.total || {};
-        const fmt = (v) => v != null ? Number(v).toLocaleString('ru-RU', {maximumFractionDigits:0}) : '—';
-        const thead = document.querySelector('#opiu-table thead tr');
-        const tbody = document.getElementById('opiu-body');
-        if (!thead || !tbody) return;
-        thead.innerHTML = '<th>Статья</th><th>Итого</th><th>%</th>';
-        weeks.forEach(w => { thead.innerHTML += '<th>' + w.label + '</th>'; });
-        const tr = total.revenue || 1;
-        const rows = [
-            ['Реализация', total.revenue], ['Продажи (шт)', total.buyouts],
-            ['Возвраты (шт)', total.returns], ['Реклама', total.ad_cost],
-        ];
-        let html = '';
-        rows.forEach(([name, val]) => {
-            html += '<tr><td><strong>' + name + '</strong></td><td>' + fmt(val) + '</td><td>' + (tr ? (val/tr*100).toFixed(1) : '—') + '%</td>';
-            weeks.forEach(w => { const v = name.includes('Реал') ? w.revenue : name.includes('Прод') ? w.buyouts : name.includes('Воз') ? w.returns : w.ad_cost; html += '<td>' + fmt(v) + '</td>'; });
-            html += '</tr>';
-        });
-        const profit = (total.revenue || 0) - (total.ad_cost || 0);
-        html += '<tr style="font-weight:700;background:#f0edfc"><td>Чистая прибыль</td><td>' + fmt(profit) + '</td><td>' + (tr ? (profit/tr*100).toFixed(1) : '—') + '%</td>';
-        weeks.forEach(w => { const p = (w.revenue||0)-(w.ad_cost||0); html += '<td>' + fmt(p) + '</td>'; });
-        html += '</tr>';
-        tbody.innerHTML = html || '<tr><td colspan="3" class="empty">Нет данных</td></tr>';
-    } catch(e) { console.error('loadOpiu', e); }
-}
-async function exportOpiu() { alert('В разработке'); }
 
 // Глобальный кэш для фильтрации
 let _costProducts = [];

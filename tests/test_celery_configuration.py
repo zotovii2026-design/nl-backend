@@ -12,6 +12,7 @@ EXPECTED_LOCAL_TIMES = {
     "night-products": (3, 5),
     "night-warehouses": (3, 15),
     "night-stocks-fbo": (3, 23),
+    "opiu-finance-daily": (4, 0),
     "morning-sales": (8, 0),
     "morning-orders": (8, 5),
     "box-tariffs-daily": (8, 30),

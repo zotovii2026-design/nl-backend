@@ -9,6 +9,7 @@ TASK_MODULES = (
     "tasks.promo_sync",
     "tasks.box_tariffs_sync",
     "tasks.monitoring",
+    "tasks.opiu_sync",
 )
 
 
@@ -25,6 +26,10 @@ BEAT_SCHEDULE = {
     "night-stocks-fbo": {
         "task": "wb.sched.stocks_fbo",
         "schedule": crontab(hour=3, minute=23),
+    },
+    "opiu-finance-daily": {
+        "task": "wb.sched.opiu_finance",
+        "schedule": crontab(hour=4, minute=0),
     },
     "morning-sales": {
         "task": "wb.sched.sales",

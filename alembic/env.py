@@ -44,6 +44,7 @@ from models.product_entity import (
 )
 from models.sales_plan import SalesPlan, PlanType, Seasonality
 from models.celery_task_run import CeleryTaskRun
+from models.wb_finance import WbFinanceRow, WbFinanceSync, WbOpiuSnapshot
 
 config = context.config
 
