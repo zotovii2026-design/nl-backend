@@ -19,7 +19,7 @@ from domain.opiu import build_opiu_report, serialize_report
 from models.organization import Role
 from models.user import User
 from models.wb_finance import WbFinanceSync
-from tasks.opiu_sync import sync_opiu_org
+from tasks.celery_app import celery_app
 
 
 router = APIRouter(tags=["nl"])
@@ -243,8 +243,9 @@ async def trigger_opiu_sync(
     await require_organization_role(
         uuid.UUID(org_id), Role.ADMIN, current_user, db
     )
-    task = sync_opiu_org.delay(
-        org_id, date_from.isoformat(), date_to.isoformat()
+    task = celery_app.send_task(
+        "wb.opiu.sync_org",
+        args=[org_id, date_from.isoformat(), date_to.isoformat()],
     )
     return {"status": "queued", "task_id": task.id}
 

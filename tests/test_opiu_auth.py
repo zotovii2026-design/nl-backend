@@ -1,7 +1,7 @@
 import uuid
 from datetime import date
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -95,3 +95,32 @@ async def test_opiu_sync_requires_admin(monkeypatch):
         )
 
     assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_opiu_sync_uses_canonical_celery_app(monkeypatch):
+    org_id = str(uuid.uuid4())
+    user = SimpleNamespace(id=uuid.uuid4())
+    db = AsyncMock()
+    send_task = MagicMock(return_value=SimpleNamespace(id="task-1"))
+
+    monkeypatch.setattr(
+        "api.v1.routers.opiu.require_organization_role", AsyncMock()
+    )
+    monkeypatch.setattr(
+        "api.v1.routers.opiu.celery_app.send_task", send_task
+    )
+
+    result = await trigger_opiu_sync(
+        org_id,
+        date.fromisoformat("2026-06-01"),
+        date.fromisoformat("2026-06-12"),
+        current_user=user,
+        db=db,
+    )
+
+    assert result == {"status": "queued", "task_id": "task-1"}
+    send_task.assert_called_once_with(
+        "wb.opiu.sync_org",
+        args=[org_id, "2026-06-01", "2026-06-12"],
+    )
