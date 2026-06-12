@@ -6082,6 +6082,7 @@ async function loadAds() {
     try {
         const r = await fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}});
         const d = await r.json();
+        if (!document.getElementById('ad-views')) return;
         // Totals
         const t = d.totals || {};
         const fmt = (v, s='') => v != null ? Number(v).toLocaleString('ru-RU', {maximumFractionDigits: v >= 1000 ? 0 : 2}) + s : '—';
@@ -6120,7 +6121,8 @@ async function loadAds() {
         document.getElementById('ads-updated').textContent = 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
     } catch(e) {
         console.error('loadAds error:', e);
-        document.getElementById('ads-daily-body').innerHTML = '<tr><td colspan="5" class="empty" style="padding:4px">Ошибка: '+e.message+'</td></tr>';
+        const body = document.getElementById('ads-daily-body');
+        if (body) body.innerHTML = '<tr><td colspan="5" class="empty" style="padding:4px">Ошибка: '+e.message+'</td></tr>';
     }
 }
 
@@ -6208,8 +6210,55 @@ function initMktStores() {
     }
 }
 
+var mktAllProducts = [];
+
+async function loadMarketer() {
+    if (!ORG_ID || !document.getElementById('mkt-products-list')) return;
+    var period = document.getElementById('mkt-period')?.value || '30';
+    var params = new URLSearchParams({org_id: ORG_ID, days: period});
+    var status = document.getElementById('mkt-flt-status')?.value || '';
+    var abcClass = document.getElementById('mkt-flt-class')?.value || '';
+    var brand = document.getElementById('mkt-flt-brand')?.value || '';
+    var search = document.getElementById('mkt-flt-search')?.value || '';
+    if (status) params.set('status', status);
+    if (abcClass) params.set('abc_class', abcClass);
+    if (brand) params.set('brand', brand);
+    if (search) params.set('search', search);
+
+    try {
+        var response = await fetch('/api/v1/nl/marketer/products?' + params, {
+            headers: {'Authorization': 'Bearer ' + TOKEN}
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        var data = await response.json();
+        if (!document.getElementById('mkt-products-list')) return;
+
+        mktAllProducts = data.products || [];
+        var brandSelect = document.getElementById('mkt-flt-brand');
+        if (brandSelect) {
+            var selectedBrand = brandSelect.value;
+            brandSelect.innerHTML = '<option value="">Бренд: все</option>' +
+                (data.brands || []).map(function(item) {
+                    return '<option value="' + esc(item) + '">' + esc(item) + '</option>';
+                }).join('');
+            brandSelect.value = selectedBrand;
+        }
+        var count = document.getElementById('mkt-count');
+        if (count) {
+            count.textContent = (data.total_products || 0) + ' товаров / ' +
+                (data.total_campaigns || 0) + ' РК';
+        }
+        renderMktProducts();
+    } catch(e) {
+        console.error('loadMarketer error:', e);
+        var container = document.getElementById('mkt-products-list');
+        if (container) container.innerHTML = '<div class="empty">Ошибка: ' + esc(e.message) + '</div>';
+    }
+}
+
 function renderMktProducts() {
     var el = document.getElementById('mkt-products-list');
+    if (!el) return;
     if (!mktAllProducts.length) {
         el.innerHTML = '<div class="empty">Нет товаров с рекламными данными за выбранный период</div>';
         return;
@@ -6935,9 +6984,10 @@ async function loadOpiu() {
         const total = data.total || {};
         const fmt = (v) => v != null ? Number(v).toLocaleString('ru-RU', {maximumFractionDigits:0}) : '—';
         const thead = document.querySelector('#opiu-table thead tr');
+        const tbody = document.getElementById('opiu-body');
+        if (!thead || !tbody) return;
         thead.innerHTML = '<th>Статья</th><th>Итого</th><th>%</th>';
         weeks.forEach(w => { thead.innerHTML += '<th>' + w.label + '</th>'; });
-        const tbody = document.getElementById('opiu-body');
         const tr = total.revenue || 1;
         const rows = [
             ['Реализация', total.revenue], ['Продажи (шт)', total.buyouts],
@@ -7168,6 +7218,7 @@ function populateCostFilterOptions() {
     });
     const fillSel = (id, vals) => {
         const el = document.getElementById(id);
+        if (!el || !el.options.length) return;
         const cur = el.value;
         const opts = ['<option value="">' + el.options[0].text + '</option>'];
         [...vals].sort().forEach(v => opts.push('<option value="' + esc(v) + '">' + esc(v) + '</option>'));
@@ -7715,9 +7766,12 @@ async function loadOpEx() {
         const res = await fetch('/api/v1/nl/operating-expenses?org_id=' + ORG_ID);
         if (!res.ok) return;
         const items = await res.json();
-        document.getElementById('opex-count').textContent = items.length + ' записей';
-        if (!items.length) { document.getElementById('opex-body').innerHTML = '<tr><td colspan="7" class="empty">Нет записей. Нажмите добавить.</td></tr>'; return; }
-        document.getElementById('opex-body').innerHTML = items.map(i =>
+        const count = document.getElementById('opex-count');
+        const body = document.getElementById('opex-body');
+        if (!count || !body) return;
+        count.textContent = items.length + ' записей';
+        if (!items.length) { body.innerHTML = '<tr><td colspan="7" class="empty">Нет записей. Нажмите добавить.</td></tr>'; return; }
+        body.innerHTML = items.map(i =>
             '<tr><td>' + (i.date||'') + '</td><td>' + esc(i.category||'') + '</td><td>' + esc(i.description||'') +
             '</td><td>' + (i.amount||0) + '</td><td>' + (i.vat||0) + '%</td><td>—</td><td style="color:#e74c3c;cursor:pointer">🗑</td></tr>'
         ).join('');
@@ -7767,14 +7821,19 @@ async function loadRnp() {
         }
         if (search) url += '&search=' + encodeURIComponent(search);
         var res = await fetch(url);
-        if (!res.ok) { document.getElementById('rnp-cards').innerHTML = '<div class="empty">Ошибка ' + res.status + '</div>'; return; }
+        var cards = document.getElementById('rnp-cards');
+        var summary = document.getElementById('rnp-summary');
+        var count = document.getElementById('rnp-count');
+        var header = document.getElementById('rnp-header-wrap');
+        if (!cards || !summary || !count || !header) return;
+        if (!res.ok) { cards.innerHTML = '<div class="empty">Ошибка ' + res.status + '</div>'; return; }
         var data = await res.json();
         var prods = data.products || [];
         var days = data.day_list || [];
         var s = data.summary || {};
 
         // Сводка
-        document.getElementById('rnp-summary').innerHTML =
+        summary.innerHTML =
             '<div><b>Товаров:</b> ' + s.total_products + '</div>' +
             '<div><b>Заказы:</b> ' + s.total_orders + ' шт / ' + fmtR(s.total_orders_revenue) + ' ₽</div>' +
             '<div><b>Выкупы:</b> ' + s.total_buyouts + ' шт / ' + fmtR(s.total_buyouts_revenue) + ' ₽</div>' +
@@ -7784,8 +7843,8 @@ async function loadRnp() {
             '<div><b>Прибыль расч:</b> ' + fmtR(s.total_profit_calc) + ' ₽</div>' +
             '<div><b>Маржа с ДРР:</b> ' + fmtR(s.total_margin_with_drr) + ' ₽</div>' +
             '<div><b>Остатки:</b> ' + s.total_stock + ' шт</div>';
-        document.getElementById('rnp-count').textContent = prods.length + ' товаров | ' + (data.month || '') + ' | ' + days.length + ' дней';
-        if (!prods.length) { document.getElementById('rnp-cards').innerHTML = '<div class="empty">Нет данных</div>'; return; }
+        count.textContent = prods.length + ' товаров | ' + (data.month || '') + ' | ' + days.length + ' дней';
+        if (!prods.length) { cards.innerHTML = '<div class="empty">Нет данных</div>'; return; }
 
         // Считаем summary по дням
         var todayStr = new Date().toISOString().substring(0, 10);
@@ -7846,7 +7905,7 @@ async function loadRnp() {
             hhtml += '</tr>';
         }
         hhtml += '</tbody></table></div>';
-        document.getElementById('rnp-header-wrap').innerHTML = hhtml;
+        header.innerHTML = hhtml;
 
         // Рисуем карточки (таблица 2)
         var html = '<div class="rnp-wrap"><div class="rnp-table-wrap"><table class="rnp-table"><thead><tr>';
@@ -7933,7 +7992,7 @@ async function loadRnp() {
         }
 
         html += '</tbody></table></div></div>';
-        document.getElementById('rnp-cards').innerHTML = html;
+        cards.innerHTML = html;
 
         // Синхронизация горизонтального скролла шапки и карточек
         var headerWrap = document.getElementById('rnp-header-wrap');
@@ -7943,7 +8002,11 @@ async function loadRnp() {
             headerWrap.addEventListener('scroll', function() { cardsWrap.scrollLeft = headerWrap.scrollLeft; });
         }
 
-    } catch(e) { console.error('loadRnp', e); document.getElementById('rnp-cards').innerHTML = '<div class="empty">Ошибка: '+esc(e.message)+'</div>'; }
+    } catch(e) {
+        console.error('loadRnp', e);
+        var cards = document.getElementById('rnp-cards');
+        if (cards) cards.innerHTML = '<div class="empty">Ошибка: '+esc(e.message)+'</div>';
+    }
 }
 function fmtR(v) { if (v==null||v===0) return '—'; return Number(v).toLocaleString('ru-RU',{maximumFractionDigits:0}); }
 
