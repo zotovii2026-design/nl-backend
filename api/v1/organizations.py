@@ -71,10 +71,12 @@ async def list_organizations(
 @router.get("/{org_id}", response_model=OrganizationResponse)
 async def get_organization(
     org_id: UUID,
-    membership: Membership = Depends(lambda: require_organization_role(UUID(int=0), Role.VIEWER)),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Получение организации (viewer+)"""
+    await require_organization_role(org_id, Role.VIEWER, current_user, db)
+
     result = await db.execute(select(Organization).where(Organization.id == org_id))
     org = result.scalar_one_or_none()
 

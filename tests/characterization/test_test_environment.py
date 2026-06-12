@@ -158,3 +158,25 @@ def test_organization_routes_require_membership(
         headers={"Authorization": f"Bearer {owner['token']}"},
     )
     assert allowed.status_code == 200, allowed.text
+
+
+def test_organization_detail_requires_membership(client):
+    owner = _register_user(client, "organization-detail-owner")
+    foreign = _register_user(client, "organization-detail-foreign")
+    path = f"/api/v1/organizations/{owner['org_id']}"
+
+    missing = client.get(path)
+    assert missing.status_code == 401, missing.text
+
+    forbidden = client.get(
+        path,
+        headers={"Authorization": f"Bearer {foreign['token']}"},
+    )
+    assert forbidden.status_code == 403, forbidden.text
+
+    allowed = client.get(
+        path,
+        headers={"Authorization": f"Bearer {owner['token']}"},
+    )
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["id"] == owner["org_id"]
