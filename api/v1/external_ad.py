@@ -10,10 +10,14 @@ from typing import Optional, List
 from datetime import date, datetime
 
 from core.database import get_db
+from core.tenant_auth import require_query_organization_access
 from models.external_ad import ExternalAd
 from models.product_entity import ProductEntity
 
-router = APIRouter(tags=["external_ad"])
+router = APIRouter(
+    tags=["external_ad"],
+    dependencies=[Depends(require_query_organization_access)],
+)
 
 
 # ─── SCHEMAS ────────────────────────────────────────────────

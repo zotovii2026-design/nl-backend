@@ -112,3 +112,49 @@ def test_unit_economics_rejects_foreign_organization(client):
         headers={"Authorization": f"Bearer {first_user['token']}"},
     )
     assert response.status_code == 403, response.text
+
+
+@pytest.mark.parametrize(
+    "method,path,json_body",
+    [
+        ("GET", "/api/v1/nl/reference", None),
+        ("GET", "/api/v1/nl/external-ads", None),
+        ("GET", "/api/v1/nl/promotions", None),
+        (
+            "POST",
+            "/api/v1/nl/external-ads",
+            {"nm_id": None, "source": "characterization", "ad_type": "ad"},
+        ),
+    ],
+)
+def test_organization_routes_require_membership(
+    client, method, path, json_body
+):
+    owner = _register_user(client, f"route-owner-{uuid.uuid4().hex}")
+    foreign = _register_user(client, f"route-foreign-{uuid.uuid4().hex}")
+
+    missing = client.request(
+        method,
+        path,
+        params={"org_id": owner["org_id"]},
+        json=json_body,
+    )
+    assert missing.status_code == 401, missing.text
+
+    forbidden = client.request(
+        method,
+        path,
+        params={"org_id": owner["org_id"]},
+        json=json_body,
+        headers={"Authorization": f"Bearer {foreign['token']}"},
+    )
+    assert forbidden.status_code == 403, forbidden.text
+
+    allowed = client.request(
+        method,
+        path,
+        params={"org_id": owner["org_id"]},
+        json=json_body,
+        headers={"Authorization": f"Bearer {owner['token']}"},
+    )
+    assert allowed.status_code == 200, allowed.text

@@ -82,7 +82,7 @@ function loadAdsArts() {
     } else {
         url = '/api/v1/nl/ad-stats/by-art?org_id=' + ORG_ID + '&days=30&statuses=' + statuses;
     }
-    fetch(url, {headers:{'Authorization':'***'+TOKEN}})
+    fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}})
         .then(function(r) { return r.json(); })
         .then(function(d) {
             updateAdsArtsMetrics(d.totals || {});

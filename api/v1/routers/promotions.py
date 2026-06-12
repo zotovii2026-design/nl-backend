@@ -8,10 +8,14 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
+from core.tenant_auth import require_query_organization_access
 from models.promotion import WbPromotion, WbPromotionProduct
 
 
-router = APIRouter(tags=["nl"])
+router = APIRouter(
+    tags=["nl"],
+    dependencies=[Depends(require_query_organization_access)],
+)
 
 
 @router.get("/api/v1/nl/promotions")
@@ -387,7 +391,7 @@ async def upload_promo_excel(
 
 @router.post("/api/v1/nl/promotions/sync-api")
 async def sync_promo_api(
-    org_id: str = None,
+    org_id: str,
     db: AsyncSession = Depends(get_db),
 ):
     """Start the existing WB promotion synchronization task."""

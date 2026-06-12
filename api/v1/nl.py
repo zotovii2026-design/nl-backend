@@ -14,6 +14,7 @@ from core.database import get_db
 from core.security import verify_password, get_password_hash, create_access_token, decode_token, encrypt_data, decrypt_data
 from core.dependencies import get_current_user
 from core.role_deps import require_organization_role
+from core.tenant_auth import require_query_organization_access
 from models.organization import Role
 from models.user import User
 from models.reference_book import ReferenceBook
@@ -31,7 +32,10 @@ from repositories.unit_economics import (
     get_supporting_rows as get_unit_economics_supporting_rows,
 )
 
-router = APIRouter(tags=["nl"])
+router = APIRouter(
+    tags=["nl"],
+    dependencies=[Depends(require_query_organization_access)],
+)
 
 
 # ─── AUTH HELPERS ──────────────────────────────────────────
@@ -4917,6 +4921,18 @@ function toggleGroup(tr) {
 
 let TOKEN = localStorage.getItem('nl_token');
 let ORG_ID = new URL(location).searchParams.get('org') || localStorage.getItem('nl_org_id');
+const _nativeFetch = window.fetch.bind(window);
+window.fetch = function(input, init) {
+    init = init ? Object.assign({}, init) : {};
+    const rawUrl = typeof input === 'string' ? input : input.url;
+    const url = new URL(rawUrl, window.location.origin);
+    if (TOKEN && url.origin === window.location.origin && url.pathname.startsWith('/api/')) {
+        const headers = new Headers(init.headers || (typeof input !== 'string' ? input.headers : undefined));
+        if (!headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + TOKEN);
+        init.headers = headers;
+    }
+    return _nativeFetch(input, init);
+};
 let FBS_WAREHOUSES = [];
 let _taxSettings = {tax_system: '', tax_rate: null, vat_type: 'нет'};
 let _costDirty = false;  // Флаг несохранённых изменений в справочнике
