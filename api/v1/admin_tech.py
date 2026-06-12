@@ -6,22 +6,19 @@ from sqlalchemy import select, func, and_
 from datetime import date, timedelta
 
 from core.database import get_db
+from core.dependencies import get_current_superuser
 from models.raw_data import TechStatus, RawApiData, RawBarcode
+from models.user import User
 
 router = APIRouter(tags=["admin"])
-
-ADMIN_TOKEN = "nl-tech-2026"
 
 
 @router.get("/admin/tech", response_class=HTMLResponse)
 async def tech_status_page(
-    token: str = Query(""),
     days: int = Query(15),
+    current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_db),
 ):
-    if token != ADMIN_TOKEN:
-        return HTMLResponse("<h2>🚫 Доступ запрещён. Используйте ?token=nl-tech-2026</h2>", status_code=403)
-
     today = date.today()
     date_from = today - timedelta(days=days)
 
@@ -163,7 +160,7 @@ tr:hover {{ background: #161b22; }}
 </div>
 
 <div class="controls">
-<select onchange="location.href='/admin/tech?token={token}&days='+this.value">
+<select onchange="location.href='/admin/tech?days='+this.value">
 <option value="7" {'selected' if days==7 else ''}>7 дней</option>
 <option value="15" {'selected' if days==15 else ''}>15 дней</option>
 <option value="30" {'selected' if days==30 else ''}>30 дней</option>

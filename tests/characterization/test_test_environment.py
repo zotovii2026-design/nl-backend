@@ -212,3 +212,45 @@ def test_sync_endpoints_enforce_key_ownership_and_filter_logs(client):
     )
     assert logs.status_code == 200, logs.text
     assert logs.json() == {"logs": []}
+
+
+def test_refresh_token_cannot_access_authenticated_routes(client):
+    email = f"refresh-type-{uuid.uuid4().hex}@example.test"
+    password = f"Test-{uuid.uuid4().hex}!"
+    register = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password},
+    )
+    assert register.status_code == 200, register.text
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert login.status_code == 200, login.text
+    tokens = login.json()
+
+    refresh_as_access = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {tokens['refresh_token']}"},
+    )
+    assert refresh_as_access.status_code == 401, refresh_as_access.text
+
+    access = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+    )
+    assert access.status_code == 200, access.text
+
+
+def test_technical_admin_page_uses_superuser_auth(client):
+    user = _register_user(client, "admin-tech-regular")
+
+    missing = client.get("/admin/tech")
+    assert missing.status_code == 401, missing.text
+
+    regular_user = client.get(
+        "/admin/tech",
+        headers={"Authorization": f"Bearer {user['token']}"},
+    )
+    assert regular_user.status_code == 403, regular_user.text
