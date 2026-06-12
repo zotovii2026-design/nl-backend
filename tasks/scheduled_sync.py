@@ -442,23 +442,12 @@ async def _do_adverts(sf):
     return results
 
 
-async def _get_org_ids_for_precompute(sf):
-    """Получить список всех org_id для precompute"""
-    async with sf() as db:
-        from sqlalchemy import text
-        result = await db.execute(text("SELECT id FROM organizations"))
-        return [str(r[0]) for r in result.all()]
-
-
 @shared_task(name="wb.sched.prices")
 def sched_prices():
     """Синхронизация цен товаров из WB Marketplace API"""
     result = _run(_do_prices)
     try:
-        import asyncio
-        from core.database import async_session as _sf2
-        orgs = asyncio.run(_get_org_ids_for_precompute(_sf2))
-        run_precompute(orgs)
+        run_precompute()
     except Exception as e:
         logging.getLogger(__name__).warning(f"[prices] ue_precompute skipped: {e}")
     return result
@@ -582,10 +571,7 @@ def sched_parse_raw():
     """Парсинг raw_api_data → tech_status после всех сборов"""
     result = _run(_do_parse_raw)
     try:
-        import asyncio
-        from core.database import async_session as _sf2
-        orgs = asyncio.run(_get_org_ids_for_precompute(_sf2))
-        run_precompute(orgs)
+        run_precompute()
     except Exception as e:
         logging.getLogger(__name__).warning(f"[parse_raw] ue_precompute skipped: {e}")
     return result

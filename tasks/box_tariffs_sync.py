@@ -37,11 +37,7 @@ def sched_box_tariffs():
     """Синхронизация тарифов коробной логистики WB по складам"""
     result = _run(_do_box_tariffs)
     try:
-        import asyncio
-        from core.database import async_session as _sf2
-        from tasks.scheduled_sync import _get_org_ids_for_precompute
-        orgs = asyncio.run(_get_org_ids_for_precompute(_sf2))
-        run_precompute(orgs)
+        run_precompute()
     except Exception as e:
         logger.warning(f"[box_tariffs] ue_precompute skipped: {e}")
     return result

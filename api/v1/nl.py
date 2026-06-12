@@ -3802,7 +3802,10 @@ async def build_unit_economics(
     if not latest_date:
         return {"items": [], "total": 0}
     products = await get_unit_economics_products(db, org_id, latest_date)
-    rb_rows, tsnap_rows, box_rows = await get_unit_economics_supporting_rows(org_id)
+    rb_rows, tsnap_rows, box_rows = await get_unit_economics_supporting_rows(
+        org_id,
+        db=db,
+    )
 
     # ── Обработка единого запроса reference_book ──────────
     # Колонки rb_rows:

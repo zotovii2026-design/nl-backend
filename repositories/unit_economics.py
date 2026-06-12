@@ -95,7 +95,14 @@ async def get_products(
     return result.all()
 
 
-async def _run_query(query: str, params: dict[str, Any]) -> list[Any]:
+async def _run_query(
+    query: str,
+    params: dict[str, Any],
+    db: AsyncSession | None = None,
+) -> list[Any]:
+    if db is not None:
+        result = await db.execute(text(query), params)
+        return result.all()
     async with async_session() as session:
         result = await session.execute(text(query), params)
         return result.all()
@@ -103,8 +110,15 @@ async def _run_query(query: str, params: dict[str, Any]) -> list[Any]:
 
 async def get_supporting_rows(
     org_id: str,
+    db: AsyncSession | None = None,
 ) -> tuple[list[Any], list[Any], list[Any]]:
     params = {"org": org_id}
+    if db is not None:
+        return (
+            await _run_query(REFERENCE_BOOK_SQL, params, db),
+            await _run_query(TARIFF_SNAPSHOT_SQL, params, db),
+            await _run_query(BOX_TARIFFS_SQL, params, db),
+        )
     return await asyncio.gather(
         _run_query(REFERENCE_BOOK_SQL, params),
         _run_query(TARIFF_SNAPSHOT_SQL, params),
