@@ -14,6 +14,11 @@ from services.wb_api.keys import (
 )
 
 
+def test_deprecated_supplier_stocks_endpoint_is_not_in_client():
+    assert not hasattr(WBApiClient, "get_stocks_api")
+    assert not hasattr(WBApiClient, "get_stocks_seller_warehouses")
+
+
 @pytest.mark.asyncio
 async def test_add_wb_api_key_encrypts_token():
     db = AsyncMock()

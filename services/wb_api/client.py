@@ -356,13 +356,6 @@ class WBApiClient:
         _log.info(f"[orders pagination] done: {len(all_orders)} unique orders")
         return all_orders
 
-    async def get_reports(self, 
-                       report_type: str = "sales",
-                       date_from: Optional[str] = None,
-                       date_to: Optional[str] = None) -> Dict[str, Any]:
-        """DEPRECATED: Не используется. endpoint удалён из WB API."""
-        raise NotImplementedError("get_reports() deprecated — endpoint удалён из WB API")
-
     async def test_connection(self) -> bool:
         """Проверка подключения к WB API"""
         try:
@@ -372,22 +365,6 @@ class WBApiClient:
             return response.status_code == 200
         except Exception:
             return False
-
-
-    async def get_stocks_api(self, date_from: str = None) -> list:
-        """DEPRECATED: GET /api/v1/supplier/stocks — отключается 23 июня 2026.
-        Используйте get_stocks_warehouses() (seller-analytics-api).
-        """
-        params = {}
-        if date_from:
-            params["dateFrom"] = date_from
-        response = await self.client.get(
-            f"{self.STATISTICS_URL}/api/v1/supplier/stocks",
-            params=params
-        )
-        response.raise_for_status()
-        result = response.json()
-        return result if isinstance(result, list) else result.get("data", result)
 
 
     async def get_stocks_warehouses(self, is_archive: bool = False) -> list:
@@ -427,34 +404,6 @@ class WBApiClient:
                 return data
             return result.get("items", [])
         return []
-
-
-
-
-    async def get_stocks_seller_warehouses(self, is_archive: bool = False) -> list:
-        """DEPRECATED: GET /api/v1/supplier/stocks — отключается 23 июня 2026.
-        Используйте get_stocks_warehouses() (seller-analytics-api).
-        """
-        from datetime import date
-        response = await self.client.get(
-            f"{self.STATISTICS_URL}/api/v1/supplier/stocks",
-            params={"dateFrom": date.today().isoformat()}
-        )
-        if response.status_code == 204:
-            return []
-        response.raise_for_status()
-        result = response.json()
-        if isinstance(result, list):
-            return result
-        if isinstance(result, dict):
-            data = result.get("data", {})
-            if isinstance(data, dict):
-                return data.get("items", [])
-            if isinstance(data, list):
-                return data
-            return result.get("items", [])
-        return []
-
     async def get_fbs_warehouses(self) -> list:
         """Получение списка складов для FBS отгрузки.
         GET /api/v3/passes/offices

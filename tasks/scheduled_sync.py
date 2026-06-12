@@ -274,44 +274,6 @@ async def _do_orders(sf):
             results[org_id[:8]] = {"status": "error", "error": str(e)}
 
     return results
-@shared_task(name="wb.sched.stocks")
-def sched_stocks():
-    """Остатки на сегодня"""
-    return _run(_do_stocks)
-
-
-async def _do_stocks(sf):
-    all_keys = await _get_all_keys(sf)
-    if not all_keys:
-        return {"status": "skipped", "reason": "no_keys"}
-    results = {}
-    for org_id, api_key in all_keys:
-        today = datetime.now(ZoneInfo("Europe/Moscow")).date()  # МСК
-        try:
-            async with WBApiClient(api_key) as client:
-                try:
-                    stocks = await client.get_stocks_api(date_from=today.isoformat())
-                    data = stocks if isinstance(stocks, list) else {"response": stocks}
-                    count = len(stocks) if isinstance(stocks, list) else 0
-
-                    async with sf() as db:
-                        await _save_raw(db, org_id, "stocks", today, data, count=count)
-
-                    logger.info(f"[sched] stocks org={org_id}: {count} records")
-                    results[org_id[:8]] = {"status": "ok", "stocks": count}
-                except Exception as e:
-                    logger.error(f"[sched] stocks error org={org_id}: {e}")
-                    results[org_id[:8]] = {"status": "error", "error": str(e)}
-
-
-        except Exception as e:
-            logger.error(f"[sched] stocks error org={org_id}: {e}")
-            results[org_id[:8]] = {"status": "error", "error": str(e)}
-
-    return results
-
-
-
 @shared_task(name="wb.sched.stocks_fbo")
 def sched_stocks_fbo():
     """FBO остатки со складов WB"""
@@ -344,42 +306,6 @@ async def _do_stocks_fbo(sf):
             logger.error(f"[sched] stocks_fbo error org={org_id}: {e}")
             results[org_id[:8]] = {"status": "error", "error": str(e)}
     return results
-
-
-@shared_task(name='wb.sched.stocks_fbs')
-def sched_stocks_fbs():
-    return _run(_do_stocks_fbs)
-
-
-async def _do_stocks_fbs(sf):
-    all_keys = await _get_all_keys(sf)
-    if not all_keys:
-        return {'status': 'skipped', 'reason': 'no_keys'}
-    results = {}
-    for org_id, api_key in all_keys:
-        today = datetime.now(ZoneInfo('Europe/Moscow')).date()
-        try:
-            async with WBApiClient(api_key) as client:
-                try:
-                    stocks = await client.get_stocks_seller_warehouses()
-                    if not stocks:
-                        count = 0
-                        data = []
-                    else:
-                        count = len(stocks) if isinstance(stocks, list) else 0
-                        data = stocks if isinstance(stocks, list) else stocks
-                    async with sf() as db:
-                        await _save_raw(db, org_id, 'stocks_total', today, data if data else [], count=count)
-                    logger.info(f'[sched] stocks_fbs org={org_id[:8]}: {count} records')
-                    results[org_id[:8]] = {'status': 'ok', 'count': count}
-                except Exception as e:
-                    logger.error(f'[sched] stocks_fbs error org={org_id}: {e}')
-                    results[org_id[:8]] = {'status': 'error', 'error': str(e)}
-        except Exception as e:
-            logger.error(f'[sched] stocks_fbs error org={org_id}: {e}')
-            results[org_id[:8]] = {'status': 'error', 'error': str(e)}
-    return results
-
 
 @shared_task(name="wb.sched.tariffs")
 def sched_tariffs():

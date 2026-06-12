@@ -22,10 +22,6 @@ BEAT_SCHEDULE = {
         "task": "wb.sched.warehouses",
         "schedule": crontab(hour=3, minute=15),
     },
-    "night-stocks-fbs": {
-        "task": "wb.sched.stocks_fbs",
-        "schedule": crontab(hour=3, minute=20),
-    },
     "night-stocks-fbo": {
         "task": "wb.sched.stocks_fbo",
         "schedule": crontab(hour=3, minute=23),
@@ -45,10 +41,6 @@ BEAT_SCHEDULE = {
     "parse-morning": {
         "task": "wb.sched.parse_raw",
         "schedule": crontab(hour=9, minute=30),
-    },
-    "day-stocks": {
-        "task": "wb.sched.stocks",
-        "schedule": crontab(hour=14, minute=0),
     },
     "day-stocks-fbo": {
         "task": "wb.sched.stocks_fbo",

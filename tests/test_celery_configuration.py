@@ -11,13 +11,11 @@ from tasks.scheduled_sync import _fetch_with_retry
 EXPECTED_LOCAL_TIMES = {
     "night-products": (3, 5),
     "night-warehouses": (3, 15),
-    "night-stocks-fbs": (3, 20),
     "night-stocks-fbo": (3, 23),
     "morning-sales": (8, 0),
     "morning-orders": (8, 5),
     "box-tariffs-daily": (8, 30),
     "parse-morning": (9, 30),
-    "day-stocks": (14, 0),
     "day-stocks-fbo": (14, 3),
     "day-sales": (14, 5),
     "parse-afternoon": (15, 30),
@@ -53,6 +51,13 @@ def test_every_scheduled_task_is_registered():
 
     scheduled_tasks = {entry["task"] for entry in BEAT_SCHEDULE.values()}
     assert scheduled_tasks <= set(celery_app.tasks)
+
+
+def test_deprecated_supplier_stocks_tasks_are_not_scheduled():
+    scheduled_tasks = {entry["task"] for entry in BEAT_SCHEDULE.values()}
+
+    assert "wb.sched.stocks" not in scheduled_tasks
+    assert "wb.sched.stocks_fbs" not in scheduled_tasks
 
 
 def test_nested_wb_errors_are_not_reported_as_success():
