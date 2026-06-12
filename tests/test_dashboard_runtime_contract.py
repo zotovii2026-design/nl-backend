@@ -16,6 +16,7 @@ def test_async_sections_guard_removed_dom_nodes():
         "if (!el || !el.options.length) return;",
         "if (!count || !body) return;",
         "if (!cards || !summary || !count || !header) return;",
+        "const el = document.getElementById('wb-keys-list');\n    if (!el) return;",
     )
 
     for guard in required_guards:

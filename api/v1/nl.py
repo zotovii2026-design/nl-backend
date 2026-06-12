@@ -8862,6 +8862,7 @@ async function loadWbKeys() {
     const res = await fetch('/api/v1/nl/wb-keys?org_id=' + ORG_ID);
     const keys = await res.json();
     const el = document.getElementById('wb-keys-list');
+    if (!el) return;
     if (!keys.length) {
         el.innerHTML = '<div style="color:#999;font-size:.9em;padding:8px">Ключи не добавлены</div>';
         return;
