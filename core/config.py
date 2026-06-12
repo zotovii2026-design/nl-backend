@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
@@ -10,6 +11,21 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
     PUBLIC_BASE_URL: Optional[str] = None
+    CORS_ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
+
+    @field_validator("CORS_ALLOWED_ORIGINS")
+    @classmethod
+    def validate_cors_origins(cls, value: str) -> str:
+        origins = [origin.strip() for origin in value.split(",") if origin.strip()]
+        if not origins:
+            raise ValueError("CORS_ALLOWED_ORIGINS must contain at least one origin")
+        if "*" in origins:
+            raise ValueError("CORS_ALLOWED_ORIGINS cannot contain a wildcard")
+        return ",".join(origins)
+
+    @property
+    def cors_allowed_origins(self) -> list[str]:
+        return self.CORS_ALLOWED_ORIGINS.split(",")
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@postgres:5432/nl_table"
