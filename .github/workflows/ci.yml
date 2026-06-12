@@ -71,7 +71,7 @@ jobs:
 
       - name: Start isolated application
         run: |
-          uvicorn main:app --host 127.0.0.1 --port 18000 \
+          RATE_LIMIT_ENABLED=False uvicorn main:app --host 127.0.0.1 --port 18000 \
             > /tmp/nl-table-uvicorn.log 2>&1 &
           echo $! > /tmp/nl-table-uvicorn.pid
           for attempt in $(seq 1 30); do
