@@ -8,12 +8,32 @@ from core.database import get_db
 from models.user import User
 from models.wb_data import WbProduct, SyncLog
 from core.dependencies import get_current_user
+from core.role_deps import require_organization_role
 from sqlalchemy import select
 from services.wb_api.client import get_wb_client, WBApiClient
 from core.security import decrypt_data
-from models.organization import WbApiKey
+from models.organization import Membership, Role, WbApiKey
 
 router = APIRouter(prefix="/sync", tags=["Synchronization"])
+
+
+async def _get_authorized_api_key(
+    api_key_id: UUID,
+    current_user: User,
+    db: AsyncSession,
+) -> WbApiKey:
+    result = await db.execute(select(WbApiKey).where(WbApiKey.id == api_key_id))
+    api_key_record = result.scalar_one_or_none()
+    if not api_key_record:
+        raise HTTPException(status_code=404, detail="WB API key not found")
+
+    await require_organization_role(
+        api_key_record.organization_id,
+        Role.ADMIN,
+        current_user,
+        db,
+    )
+    return api_key_record
 
 
 @router.post("/products")
@@ -26,14 +46,9 @@ async def sync_products(
     log_id = None
     
     try:
-        # Получаем API ключ из БД
-        result = await db.execute(
-            select(WbApiKey).where(WbApiKey.id == api_key_id)
+        api_key_record = await _get_authorized_api_key(
+            api_key_id, current_user, db
         )
-        api_key_record = result.scalar_one_or_none()
-        
-        if not api_key_record:
-            raise Exception(f"API key {api_key_id} not found")
         
         # Используем Personal token (приоритет), либо обычный API key
         import sys
@@ -134,6 +149,8 @@ async def sync_products(
             "synced_count": synced_count
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback, logging
         logging.error(f"SYNC PRODUCTS ERROR: {traceback.format_exc()}")
@@ -160,10 +177,9 @@ async def sync_sales(
     log_id = None
 
     try:
-        result = await db.execute(select(WbApiKey).where(WbApiKey.id == api_key_id))
-        api_key_record = result.scalar_one_or_none()
-        if not api_key_record:
-            raise Exception(f"API key {api_key_id} not found")
+        api_key_record = await _get_authorized_api_key(
+            api_key_id, current_user, db
+        )
 
         from core.security import decrypt_data as dd
         token = None
@@ -242,6 +258,8 @@ async def sync_sales(
             "date_to": date_to.isoformat()
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         if log_id:
             log = await db.get(SyncLog, log_id)
@@ -266,10 +284,9 @@ async def sync_orders(
     """Синхронизация заказов WB через Statistics API"""
     log_id = None
     try:
-        result = await db.execute(select(WbApiKey).where(WbApiKey.id == api_key_id))
-        api_key_record = result.scalar_one_or_none()
-        if not api_key_record:
-            raise Exception(f"API key {api_key_id} not found")
+        api_key_record = await _get_authorized_api_key(
+            api_key_id, current_user, db
+        )
 
         from core.security import decrypt_data as dd
         token = None
@@ -381,7 +398,15 @@ async def get_sync_logs(
     """Получить логи синхронизации"""
     from sqlalchemy import select, desc
     
-    query = select(SyncLog).order_by(desc(SyncLog.started_at))
+    query = (
+        select(SyncLog)
+        .join(
+            Membership,
+            Membership.organization_id == SyncLog.organization_id,
+        )
+        .where(Membership.user_id == current_user.id)
+        .order_by(desc(SyncLog.started_at))
+    )
     
     if sync_type:
         query = query.where(SyncLog.sync_type == sync_type)
@@ -415,10 +440,7 @@ async def sync_stocks(
     """Синхронизация остатков WB по складам (требуется Personal token)"""
     log_id = None
     try:
-        result = await db.execute(select(WbApiKey).where(WbApiKey.id == api_key_id))
-        key_rec = result.scalar_one_or_none()
-        if not key_rec:
-            raise Exception(f"API key {api_key_id} not found")
+        key_rec = await _get_authorized_api_key(api_key_id, current_user, db)
 
         from core.security import decrypt_data as dd
         personal_token = dd(key_rec.personal_token) if key_rec.personal_token else None

@@ -180,3 +180,35 @@ def test_organization_detail_requires_membership(client):
     )
     assert allowed.status_code == 200, allowed.text
     assert allowed.json()["id"] == owner["org_id"]
+
+
+def test_sync_endpoints_enforce_key_ownership_and_filter_logs(client):
+    owner = _register_user(client, "sync-owner")
+    foreign = _register_user(client, "sync-foreign")
+    key_response = client.post(
+        f"/api/v1/organizations/{owner['org_id']}/wb-keys",
+        json={"name": "Characterization", "api_key": "fake-wb-token"},
+        headers={"Authorization": f"Bearer {owner['token']}"},
+    )
+    assert key_response.status_code == 200, key_response.text
+    key_id = key_response.json()["id"]
+
+    missing = client.post(
+        "/api/v1/sync/products",
+        params={"api_key_id": key_id},
+    )
+    assert missing.status_code == 401, missing.text
+
+    forbidden = client.post(
+        "/api/v1/sync/products",
+        params={"api_key_id": key_id},
+        headers={"Authorization": f"Bearer {foreign['token']}"},
+    )
+    assert forbidden.status_code == 403, forbidden.text
+
+    logs = client.get(
+        "/api/v1/sync/logs",
+        headers={"Authorization": f"Bearer {owner['token']}"},
+    )
+    assert logs.status_code == 200, logs.text
+    assert logs.json() == {"logs": []}
