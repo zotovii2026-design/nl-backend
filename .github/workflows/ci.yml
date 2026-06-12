@@ -44,6 +44,7 @@ jobs:
       REDIS_URL: redis://127.0.0.1:6379/0
       SECRET_KEY: ci-secret-key-not-for-production
       ENCRYPTION_KEY: ci-encryption-key-not-for-production
+      ENVIRONMENT: test
       DEBUG: "False"
 
     steps:
