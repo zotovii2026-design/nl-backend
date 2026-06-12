@@ -215,7 +215,7 @@ def test_sync_endpoints_enforce_key_ownership_and_filter_logs(client):
 
 
 def test_refresh_token_cannot_access_authenticated_routes(client):
-    email = f"refresh-type-{uuid.uuid4().hex}@example.test"
+    email = f"refresh-type-{uuid.uuid4().hex}@example.com"
     password = f"Test-{uuid.uuid4().hex}!"
     register = client.post(
         "/api/v1/auth/register",
