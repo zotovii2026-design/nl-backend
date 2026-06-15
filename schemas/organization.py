@@ -19,8 +19,8 @@ class OrganizationResponse(BaseModel):
     id: UUID
     name: str
     description: Optional[str]
-    subscription_tier: SubscriptionTier
-    subscription_status: str
+    subscription_tier: Optional[SubscriptionTier] = None
+    subscription_status: Optional[str] = None
     created_at: datetime
     updated_at: datetime | None
 

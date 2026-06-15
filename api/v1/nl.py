@@ -198,7 +198,7 @@ async def get_reference(org_id: str, target_date: Optional[str] = None, db: Asyn
     from datetime import datetime as dt
     from sqlalchemy import text
     sql = (
-        "SELECT nm_id, vendor_code, subject_id, subject_name, cost_price, purchase_cost as purchase_price, packaging_cost, "
+        "SELECT nm_id, vendor_code, cost_price, purchase_cost as purchase_price, packaging_cost, "
         "logistics_cost, other_costs, notes, product_class, brand, tax_system, tax_rate, vat_rate, "
         "valid_from FROM reference_book "
         "WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
