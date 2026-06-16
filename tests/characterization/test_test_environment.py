@@ -1,4 +1,5 @@
 import os
+import socket
 import uuid
 from urllib.parse import urlparse
 
@@ -14,6 +15,21 @@ def _test_base_url() -> str:
             "Characterization tests only run against a loopback test environment"
         )
     return base_url
+
+
+def _is_test_env_available(base_url: str) -> bool:
+    parsed = urlparse(base_url)
+    try:
+        with socket.create_connection((parsed.hostname, parsed.port or 80), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _is_test_env_available(_test_base_url()),
+    reason=f"Test environment not running at {_test_base_url()} — run docker-compose.test.yml first",
+)
 
 
 @pytest.fixture(scope="module")
