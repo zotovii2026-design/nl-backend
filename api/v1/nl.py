@@ -1952,7 +1952,7 @@ async def get_fbo_needs(org_id: str, days: int = 14, db: AsyncSession = Depends(
 
 @router.post("/api/v1/nl/cost-prices/upload")
 async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    """Загрузка справочника из Excel/CSV — полная версия со всеми колонками"""
+    """Загрузка справочника из Excel/CSV — колонки строго по Tabulator"""
     import io, csv
     from sqlalchemy import text
     body = await request.body()
@@ -1971,37 +1971,63 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
                 rows.append(dict(zip(headers, row)))
         except ImportError:
             raise HTTPException(400, "xlsx не поддерживается")
-    
+
     def pf(row, *keys):
         """Parse float from row by multiple possible key names"""
         for k in keys:
             v = row.get(k)
             if v is not None and str(v).strip():
-                try: return float(str(v).replace(',','.'))
-                except: pass
+                try:
+                    return float(str(v).replace(',', '.'))
+                except:
+                    pass
         return None
+
     def ps(row, *keys):
         """Parse string from row"""
         for k in keys:
             v = row.get(k)
-            if v and str(v).strip(): return str(v).strip()
+            if v and str(v).strip():
+                return str(v).strip()
         return None
+
     def pd(row, *keys):
         """Parse date from row (YYYY-MM-DD string to date object)"""
         s = ps(row, *keys)
-        if not s: return None
+        if not s:
+            return None
         try:
             from datetime import datetime as _dt
             return _dt.strptime(s, "%Y-%m-%d").date()
-        except: return None
-    
+        except:
+            return None
+
+    def pstr(row, *keys):
+        """Parse float or string as-is for fields like ФБО/ФБС"""
+        for k in keys:
+            v = row.get(k)
+            if v is not None and str(v).strip():
+                return str(v).strip()
+        return None
+
     updated = 0
-    for row in rows:
-        nm = row.get("Арт WB") or row.get("nm_id")
-        if not nm: continue
-        nm = int(nm)
-        
-        # entity_id: ищем по nm_id + size_name, fallback на nm_id
+    skipped = 0
+    warnings = []
+
+    for idx, row in enumerate(rows, start=2):
+        # Ключ: Арт WB (обязателен)
+        nm_raw = row.get("Арт WB") or row.get("nm_id")
+        if not nm_raw or not str(nm_raw).strip():
+            skipped += 1
+            continue
+        try:
+            nm = int(str(nm_raw).replace(',', '').strip())
+        except ValueError:
+            warnings.append(f"Строка {idx}: Арт WB '{nm_raw}' не число — пропущено")
+            skipped += 1
+            continue
+
+        # entity_id: ищем по nm_id + Размер, fallback на nm_id
         sz_val = ps(row, "Размер", "size_name")
         eid = None
         if sz_val:
@@ -2018,42 +2044,61 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             ), {"org": org_id, "nm": nm})
             ent_row = ent_q.first()
             eid = str(ent_row[0]) if ent_row else None
-        
-        # Собираем все поля — полная версия справочника
+
+        # === Логистика: ФБО/ФБС валидация ===
+        ffm_raw = pstr(row, "Отгрузка", "ФБО/ФБС", "fulfillment_model") or "fbo"
+        # Нормализуем: принимаем и "ФБО"/"ФБС" и "fbo"/"fbs"
+        ffm = "fbs" if ffm_raw.lower() in ("fbs", "фбс", "фбс ") else "fbo"
+        fbs_wh = ps(row, "Склад FBS", "Склад отгрузки FBS", "fbs_warehouse") or ""
+        # ВАЛИДАЦИЯ: при ФБО склад FBS игнорируется
+        if ffm != "fbs":
+            if fbs_wh:
+                warnings.append(f"Строка {idx} (Арт WB {nm}): ФБО но указан склад FBS — очищено")
+            fbs_wh = ""
+
+        # === Авто-расчёт габаритов ===
+        plen = pf(row, "План длина", "Длина", "plan_length")
+        pwid = pf(row, "План ширина", "Ширина", "plan_width")
+        phei = pf(row, "План высота", "Высота", "plan_height")
+        pvol = None
+        if plen and plen > 0 and pwid and pwid > 0 and phei and phei > 0:
+            pvol = round((plen * pwid * phei) / 1000, 3)
+
+        # === Налоги ===
+        tax_override = pf(row, "Налог %", "tax_rate")
+        vat_rate_raw = pstr(row, "НДС от дохода", "vat_rate")
+        vat_rate = 0
+        if vat_rate_raw:
+            try:
+                vat_rate = float(str(vat_rate_raw).replace('%', '').replace(',', '.'))
+            except:
+                pass
+
         params = {
             "org": org_id, "nm": nm,
             "bc": ps(row, "Баркод", "barcode"),
             "vc": ps(row, "Арт продавца", "vendor_code"),
-            "sz": ps(row, "Размер", "size_name"), "eid": eid,
+            "sz": sz_val or "", "eid": eid,
             # Себестоимость
-            # Себестоимость
-            "cp": pf(row, "Себестоимость", "cost_price"),
-            "pc": pf(row, "Закупка", "purchase_cost"),
-            "lc": pf(row, "Логистика", "logistics_cost"),
-            "pk": pf(row, "Упаковка", "packaging_cost"),
-            "oc": pf(row, "Прочее", "other_costs"),
-            "ec": pf(row, "Доп расходы", "extra_costs"),
-            "vat": pf(row, "НДС руб", "vat"),
-            "minp": pf(row, "Мин. цена", "min_price"),
-            # МП/Комиссия
-            "mpb": pf(row, "Баз. % МП", "mp_base_pct"),
-            "mpc": pf(row, "Корр. % МП", "mp_correction_pct"),
-            "ffm": ps(row, "ФБО/ФБС", "fulfillment_model") or "fbo",
-            "stp": pf(row, "% хранения", "storage_pct"),
-            "bnp": pf(row, "% выкупа по категории", "buyout_niche_pct"),
+            "cp": pf(row, "Себестоимость", "Себестоимость ₽", "cost_price"),
+            "ec": pf(row, "Доп расходы", "Доп расходы ₽", "extra_costs"),
+            "vat": None,
+            "minp": pf(row, "Мин. цена", "Мин цена", "min_price"),
+            # Комиссии
+            "mpc": pf(row, "Корр. комиссии %", "Корр. % МП", "mp_correction_pct"),
+            "ffm": ffm,
+            "bnp": pf(row, "% выкупа", "% выкупа по категории", "buyout_niche_pct"),
             # Цены
-            "pspp": pf(row, "Цена до СПП план", "price_before_spp_plan"),
-            "psppc": pf(row, "Цена до СПП к изм.", "price_before_spp_change"),
-            "cdate": pd(row, "Дата правок", "change_date"),
-            "wbcd": pf(row, "Скидка WB Клуб %", "wb_club_discount_pct"),
+            "rrc": pf(row, "РРЦ", "rrc_price"),
             # Реклама
-            "adpr": pf(row, "Реклама план", "ad_plan_rub"),
+            "adpr": pf(row, "Рекл. расходы %", "Реклама план", "ad_plan_rub"),
             # Классификация
-            "pcls": ps(row, "Класс товара", "product_class"),
+            "pcls": ps(row, "Класс", "Класс товара", "product_class"),
             "brand": ps(row, "Бренд", "brand"),
             "pstatus": ps(row, "Статус товара", "product_status"),
             # Налоги
-            "tsys": ps(row, "Налог. система", "tax_system"),
+            "trate": tax_override,
+            "vrate": vat_rate,
             # Сезонность (12 месяцев)
             "sjan": pf(row, "Сезон янв", "season_jan"),
             "sfeb": pf(row, "Сезон фев", "season_feb"),
@@ -2068,83 +2113,71 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "snov": pf(row, "Сезон ноя", "season_nov"),
             "sdec": pf(row, "Сезон дек", "season_dec"),
             # Габариты ПЛАН
-            "plen": pf(row, "План длина", "plan_length"),
-            "pwid": pf(row, "План ширина", "plan_width"),
-            "phei": pf(row, "План высота", "plan_height"),
-            "pvol": pf(row, "План объём", "plan_volume"),
-            "pwgt": pf(row, "План вес", "plan_weight"),
-            # Доставка
-            "ddts": pf(row, "Доставка до склада (дни)", "delivery_days_to_seller"),
-            "ddmp": pf(row, "Доставка до МП (дни)", "delivery_days_to_mp"),
+            "plen": plen, "pwid": pwid, "phei": phei,
+            "pvol": pvol,
+            "pwgt": pf(row, "План вес", "Вес, гр", "plan_weight"),
             # ТОП запросы
             "tq1": ps(row, "ТОП запрос 1", "top_query_1"),
             "tq2": ps(row, "ТОП запрос 2", "top_query_2"),
             "tq3": ps(row, "ТОП запрос 3", "top_query_3"),
-            # Отгрузка
-            "shm": ps(row, "Способ отгрузки", "shipment_method"),
-            "fbsw": ps(row, "Склад отгрузки FBS", "fbs_warehouse"), "rrc": pf(row, "РРЦ", "rrc_price"),
-            # subject_id/name (из product_entities, но можно передать в файле)
-            "subid": int(row.get("subject_id")) if row.get("subject_id") and str(row.get("subject_id")).strip().isdigit() else None,
+            # Логистика
+            "fbsw": fbs_wh,
+            # Категория
             "subn": ps(row, "Категория", "subject_name"),
-            # Прочее
-            "notes": ps(row, "Заметки", "notes"),
+            # Расчёты
+            "sdays": pf(row, "Скорость достав. дн", "Скорость доставки, дн", "supply_days"),
+            "minbat": pf(row, "Мин партия", "Минимальная партия FBO", "min_batch_fbo"),
+            # Даты
+            "vfrom": pd(row, "Дата начала", "valid_from"),
         }
-        
+
         await db.execute(text(
             "INSERT INTO reference_book ("
             "organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
-            "subject_id, subject_name, "
-            "cost_price, purchase_cost, logistics_cost, packaging_cost, other_costs, extra_costs, vat, min_price, "
-            "mp_base_pct, mp_correction_pct, fulfillment_model, storage_pct, buyout_niche_pct, "
-            "price_before_spp_plan, price_before_spp_change, change_date, wb_club_discount_pct, ad_plan_rub, "
-            "product_class, brand, product_status, tax_system, "
+            "subject_name, "
+            "cost_price, extra_costs, vat, min_price, "
+            "mp_correction_pct, fulfillment_model, buyout_niche_pct, "
+            "rrc_price, ad_plan_rub, "
+            "product_class, brand, product_status, "
+            "tax_rate, vat_rate, "
             "season_jan, season_feb, season_mar, season_apr, season_may, season_jun, "
             "season_jul, season_aug, season_sep, season_oct, season_nov, season_dec, "
             "plan_length, plan_width, plan_height, plan_volume, plan_weight, "
-            "delivery_days_to_seller, delivery_days_to_mp, "
             "top_query_1, top_query_2, top_query_3, "
-            "shipment_method, fbs_warehouse, rrc_price, "
-            "notes, valid_from, source) "
+            "fbs_warehouse, "
+            "supply_days, min_batch_fbo, "
+            "valid_from, change_date, source) "
             "VALUES ("
             ":org, :nm, :bc, :vc, :sz, :eid, "
-            ":subid, :subn, "
-            ":cp, :pc, :lc, :pk, :oc, :ec, :vat, :minp, "
-            ":mpb, :mpc, :ffm, :stp, :bnp, "
-            ":pspp, :psppc, :cdate, :wbcd, :adpr, "
-            ":pcls, :brand, :pstatus, :tsys, "
+            ":subn, "
+            ":cp, :ec, :vat, :minp, "
+            ":mpc, :ffm, :bnp, "
+            ":rrc, :adpr, "
+            ":pcls, :brand, :pstatus, "
+            ":trate, :vrate, "
             ":sjan, :sfeb, :smar, :sapr, :smay, :sjun, "
             ":sjul, :saug, :ssep, :soct, :snov, :sdec, "
             ":plen, :pwid, :phei, :pvol, :pwgt, "
-            ":ddts, :ddmp, "
             ":tq1, :tq2, :tq3, "
-            ":shm, :fbsw, :rrc, "
-            ":notes, CURRENT_DATE, 'excel') "
+            ":fbsw, "
+            ":sdays, :minbat, "
+            ":vfrom, CURRENT_DATE, 'excel') "
             "ON CONFLICT (organization_id, nm_id, entity_id, valid_from) DO UPDATE SET "
             "barcode = COALESCE(EXCLUDED.barcode, reference_book.barcode), "
             "vendor_code = COALESCE(EXCLUDED.vendor_code, reference_book.vendor_code), "
             "cost_price = COALESCE(EXCLUDED.cost_price, reference_book.cost_price), "
-            "purchase_cost = COALESCE(EXCLUDED.purchase_cost, reference_book.purchase_cost), "
-            "logistics_cost = COALESCE(EXCLUDED.logistics_cost, reference_book.logistics_cost), "
-            "packaging_cost = COALESCE(EXCLUDED.packaging_cost, reference_book.packaging_cost), "
-            "other_costs = COALESCE(EXCLUDED.other_costs, reference_book.other_costs), "
             "extra_costs = COALESCE(EXCLUDED.extra_costs, reference_book.extra_costs), "
-            "vat = COALESCE(EXCLUDED.vat, reference_book.vat), "
             "min_price = COALESCE(EXCLUDED.min_price, reference_book.min_price), "
-            "mp_base_pct = COALESCE(EXCLUDED.mp_base_pct, reference_book.mp_base_pct), "
             "mp_correction_pct = COALESCE(EXCLUDED.mp_correction_pct, reference_book.mp_correction_pct), "
             "fulfillment_model = COALESCE(EXCLUDED.fulfillment_model, reference_book.fulfillment_model), "
-            "storage_pct = COALESCE(EXCLUDED.storage_pct, reference_book.storage_pct), "
             "buyout_niche_pct = COALESCE(EXCLUDED.buyout_niche_pct, reference_book.buyout_niche_pct), "
-            "price_before_spp_plan = COALESCE(EXCLUDED.price_before_spp_plan, reference_book.price_before_spp_plan), "
-            "price_before_spp_change = COALESCE(EXCLUDED.price_before_spp_change, reference_book.price_before_spp_change), "
-            "change_date = COALESCE(EXCLUDED.change_date, reference_book.change_date), "
-            "wb_club_discount_pct = COALESCE(EXCLUDED.wb_club_discount_pct, reference_book.wb_club_discount_pct), "
+            "rrc_price = COALESCE(EXCLUDED.rrc_price, reference_book.rrc_price), "
             "ad_plan_rub = COALESCE(EXCLUDED.ad_plan_rub, reference_book.ad_plan_rub), "
             "product_class = COALESCE(EXCLUDED.product_class, reference_book.product_class), "
             "brand = COALESCE(EXCLUDED.brand, reference_book.brand), "
             "product_status = COALESCE(EXCLUDED.product_status, reference_book.product_status), "
-            "tax_system = COALESCE(EXCLUDED.tax_system, reference_book.tax_system), "
-        "tax_rate = COALESCE(EXCLUDED.tax_rate, reference_book.tax_rate), "
+            "tax_rate = COALESCE(EXCLUDED.tax_rate, reference_book.tax_rate), "
+            "vat_rate = COALESCE(EXCLUDED.vat_rate, reference_book.vat_rate), "
             "season_jan = COALESCE(EXCLUDED.season_jan, reference_book.season_jan), "
             "season_feb = COALESCE(EXCLUDED.season_feb, reference_book.season_feb), "
             "season_mar = COALESCE(EXCLUDED.season_mar, reference_book.season_mar), "
@@ -2162,21 +2195,19 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "plan_height = COALESCE(EXCLUDED.plan_height, reference_book.plan_height), "
             "plan_volume = COALESCE(EXCLUDED.plan_volume, reference_book.plan_volume), "
             "plan_weight = COALESCE(EXCLUDED.plan_weight, reference_book.plan_weight), "
-            "delivery_days_to_seller = COALESCE(EXCLUDED.delivery_days_to_seller, reference_book.delivery_days_to_seller), "
-            "delivery_days_to_mp = COALESCE(EXCLUDED.delivery_days_to_mp, reference_book.delivery_days_to_mp), "
             "top_query_1 = COALESCE(EXCLUDED.top_query_1, reference_book.top_query_1), "
             "top_query_2 = COALESCE(EXCLUDED.top_query_2, reference_book.top_query_2), "
             "top_query_3 = COALESCE(EXCLUDED.top_query_3, reference_book.top_query_3), "
-            "shipment_method = COALESCE(EXCLUDED.shipment_method, reference_book.shipment_method), "
-            "fbs_warehouse = COALESCE(EXCLUDED.fbs_warehouse, reference_book.fbs_warehouse), rrc_price = COALESCE(EXCLUDED.rrc_price, reference_book.rrc_price), "
-            "notes = COALESCE(EXCLUDED.notes, reference_book.notes), "
-            "subject_id = COALESCE(EXCLUDED.subject_id, reference_book.subject_id), "
+            "fbs_warehouse = CASE WHEN :ffm = 'fbs' THEN COALESCE(EXCLUDED.fbs_warehouse, reference_book.fbs_warehouse) ELSE '' END, "
             "subject_name = COALESCE(EXCLUDED.subject_name, reference_book.subject_name), "
-            "source = EXCLUDED.source"
+            "supply_days = COALESCE(EXCLUDED.supply_days, reference_book.supply_days), "
+            "min_batch_fbo = COALESCE(EXCLUDED.min_batch_fbo, reference_book.min_batch_fbo), "
+            "change_date = CURRENT_DATE"
         ), params)
         updated += 1
+
     await db.commit()
-    return {"updated": updated, "total": len(rows)}
+    return {"updated": updated, "total": len(rows), "skipped": skipped, "warnings": warnings[:20]}
 
 
 @router.get("/api/v1/nl/sellers")
@@ -3643,7 +3674,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260612c"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260603f"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260617a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260611-auth"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260608j"></script>
@@ -6456,26 +6487,27 @@ async function uploadCostExcel(input) {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || 'Ошибка');
-        showToast('✅ Загружено: ' + data.updated + ' из ' + data.total);
+        var msg = '✅ Загружено: ' + data.updated + ' из ' + data.total;
+        if (data.skipped) msg += ', пропущено: ' + data.skipped;
+        if (data.warnings && data.warnings.length) {
+            msg += '\n⚠️ ' + data.warnings.join('; ');
+        }
+        showToast(msg);
         loadCostPrices();
     } catch(e) { showToast('❌ Ошибка: ' + e.message, 'error'); }
     input.value = '';
 }
+
 function downloadEmptyTemplate() {
-    var hdr = "Арт WB;Арт продавца;Баркод;Размер;Категория;" +
-        "Себестоимость;Доп расходы;Закупка;Логистика;Упаковка;Прочее;Мин. цена;НДС руб;" +
-        "ФБО/ФБС;Склад отгрузки FBS;" +
-        "Баз. % МП;Корр. % МП;% хранения;% выкупа по категории;" +
-        "Цена до СПП план;Цена до СПП к изм.;Дата правок;Скидка WB Клуб %;РРЦ;" +
-        "Рекл. расходы %;" +
-        "Класс товара;Бренд;Статус товара;" +
-        "Налог. система;" +
+    var hdr = "Арт WB;Размер;" +
+        "Статус товара;Класс;Бренд;Категория;Арт продавца;Баркод;" +
+        "Отгрузка;Склад FBS;" +
+        "Себестоимость;Доп расходы;Налог %;НДС от дохода;" +
+        "План длина;План ширина;План высота;План вес;" +
         "Сезон янв;Сезон фев;Сезон мар;Сезон апр;Сезон май;Сезон июн;" +
         "Сезон июл;Сезон авг;Сезон сен;Сезон окт;Сезон ноя;Сезон дек;" +
-        "План длина;План ширина;План высота;План объём;План вес;" +
-        "Доставка до склада (дни);Доставка до МП (дни);" +
         "ТОП запрос 1;ТОП запрос 2;ТОП запрос 3;" +
-        "Заметки";
+        "% выкупа;Корр. комиссии %;Рекл. расходы %;Скорость достав. дн;Мин партия;РРЦ;Мин цена;Дата начала";
     var blob = new Blob(["\ufeff" + hdr], {type: "text/csv;charset=utf-8"});
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -6486,49 +6518,59 @@ function downloadEmptyTemplate() {
 }
 
 function exportCostTemplate() {
-    var hdr = "Арт WB;Арт продавца;Баркод;Размер;Категория;" +
-        "Себестоимость;Доп расходы;Закупка;Логистика;Упаковка;Прочее;Мин. цена;НДС руб;" +
-        "ФБО/ФБС;Склад отгрузки FBS;" +
-        "Баз. % МП;Корр. % МП;% хранения;% выкупа по категории;" +
-        "Цена до СПП план;Цена до СПП к изм.;Дата правок;Скидка WB Клуб %;РРЦ;" +
-        "Рекл. расходы %;" +
-        "Класс товара;Бренд;Статус товара;" +
-        "Налог. система;" +
+    var hdr = "Арт WB;Размер;" +
+        "Статус товара;Класс;Бренд;Категория;Арт продавца;Баркод;" +
+        "Отгрузка;Склад FBS;" +
+        "Себестоимость;Доп расходы;Налог %;НДС от дохода;" +
+        "План длина;План ширина;План высота;План вес;" +
         "Сезон янв;Сезон фев;Сезон мар;Сезон апр;Сезон май;Сезон июн;" +
         "Сезон июл;Сезон авг;Сезон сен;Сезон окт;Сезон ноя;Сезон дек;" +
-        "План длина;План ширина;План высота;План объём;План вес;" +
-        "Доставка до склада (дни);Доставка до МП (дни);" +
         "ТОП запрос 1;ТОП запрос 2;ТОП запрос 3;" +
-        "Заметки";
+        "% выкупа;Корр. комиссии %;Рекл. расходы %;Скорость достав. дн;Мин партия;РРЦ;Мин цена;Дата начала";
     var csv = hdr;
 
-    // Tabulator: читаем из costTabulator
     if (typeof costTabulator !== "undefined" && costTabulator) {
         var data = costTabulator.getData();
         if (data.length) {
             csv += String.fromCharCode(10);
             data.forEach(function(d) {
-                var vol = "";
-                var l = parseFloat(d.plan_length) || 0;
-                var w = parseFloat(d.plan_width) || 0;
-                var h = parseFloat(d.plan_height) || 0;
-                if (l > 0 && w > 0 && h > 0) vol = (l * w * h / 1000);
+                var taxVal = "";
+                if (d._tax_rate_override !== null && d._tax_rate_override !== "" && d._tax_rate_override !== undefined) {
+                    taxVal = d._tax_rate_override;
+                }
+                var vatVal = 0;
+                if (d.vat_rate && d.vat_rate !== 0 && d.vat_rate !== "нет") vatVal = d.vat_rate;
                 var cols = [
-                    d.nm_id || "", d.vendor_code || "", d._barcodes || "", d.size_name || "", d.subject_name || "",
-                    d.cost_price || "", d.extra_costs || "", "", "", "", "", d.min_price || "", "",
-                    d.fulfillment_model === "fbs" ? "fbs" : "fbo", d.fbs_warehouse || "",
-                    "", d.mp_correction_pct || "", "", d.buyout_niche_pct || "",
-                    "", "", d.change_date || "", "", d.rrc_price || "",
-                    d.ad_plan_rub || "",
-                    d.product_class || "", d.brand || "", d.product_status || "",
-                    "",
+                    d.nm_id_display || d.nm_id || "",
+                    d._sizeList === "\u2014" ? "" : (d.size_name || ""),
+                    d.product_status || "",
+                    d.product_class || "",
+                    d.brand || "",
+                    d.subject_name || "",
+                    d.vendor_code || "",
+                    d._barcodes || "",
+                    d.fulfillment_model === "fbs" ? "ФБС" : "ФБО",
+                    d.fulfillment_model === "fbs" ? (d.fbs_warehouse || "") : "",
+                    d.cost_price || "",
+                    d.extra_costs || "",
+                    taxVal,
+                    vatVal,
+                    d.plan_length || "",
+                    d.plan_width || "",
+                    d.plan_height || "",
+                    d.plan_weight || "",
                     d.season_jan || "", d.season_feb || "", d.season_mar || "", d.season_apr || "",
                     d.season_may || "", d.season_jun || "", d.season_jul || "", d.season_aug || "",
                     d.season_sep || "", d.season_oct || "", d.season_nov || "", d.season_dec || "",
-                    d.plan_length || "", d.plan_width || "", d.plan_height || "", vol, d.plan_weight || "",
-                    "", "",
                     d.top_query_1 || "", d.top_query_2 || "", d.top_query_3 || "",
-                    ""
+                    d.buyout_niche_pct || "",
+                    d.mp_correction_pct || "",
+                    d.ad_plan_rub || "",
+                    d.supply_days || "",
+                    d.min_batch_fbo || "",
+                    d.rrc_price || "",
+                    d.min_price || "",
+                    d.valid_from || ""
                 ];
                 csv += cols.join(";") + String.fromCharCode(10);
             });
