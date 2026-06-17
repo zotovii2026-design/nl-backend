@@ -3551,14 +3551,14 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 
 /* Sidebar layout */
 .app-layout{display:flex;min-height:100vh}
-.sidebar{width:220px;background:#1a1a2e;color:#fff;padding:0;flex-shrink:0;position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:50}
+.sidebar{width:220px;background:#1a1a2e;color:#fff;padding:0;flex-shrink:0;position:fixed;top:0;left:0;bottom:0;overflow-y:auto;overflow-x:hidden;z-index:50}
 .sidebar .logo{padding:16px 20px;font-size:1.1em;font-weight:700;color:#fff;border-bottom:1px solid rgba(255,255,255,.1)}
 .sidebar .nav-group{padding:8px 0}
 .sidebar .nav-label{padding:6px 20px;font-size:.7em;text-transform:uppercase;color:rgba(255,255,255,.4);letter-spacing:1px}
-.sidebar .nav-item{display:flex;align-items:center;gap:10px;padding:8px 20px;color:rgba(255,255,255,.7);cursor:pointer;font-size:.85em;transition:all .15s;text-decoration:none;border-left:3px solid transparent}
+.sidebar .nav-item{display:block;padding:7px 20px 7px 17px;color:rgba(255,255,255,.7);cursor:pointer;font-size:.8em;transition:all .15s;text-decoration:none;border-left:3px solid transparent;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sidebar .nav-item:hover{background:rgba(255,255,255,.08);color:#fff}
 .sidebar .nav-item.active{background:rgba(108,92,231,.2);color:#fff;border-left-color:#6c5ce7}
-.sidebar .nav-item .icon{width:20px;text-align:center}
+.sidebar .nav-item .icon{display:inline-block;width:20px;text-align:center;margin-right:8px}
 .sidebar .user-block{position:absolute;bottom:0;left:0;right:0;padding:12px 20px;border-top:1px solid rgba(255,255,255,.1);font-size:.8em;color:rgba(255,255,255,.5)}
 .sidebar .user-block .logout-btn{color:#e74c3c;cursor:pointer;display:block;margin-top:6px}
 .sidebar .user-block .logout-btn:hover{color:#ff6b6b}
@@ -3718,7 +3718,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div class="top-bar">
 <span class="page-title" id="page-title">Основные показатели</span>
 <div class="filters" id="top-filters">
-<select id="filter-store" onchange="switchTopStore()" style="min-width:160px;border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em"></select>
+<span style="font-size:.85em">🏪</span><select id="filter-store" onchange="switchTopStore()" style="min-width:160px;border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em;background:#fff"></select>
 <select id="filter-period" onchange="if (_currentSection === 'opiu') onOpiuPeriodChange()"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option><option value="custom">Произвольный период</option></select>
 <input type="text" id="filter-article" placeholder="Артикул" style="width:120px">
 </div>
@@ -4852,16 +4852,16 @@ async function _sectionEnter(name) {
             if (!_opiuInited) { _lazyInit('opiu'); _opiuInited = true; }
             loadOpiu(); break;
         case 'costprice':
-            if (!_costpriceInited) { _lazyInit('costprice'); _costpriceInited = true; }
+            if (!_costpriceInited) { _lazyInit('costprice'); loadOrgs(); _costpriceInited = true; }
             loadTaxSettings(); loadCostPrices(); break;
         case 'salesplan':
-            if (!_salesplanInited) { _lazyInit('salesplan'); _salesplanInited = true; }
+            if (!_salesplanInited) { _lazyInit('salesplan'); loadOrgs(); _salesplanInited = true; }
             loadSalesPlans(); break;
         case 'warehouses':
-            if (!_warehousesInited) { _lazyInit('warehouses'); _warehousesInited = true; }
+            if (!_warehousesInited) { _lazyInit('warehouses'); loadOrgs(); _warehousesInited = true; }
             loadWarehouses(); break;
         case 'opexpenses':
-            if (!_opexpensesInited) { _lazyInit('opexpenses'); _opexpensesInited = true; }
+            if (!_opexpensesInited) { _lazyInit('opexpenses'); loadOrgs(); _opexpensesInited = true; }
             loadOpEx(); break;
         case 'ads':
             if (!_adsInited) { _lazyInit('ads'); loadOrgs(); _adsInited = true; }
@@ -4873,13 +4873,13 @@ async function _sectionEnter(name) {
             if (!_extadsInited) { _lazyInit('extads'); loadOrgs(); _extadsInited = true; }
             loadExtAds(); break;
         case 'fboneeds':
-            if (!_fboneedsInited) { _lazyInit('fboneeds'); _fboneedsInited = true; }
+            if (!_fboneedsInited) { _lazyInit('fboneeds'); loadOrgs(); _fboneedsInited = true; }
             loadFboNeeds(); break;
         case 'unitecon':
             if (!_uniteconInited) { _lazyInit('unitecon'); loadOrgs(); _uniteconInited = true; }
             if (!ueTabulator) initUEGrid(); loadUEData(); break;
         case 'promo':
-            if (!_promoInited) { _lazyInit('promo'); _promoInited = true; }
+            if (!_promoInited) { _lazyInit('promo'); loadOrgs(); _promoInited = true; }
             if (typeof promoTabulator === 'undefined' || !promoTabulator) initPromoGrid(); loadPromoData(); break;
         case 'connectors':
             if (!_connectorsInited) { _lazyInit('connectors'); _connectorsInited = true; }
@@ -4960,11 +4960,13 @@ async function navTo(name, el) {
     // Title
     var reg = _sectionRegistry[name] || {};
     document.getElementById('page-title').textContent = reg.title || name;
-    // Top filters
+    // Top filters: filter-store always visible, period+article conditional
     var topFilters = document.getElementById('top-filters');
-    if (topFilters) topFilters.style.display = reg.topFilters ? 'flex' : 'none';
+    if (topFilters) topFilters.style.display = 'flex';
+    var topPeriod = document.getElementById('filter-period');
+    if (topPeriod) topPeriod.style.display = reg.topFilters ? '' : 'none';
     var topArticle = document.getElementById('filter-article');
-    if (topArticle) topArticle.style.display = name === 'opiu' ? 'none' : '';
+    if (topArticle) topArticle.style.display = (reg.topFilters && name !== 'opiu') ? '' : 'none';
     // Cleanup popups
     if (typeof cleanupCostPopups === 'function') cleanupCostPopups();
     // Track current & enter
