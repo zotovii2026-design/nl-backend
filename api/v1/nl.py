@@ -3046,7 +3046,7 @@ async def get_unit_economics(
 ):
     """Юнит Экономика — только для участников организации."""
     org_id = await resolve_org_id(org_id, db)
-    await require_organization_role(uuid.UUID(org_id), Role.VIEWER, current_user, db)
+    await require_organization_role(org_id, Role.VIEWER, current_user, db)
     return await build_unit_economics(org_id, db, search=search, limit=limit)
 
 
@@ -3074,7 +3074,7 @@ async def save_unit_economics(
 ):
     """Сохранить ручные вводы Юнит Экономики"""
     org_id = await resolve_org_id(org_id, db)
-    await require_organization_role(uuid.UUID(org_id), Role.ADMIN, current_user, db)
+    await require_organization_role(org_id, Role.ADMIN, current_user, db)
     from models.reference_book import ReferenceBook
     from datetime import datetime as dt_mod
 
