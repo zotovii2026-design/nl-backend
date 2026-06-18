@@ -6271,7 +6271,7 @@ async function uploadCostExcel(input) {
         var msg = '✅ Загружено: ' + data.updated + ' из ' + data.total;
         if (data.skipped) msg += ', пропущено: ' + data.skipped;
         if (data.warnings && data.warnings.length) {
-            msg += '\n⚠️ ' + data.warnings.join('; ');
+            msg += String.fromCharCode(10) + '⚠️ ' + data.warnings.join('; ');
         }
         showToast(msg);
         loadCostPrices();
