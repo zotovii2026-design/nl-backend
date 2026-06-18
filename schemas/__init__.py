@@ -16,6 +16,7 @@ from .organization import (
     WbApiKeyCreate,
     WbApiKeyResponse
 )
+from .sales_plan import SalesPlanItem
 
 __all__ = [
     "UserRegister",
@@ -31,5 +32,6 @@ __all__ = [
     "InvitationCreate",
     "InvitationResponse",
     "WbApiKeyCreate",
-    "WbApiKeyResponse"
+    "WbApiKeyResponse",
+    "SalesPlanItem",
 ]

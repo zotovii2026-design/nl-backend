@@ -6,7 +6,7 @@ from sqlalchemy import text
 from core.database import get_db
 from core.config import settings
 from api.v1 import auth, organizations, wb_keys, sync, admin_tech, nl, external_ad
-from api.v1.routers import opiu, promotions, ads, identity
+from api.v1.routers import opiu, promotions, ads, identity, sales_plans
 
 # Импортируем Celery для регистрации задач
 from core.celery import celery_app
@@ -49,6 +49,7 @@ app.include_router(promotions.router)
 app.include_router(opiu.router)
 app.include_router(ads.router)
 app.include_router(identity.router)
+app.include_router(sales_plans.router)
 
 @app.get("/health")
 async def health_check(db: AsyncSession = Depends(get_db)):
