@@ -1,7 +1,6 @@
 """API endpoints for the rebuilt OPIU report."""
 
 import io
-import uuid
 from datetime import date
 
 import openpyxl
@@ -201,7 +200,7 @@ async def _authorized_report(
 ):
     _validate_period(date_from, date_to)
     await require_organization_role(
-        uuid.UUID(organization_id), Role.VIEWER, current_user, db
+        organization_id, Role.VIEWER, current_user, db
     )
     rows = await _load_report_rows(
         db, organization_id, date_from, date_to
@@ -241,7 +240,7 @@ async def trigger_opiu_sync(
 ):
     _validate_period(date_from, date_to)
     await require_organization_role(
-        uuid.UUID(org_id), Role.ADMIN, current_user, db
+        org_id, Role.ADMIN, current_user, db
     )
     task = celery_app.send_task(
         "wb.opiu.sync_org",

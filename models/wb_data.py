@@ -165,35 +165,6 @@ class WbOrder(Base):
     )
 
 
-class SyncLog(Base):
-    """Логи синхронизации"""
-    __tablename__ = "sync_logs"
-    
-    # Используем extend_existing=True для избежания конфликта с существующей таблицей
-    __table_args__ = ({"extend_existing": True},)
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
-    
-    # Тип синхронизации (соответствует task_name в миграции)
-    task_name = Column(String(100), nullable=False, index=True)
-    
-    # Статус
-    status = Column(String(50), nullable=False, index=True)  # running, success, error
-    
-    # Детали
-    synced_count = Column(Integer, nullable=True)  # Количество обработанных записей (соответствует synced_count в миграции)
-    error_message = Column(Text, nullable=True)  # Сообщение об ошибке
-    
-    # Даты
-    started_at = Column(DateTime(timezone=True), nullable=True)
-    finished_at = Column(DateTime(timezone=True), nullable=True)
-    duration_seconds = Column(Integer, nullable=True)  # Длительность в секундах
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    # Отношения
-    organization = relationship("Organization")
-
 class WbStock(Base):
     """Остатки Wildberries по складам"""
     __tablename__ = "wb_stocks"

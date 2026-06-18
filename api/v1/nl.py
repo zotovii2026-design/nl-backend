@@ -4030,7 +4030,7 @@ async def get_unit_economics(
 ):
     """Юнит Экономика — только для участников организации."""
     org_id = await resolve_org_id(org_id, db)
-    await require_organization_role(uuid.UUID(org_id), Role.VIEWER, current_user, db)
+    await require_organization_role(org_id, Role.VIEWER, current_user, db)
     return await build_unit_economics(org_id, db, search=search, limit=limit)
 
 
@@ -4058,7 +4058,7 @@ async def save_unit_economics(
 ):
     """Сохранить ручные вводы Юнит Экономики"""
     org_id = await resolve_org_id(org_id, db)
-    await require_organization_role(uuid.UUID(org_id), Role.ADMIN, current_user, db)
+    await require_organization_role(org_id, Role.ADMIN, current_user, db)
     from models.reference_book import ReferenceBook
     from datetime import datetime as dt_mod
 
@@ -4320,7 +4320,7 @@ async def nl_verify_wb_key(
         raise HTTPException(400, "org_id обязателен")
     await enforce_rate_limit(request, "wb-key-verify", 10, 300, org_id)
     await require_organization_role(
-        uuid.UUID(org_id),
+        org_id,
         Role.ADMIN,
         current_user,
         db,

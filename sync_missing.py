@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
 """Подтягивает недостающие товары через WB API и обновляет photo_main в tech_status"""
 import asyncio
+import os
 import httpx
 import asyncpg
-import json
 
-ORG_ID = '273d9c9a-c3fb-4a8c-99d3-03604eacc364'
-DB_URL = 'postgresql://postgres:postgres@localhost:5432/nl_table'
-ENCRYPTION_KEY = None  # получим из env
+ORG_ID = os.environ.get("NL_SYNC_MISSING_ORG_ID")
+DB_URL = os.environ.get("DATABASE_URL")
+ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY")
 
 # Все карточки WB через content/v2/get/cards/list
 CARDS_URL = 'https://content-api.wildberries.ru/content/v2/get/cards/list'
 
 async def main():
+    if not ORG_ID:
+        raise SystemExit("Set NL_SYNC_MISSING_ORG_ID before running this script")
+    if not DB_URL:
+        raise SystemExit("Set DATABASE_URL before running this script")
+    if not ENCRYPTION_KEY:
+        raise SystemExit("Set ENCRYPTION_KEY before running this script")
+
     # 1. Получаем зашифрованный ключ из БД
     conn = await asyncpg.connect(DB_URL)
     
@@ -23,16 +30,9 @@ async def main():
         return
     
     # 2. Расшифровываем ключ (Fernet)
-    import os
     from cryptography.fernet import Fernet
-    
-    # Читаем ENCRYPTION_KEY из env
-    import subprocess
-    enc_key = subprocess.check_output(
-        'docker exec nl-backend-app env | grep ENCRYPTION_KEY | cut -d= -f2',
-        shell=True
-    ).decode().strip()
-    f = Fernet(enc_key.encode())
+
+    f = Fernet(ENCRYPTION_KEY.encode())
     api_key = f.decrypt(row['encrypted_key'].encode()).decode()
     
     # 3. Получаем ВСЕ карточки из WB (с пагинацией)

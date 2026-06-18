@@ -62,7 +62,7 @@ async def test_unit_economics_get_allows_viewer(monkeypatch):
     result = await get_unit_economics(org_id, current_user=user, db=db)
 
     assert result == {"items": [], "total": 0}
-    require_role.assert_awaited_once_with(uuid.UUID(org_id), Role.VIEWER, user, db)
+    require_role.assert_awaited_once_with(org_id, Role.VIEWER, user, db)
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from starlette.requests import Request
 
 from core.security import create_access_token
 from core.tenant_auth import require_query_organization_access
+from core.role_deps import require_organization_role
 from models.organization import Role
 
 
@@ -99,3 +100,16 @@ async def test_tenant_access_rejects_viewer_write():
         )
 
     assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_role_check_rejects_malformed_organization_id():
+    with pytest.raises(HTTPException) as exc:
+        await require_organization_role(
+            "not-a-uuid",
+            Role.VIEWER,
+            current_user=SimpleNamespace(id=uuid.uuid4()),
+            db=AsyncMock(),
+        )
+
+    assert exc.value.status_code == 400

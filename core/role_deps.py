@@ -8,19 +8,33 @@ from models.user import User
 from uuid import UUID
 
 
+def normalize_organization_id(org_id: UUID | str) -> UUID:
+    """Return a UUID or raise a client error for malformed tenant ids."""
+    if isinstance(org_id, UUID):
+        return org_id
+    try:
+        return UUID(str(org_id))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid organization ID",
+        ) from exc
+
+
 async def require_organization_role(
-    org_id: UUID,
+    org_id: UUID | str,
     min_role: Role,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> Membership:
     """Проверка доступа к организации с определённой ролью"""
+    organization_id = normalize_organization_id(org_id)
 
     # Поиск membership пользователя
     result = await db.execute(
         select(Membership).where(
             Membership.user_id == current_user.id,
-            Membership.organization_id == org_id
+            Membership.organization_id == organization_id
         )
     )
     membership = result.scalar_one_or_none()
