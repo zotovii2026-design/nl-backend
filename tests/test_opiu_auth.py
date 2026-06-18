@@ -67,9 +67,7 @@ async def test_opiu_report_allows_viewer(monkeypatch):
     )
 
     assert result["items"] == []
-    require_role.assert_awaited_once_with(
-        uuid.UUID(org_id), Role.VIEWER, user, db
-    )
+    require_role.assert_awaited_once_with(org_id, Role.VIEWER, user, db)
 
 
 @pytest.mark.asyncio

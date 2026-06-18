@@ -10,6 +10,7 @@ from typing import Optional, List
 from datetime import date, datetime
 
 from core.database import get_db
+from core.role_deps import normalize_organization_id
 from core.tenant_auth import require_query_organization_access
 from models.external_ad import ExternalAd
 from models.product_entity import ProductEntity
@@ -99,8 +100,9 @@ async def get_external_ads(
     db: AsyncSession = Depends(get_db),
 ):
     """Список записей внешней рекламы/самовыкупов с фильтрами"""
+    organization_id = normalize_organization_id(org_id)
     conditions = ["ea.organization_id = :org_id"]
-    params = {"org_id": org_id}
+    params = {"org_id": str(organization_id)}
 
     if ad_type:
         conditions.append("ea.ad_type = :ad_type")
@@ -168,8 +170,9 @@ async def create_external_ad(
     db: AsyncSession = Depends(get_db),
 ):
     """Создать запись рекламы/самовыкупа с автозаполнением из БД"""
+    organization_id = normalize_organization_id(org_id)
     ad = ExternalAd(
-        organization_id=uuid.UUID(org_id),
+        organization_id=organization_id,
         vendor_code=data.vendor_code,
         article=data.article,
         photo_url=data.photo_url,
@@ -188,7 +191,7 @@ async def create_external_ad(
     # Автозаполнение по nm_id
     if data.nm_id:
         ad.nm_id = data.nm_id
-        autofill = await auto_fill_from_db(db, org_id, data.nm_id)
+        autofill = await auto_fill_from_db(db, str(organization_id), data.nm_id)
         ad.entity_id = autofill.get("entity_id")
         if not ad.vendor_code and autofill.get("vendor_code"):
             ad.vendor_code = autofill["vendor_code"]
@@ -223,10 +226,11 @@ async def update_external_ad(
     db: AsyncSession = Depends(get_db),
 ):
     """Обновить запись рекламы/самовыкупа"""
+    organization_id = normalize_organization_id(org_id)
     result = await db.execute(
         select(ExternalAd).where(
             ExternalAd.id == uuid.UUID(ad_id),
-            ExternalAd.organization_id == uuid.UUID(org_id),
+            ExternalAd.organization_id == organization_id,
         )
     )
     ad = result.scalar_one_or_none()
@@ -241,7 +245,9 @@ async def update_external_ad(
 
     # Автозаполнение при смене nm_id
     if "nm_id" in update_fields and update_fields["nm_id"]:
-        autofill = await auto_fill_from_db(db, org_id, update_fields["nm_id"])
+        autofill = await auto_fill_from_db(
+            db, str(organization_id), update_fields["nm_id"]
+        )
         if autofill.get("entity_id"):
             ad.entity_id = autofill["entity_id"]
         if not update_fields.get("vendor_code") and autofill.get("vendor_code"):
@@ -268,10 +274,11 @@ async def delete_external_ad(
     db: AsyncSession = Depends(get_db),
 ):
     """Удалить запись рекламы/самовыкупа"""
+    organization_id = normalize_organization_id(org_id)
     result = await db.execute(
         select(ExternalAd).where(
             ExternalAd.id == uuid.UUID(ad_id),
-            ExternalAd.organization_id == uuid.UUID(org_id),
+            ExternalAd.organization_id == organization_id,
         )
     )
     ad = result.scalar_one_or_none()
@@ -290,10 +297,11 @@ async def get_external_ad_detail(
     db: AsyncSession = Depends(get_db),
 ):
     """Получить одну запись по ID"""
+    organization_id = normalize_organization_id(org_id)
     result = await db.execute(
         select(ExternalAd).where(
             ExternalAd.id == uuid.UUID(ad_id),
-            ExternalAd.organization_id == uuid.UUID(org_id),
+            ExternalAd.organization_id == organization_id,
         )
     )
     ad = result.scalar_one_or_none()
@@ -335,6 +343,7 @@ async def bulk_update_external_ads(
     updates = data.get("updates", {})
     if not ids or not updates:
         raise HTTPException(400, "Нужны ids и updates")
+    organization_id = normalize_organization_id(org_id)
 
     # Дата
     if "ad_date" in updates and isinstance(updates["ad_date"], str):
@@ -345,7 +354,7 @@ async def bulk_update_external_ads(
         result = await db.execute(
             select(ExternalAd).where(
                 ExternalAd.id == uuid.UUID(ad_id_str),
-                ExternalAd.organization_id == uuid.UUID(org_id),
+                ExternalAd.organization_id == organization_id,
             )
         )
         ad = result.scalar_one_or_none()
@@ -366,9 +375,10 @@ async def get_ad_sources(
     db: AsyncSession = Depends(get_db),
 ):
     """Список уникальных источников для фильтра"""
+    organization_id = normalize_organization_id(org_id)
     result = await db.execute(
         select(ExternalAd.source).where(
-            ExternalAd.organization_id == uuid.UUID(org_id),
+            ExternalAd.organization_id == organization_id,
             ExternalAd.source.isnot(None),
             ExternalAd.source != "",
         ).distinct().order_by(ExternalAd.source)

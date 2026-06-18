@@ -7,7 +7,8 @@ from celery import shared_task
 import asyncio
 
 from core.database import get_db
-from models.wb_data import WbStock, SyncLog
+from models.sync import SyncLog
+from models.wb_data import WbStock
 from models.organization import WbApiKey
 from services.wb_api.client import WBApiClient
 from core.security import decrypt_data

@@ -6,7 +6,8 @@ from datetime import datetime
 
 from core.database import get_db
 from models.user import User
-from models.wb_data import WbProduct, SyncLog
+from models.sync import SyncLog
+from models.wb_data import WbProduct
 from core.dependencies import get_current_user
 from core.role_deps import require_organization_role
 from sqlalchemy import select
@@ -409,7 +410,7 @@ async def get_sync_logs(
     )
     
     if sync_type:
-        query = query.where(SyncLog.sync_type == sync_type)
+        query = query.where(SyncLog.task_name == sync_type)
     
     result = await db.execute(query.offset(offset).limit(limit))
     logs = result.scalars().all()

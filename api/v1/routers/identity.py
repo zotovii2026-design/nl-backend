@@ -419,7 +419,7 @@ async def nl_verify_wb_key(
         raise HTTPException(400, "org_id обязателен")
     await enforce_rate_limit(request, "wb-key-verify", 10, 300, org_id)
     await require_organization_role(
-        uuid.UUID(org_id),
+        org_id,
         Role.ADMIN,
         current_user,
         db,
