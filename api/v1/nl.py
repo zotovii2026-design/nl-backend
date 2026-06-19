@@ -1279,7 +1279,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
     """Сохранить себестоимость (создать/обновить)"""
     from sqlalchemy import text
     nm_id = data.get("nm_id")
-    cost = data.get("cost_price", 0)
+    cost = data.get("cost_price")
     valid_from = data.get("valid_from", date.today().isoformat())
     if isinstance(valid_from, str):
         from datetime import datetime as _dt
@@ -1297,6 +1297,8 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         ), {"org": org_id, "nm": nm_id, "sz": size_name})
         ent_row = ent_q.first()
         entity_id = str(ent_row[0]) if ent_row else None
+    if not entity_id:
+        raise HTTPException(400, "entity_id обязателен для сохранения справочника")
     await db.execute(text(
         "INSERT INTO reference_book (organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
         "subject_id, subject_name, "
@@ -1404,7 +1406,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
             if not nm_id:
                 errors += 1
                 continue
-            cost = data.get("cost_price", 0)
+            cost = data.get("cost_price")
             valid_from = data.get("valid_from", date.today().isoformat())
             if isinstance(valid_from, str):
                 valid_from = _dt.strptime(valid_from, "%Y-%m-%d").date()
@@ -1417,14 +1419,19 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 ), {"org": org_id, "nm": nm_id, "sz": size_name})
                 ent_row = ent_q.first()
                 entity_id = str(ent_row[0]) if ent_row else None
+            if not entity_id:
+                errors += 1
+                print(f"[batch] skip nm={nm_id}: entity_id not resolved")
+                continue
             def pfloat(v):
-                if v is not None and str(v) not in ("", "None"):
+                if v is not None and str(v).strip() not in ("", "None"):
                     try: return float(v)
                     except: pass
                 return None
             def pint(v):
-                if v and str(v).lstrip("-").isdigit():
-                    return int(v)
+                if v is not None and str(v).strip() not in ("", "None"):
+                    try: return int(float(str(v).replace(",", ".")))
+                    except: pass
                 return None
             await db.execute(text(
                 "INSERT INTO reference_book (organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
@@ -1518,13 +1525,17 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 "cp": cost, "pc": pfloat(data.get("purchase_cost")),
                 "lc": pfloat(data.get("logistics_cost")), "pk": pfloat(data.get("packaging_cost")),
                 "oc": pfloat(data.get("other_costs")), "ec": pfloat(data.get("extra_costs")),
-                "vat": pfloat(data.get("vat")) or 0, "minp": pfloat(data.get("min_price")),
+                "vat": pfloat(data.get("vat")), "minp": pfloat(data.get("min_price")),
                 "mpb": pfloat(data.get("mp_base_pct")), "mpc": pfloat(data.get("mp_correction_pct")),
                 "ffm": data.get("fulfillment_model", "fbo"), "stp": pfloat(data.get("storage_pct")),
                 "bnp": pfloat(data.get("buyout_niche_pct")),
                 "pspp": pfloat(data.get("price_before_spp_plan")), "psppc": pfloat(data.get("price_before_spp_change")),
                 "cdate": date.today(),
-                "wbcd": pfloat(data.get("wb_club_discount_pct")), "adpr": min(99, max(0, pfloat(data.get("ad_plan_rub")) if pfloat(data.get("ad_plan_rub")) is not None else 5)),
+                "wbcd": pfloat(data.get("wb_club_discount_pct")),
+                "adpr": (
+                    min(99, max(0, pfloat(data.get("ad_plan_rub"))))
+                    if pfloat(data.get("ad_plan_rub")) is not None else None
+                ),
                 "sdays": pint(data.get("supply_days")), "minb": pint(data.get("min_batch_fbo")),
                 "pstatus": data.get("product_status"),
                 "pcls": data.get("product_class"), "brand": data.get("brand"),
@@ -2015,7 +2026,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             skipped += 1
             continue
 
-        # entity_id: ищем по nm_id + Размер, fallback на nm_id
+        # entity_id: размерные товары сохраняем только в точную сущность.
         sz_val = ps(row, "Размер", "size_name")
         eid = None
         if sz_val:
@@ -2025,13 +2036,27 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             ), {"org": org_id, "nm": nm, "sz": sz_val})
             ent_row = ent_q.first()
             eid = str(ent_row[0]) if ent_row else None
-        if not eid:
+            if not eid:
+                warnings.append(f"Строка {idx} (Арт WB {nm}): размер '{sz_val}' не найден — пропущено")
+                skipped += 1
+                continue
+        else:
             ent_q = await db.execute(text(
-                "SELECT pe.id FROM product_entities pe "
-                "WHERE pe.organization_id = :org AND pe.nm_id = :nm LIMIT 1"
+                "SELECT pe.id, pe.size_name FROM product_entities pe "
+                "WHERE pe.organization_id = :org AND pe.nm_id = :nm"
             ), {"org": org_id, "nm": nm})
-            ent_row = ent_q.first()
-            eid = str(ent_row[0]) if ent_row else None
+            ent_rows = ent_q.all()
+            if len(ent_rows) == 1:
+                eid = str(ent_rows[0][0])
+                sz_val = ent_rows[0][1] or ""
+            elif len(ent_rows) > 1:
+                warnings.append(f"Строка {idx} (Арт WB {nm}): несколько размеров, укажите колонку Размер — пропущено")
+                skipped += 1
+                continue
+            else:
+                warnings.append(f"Строка {idx} (Арт WB {nm}): товар не найден — пропущено")
+                skipped += 1
+                continue
 
         # === Логистика: ФБО/ФБС валидация ===
         ffm_raw = pstr(row, "Отгрузка", "ФБО/ФБС", "fulfillment_model") or "fbo"
@@ -3064,6 +3089,25 @@ class UnitEconSave(BaseModel):
     tariff_type: Optional[str] = None
     wb_club_discount_pct: Optional[float] = None
 
+class UnitEconBatchItem(BaseModel):
+    nm_id: int
+    barcode: Optional[str] = None
+    entity_id: Optional[str] = None
+    mp_correction_pct: Optional[float] = None
+    buyout_niche_pct: Optional[float] = None
+    extra_costs: Optional[float] = None
+    ad_plan_rub: Optional[float] = None
+    price_before_spp_plan: Optional[float] = None
+    price_before_spp_change: Optional[float] = None
+    change_date: Optional[str] = None
+    tariff_type: Optional[str] = None
+    wb_club_discount_pct: Optional[float] = None
+
+
+class UnitEconBatchSave(BaseModel):
+    items: list[UnitEconBatchItem]
+
+
 
 @router.post("/api/v1/nl/unit-economics")
 async def save_unit_economics(
@@ -3129,6 +3173,73 @@ async def save_unit_economics(
     except Exception:
         pass
     return {"ok": True}
+
+
+@router.post("/api/v1/nl/unit-economics/batch")
+async def save_unit_economics_batch(
+    payload: UnitEconBatchSave,
+    org_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Пакетное сохранение ручных вводов Юнит Экономики"""
+    org_id = await resolve_org_id(org_id, db)
+    await require_organization_role(org_id, Role.ADMIN, current_user, db)
+    from models.reference_book import ReferenceBook
+
+    saved = 0
+    for data in payload.items:
+        entity_id_ue = data.entity_id if data.entity_id else None
+        if not entity_id_ue:
+            from sqlalchemy import text as sql_text_sync
+            ent_q = await db.execute(sql_text_sync(
+                "SELECT pe.id FROM product_entities pe "
+                "WHERE pe.organization_id = :org AND pe.nm_id = :nm "
+                "ORDER BY CASE WHEN pe.size_name = :sz THEN 0 ELSE 1 END LIMIT 1"
+            ), {"org": org_id, "nm": data.nm_id, "sz": data.barcode or ""})
+            ent_row = ent_q.first()
+            entity_id_ue = ent_row[0] if ent_row else None
+
+        ins = pg_insert(ReferenceBook).values(
+            organization_id=org_id,
+            nm_id=data.nm_id,
+            barcode=data.barcode,
+            entity_id=entity_id_ue,
+            valid_from=date.today(),
+            mp_correction_pct=data.mp_correction_pct,
+            buyout_niche_pct=data.buyout_niche_pct,
+            extra_costs=data.extra_costs,
+            ad_plan_rub=data.ad_plan_rub,
+            price_before_spp_plan=data.price_before_spp_plan,
+            price_before_spp_change=data.price_before_spp_change,
+            change_date=date.today(),
+            fulfillment_model=data.tariff_type or "fbo",
+            wb_club_discount_pct=data.wb_club_discount_pct,
+        )
+        stmt = ins.on_conflict_do_update(
+            constraint="reference_book_org_entity_vf_key",
+            set_={
+                "mp_correction_pct": ins.excluded.mp_correction_pct,
+                "buyout_niche_pct": ins.excluded.buyout_niche_pct,
+                "extra_costs": ins.excluded.extra_costs,
+                "ad_plan_rub": ins.excluded.ad_plan_rub,
+                "price_before_spp_plan": ins.excluded.price_before_spp_plan,
+                "price_before_spp_change": ins.excluded.price_before_spp_change,
+                "change_date": date.today(),
+                "fulfillment_model": ins.excluded.fulfillment_model,
+                "wb_club_discount_pct": ins.excluded.wb_club_discount_pct,
+            }
+        )
+        await db.execute(stmt)
+        saved += 1
+
+    await db.commit()
+    try:
+        import redis as _redis_lib
+        _redis_lib.from_url("redis://redis:6379/0").delete(f"ue_cache:{org_id}")
+    except Exception:
+        pass
+    return {"ok": True, "saved": saved}
 
 
 # ─── ОБНОВЛЕНИЕ ЦЕН ИЗ WB API ─────────────────────────────
@@ -3375,13 +3486,13 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 .sidebar .user-block .logout-btn{color:#e74c3c;cursor:pointer;display:block;margin-top:6px}
 .sidebar .user-block .logout-btn:hover{color:#ff6b6b}
 .sidebar select option{background:#2d2d44;color:#fff}
-.main-area{margin-left:220px;flex:1;min-height:100vh;background:#f5f7fa}
+.main-area{margin-left:220px;flex:1;min-width:0;width:calc(100% - 220px);max-width:calc(100% - 220px);min-height:100vh;background:#f5f7fa;overflow-x:hidden}
 .top-bar{background:#fff;border-bottom:1px solid #e0e0e0;padding:10px 24px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
 .top-bar .page-title{font-size:1.1em;font-weight:600;color:#1a1a2e}
 .top-bar .filters{display:flex;align-items:center;gap:10px;margin-left:auto}
 .top-bar select,.top-bar input{border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em}
-.page-content{padding:20px 24px}
-.page-section{display:none}
+.page-content{padding:20px 24px;min-width:0;max-width:100%;overflow-x:hidden}
+.page-section{display:none;min-width:0;max-width:100%}
 .page-section.active{display:block}
 
 th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
@@ -3455,8 +3566,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260612c"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260617a"></script>
-<script type="text/javascript" src="/static/js/ue-grid.js?v=20260611-auth"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
+<script type="text/javascript" src="/static/js/ue-grid.js?v=20260619-exp"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260608j"></script>
 <script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260609d"></script>
@@ -4328,7 +4439,9 @@ var _sectionHTML = {
 <button class="btn" onclick="saveUEData()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
 </div>
 
-<div id="ue-tabulator" style="overflow-x:auto;max-height:70vh"></div>
+<div id="ue-tabulator-wrap" style="width:100%;max-width:100%;overflow-x:auto;position:relative">
+<div id="ue-tabulator" style="min-width:1200px;max-height:70vh"></div>
+</div>
 
 <div style="margin-top:12px;display:flex;gap:16px;font-size:.85em;flex-wrap:wrap" id="ue-summary"></div>
 `,

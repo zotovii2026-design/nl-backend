@@ -649,14 +649,27 @@ async function saveUEData() {
         return;
     }
 
+    // Восстанавливаем оригинальный nm_id (для безразмерных он заменён на _solo_)
+    const payload = edited.map(r => {
+        const row = Object.assign({}, r);
+        if (typeof row.nm_id === 'string' && row.nm_id.startsWith('_solo_')) {
+            row.nm_id = row.nm_id_display || parseInt(row.nm_id.replace('_solo_', ''), 10);
+        }
+        // Убираем служебные поля
+        delete row._edited;
+        delete row._noGroup;
+        delete row._hasSizes;
+        return row;
+    });
+
     try {
-        const res = await fetch('/api/v1/nl/unit-economics?org_id=' + ORG_ID, {
+        const res = await fetch('/api/v1/nl/unit-economics/batch?org_id=' + ORG_ID, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer ' + TOKEN
             },
-            body: JSON.stringify({ items: edited })
+            body: JSON.stringify({ items: payload })
         });
         if (res.status === 401) {
             showAuth();
@@ -667,7 +680,10 @@ async function saveUEData() {
         }
         const result = await res.json();
         if (result.ok) {
-            alert('Сохранено: ' + edited.length + ' строк');
+            alert('Сохранено: ' + (result.saved || payload.length) + ' строк');
+            // Снимаем флаг редактирования
+            allData.forEach(r => { delete r._edited; });
+            ueTabulator.replaceData(allData);
         } else {
             alert('Ошибка: ' + (result.error || 'неизвестная'));
         }
@@ -681,7 +697,43 @@ async function saveUEData() {
  */
 function exportUEExcel() {
     if (!ueTabulator) return;
-    ueTabulator.download('xlsx', 'unit-economics.xlsx', { sheetName: 'Юнит-экономика' });
+    var data = ueTabulator.getData();
+    if (!data.length) { alert('Нет данных для экспорта'); return; }
+
+    // Заголовки колонок
+    var cols = ueTabulator.getColumnDefinitions();
+    var flatCols = [];
+    function collectCols(group) {
+        if (group.columns && group.columns.length) {
+            group.columns.forEach(function(c) {
+                if (c.field) flatCols.push({ field: c.field, title: c.title });
+            });
+        } else if (group.field) {
+            flatCols.push({ field: group.field, title: group.title });
+        }
+    }
+    cols.forEach(collectCols);
+
+    var hdr = flatCols.map(function(c) { return c.title; }).join(';');
+    var rows = hdr;
+
+    data.forEach(function(d) {
+        var vals = flatCols.map(function(c) {
+            var v = d[c.field];
+            if (v === null || v === undefined) return '';
+            if (typeof v === 'number') return v;
+            // Экранируем точки с запятой и переносы
+            return String(v).replace(/;/g, ',').replace(/\n/g, ' ');
+        });
+        rows += '\n' + vals.join(';');
+    });
+
+    var blob = new Blob(['\ufeff' + rows], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'unit-economics.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
 }
 
 // ─── ОБНОВЛЕНИЕ ЦЕН ИЗ WB API ────────────────────────────
