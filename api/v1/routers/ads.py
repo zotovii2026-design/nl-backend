@@ -185,6 +185,7 @@ async def get_ad_stats(
                             "nm_id": int(nm),
                             "vendor_code": cd.get("vendorCode", ""),
                             "name": cd.get("title", ""),
+                            "brand": cd.get("brand", ""),
                             "photo": photo_url,
                         })
 
@@ -232,6 +233,7 @@ async def get_ad_stats(
             "nm_count": nm_count,
             "products": products,
             "sum_price": sum_price_val,
+            "cr": round(orders / clicks * 100, 2) if clicks else 0,
             "total_orders": total_orders_rk,
             "total_revenue": total_revenue_rk,
             "drr": drr_rk,
@@ -466,7 +468,7 @@ async def get_ad_stats_by_art(
         "campaigns_count": sum(i["campaigns_count"] for i in items),
         "total_orders": sum(i["total_orders"] for i in items),
         "total_revenue": round(sum(i["total_revenue"] for i in items), 2),
-        "drr": round(sum(i["spent"] for i in items) / max(sum(i["total_revenue"] for i in items), 1) * 100, 1),
+        "drr": round(sum(i["spent"] for i in items) / max(sum(c.get("sum_price", 0) for i in items for c in i.get("campaigns", [])), 1) * 100, 1),
     }
 
     return {"items": items, "totals": totals}
