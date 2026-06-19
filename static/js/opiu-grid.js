@@ -216,6 +216,76 @@ function renderOpiuSyncInfo(sync) {
     element.textContent = parts.join(' · ');
 }
 
+function fmtMoney(value) {
+    return Number(value || 0).toLocaleString('ru-RU', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
+}
+
+function fmtPct(value) {
+    return Number(value || 0).toLocaleString('ru-RU', {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+    }) + '%';
+}
+
+function renderOpiuSummary(total, dateFrom, dateTo) {
+    const container = document.getElementById('opiu-summary');
+    if (!container || !total) return;
+
+    const periodLabel = dateFrom && dateTo
+        ? 'за ' + dateFrom + ' — ' + dateTo
+        : '';
+
+    const revenue = Number(total.realized_unit * total.sales_qty || 0);
+    const netPay = Number(total.net_for_pay || 0);
+    const delivery = Number(total.delivery_total || 0);
+    const storage = Number(total.storage || 0);
+    const penalty = Number(total.penalty || 0);
+    const deduction = Number(total.deduction || 0);
+    const acceptance = Number(total.acceptance || 0);
+    const loyaltyPoints = Number(total.loyalty_points || 0);
+    const loyaltyParticipation = Number(total.loyalty_participation || 0);
+    const grossProfit = Number(total.gross_profit || 0);
+    const returnsRub = Number(total.returns_rub || 0);
+    const salesQty = Number(total.sales_qty || 0);
+    const returnsQty = Number(total.returns_qty || 0);
+    const margin = revenue ? (grossProfit / revenue * 100) : 0;
+
+    const cards = [
+        {label: 'Выручка', value: fmtMoney(revenue) + ' ₽', color: '#5B4B8A'},
+        {label: 'Продажи', value: salesQty.toLocaleString('ru-RU') + ' шт', color: '#333'},
+        {label: 'Возвраты', value: returnsQty.toLocaleString('ru-RU') + ' шт / ' + fmtMoney(returnsRub) + ' ₽', color: '#c0392b'},
+        {label: 'К перечислению', value: fmtMoney(netPay) + ' ₽', color: '#27ae60'},
+        {label: 'Комиссия МП', value: fmtMoney(total.marketplace_commission_unit * salesQty) + ' ₽', color: '#e67e22'},
+        {label: 'Доставка', value: fmtMoney(delivery) + ' ₽', color: '#333'},
+        {label: 'Хранение', value: fmtMoney(storage) + ' ₽', color: '#333'},
+        {label: 'Штрафы', value: fmtMoney(penalty) + ' ₽', color: '#c0392b'},
+        {label: 'Удержания', value: fmtMoney(deduction) + ' ₽', color: '#c0392b'},
+        {label: 'Приёмка', value: fmtMoney(acceptance) + ' ₽', color: '#333'},
+        {label: 'Лояльность', value: fmtMoney(loyaltyPoints + loyaltyParticipation) + ' ₽', color: '#8e44ad'},
+        {label: 'Валовая прибыль', value: fmtMoney(grossProfit) + ' ₽', color: grossProfit >= 0 ? '#27ae60' : '#c0392b', bold: true},
+        {label: 'Маржинальность', value: fmtPct(margin), color: margin >= 20 ? '#27ae60' : (margin >= 0 ? '#e67e22' : '#c0392b'), bold: true},
+    ];
+
+    const html = cards.map(card => {
+        const style = 'padding:14px 16px;background:' + (card.bold ? '#f0ebe8' : '#f8f9fb') +
+            ';border-radius:10px;border:1px solid #e8e8e8';
+        return '<div style="' + style + '">' +
+            '<div style="font-size:.78em;color:#888;margin-bottom:4px">' + card.label + '</div>' +
+            '<div style="font-size:1.15em;font-weight:' + (card.bold ? '700' : '600') +
+            ';color:' + (card.color || '#333') + '">' + card.value + '</div>' +
+            '</div>';
+    }).join('');
+
+    container.innerHTML =
+        '<div style="grid-column:1/-1;display:flex;align-items:center;gap:8px;margin-bottom:2px">' +
+        '<span style="font-size:1.05em;font-weight:700;color:#333">Итоги по магазину</span>' +
+        (periodLabel ? '<span style="font-size:.8em;color:#999">' + periodLabel + '</span>' : '') +
+        '</div>' + html;
+}
+
 async function loadOpiu() {
     if (!ORG_ID) return;
     if (!opiuTabulator) initOpiuGrid();
@@ -238,11 +308,14 @@ async function loadOpiu() {
         fillOpiuFilters(opiuAllRows);
         applyOpiuFilters();
         renderOpiuSyncInfo(data.sync);
+        renderOpiuSummary(data.total, range.dateFrom, range.dateTo);
     } catch (error) {
         console.error('loadOpiu error:', error);
         opiuAllRows = [];
         opiuTotalRow = null;
         if (opiuTabulator) opiuTabulator.replaceData([]);
+        const summary = document.getElementById('opiu-summary');
+        if (summary) summary.innerHTML = '';
         if (count) count.textContent = 'Ошибка загрузки';
     }
 }

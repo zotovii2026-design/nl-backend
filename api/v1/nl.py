@@ -3453,7 +3453,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Chart.js -->
 <script src="/static/lib/chart.min.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
-<script type="text/javascript" src="/static/js/opiu-grid.js?v=20260612c"></script>
+<script type="text/javascript" src="/static/js/opiu-grid.js?v=20260619a"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260617a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260611-auth"></script>
@@ -3975,6 +3975,7 @@ var _sectionHTML = {
 <span id="opiu-count" style="margin-left:auto;color:#777;font-size:.85em"></span>
 </div>
 <div id="opiu-sync-info" style="margin:-4px 0 10px;color:#888;font-size:.8em"></div>
+<div id="opiu-summary" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:18px"></div>
 <div id="opiu-tabulator"></div>
 `,
     'costprice': `
@@ -4661,7 +4662,7 @@ async function _sectionEnter(name) {
             }
             loadRnp(); break;
         case 'opiu':
-            if (!_opiuInited) { _lazyInit('opiu'); _opiuInited = true; }
+            if (!_opiuInited) { _lazyInit('opiu'); loadOrgs(); _opiuInited = true; }
             loadOpiu(); break;
         case 'costprice':
             if (!_costpriceInited) { _lazyInit('costprice'); loadOrgs(); _costpriceInited = true; }
