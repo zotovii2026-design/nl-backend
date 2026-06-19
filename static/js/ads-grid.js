@@ -369,9 +369,48 @@ function closeAdsDetailModal() {
 }
 
 /**
- * Экспорт в Excel
+ * Экспорт в CSV (SheetJS не подключён — используем Blob)
  */
 function exportAdsExcel() {
     if (!adsTabulator) return;
-    adsTabulator.download('xlsx', 'ads-campaigns.xlsx', { sheetName: 'Рекламные кампании' });
+    var cols = adsTabulator.getColumnDefinitions();
+    // Плоский список колонок (без групп)
+    var flatCols = [];
+    cols.forEach(function(c) {
+        if (c.columns && c.columns.length) {
+            c.columns.forEach(function(sub) { flatCols.push(sub); });
+        } else {
+            flatCols.push(c);
+        }
+    });
+    var headers = flatCols.map(function(c) { return c.title; });
+    var rows = adsTabulator.getData();
+    var lines = [];
+    lines.push(headers.map(csvEscape).join(';'));
+    rows.forEach(function(row) {
+        var vals = flatCols.map(function(c) {
+            var v = row[c.field];
+            if (c.field === 'status') v = ({'4':'Ожидает','7':'Активна','8':'Отклонена','9':'Приостановлена','11':'Завершена'})[v] || v;
+            if (c.field === 'type') v = ({'4':'Авто','5':'Поиск','6':'Каталог','7':'Таргет','8':'Рек.рек.','9':'Аукцион'})[v] || v;
+            return v != null ? v : '';
+        });
+        lines.push(vals.map(csvEscape).join(';'));
+    });
+    var blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'ads-campaigns.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function csvEscape(v) {
+    v = String(v == null ? '' : v);
+    if (v.indexOf(';') >= 0 || v.indexOf('"') >= 0 || v.indexOf('\n') >= 0) {
+        return '"' + v.replace(/"/g, '""') + '"';
+    }
+    return v;
 }
