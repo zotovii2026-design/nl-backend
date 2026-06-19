@@ -303,21 +303,40 @@ async def get_available_dates(org_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/api/v1/nl/control")
-async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+async def get_control_metrics(
+    org_id: str,
+    target_date: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
     org_id = await resolve_org_id(org_id, db)
     """Оперативный контроль — метрики на дату"""
     from sqlalchemy import func, case, and_
     from datetime import datetime as dt_mod
     import decimal
 
-    d = dt_mod.strptime(target_date, "%Y-%m-%d").date() if target_date else date.today()
+    if date_from and date_to:
+        d_from = dt_mod.strptime(date_from, "%Y-%m-%d").date()
+        d_to = dt_mod.strptime(date_to, "%Y-%m-%d").date()
+    else:
+        d = dt_mod.strptime(target_date, "%Y-%m-%d").date() if target_date else date.today()
+        d_from = d
+        d_to = d
 
-    # Основные метрики за день
+    latest_result = await db.execute(
+        select(func.max(TechStatus.target_date)).where(
+            TechStatus.organization_id == org_id,
+            TechStatus.target_date >= d_from,
+            TechStatus.target_date <= d_to,
+        )
+    )
+    latest_date = latest_result.scalar() or d_to
+
+    # Потоковые метрики за период
     result = await db.execute(
         select(
             func.count(TechStatus.id).label("total_products"),
-            func.sum(TechStatus.stock_qty).label("total_stock"),
-            func.sum(TechStatus.stock_fbo_qty).label("total_stock_fbo"),
             func.sum(TechStatus.orders_count).label("total_orders"),
             func.sum(TechStatus.buyouts_count).label("total_buyouts"),
             func.sum(TechStatus.returns_count).label("total_returns"),
@@ -326,15 +345,29 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
             func.sum(TechStatus.ad_cost).label("total_ad_cost"),
             func.sum(TechStatus.price_discount * TechStatus.buyouts_count).label("total_revenue"),
             func.sum(TechStatus.price_discount * TechStatus.buyouts_count).label("total_revenue_gross"),
-            func.avg(TechStatus.rating).label("avg_rating"),
-        ).where(TechStatus.organization_id == org_id, TechStatus.target_date == d)
+        ).where(
+            TechStatus.organization_id == org_id,
+            TechStatus.target_date >= d_from,
+            TechStatus.target_date <= d_to,
+        )
     )
     row = result.one()
+
+    # Остатки и рейтинг берем на последнюю доступную дату периода
+    stock_result = await db.execute(
+        select(
+            func.count(TechStatus.id).label("total_products"),
+            func.sum(TechStatus.stock_qty).label("total_stock"),
+            func.sum(TechStatus.stock_fbo_qty).label("total_stock_fbo"),
+            func.avg(TechStatus.rating).label("avg_rating"),
+        ).where(TechStatus.organization_id == org_id, TechStatus.target_date == latest_date)
+    )
+    stock_row = stock_result.one()
 
     # Товары с нулевым остатком
     zero_stock = await db.execute(
         select(func.count(TechStatus.id)).where(
-            TechStatus.organization_id == org_id, TechStatus.target_date == d,
+            TechStatus.organization_id == org_id, TechStatus.target_date == latest_date,
             TechStatus.stock_qty <= 0
         )
     )
@@ -342,7 +375,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
     # Товары с низким остатком (<=5)
     low_stock = await db.execute(
         select(func.count(TechStatus.id)).where(
-            TechStatus.organization_id == org_id, TechStatus.target_date == d,
+            TechStatus.organization_id == org_id, TechStatus.target_date == latest_date,
             TechStatus.stock_qty > 0, TechStatus.stock_qty <= 5
         )
     )
@@ -350,7 +383,7 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
     # Товары по рейтингу (< 4)
     low_rating = await db.execute(
         select(func.count(TechStatus.id)).where(
-            TechStatus.organization_id == org_id, TechStatus.target_date == d,
+            TechStatus.organization_id == org_id, TechStatus.target_date == latest_date,
             TechStatus.rating < 4.0
         )
     )
@@ -364,8 +397,12 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
             TechStatus.impressions, TechStatus.clicks, TechStatus.ad_cost,
             TechStatus.price, TechStatus.price_discount, TechStatus.tariff,
             TechStatus.barcode,
-        ).where(TechStatus.organization_id == org_id, TechStatus.target_date == d)
-        .order_by(TechStatus.orders_count.desc().nullslast())
+        ).where(
+            TechStatus.organization_id == org_id,
+            TechStatus.target_date >= d_from,
+            TechStatus.target_date <= d_to,
+        )
+        .order_by(TechStatus.nm_id, TechStatus.entity_id, TechStatus.target_date.desc())
     )
 
     # Маппинг entity_id -> size_name + Д×Ш×В, вес, объём (факт)
@@ -472,16 +509,83 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
     def safe_int(v):
         return int(v) if v is not None else None
 
+    def build_product_rows(rows):
+        grouped = {}
+        order = []
+        for r in rows:
+            eid = str(r[0]) if r[0] else ""
+            key = eid or f"nm:{r[1]}:{r[17] or ''}"
+            if key not in grouped:
+                grouped[key] = {
+                    "entity_id": eid or None,
+                    "nm_id": r[1],
+                    "vendor_code": r[2],
+                    "product_name": r[3],
+                    "photo_main": r[4],
+                    "stock_qty": 0,
+                    "stock_fbo_qty": 0,
+                    "orders_count": 0,
+                    "buyouts_count": 0,
+                    "returns_count": 0,
+                    "rating": None,
+                    "impressions": 0,
+                    "clicks": 0,
+                    "ad_cost": 0,
+                    "price": None,
+                    "price_discount": None,
+                    "tariff": None,
+                    "_latest_set": False,
+                    "barcode": r[17] or "",
+                    "barcodes": ", ".join(barcodes_map.get(eid, [])) or (r[17] or ""),
+                    "size_name": size_map.get(eid, "") if eid else "",
+                    "subject_name": subject_map.get(eid, "") if eid else "",
+                    **(dims_map.get(eid, {}) if eid else {}),
+                }
+                order.append(key)
+
+            item = grouped[key]
+            item["orders_count"] += safe_int(r[7]) or 0
+            item["buyouts_count"] += safe_int(r[8]) or 0
+            item["returns_count"] += safe_int(r[9]) or 0
+            item["impressions"] += safe_int(r[11]) or 0
+            item["clicks"] += safe_int(r[12]) or 0
+            item["ad_cost"] += safe_float(r[13]) or 0
+
+            # Query is ordered newest first inside each entity/nm group, so set point-in-time fields once.
+            if not item["_latest_set"]:
+                item["stock_qty"] = safe_int(r[5]) or 0
+                item["stock_fbo_qty"] = safe_int(r[6]) or 0
+                item["rating"] = safe_float(r[10])
+                item["price"] = safe_float(r[14])
+                item["price_discount"] = safe_float(r[15])
+                item["tariff"] = safe_float(r[16])
+                item["_latest_set"] = True
+
+        products = []
+        for key in order:
+            item = grouped[key]
+            item.pop("_latest_set", None)
+            ref = _get_ref(item["entity_id"] or "", item["nm_id"])
+            snap = _get_snap(item["nm_id"])
+            item.update(ref)
+            item.update({f"snap_{k}": v for k, v in snap.items()})
+            item.update(_calc_unit(item.get("price_discount"), item.get("ad_cost"), ref, snap))
+            products.append(item)
+        products.sort(key=lambda p: p.get("orders_count") or 0, reverse=True)
+        return products
+
     total_clicks = safe_int(row.total_clicks) or 0
     total_impressions = safe_int(row.total_impressions) or 0
 
     return {
-        "date": str(d),
+        "date": str(latest_date),
+        "date_from": str(d_from),
+        "date_to": str(d_to),
         "summary": {
-            "total_products": safe_int(row.total_products) or 0,
-            "total_stock": (safe_int(row.total_stock) or 0) + (safe_int(row.total_stock_fbo) or 0),
-            "total_stock_fbo": safe_int(row.total_stock_fbo) or 0,
-            "total_stock_fbs": safe_int(row.total_stock) or 0,
+            "total_products": safe_int(stock_row.total_products) or 0,
+            "total_stock": (safe_int(stock_row.total_stock) or 0) + (safe_int(stock_row.total_stock_fbo) or 0),
+            "total_stock_fbo": safe_int(stock_row.total_stock_fbo) or 0,
+            "total_stock_fbs": safe_int(stock_row.total_stock) or 0,
             "total_orders": safe_int(row.total_orders) or 0,
             "total_buyouts": safe_int(row.total_buyouts) or 0,
             "total_returns": safe_int(row.total_returns) or 0,
@@ -490,42 +594,12 @@ async def get_control_metrics(org_id: str, target_date: Optional[str] = None, db
             "ctr": round(total_clicks / total_impressions * 100, 2) if total_impressions > 0 else 0,
             "total_ad_cost": safe_float(row.total_ad_cost) or 0,
             "total_revenue": safe_float(row.total_revenue) or 0,
-            "avg_rating": round(float(row.avg_rating), 2) if row.avg_rating else None,
+            "avg_rating": round(float(stock_row.avg_rating), 2) if stock_row.avg_rating else None,
             "zero_stock_count": safe_int(zero_stock.scalar()) or 0,
             "low_stock_count": safe_int(low_stock.scalar()) or 0,
             "low_rating_count": safe_int(low_rating.scalar()) or 0,
         },
-        "products": (lambda rows: [
-            {**{
-                "entity_id": str(r[0]) if r[0] else None,
-                "nm_id": r[1],
-                "vendor_code": r[2],
-                "product_name": r[3],
-                "photo_main": r[4],
-                "stock_qty": safe_int(r[5]),
-                "stock_fbo_qty": safe_int(r[6]),
-                "orders_count": safe_int(r[7]),
-                "buyouts_count": safe_int(r[8]),
-                "returns_count": safe_int(r[9]),
-                "rating": safe_float(r[10]),
-                "impressions": safe_int(r[11]),
-                "clicks": safe_int(r[12]),
-                "ad_cost": safe_float(r[13]),
-                "price": safe_float(r[14]),
-                "price_discount": safe_float(r[15]),
-                "tariff": safe_float(r[16]),
-                "barcode": r[17] or "",
-                "barcodes": ", ".join(barcodes_map.get(str(r[0]), [])) or (r[17] or ""),
-                "size_name": size_map.get(str(r[0]), "") if r[0] else "",
-                "subject_name": subject_map.get(str(r[0]), "") if r[0] else "",
-                **(dims_map.get(str(r[0]), {}) if r[0] else {}),
-            },
-            **{k: v for k, v in _get_ref(str(r[0]) if r[0] else "", r[1]).items()},
-            **{f"snap_{k}": v for k, v in _get_snap(r[1]).items()},
-            **_calc_unit(safe_float(r[14]), safe_float(r[12]), _get_ref(str(r[0]) if r[0] else "", r[1]), _get_snap(r[1])),
-            }
-            for r in rows
-        ])(products_detail.all())
+        "products": build_product_rows(products_detail.all())
     }
 
 
@@ -3453,6 +3527,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Chart.js -->
 <script src="/static/lib/chart.min.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
+<script type="text/javascript" src="/static/js/stats-grid.js?v=20260619b"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260619e"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260617a"></script>
@@ -3531,75 +3606,35 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <span class="page-title" id="page-title">Основные показатели</span>
 <div class="filters" id="top-filters">
 <span style="font-size:.85em">🏪</span><select id="filter-store" onchange="switchTopStore()" style="min-width:160px;border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em;background:#fff"></select>
-<select id="filter-period" onchange="if (_currentSection === 'opiu') onOpiuPeriodChange()"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option><option value="custom">Произвольный период</option></select>
+<select id="filter-period" onchange="onTopPeriodChange()"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option><option value="custom">Произвольный период</option></select>
 <input type="text" id="filter-article" placeholder="Артикул" style="width:120px">
 </div>
 </div>
 <div class="page-content">
 <div id="page-stats" class="page-section active">
-<!-- Фильтр по дате -->
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
-<select id="stats-date" onchange="_statsLimit=50;loadStats()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;cursor:pointer"></select>
-<button class="btn" onclick="_statsLimit=50;loadStats()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+<div id="stats-custom-period" style="display:none;align-items:center;gap:6px">
+<input id="stats-date-from" type="date" onchange="loadStats()" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px">
+<span>-</span>
+<input id="stats-date-to" type="date" onchange="loadStats()" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px">
+</div>
+<button class="btn" onclick="loadStats()" style="padding:6px 14px;font-size:.85em">Обновить</button>
+<span id="stats-period-label" style="color:#777;font-size:.85em"></span>
 </div>
 
-<!-- Прибыль -->
-<div style="margin-bottom:24px">
-<div style="font-size:.85em;color:#999;margin-bottom:8px">ПРИБЫЛЬ</div>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
-<div class="metric-card"><div class="mc-label">Выручка</div><div class="mc-value" id="v-revenue">—</div></div>
-<div class="metric-card"><div class="mc-label">Выкупов</div><div class="mc-value" id="v-buyouts-count">—</div></div>
-<div class="metric-card" id="mc-profit"><div class="mc-label">Прибыль</div><div class="mc-value" id="v-profit">—</div><div class="mc-delta" id="d-profit"></div></div>
-<div class="metric-card" id="mc-realization"><div class="mc-label">Реализация</div><div class="mc-value" id="v-realization">—</div><div class="mc-delta" id="d-realization"></div></div>
-<div class="metric-card"><div class="mc-label">Продажи</div><div class="mc-value" id="v-sales">—</div><div class="mc-delta" id="d-sales"></div></div>
-<div class="metric-card"><div class="mc-label">К выплате</div><div class="mc-value" id="v-topay">—</div><div class="mc-delta" id="d-topay"></div></div>
-<div class="metric-card"><div class="mc-label">Продано штук</div><div class="mc-value" id="v-sold">—</div><div class="mc-delta" id="d-sold"></div></div>
-<div class="metric-card"><div class="mc-label">Отмен штук</div><div class="mc-value" id="v-cancelled">—</div><div class="mc-delta" id="d-cancelled"></div></div>
-<div class="metric-card"><div class="mc-label">Возвратов штук</div><div class="mc-value" id="v-returned">—</div><div class="mc-delta" id="d-returned"></div></div>
-<div class="metric-card"><div class="mc-label">% возвратов</div><div class="mc-value" id="v-retpercent">—</div><div class="mc-delta" id="d-retpercent"></div></div>
-<div class="metric-card"><div class="mc-label">ROI</div><div class="mc-value" id="v-roi">—</div><div class="mc-delta" id="d-roi"></div></div>
-<div class="metric-card"><div class="mc-label">Рентабельность</div><div class="mc-value" id="v-rent">—</div><div class="mc-delta" id="d-rent"></div></div>
-<div class="metric-card"><div class="mc-label">Процент выкупов</div><div class="mc-value" id="v-buyout">—</div><div class="mc-delta" id="d-buyout"></div></div>
-<div class="metric-card"><div class="mc-label">Прибыль/ед.</div><div class="mc-value" id="v-profitunit">—</div><div class="mc-delta" id="d-profitunit"></div></div>
-</div>
-</div>
+<div id="stats-alerts" style="margin-bottom:12px"></div>
 
-<!-- Расходы -->
-<div style="margin-bottom:24px">
-<div style="font-size:.85em;color:#999;margin-bottom:8px">РАСХОДЫ</div>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
-<div class="metric-card expense"><div class="mc-label">Налог</div><div class="mc-value" id="v-tax">—</div></div>
-<div class="metric-card expense"><div class="mc-label">Себестоимость</div><div class="mc-value" id="v-costprice">—</div></div>
-<div class="metric-card expense"><div class="mc-label">Комиссия ВБ</div><div class="mc-value" id="v-commission">—</div></div>
-<div class="metric-card expense"><div class="mc-label">Реклама (ДРР)</div><div class="mc-value" id="v-ads">—</div></div>
-<div class="metric-card expense"><div class="mc-label">Логистика</div><div class="mc-value" id="v-logistics">—</div></div>
-<div class="metric-card expense"><div class="mc-label">Штрафы</div><div class="mc-value" id="v-fines">—</div></div>
-<div class="metric-card expense"><div class="mc-label">Хранение</div><div class="mc-value" id="v-storage">—</div></div>
-<div class="metric-card expense"><div class="mc-label">Платная приемка</div><div class="mc-value" id="v-reception">—</div></div>
-<div class="metric-card expense"><div class="mc-label">Прочие удержания</div><div class="mc-value" id="v-other">—</div></div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px">
+<div style="font-size:1.05em;font-weight:700;color:#333">Итоги за период</div>
+<div style="font-size:.82em;color:#888">агрегировано по выбранным датам</div>
 </div>
-</div>
+<div id="stats-summary-tabulator" style="min-height:120px;width:100%;margin-bottom:18px"></div>
 
-<!-- Остатки -->
-<div style="margin-bottom:24px">
-<div style="font-size:.85em;color:#999;margin-bottom:8px">ОСТАТКИ</div>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
-<div class="metric-card"><div class="mc-label">Остатки всего</div><div class="mc-value" id="v-stock-total">—</div><div class="mc-sub" id="v-stock-sub"></div></div>
-<div class="metric-card"><div class="mc-label">На складах WB</div><div class="mc-value" id="v-stock-wb">—</div><div class="mc-sub" id="v-stock-wb-sub"></div></div>
-<div class="metric-card"><div class="mc-label">На моих складах</div><div class="mc-value" id="v-stock-my">—</div><div class="mc-sub" id="v-stock-my-sub"></div></div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px">
+<div style="font-size:1.05em;font-weight:700;color:#333">Товары</div>
+<div id="stats-products-count" style="font-size:.82em;color:#888"></div>
 </div>
-</div>
-
-<!-- Алерты -->
-<div id="stats-alerts" style="margin-bottom:20px"></div>
-
-<!-- Таблица товаров -->
-<div style="font-size:.85em;color:#999;margin-bottom:8px">ТОВАРЫ</div>
-<table id="stats-table">
-<thead><tr><th>Фото</th><th>Арт WB</th><th>Название</th><th>Размер</th><th>ШК</th><th>Остаток</th><th>Заказы</th><th>Выкупы</th><th>Возвраты</th><th>Рейтинг</th><th>Показы</th><th>Клики</th><th>CTR</th><th>Реклама ₽</th><th>Цена</th></tr></thead>
-<tbody id="stats-products"><tr><td colspan="15" class="empty">Выберите дату</td></tr></tbody>
-</table>
-<div id="stats-pagination" style="margin-top:8px;display:flex;align-items:center;gap:10px;font-size:.85em;color:#666"><span id="stats-shown"></span><button id="stats-more-btn" class="btn" style="padding:4px 12px;font-size:.85em;display:none" onclick="loadStatsMore()">Показать ещё</button></div>
+<div id="stats-products-tabulator" style="min-height:560px;width:100%;"></div>
 </div>
 
 <div id="page-analytics" class="page-section"></div>
@@ -3698,166 +3733,15 @@ async function showApp() {
     } catch(e) { console.error('init error:', e); }
 }
 
-var _statsLimit=50;function loadStatsMore(){_statsLimit+=50;loadStats()}
+function loadStatsMore(){ loadStats(); }
 
 async function loadStats() {
-    if (!ORG_ID) return;
-    const sel = document.getElementById('stats-date') || document.getElementById('ref-date');
-    let dateVal = sel ? sel.value : '';
-    if (!dateVal || dateVal === 'Нет данных') dateVal = new Date().toISOString().split('T')[0];
-    try {
-        const res = await fetch('/api/v1/nl/control?org_id=' + ORG_ID + '&target_date=' + dateVal);
-        if (!res.ok) return;
-        const data = await res.json();
-        const s = data.summary || {};
-        // Заполняем карточки
-        const fmt = (v, suffix) => { if (v == null) return '—'; return Number(v).toLocaleString('ru-RU', {maximumFractionDigits:2}) + (suffix || ''); };
-        // Карточки прибыли
-        const revenue = s.total_revenue || 0;
-        const adCost = s.total_ad_cost || 0;
-        const profit = revenue - adCost;
-        document.getElementById('v-profit').textContent = fmt(profit, ' ₽');
-        document.getElementById('v-profit').style.color = profit >= 0 ? '#00b894' : '#e74c3c';
-        document.getElementById('v-sold').textContent = fmt(s.total_orders);
-        document.getElementById('v-returned').textContent = fmt(s.total_returns);
-        document.getElementById('v-stock-total').textContent = fmt(s.total_stock, ' шт');
-        document.getElementById('v-stock-wb').textContent = fmt(s.total_stock_fbo, ' шт');
-        document.getElementById('v-stock-my').textContent = fmt(s.total_stock_fbs, ' шт');
-        document.getElementById('v-ads').textContent = fmt(adCost, ' ₽');
-        document.getElementById('v-buyout').textContent = s.total_orders ? (s.total_buyouts / s.total_orders * 100).toFixed(1) + '%' : '—';
-        // Доп. карточки
-        const el1 = document.getElementById('v-revenue');
-        if (el1) el1.textContent = fmt(revenue, ' ₽');
-        const el2 = document.getElementById('v-buyouts-count');
-        if (el2) el2.textContent = s.total_buyouts || 0;
-        const el3 = document.getElementById('v-profitunit');
-        if (el3) el3.textContent = s.total_buyouts ? fmt(profit / s.total_buyouts, ' ₽') : '—';
-        // Алерты
-        let alerts = '';
-        if (s.zero_stock_count > 0) alerts += '<div class="alert-card red">🔴 Нет в наличии: ' + s.zero_stock_count + ' товаров</div>';
-        if (s.low_stock_count > 0) alerts += '<div class="alert-card yellow">🟡 Низкий остаток (≤5): ' + s.low_stock_count + ' товаров</div>';
-        document.getElementById('stats-alerts').innerHTML = alerts;
-        // Таблица товаров — группировка по nm_id
-        const tbody = document.getElementById('stats-products');
-        const prods = data.products || [];
-        if (!prods.length) { tbody.innerHTML = '<tr><td colspan="15" class="empty">Нет данных</td></tr>'; return; }
-        
-        // Группируем по nm_id
-        const groups = {};
-        const order = [];
-        prods.forEach(p => {
-            const key = p.nm_id;
-            if (!groups[key]) { groups[key] = []; order.push(key); }
-            groups[key].push(p);
-        });
-        
-        let html = '';
-        order.slice(0, _statsLimit).forEach(nmId => {
-            const items = groups[nmId];
-            const hasSizes = items.length > 1 || (items.length === 1 && items[0].size_name && items[0].size_name !== '0' && items[0].size_name !== 'ONE SIZE');
-            
-            // Агрегация для родительской строки
-            let totalStock = 0, totalStockFbo = 0, totalOrders = 0, totalBuyouts = 0, totalReturns = 0;
-            let totalImpressions = 0, totalClicks = 0, totalAd = 0;
-            items.forEach(p => {
-                totalStock += (p.stock_qty || 0) + (p.stock_fbo_qty || 0);
-                totalStockFbo += p.stock_fbo_qty || 0;
-                totalOrders += p.orders_count || 0;
-                totalBuyouts += p.buyouts_count || 0;
-                totalReturns += p.returns_count || 0;
-                totalImpressions += p.impressions || 0;
-                totalClicks += p.clicks || 0;
-                totalAd += p.ad_cost || 0;
-            });
-            const avgRating = items.reduce((s,p) => s + (p.rating||0), 0) / items.length;
-            const avgPrice = items[0].wb_price_fact || items[0].price || 0;
-            const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions * 100).toFixed(1) + '%' : '—';
-            const thumb = (items[0].photo_main || '').replace('/hq/', '/c246x328/').replace('/big/', '/c246x328/').replace('/tm/', '/c246x328/');
-            const totalStockFbs = totalStock - totalStockFbo;
-            const stockColor = totalStock <= 0 ? '#e74c3c' : totalStock <= 5 ? '#e17055' : '';
-            
-            if (hasSizes) {
-                // Родительская строка (кликабельная)
-                html += '<tr class="group-parent" onclick="toggleGroup(this)" style="cursor:pointer;background:#f8f9ff">' +
-                '<td>' + (thumb ? '<img src="' + thumb + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover" loading="lazy">' : '') + '</td>' +
-                '<td><b>' + nmId + '</b> <span style="font-size:.7em;color:#6c5ce7">▸ ' + items.length + ' разм.</span></td>' +
-                '<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(items[0].product_name) + '">' + esc(items[0].product_name) + '</td>' +
-                '<td></td><td></td>' +
-                '<td style="font-weight:600;line-height:1.1"><div style="color:#0984e3;font-size:.9em">' + totalStockFbo + '</div><div style="color:#6c5ce7;font-size:.75em">' + totalStockFbs + '</div></td>' +
-                '<td>' + totalOrders + '</td><td>' + totalBuyouts + '</td><td>' + totalReturns + '</td>' +
-                '<td>' + (avgRating ? avgRating.toFixed(1) : '—') + '</td>' +
-                '<td>' + totalImpressions + '</td><td>' + totalClicks + '</td><td>' + ctr + '</td>' +
-                '<td>' + fmt(totalAd) + '</td><td>' + fmt(avgPrice) + '</td></tr>';
-                
-                // Строки размеров (скрыты по умолчанию)
-                items.forEach(p => {
-                    const sCtr = p.impressions > 0 ? (p.clicks / p.impressions * 100).toFixed(1) + '%' : '—';
-                    const sizeLabel = p.size_name && p.size_name !== '0' && p.size_name !== 'ONE SIZE' ? p.size_name : '—';
-                    html += '<tr class="group-child" style="display:none;font-size:.85em">' +
-                    '<td></td><td></td><td></td>' +
-                    '<td style="color:#6c5ce7;font-weight:500">' + sizeLabel + '</td>' +
-                    '<td style="font-size:.7em;color:#999">' + (p.barcode || '') + '</td>' +
-                    '<td style="font-weight:600;line-height:1.1"><div style="color:#0984e3;font-size:.9em">' + (p.stock_fbo_qty ?? '—') + '</div><div style="color:#6c5ce7;font-size:.75em">' + (p.stock_qty ?? '—') + '</div></td>' +
-                    '<td>' + (p.orders_count ?? '—') + '</td><td>' + (p.buyouts_count ?? '—') + '</td><td>' + (p.returns_count ?? '—') + '</td>' +
-                    '<td>' + (p.rating ?? '—') + '</td><td>' + (p.impressions ?? '—') + '</td><td>' + (p.clicks ?? '—') + '</td><td>' + sCtr + '</td>' +
-                    '<td>' + fmt(p.ad_cost) + '</td><td>' + fmt(p.wb_price_fact || p.price) + '</td></tr>';
-                });
-            } else {
-                // Один размер — обычная строка
-                const p = items[0];
-                const sizeLabel = p.size_name && p.size_name !== '0' && p.size_name !== 'ONE SIZE' ? p.size_name : '';
-                html += '<tr data-entity="' + (p.entity_id||'') + '">' +
-                '<td>' + (thumb ? '<img src="' + thumb + '" style="width:36px;height:36px;border-radius:4px;object-fit:cover" loading="lazy">' : '') + '</td>' +
-                '<td>' + (p.nm_id || '') + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(p.product_name) + '">' + esc(p.product_name) + '</td>' +
-                '<td style="font-size:.8em;color:#636e72">' + sizeLabel + '</td>' +
-                '<td style="font-size:.7em;color:#999">' + (p.barcode || '') + '</td>' +
-                '<td style="font-weight:600;line-height:1.1"><div style="color:#0984e3;font-size:.9em">' + (p.stock_fbo_qty ?? '—') + '</div><div style="color:#6c5ce7;font-size:.75em">' + (p.stock_qty ?? '—') + '</div></td>' +
-                '<td>' + (p.orders_count ?? '—') + '</td>' +
-                '<td>' + (p.buyouts_count ?? '—') + '</td><td>' + (p.returns_count ?? '—') + '</td>' +
-                '<td>' + (p.rating ?? '—') + '</td><td>' + (p.impressions ?? '—') + '</td>' +
-                '<td>' + (p.clicks ?? '—') + '</td><td>' + ctr + '</td>' +
-                '<td>' + fmt(p.ad_cost) + '</td><td>' + fmt(p.wb_price_fact || p.price) + '</td></tr>';
-            }
-        });
-        tbody.innerHTML = html;
-        var _pagEl=document.getElementById('stats-shown');var _morBtn=document.getElementById('stats-more-btn');
-        if(_pagEl)_pagEl.textContent='Показано '+Math.min(_statsLimit,order.length)+' из '+order.length+' товаров';
-        if(_morBtn)_morBtn.style.display=_statsLimit>=order.length?'none':'';
-        // === ITOGO ===
-        let gStock=0, gStockFbo=0, gOrders=0, gBuyouts=0, gReturns=0, gImpressions=0, gClicks=0, gAd=0, gRatingSum=0, gRatingCount=0;
-        prods.forEach(p => {
-            gStock += (p.stock_qty || 0) + (p.stock_fbo_qty || 0);
-            gStockFbo += p.stock_fbo_qty || 0;
-            gOrders += p.orders_count || 0;
-            gBuyouts += p.buyouts_count || 0;
-            gReturns += p.returns_count || 0;
-            gImpressions += p.impressions || 0;
-            gClicks += p.clicks || 0;
-            gAd += p.ad_cost || 0;
-            if (p.rating && p.rating > 0) { gRatingSum += p.rating; gRatingCount++; }
-        });
-        const gCtr = gImpressions > 0 ? (gClicks / gImpressions * 100).toFixed(1) + '%' : '-';
-        const gRating = gRatingCount > 0 ? (gRatingSum / gRatingCount).toFixed(1) : '-';
-        const gBuyoutPct = gOrders > 0 ? (gBuyouts / gOrders * 100).toFixed(1) + '%' : '-';
-        const gActiveCount = prods.filter(p => ((p.stock_qty || 0) + (p.stock_fbo_qty || 0)) > 0).length;
-        const totRow = document.createElement('tr');
-        totRow.id = 'stats-total-row';
-        totRow.style.cssText = 'background:linear-gradient(135deg,#6c5ce7,#a29bfe);color:#fff;font-weight:700;position:sticky;top:0;z-index:5';
-        var totLabel = '\u0418\u0422\u041E\u0413\u041E (' + order.length + ' \u0442\u043e\u0432., ' + gActiveCount + ' \u0430\u043a\u0442.)';
-        var rbl = ' \u20bd';
-        totRow.innerHTML = '<td colspan="5" style="text-align:left;padding-left:12px;font-size:.95em">' + totLabel + '</td>' +
-        '<td style="font-weight:600;line-height:1.1"><div style="color:#0984e3;font-size:.9em">' + gStockFbo + '</div><div style="color:#6c5ce7;font-size:.75em">' + (gStock - gStockFbo) + '</div></td>' +
-        '<td>' + gOrders + '</td>' +
-        '<td>' + gBuyouts + '</td>' +
-        '<td>' + gReturns + '</td>' +
-        '<td>' + gRating + '</td>' +
-        '<td>' + gImpressions + '</td>' +
-        '<td>' + gClicks + '</td>' +
-        '<td>' + gCtr + '</td>' +
-        '<td>' + fmt(gAd) + rbl + '</td>' +
-        '<td>' + gBuyoutPct + '</td>';
-        tbody.insertBefore(totRow, tbody.firstChild);
-    } catch(e) { console.error('loadStats error:', e); }
+    if (typeof loadStatsGrid === 'function') return loadStatsGrid();
+}
+
+function onTopPeriodChange() {
+    if (_currentSection === 'opiu' && typeof onOpiuPeriodChange === 'function') onOpiuPeriodChange();
+    else if (_currentSection === 'stats') loadStats();
 }
 
 function showAuth() {
