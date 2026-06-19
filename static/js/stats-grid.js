@@ -154,6 +154,7 @@ function initStatsProductsGrid() {
             return 'Арт WB ' + value + title + ' (' + count + ')';
         },
     });
+    statsProductsTabulator.on('dataFiltered', updateStatsProductsCount);
 }
 
 function prepareStatsProducts(products) {
@@ -176,6 +177,7 @@ function applyStatsTopSearch() {
     var q = (document.getElementById('filter-article')?.value || '').trim().toLowerCase();
     if (!q) {
         statsProductsTabulator.clearFilter(true);
+        updateStatsProductsCount();
         return;
     }
     statsProductsTabulator.setFilter(function(row) {
@@ -184,6 +186,22 @@ function applyStatsTopSearch() {
             || String(row.product_name || '').toLowerCase().includes(q)
             || String(row.barcode || '').toLowerCase().includes(q);
     });
+    updateStatsProductsCount();
+}
+
+function updateStatsProductsCount() {
+    var count = document.getElementById('stats-products-count');
+    if (!count || !statsProductsTabulator) return;
+    var total = statsAllProducts.length;
+    var active = total;
+    try {
+        active = statsProductsTabulator.getData('active').length;
+    } catch (e) {
+        active = total;
+    }
+    count.textContent = active === total
+        ? total.toLocaleString('ru-RU') + ' строк'
+        : active.toLocaleString('ru-RU') + ' из ' + total.toLocaleString('ru-RU') + ' строк';
 }
 
 function renderStatsAlerts(summary) {
@@ -238,7 +256,7 @@ async function loadStatsGrid() {
         statsAllProducts = prepareStatsProducts(data.products || []);
         statsProductsTabulator.setData(statsAllProducts);
         applyStatsTopSearch();
-        if (count) count.textContent = statsAllProducts.length.toLocaleString('ru-RU') + ' строк';
+        updateStatsProductsCount();
     } catch (e) {
         console.error('loadStatsGrid error:', e);
         if (count) count.textContent = 'Ошибка загрузки';

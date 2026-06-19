@@ -3527,7 +3527,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Chart.js -->
 <script src="/static/lib/chart.min.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
-<script type="text/javascript" src="/static/js/stats-grid.js?v=20260619b"></script>
+<script type="text/javascript" src="/static/js/stats-grid.js?v=20260619c"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260619e"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260617a"></script>
