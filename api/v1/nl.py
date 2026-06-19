@@ -3400,13 +3400,13 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 .sidebar .user-block .logout-btn{color:#e74c3c;cursor:pointer;display:block;margin-top:6px}
 .sidebar .user-block .logout-btn:hover{color:#ff6b6b}
 .sidebar select option{background:#2d2d44;color:#fff}
-.main-area{margin-left:220px;flex:1;min-height:100vh;background:#f5f7fa}
+.main-area{margin-left:220px;flex:1;min-width:0;width:calc(100% - 220px);max-width:calc(100% - 220px);min-height:100vh;background:#f5f7fa;overflow-x:hidden}
 .top-bar{background:#fff;border-bottom:1px solid #e0e0e0;padding:10px 24px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
 .top-bar .page-title{font-size:1.1em;font-weight:600;color:#1a1a2e}
 .top-bar .filters{display:flex;align-items:center;gap:10px;margin-left:auto}
 .top-bar select,.top-bar input{border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em}
-.page-content{padding:20px 24px}
-.page-section{display:none}
+.page-content{padding:20px 24px;min-width:0;max-width:100%;overflow-x:hidden}
+.page-section{display:none;min-width:0;max-width:100%}
 .page-section.active{display:block}
 
 th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
@@ -4353,7 +4353,9 @@ var _sectionHTML = {
 <button class="btn" onclick="saveUEData()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
 </div>
 
-<div id="ue-tabulator" style="overflow-x:auto;max-height:70vh"></div>
+<div id="ue-tabulator-wrap" style="width:100%;max-width:100%;overflow-x:auto;position:relative">
+<div id="ue-tabulator" style="min-width:1200px;max-height:70vh"></div>
+</div>
 
 <div style="margin-top:12px;display:flex;gap:16px;font-size:.85em;flex-wrap:wrap" id="ue-summary"></div>
 `,
