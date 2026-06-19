@@ -3453,7 +3453,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Chart.js -->
 <script src="/static/lib/chart.min.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
-<script type="text/javascript" src="/static/js/opiu-grid.js?v=20260619a"></script>
+<script type="text/javascript" src="/static/js/opiu-grid.js?v=20260619e"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260617a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260611-auth"></script>
@@ -3976,7 +3976,11 @@ var _sectionHTML = {
 </div>
 <div id="opiu-sync-info" style="margin:-4px 0 10px;color:#888;font-size:.8em"></div>
 <div id="opiu-summary" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:18px"></div>
-<div id="opiu-tabulator"></div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px">
+<div style="font-size:1.05em;font-weight:700;color:#333">ОПиУ по артикулам</div>
+<div style="font-size:.82em;color:#888">детализация выбранного периода</div>
+</div>
+<div id="opiu-tabulator" style="min-height:520px;width:100%;"></div>
 `,
     'costprice': `
 <!-- Верхняя панель: текущий магазин -->
@@ -4662,7 +4666,8 @@ async function _sectionEnter(name) {
             }
             loadRnp(); break;
         case 'opiu':
-            if (!_opiuInited) { _lazyInit('opiu'); loadOrgs(); _opiuInited = true; }
+            if (!_opiuInited) { _lazyInit('opiu'); await loadOrgs(); _opiuInited = true; }
+            else { await loadOrgs(); }
             loadOpiu(); break;
         case 'costprice':
             if (!_costpriceInited) { _lazyInit('costprice'); loadOrgs(); _costpriceInited = true; }

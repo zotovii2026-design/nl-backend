@@ -64,16 +64,44 @@ function opiuColumns() {
         .concat(columns.filter(column => !savedOrder.includes(column.field)));
 }
 
-function initOpiuGrid() {
+function ensureOpiuDom() {
+    const page = document.getElementById('page-opiu');
+    if (!page) return false;
+
+    const hasRequiredDom = document.getElementById('opiu-summary')
+        && document.getElementById('opiu-tabulator')
+        && document.getElementById('opiu-count');
+    if (hasRequiredDom) return true;
+
+    if (typeof _lazyInit === 'function') _lazyInit('opiu');
+    return !!(
+        document.getElementById('opiu-summary')
+        && document.getElementById('opiu-tabulator')
+        && document.getElementById('opiu-count')
+    );
+}
+
+function isOpiuGridAttached() {
     const container = document.getElementById('opiu-tabulator');
-    if (!container || typeof Tabulator === 'undefined') return;
+    return !!(
+        opiuTabulator
+        && container
+        && opiuTabulator.element === container
+        && container.isConnected
+    );
+}
+
+function initOpiuGrid() {
+    if (!ensureOpiuDom()) return false;
+    const container = document.getElementById('opiu-tabulator');
+    if (!container || typeof Tabulator === 'undefined') return false;
     if (opiuTabulator) opiuTabulator.destroy();
 
     opiuTabulator = NLGrid.create(container, {
         data: [],
         columns: opiuColumns(),
-        layout: 'fitData',
-        height: '68vh',
+        layout: 'fitDataFill',
+        height: '520px',
         index: '_row_id',
         movableColumns: true,
         placeholder: 'Нет финансовых данных за выбранный период',
@@ -90,6 +118,7 @@ function initOpiuGrid() {
     opiuTabulator.on('columnMoved', function() {
         NLGrid.saveColumnOrder(opiuTabulator, 'opiu-v2');
     });
+    return true;
 }
 
 function fillOpiuSelect(id, values, label) {
@@ -287,8 +316,23 @@ function renderOpiuSummary(total, dateFrom, dateTo) {
 }
 
 async function loadOpiu() {
+    if (!ensureOpiuDom()) return;
     if (!ORG_ID) return;
-    if (!opiuTabulator) initOpiuGrid();
+    if (opiuTabulator && !isOpiuGridAttached()) {
+        try { opiuTabulator.destroy(); } catch {}
+        opiuTabulator = null;
+    }
+    if (!opiuTabulator) {
+        const initialized = initOpiuGrid();
+        if (!initialized || !opiuTabulator) {
+            console.error('opiuTabulator init failed', {
+                hasPage: !!document.getElementById('page-opiu'),
+                hasContainer: !!document.getElementById('opiu-tabulator'),
+                hasTabulator: typeof Tabulator !== 'undefined',
+            });
+            return;
+        }
+    }
     setDefaultOpiuDates();
     const range = getOpiuDateRange();
     const count = document.getElementById('opiu-count');

@@ -26,4 +26,9 @@ def test_async_sections_guard_removed_dom_nodes():
 def test_opiu_loader_is_external_and_guards_removed_dom():
     assert "/static/js/opiu-grid.js" in DASHBOARD_SOURCE
     assert "async function loadOpiu()" not in DASHBOARD_SOURCE
-    assert "if (!container || typeof Tabulator === 'undefined') return;" in OPIU_SOURCE
+    assert "function ensureOpiuDom()" in OPIU_SOURCE
+    assert "if (!ensureOpiuDom()) return false;" in OPIU_SOURCE
+    assert "if (!container || typeof Tabulator === 'undefined') return false;" in OPIU_SOURCE
+    assert "if (!ensureOpiuDom()) return;" in OPIU_SOURCE
+    assert "ОПиУ по артикулам" in DASHBOARD_SOURCE
+    assert "await loadOrgs(); _opiuInited = true;" in DASHBOARD_SOURCE
