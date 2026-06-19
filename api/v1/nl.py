@@ -1279,7 +1279,7 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
     """Сохранить себестоимость (создать/обновить)"""
     from sqlalchemy import text
     nm_id = data.get("nm_id")
-    cost = data.get("cost_price", 0)
+    cost = data.get("cost_price")
     valid_from = data.get("valid_from", date.today().isoformat())
     if isinstance(valid_from, str):
         from datetime import datetime as _dt
@@ -1297,6 +1297,8 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         ), {"org": org_id, "nm": nm_id, "sz": size_name})
         ent_row = ent_q.first()
         entity_id = str(ent_row[0]) if ent_row else None
+    if not entity_id:
+        raise HTTPException(400, "entity_id обязателен для сохранения справочника")
     await db.execute(text(
         "INSERT INTO reference_book (organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
         "subject_id, subject_name, "
@@ -1404,7 +1406,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
             if not nm_id:
                 errors += 1
                 continue
-            cost = data.get("cost_price", 0)
+            cost = data.get("cost_price")
             valid_from = data.get("valid_from", date.today().isoformat())
             if isinstance(valid_from, str):
                 valid_from = _dt.strptime(valid_from, "%Y-%m-%d").date()
@@ -1417,14 +1419,19 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 ), {"org": org_id, "nm": nm_id, "sz": size_name})
                 ent_row = ent_q.first()
                 entity_id = str(ent_row[0]) if ent_row else None
+            if not entity_id:
+                errors += 1
+                print(f"[batch] skip nm={nm_id}: entity_id not resolved")
+                continue
             def pfloat(v):
-                if v is not None and str(v) not in ("", "None"):
+                if v is not None and str(v).strip() not in ("", "None"):
                     try: return float(v)
                     except: pass
                 return None
             def pint(v):
-                if v and str(v).lstrip("-").isdigit():
-                    return int(v)
+                if v is not None and str(v).strip() not in ("", "None"):
+                    try: return int(float(str(v).replace(",", ".")))
+                    except: pass
                 return None
             await db.execute(text(
                 "INSERT INTO reference_book (organization_id, nm_id, barcode, vendor_code, size_name, entity_id, "
@@ -1518,13 +1525,17 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 "cp": cost, "pc": pfloat(data.get("purchase_cost")),
                 "lc": pfloat(data.get("logistics_cost")), "pk": pfloat(data.get("packaging_cost")),
                 "oc": pfloat(data.get("other_costs")), "ec": pfloat(data.get("extra_costs")),
-                "vat": pfloat(data.get("vat")) or 0, "minp": pfloat(data.get("min_price")),
+                "vat": pfloat(data.get("vat")), "minp": pfloat(data.get("min_price")),
                 "mpb": pfloat(data.get("mp_base_pct")), "mpc": pfloat(data.get("mp_correction_pct")),
                 "ffm": data.get("fulfillment_model", "fbo"), "stp": pfloat(data.get("storage_pct")),
                 "bnp": pfloat(data.get("buyout_niche_pct")),
                 "pspp": pfloat(data.get("price_before_spp_plan")), "psppc": pfloat(data.get("price_before_spp_change")),
                 "cdate": date.today(),
-                "wbcd": pfloat(data.get("wb_club_discount_pct")), "adpr": min(99, max(0, pfloat(data.get("ad_plan_rub")) if pfloat(data.get("ad_plan_rub")) is not None else 5)),
+                "wbcd": pfloat(data.get("wb_club_discount_pct")),
+                "adpr": (
+                    min(99, max(0, pfloat(data.get("ad_plan_rub"))))
+                    if pfloat(data.get("ad_plan_rub")) is not None else None
+                ),
                 "sdays": pint(data.get("supply_days")), "minb": pint(data.get("min_batch_fbo")),
                 "pstatus": data.get("product_status"),
                 "pcls": data.get("product_class"), "brand": data.get("brand"),
@@ -2015,7 +2026,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             skipped += 1
             continue
 
-        # entity_id: ищем по nm_id + Размер, fallback на nm_id
+        # entity_id: размерные товары сохраняем только в точную сущность.
         sz_val = ps(row, "Размер", "size_name")
         eid = None
         if sz_val:
@@ -2025,13 +2036,27 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             ), {"org": org_id, "nm": nm, "sz": sz_val})
             ent_row = ent_q.first()
             eid = str(ent_row[0]) if ent_row else None
-        if not eid:
+            if not eid:
+                warnings.append(f"Строка {idx} (Арт WB {nm}): размер '{sz_val}' не найден — пропущено")
+                skipped += 1
+                continue
+        else:
             ent_q = await db.execute(text(
-                "SELECT pe.id FROM product_entities pe "
-                "WHERE pe.organization_id = :org AND pe.nm_id = :nm LIMIT 1"
+                "SELECT pe.id, pe.size_name FROM product_entities pe "
+                "WHERE pe.organization_id = :org AND pe.nm_id = :nm"
             ), {"org": org_id, "nm": nm})
-            ent_row = ent_q.first()
-            eid = str(ent_row[0]) if ent_row else None
+            ent_rows = ent_q.all()
+            if len(ent_rows) == 1:
+                eid = str(ent_rows[0][0])
+                sz_val = ent_rows[0][1] or ""
+            elif len(ent_rows) > 1:
+                warnings.append(f"Строка {idx} (Арт WB {nm}): несколько размеров, укажите колонку Размер — пропущено")
+                skipped += 1
+                continue
+            else:
+                warnings.append(f"Строка {idx} (Арт WB {nm}): товар не найден — пропущено")
+                skipped += 1
+                continue
 
         # === Логистика: ФБО/ФБС валидация ===
         ffm_raw = pstr(row, "Отгрузка", "ФБО/ФБС", "fulfillment_model") or "fbo"
@@ -3455,7 +3480,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260612c"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260617a"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260611-auth"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260608j"></script>

@@ -602,50 +602,70 @@ function updateCostTabulator(filteredProducts) {
 function getCostDataForSave() {
     if (!costTabulator) return [];
     const rows = costTabulator.getData();
+    const numberOrNull = function(value) {
+        if (value === null || value === undefined) return null;
+        if (typeof value === 'string' && value.trim() === '') return null;
+        const n = parseFloat(String(value).replace(',', '.'));
+        return Number.isFinite(n) ? n : null;
+    };
+    const intOrNull = function(value) {
+        const n = numberOrNull(value);
+        return n === null ? null : Math.trunc(n);
+    };
+    const textValue = function(value) {
+        return value === null || value === undefined ? '' : String(value);
+    };
+    const edited = function(data) {
+        return _costEditedIds.has(data.entity_id || data._id);
+    };
     return rows.map(data => ({
         entity_id: data.entity_id || null,
         size_name: data.size_name || '',
         nm_id: parseInt(data.nm_id_display) || parseInt(String(data.nm_id).replace('_solo_','')) || null,
         barcode: null,
         vendor_code: null,
-        purchase_cost: 0, logistics_cost: 0, packaging_cost: 0, other_costs: 0,
-        extra_costs: parseFloat(data.extra_costs) || 0,
-        cost_price: parseFloat(data.cost_price) || 0,
-        min_price: parseFloat(data.min_price) || null,
-        vat: 0,
-        mp_base_pct: 0,
-        mp_correction_pct: parseFloat(data.mp_correction_pct) || 0,
+        purchase_cost: null, logistics_cost: null, packaging_cost: null, other_costs: null,
+        extra_costs: numberOrNull(data.extra_costs),
+        cost_price: numberOrNull(data.cost_price),
+        min_price: numberOrNull(data.min_price),
+        vat: null,
+        mp_base_pct: null,
+        mp_correction_pct: numberOrNull(data.mp_correction_pct),
         fulfillment_model: data.fulfillment_model || 'fbo',
-        storage_pct: 0,
-        buyout_niche_pct: parseFloat(data.buyout_niche_pct) || 0,
-        price_before_spp_plan: 0,
-        price_before_spp_change: 0,
-        change_date: _costEditedIds.has(data.entity_id || data._id) ? (data.change_date || null) : null,
-        wb_club_discount_pct: 0,
-        rrc_price: parseFloat(data.rrc_price) || null,
-        ad_plan_rub: (data.ad_plan_rub !== null && data.ad_plan_rub !== '' && data.ad_plan_rub !== undefined) ? parseFloat(data.ad_plan_rub) : 5,
-        product_class: data.product_class || '',
-        brand: data.brand || '',
-        product_status: data.product_status || '',
-        tax_system: data.tax_system || '',
-        tax_rate: (function(){ var o = data._tax_rate_override; return (o !== null && o !== '' && o !== undefined) ? parseFloat(o) || 0 : (_taxSettings.tax_rate || 0); })(),
-        season_jan: parseFloat(data.season_jan) || null, season_feb: parseFloat(data.season_feb) || null,
-        season_mar: parseFloat(data.season_mar) || null, season_apr: parseFloat(data.season_apr) || null,
-        season_may: parseFloat(data.season_may) || null, season_jun: parseFloat(data.season_jun) || null,
-        season_jul: parseFloat(data.season_jul) || null, season_aug: parseFloat(data.season_aug) || null,
-        season_sep: parseFloat(data.season_sep) || null, season_oct: parseFloat(data.season_oct) || null,
-        season_nov: parseFloat(data.season_nov) || null, season_dec: parseFloat(data.season_dec) || null,
-        plan_length: parseFloat(data.plan_length) || null,
-        plan_width: parseFloat(data.plan_width) || null,
-        plan_height: parseFloat(data.plan_height) || null,
-        plan_volume: data.plan_volume || null,
-        plan_weight: parseFloat(data.plan_weight) || null,
+        storage_pct: null,
+        buyout_niche_pct: numberOrNull(data.buyout_niche_pct),
+        price_before_spp_plan: null,
+        price_before_spp_change: null,
+        change_date: edited(data) ? (data.change_date || null) : null,
+        wb_club_discount_pct: null,
+        rrc_price: numberOrNull(data.rrc_price),
+        ad_plan_rub: numberOrNull(data.ad_plan_rub),
+        product_class: textValue(data.product_class),
+        brand: textValue(data.brand),
+        product_status: textValue(data.product_status),
+        tax_system: null,
+        tax_rate: (function(){
+            var o = numberOrNull(data._tax_rate_override);
+            if (o !== null) return o;
+            return _taxSettings.tax_rate === null || _taxSettings.tax_rate === undefined ? null : numberOrNull(_taxSettings.tax_rate);
+        })(),
+        season_jan: numberOrNull(data.season_jan), season_feb: numberOrNull(data.season_feb),
+        season_mar: numberOrNull(data.season_mar), season_apr: numberOrNull(data.season_apr),
+        season_may: numberOrNull(data.season_may), season_jun: numberOrNull(data.season_jun),
+        season_jul: numberOrNull(data.season_jul), season_aug: numberOrNull(data.season_aug),
+        season_sep: numberOrNull(data.season_sep), season_oct: numberOrNull(data.season_oct),
+        season_nov: numberOrNull(data.season_nov), season_dec: numberOrNull(data.season_dec),
+        plan_length: numberOrNull(data.plan_length),
+        plan_width: numberOrNull(data.plan_width),
+        plan_height: numberOrNull(data.plan_height),
+        plan_volume: numberOrNull(data.plan_volume),
+        plan_weight: numberOrNull(data.plan_weight),
         delivery_days_to_seller: null, delivery_days_to_mp: null,
-        top_query_1: data.top_query_1 || '', top_query_2: data.top_query_2 || '', top_query_3: data.top_query_3 || '',
-        shipment_method: '', fbs_warehouse: data.fbs_warehouse || '',
-        vat_rate: (function(){ var v = data.vat_rate; return (!v || v === 'нет' || v === 0) ? 0 : parseFloat(v) || 0; })(),
+        top_query_1: textValue(data.top_query_1), top_query_2: textValue(data.top_query_2), top_query_3: textValue(data.top_query_3),
+        shipment_method: null, fbs_warehouse: data.fulfillment_model === 'fbs' ? textValue(data.fbs_warehouse) : '',
+        vat_rate: (function(){ var v = data.vat_rate; return (!v || v === 'нет') ? 0 : numberOrNull(v); })(),
         valid_from: data.valid_from || new Date().toISOString().split('T')[0],
-        notes: '',
+        notes: null,
         source: 'manual'
     }));
 }
