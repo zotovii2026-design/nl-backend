@@ -120,7 +120,10 @@ async def get_ad_stats(
 
     # ═══ Список кампаний (из ad_stats_nm, агрегировано по РК) ═══
     camp_rows = await db.execute(text("""
-        SELECT sn.wb_campaign_id, c.name, c.status, c.type,
+        SELECT sn.wb_campaign_id,
+               COALESCE(c.name, 'Кампания ' || sn.wb_campaign_id::text) as name,
+               c.status,
+               c.type,
                SUM(sn.views) as views,
                SUM(sn.clicks) as clicks,
                SUM(sn.spent) as spent,
@@ -133,7 +136,7 @@ async def get_ad_stats(
                     AND sn2.stat_date >= :d_from AND sn2.stat_date <= :d_to
                ) as nm_count
         FROM ad_stats_nm sn
-        JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
+        LEFT JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
             AND c.organization_id = sn.organization_id
         WHERE sn.organization_id = :org
             AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
@@ -304,10 +307,11 @@ async def get_ad_stats_by_art(
             SUM(sn.orders) as total_orders,
             SUM(sn.atbs) as total_atbs
         FROM ad_stats_nm sn
-        JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
+        LEFT JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
             AND c.organization_id = sn.organization_id
         WHERE sn.organization_id = :org
             AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
+            AND sn.spent > 0
             """ + status_cond + """
         GROUP BY sn.nm_id
         HAVING SUM(sn.spent) > 0
@@ -334,7 +338,7 @@ async def get_ad_stats_by_art(
             SELECT
                 sn.nm_id,
                 sn.wb_campaign_id,
-                c.name,
+                COALESCE(c.name, 'Кампания ' || sn.wb_campaign_id::text) as name,
                 c.status,
                 c.type,
                 SUM(sn.spent) as camp_spent,
@@ -345,11 +349,12 @@ async def get_ad_stats_by_art(
                 SUM(sn.atbs) as camp_atbs,
                 SUM(sn.sum_price) as camp_sum_price
             FROM ad_stats_nm sn
-            JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
+            LEFT JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
                 AND c.organization_id = sn.organization_id
             WHERE sn.organization_id = :org
                 AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
                 AND sn.nm_id = ANY(:nm_ids)
+                AND sn.spent > 0
                 """ + status_cond + """
             GROUP BY sn.nm_id, sn.wb_campaign_id, c.name, c.status, c.type
             HAVING SUM(sn.spent) > 0
