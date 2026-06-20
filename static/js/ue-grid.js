@@ -746,7 +746,7 @@ let _pricesCooldownTimer = null;
 async function checkPricesCooldown() {
     const btn = document.getElementById('btn-refresh-prices');
     if (!btn) return;
-    const orgId = getOrgId();
+    const orgId = typeof ORG_ID !== "undefined" ? ORG_ID : null;
     if (!orgId) { btn.disabled = true; btn.textContent = '💱 Цены из WB (нет орг.)'; return; }
     
     try {
@@ -784,7 +784,7 @@ async function checkPricesCooldown() {
  */
 async function refreshPricesFromWB() {
     const btn = document.getElementById('btn-refresh-prices');
-    const orgId = getOrgId();
+    const orgId = typeof ORG_ID !== "undefined" ? ORG_ID : null;
     if (!orgId) { alert('Не выбрана организация'); return; }
     
     btn.disabled = true;

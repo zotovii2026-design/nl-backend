@@ -51,6 +51,12 @@ app.include_router(ads.router)
 app.include_router(identity.router)
 app.include_router(sales_plans.router)
 
+
+@app.get("/favicon.ico")
+async def favicon():
+    from fastapi.responses import FileResponse
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "favicon.ico"))
+
 @app.get("/health")
 async def health_check(db: AsyncSession = Depends(get_db)):
     """Проверка здоровья приложения и БД"""
