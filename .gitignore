@@ -47,5 +47,6 @@ secrets/
 wb-api-key.txt
 
 celerybeat-schedule
+.deploy.lock
 *.bak.*
 *.bak*

@@ -6,7 +6,13 @@ BACKUP_DIR="${NL_TABLE_BACKUP_DIR:-/opt/nl-table/backups}"
 TARGET_REF="${1:-origin/main}"
 
 cd "$PROJECT_DIR"
-exec 9>/var/lock/nl-table-deploy.lock
+GIT_COMMON_DIR="$(git rev-parse --git-common-dir)"
+LOCK_PATH="${NL_TABLE_DEPLOY_LOCK:-$GIT_COMMON_DIR/nl-table-deploy.lock}"
+touch "$LOCK_PATH"
+if [[ "$EUID" -eq 0 ]]; then
+    chmod 0666 "$LOCK_PATH"
+fi
+exec 9>"$LOCK_PATH"
 flock -n 9 || {
     echo "Another NL Table deploy is running" >&2
     exit 1
