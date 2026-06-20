@@ -70,7 +70,12 @@ BEAT_SCHEDULE = {
     "ad-stats-daily": {
         "task": "wb.sched.ad_stats",
         "schedule": crontab(hour=21, minute=0),
-        "kwargs": {"days_back": 1},
+        "kwargs": {"days_back": 2},
+    },
+    "ad-stats-weekly-backfill": {
+        "task": "wb.sched.ad_stats",
+        "schedule": crontab(hour=4, minute=30, day_of_week="sun"),
+        "kwargs": {"days_back": 7},
     },
     "sales-funnel-daily": {
         "task": "wb.sched.sales_funnel",

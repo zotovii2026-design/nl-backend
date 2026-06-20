@@ -223,6 +223,15 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
                             await asyncio.sleep(65)
                             retries += 1
                             continue
+                        if resp3.status_code == 500:
+                            logger.warning("[ad_stats] Org %s WB 500, retry %d/3 in 30s", org_id, retries + 1)
+                            if retries < 3:
+                                await asyncio.sleep(30)
+                                retries += 1
+                                continue
+                            else:
+                                logger.error("[ad_stats] Org %s WB 500 after 3 retries, skipping", org_id)
+                                break
                         resp3.raise_for_status()
                         stats = resp3.json()
                         if not isinstance(stats, list):
