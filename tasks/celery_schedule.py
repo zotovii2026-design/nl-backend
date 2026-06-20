@@ -85,6 +85,10 @@ BEAT_SCHEDULE = {
         "task": "wb.sched.parse_raw",
         "schedule": crontab(hour=22, minute=0),
     },
+    "tariffs-commission-daily": {
+        "task": "wb.sched.commission",
+        "schedule": crontab(hour=8, minute=15),
+    },
     "tariff-snapshot": {
         "task": "wb.sched.tariff_snapshot",
         "schedule": crontab(hour=23, minute=0),
