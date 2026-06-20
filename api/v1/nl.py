@@ -3639,7 +3639,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script src="/static/lib/chart.min.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
 <script type="text/javascript" src="/static/js/stats-grid.js?v=20260619c"></script>
-<script type="text/javascript" src="/static/js/opiu-grid.js?v=20260619e"></script>
+<script type="text/javascript" src="/static/js/opiu-grid.js?v=20260620-ui-periods"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
@@ -3731,6 +3731,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 <button class="btn" onclick="loadStats()" style="padding:6px 14px;font-size:.85em">Обновить</button>
 <span id="stats-period-label" style="color:#777;font-size:.85em"></span>
+<span style="color:#888;font-size:.82em">Заказы, выкупы, возвраты и реклама — за период. Остатки, цены и рейтинг — на последнюю дату периода.</span>
 </div>
 
 <div id="stats-alerts" style="margin-bottom:12px"></div>
@@ -3982,6 +3983,7 @@ var _sectionHTML = {
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
 <span style="font-size:.9em;color:#666">🏪 Магазин:</span>
 <select id="cp-store" onchange="switchCostStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
+<span style="font-size:.82em;color:#888">Справочник — актуальные настройки товара. Не является отчётом за период.</span>
 </div>
 
 
@@ -4279,9 +4281,11 @@ var _sectionHTML = {
     'fboneeds': `
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;background:#f8f9fb;padding:10px 16px;border-radius:8px">
 <select id="fbo-warehouse-filter" onchange="filterFboTable()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:160px"><option value="">Все склады</option></select>
+<span style="font-size:.85em;color:#666;font-weight:600">Скорость продаж за</span>
 <select id="fbo-period" onchange="loadFboNeeds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
 <option value="7">7 дней</option><option value="14" selected>14 дней</option><option value="21">21 день</option><option value="30">30 дней</option></select>
 <label style="font-size:.85em;color:#666;display:flex;align-items:center;gap:4px"><input type="checkbox" id="fbo-only-needs" onchange="filterFboTable()" checked> Только с потребностью</label>
+<span style="font-size:.82em;color:#888">Остатки берутся на последнюю дату, скорость продаж считается за выбранное окно.</span>
 </div>
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
 <button class="btn" onclick="loadFboNeeds()" style="padding:6px 14px;font-size:.85em">🔄 Рассчитать</button>
@@ -4307,6 +4311,7 @@ var _sectionHTML = {
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
 <span style="font-size:.9em;color:#666">🏪 Магазин:</span>
 <select id="ue-store" onchange="switchUEStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
+<span style="font-size:.82em;color:#888">Расчёт на текущих справочных данных и последних доступных ценах/тарифах.</span>
 </div>
 
 <!-- Фильтры по столбцам (как в Справочнике) -->

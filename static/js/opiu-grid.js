@@ -231,7 +231,10 @@ function renderOpiuSyncInfo(sync) {
     const element = document.getElementById('opiu-sync-info');
     if (!element) return;
     if (!sync) {
-        element.textContent = 'Данные ещё не синхронизировались';
+        const hasRows = Array.isArray(opiuAllRows) && opiuAllRows.length > 0;
+        element.textContent = hasRows
+            ? 'Данные рассчитаны из загруженных фин. отчётов WB. Отдельный синк этого периода не найден.'
+            : 'Нет данных за выбранный период. Запустите синхронизацию.';
         return;
     }
     const parts = ['Синк: ' + sync.status];
