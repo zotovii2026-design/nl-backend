@@ -108,8 +108,9 @@ function initStatsSummaryGrid() {
         placeholder: 'Нет данных',
         columns: [
             {title: 'Период', field: 'period', width: 190, headerSort: false},
-            {title: 'Выручка', field: 'revenue', width: 120, hozAlign: 'right', formatter: statsMoneyFormatter},
+            {title: 'Заказы ₽', field: 'orders_revenue', width: 120, hozAlign: 'right', formatter: statsMoneyFormatter},
             {title: 'Заказы', field: 'orders', width: 90, hozAlign: 'right', formatter: statsNumberFormatter},
+            {title: 'Выкупы ₽', field: 'buyouts_revenue', width: 120, hozAlign: 'right', formatter: statsMoneyFormatter},
             {title: 'Выкупы', field: 'buyouts', width: 90, hozAlign: 'right', formatter: statsNumberFormatter},
             {title: '% выкупа', field: 'buyout_pct', width: 90, hozAlign: 'right', formatter: statsPercentFormatter},
             {title: 'Возвраты', field: 'returns', width: 90, hozAlign: 'right', formatter: statsNumberFormatter},
@@ -136,7 +137,9 @@ function getStatsProductColumns() {
         {title: 'ШК', field: 'barcode', width: 130, headerFilter: 'input'},
         {title: 'Остаток', field: 'stock_total', width: 105, hozAlign: 'right', formatter: statsStockFormatter},
         {title: 'Заказы', field: 'orders_count', width: 90, hozAlign: 'right', sorter: 'number'},
+        {title: 'Заказы ₽', field: 'total_orders_revenue', width: 105, hozAlign: 'right', sorter: 'number', formatter: statsMoneyFormatter},
         {title: 'Выкупы', field: 'buyouts_count', width: 90, hozAlign: 'right', sorter: 'number'},
+        {title: 'Выкупы ₽', field: 'total_buyouts_revenue', width: 105, hozAlign: 'right', sorter: 'number', formatter: statsMoneyFormatter},
         {title: 'Возвраты', field: 'returns_count', width: 90, hozAlign: 'right', sorter: 'number'},
         {title: '% выкупа', field: 'buyout_pct', width: 90, hozAlign: 'right', sorter: 'number', formatter: statsPercentFormatter},
         {title: 'Рейтинг', field: 'rating', width: 85, hozAlign: 'right', sorter: 'number', formatter: statsNumberFormatter},
@@ -252,7 +255,8 @@ async function loadStatsGrid() {
         if (!res.ok) throw new Error('Не удалось загрузить основные показатели');
         var data = await res.json();
         var s = data.summary || {};
-        var revenue = Number(s.total_revenue || 0);
+        var ordersRevenue = Number(s.total_orders_revenue || 0);
+        var buyoutsRevenue = Number(s.total_buyouts_revenue || s.total_revenue || 0);
         var orders = Number(s.total_orders || 0);
         var buyouts = Number(s.total_buyouts || 0);
         var adCost = Number(s.total_ad_cost || 0);
@@ -260,13 +264,14 @@ async function loadStatsGrid() {
         renderStatsAlerts(s);
         await statsSummaryTabulator.setData([{
             period: (data.date_from || range.dateFrom) + ' - ' + (data.date_to || range.dateTo),
-            revenue: revenue,
+            orders_revenue: ordersRevenue,
             orders: orders,
+            buyouts_revenue: buyoutsRevenue,
             buyouts: buyouts,
             buyout_pct: orders ? buyouts / orders * 100 : 0,
             returns: Number(s.total_returns || 0),
             ad_cost: adCost,
-            profit: revenue - adCost,
+            profit: buyoutsRevenue - adCost,
             stock_total: Number(s.total_stock || 0),
             stock_fbo: Number(s.total_stock_fbo || 0),
             stock_fbs: Number(s.total_stock_fbs || 0),
