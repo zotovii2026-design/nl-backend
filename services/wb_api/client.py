@@ -269,6 +269,9 @@ class WBApiClient:
                      date_to: str,
                      timezone: str = "Europe/Moscow") -> List[Dict[str, Any]]:
         """Получение агрегированной аналитики продаж по товарам"""
+        products: List[Dict[str, Any]] = []
+        limit = 1000
+        offset = 0
         payload = {
             "selectedPeriod": {"start": date_from, "end": date_to},
             "timezone": timezone,
@@ -276,15 +279,27 @@ class WBApiClient:
             "objectIDs": [],
             "tagIDs": [],
             "nmIDs": [],
-            "page": 1
+            "skipDeletedNm": False,
+            "limit": limit,
+            "offset": offset,
         }
-        response = await self.client.post(
-            "https://seller-analytics-api.wildberries.ru/api/analytics/v3/sales-funnel/products",
-            json=payload
-        )
-        response.raise_for_status()
-        result = response.json()
-        return result.get("data", {}).get("products", [])
+        while True:
+            payload["offset"] = offset
+            response = await self.client.post(
+                "https://seller-analytics-api.wildberries.ru/api/analytics/v3/sales-funnel/products",
+                json=payload
+            )
+            response.raise_for_status()
+            result = response.json()
+            items = result.get("data", {}).get("products", [])
+            if not items:
+                break
+            products.extend(items)
+            if len(items) < limit:
+                break
+            offset += limit
+            await asyncio.sleep(0.5)
+        return products
 
     async def get_orders(self,
                      date_from: Optional[str] = None,
