@@ -371,6 +371,7 @@ async def get_control_metrics(
         "buyouts_revenue": 0.0,
         "cancel_revenue": 0.0,
     }
+    funnel_products = {}
     for fdate, raw in funnel_result.all():
         if not isinstance(raw, list):
             continue
@@ -392,12 +393,35 @@ async def get_control_metrics(
                 if period.get("start") != str(fdate) or period.get("end") != str(fdate):
                     continue
             date_is_valid = True
-            day_totals["total_orders"] += int(stat.get("orderCount", 0) or 0)
-            day_totals["total_buyouts"] += int(stat.get("buyoutCount", 0) or 0)
-            day_totals["total_returns"] += int(stat.get("cancelCount", 0) or 0)
-            day_totals["orders_revenue"] += float(stat.get("orderSum", 0) or 0)
-            day_totals["buyouts_revenue"] += float(stat.get("buyoutSum", 0) or 0)
-            day_totals["cancel_revenue"] += float(stat.get("cancelSum", 0) or 0)
+            order_count = int(stat.get("orderCount", 0) or 0)
+            buyout_count = int(stat.get("buyoutCount", 0) or 0)
+            cancel_count = int(stat.get("cancelCount", 0) or 0)
+            order_sum = float(stat.get("orderSum", 0) or 0)
+            buyout_sum = float(stat.get("buyoutSum", 0) or 0)
+            cancel_sum = float(stat.get("cancelSum", 0) or 0)
+            day_totals["total_orders"] += order_count
+            day_totals["total_buyouts"] += buyout_count
+            day_totals["total_returns"] += cancel_count
+            day_totals["orders_revenue"] += order_sum
+            day_totals["buyouts_revenue"] += buyout_sum
+            day_totals["cancel_revenue"] += cancel_sum
+
+            nm_id = (item.get("product") or {}).get("nmId")
+            if nm_id:
+                product_totals = funnel_products.setdefault(str(nm_id), {
+                    "orders_count": 0,
+                    "buyouts_count": 0,
+                    "returns_count": 0,
+                    "total_orders_revenue": 0.0,
+                    "total_buyouts_revenue": 0.0,
+                    "total_cancel_revenue": 0.0,
+                })
+                product_totals["orders_count"] += order_count
+                product_totals["buyouts_count"] += buyout_count
+                product_totals["returns_count"] += cancel_count
+                product_totals["total_orders_revenue"] += order_sum
+                product_totals["total_buyouts_revenue"] += buyout_sum
+                product_totals["total_cancel_revenue"] += cancel_sum
         if date_is_valid:
             funnel_summary["dates"].add(fdate)
             for key in day_totals:
@@ -625,6 +649,17 @@ async def get_control_metrics(
             snap = _get_snap(item["nm_id"])
             item.update(ref)
             item.update({f"snap_{k}": v for k, v in snap.items()})
+            if has_funnel_summary:
+                funnel_item = funnel_products.get(str(item["nm_id"]))
+                if funnel_item:
+                    item.update({
+                        "orders_count": funnel_item["orders_count"],
+                        "buyouts_count": funnel_item["buyouts_count"],
+                        "returns_count": funnel_item["returns_count"],
+                        "total_orders_revenue": round(funnel_item["total_orders_revenue"], 2),
+                        "total_buyouts_revenue": round(funnel_item["total_buyouts_revenue"], 2),
+                        "total_cancel_revenue": round(funnel_item["total_cancel_revenue"], 2),
+                    })
             item.update(_calc_unit(item.get("price_discount"), item.get("ad_cost"), ref, snap))
             products.append(item)
         products.sort(key=lambda p: p.get("orders_count") or 0, reverse=True)
