@@ -182,24 +182,32 @@ function opiuIsoDate(value) {
     return value.toISOString().slice(0, 10);
 }
 
+function opiuYesterday() {
+    const base = new Date();
+    base.setHours(12, 0, 0, 0);
+    base.setDate(base.getDate() - 1);
+    return base;
+}
+
 function getOpiuDateRange() {
-    const period = document.getElementById('filter-period')?.value || 'month';
-    const today = new Date();
-    today.setHours(12, 0, 0, 0);
-    let start = new Date(today);
-    let end = new Date(today);
+    const period = document.getElementById('filter-period')?.value || 'yesterday';
+    const base = opiuYesterday();
+    let start = new Date(base);
+    let end = new Date(base);
 
     if (period === 'yesterday') {
-        start.setDate(start.getDate() - 1);
-        end = new Date(start);
+        // base is already yesterday
+    } else if (period === 'last7') {
+        start.setDate(base.getDate() - 6);
     } else if (period === 'week') {
-        start.setDate(start.getDate() - 6);
+        const mondayOffset = (base.getDay() + 6) % 7;
+        start.setDate(base.getDate() - mondayOffset);
     } else if (period === 'custom') {
         const dateFrom = document.getElementById('opiu-date-from')?.value;
         const dateTo = document.getElementById('opiu-date-to')?.value;
         if (dateFrom && dateTo) return {dateFrom, dateTo};
     } else {
-        start = new Date(today.getFullYear(), today.getMonth(), 1, 12);
+        start = new Date(base.getFullYear(), base.getMonth(), 1, 12);
     }
     return {dateFrom: opiuIsoDate(start), dateTo: opiuIsoDate(end)};
 }
@@ -217,13 +225,12 @@ function onOpiuPeriodChange() {
 }
 
 function setDefaultOpiuDates() {
-    const today = new Date();
-    today.setHours(12, 0, 0, 0);
-    const start = new Date(today.getFullYear(), today.getMonth(), 1, 12);
+    const base = opiuYesterday();
+    const start = new Date(base);
     const fromInput = document.getElementById('opiu-date-from');
     const toInput = document.getElementById('opiu-date-to');
     if (fromInput && !fromInput.value) fromInput.value = opiuIsoDate(start);
-    if (toInput && !toInput.value) toInput.value = opiuIsoDate(today);
+    if (toInput && !toInput.value) toInput.value = opiuIsoDate(base);
     toggleOpiuCustomPeriod();
 }
 

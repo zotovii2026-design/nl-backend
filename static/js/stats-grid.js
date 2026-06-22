@@ -22,35 +22,47 @@ function statsPercent(value) {
     return num ? num.toFixed(1) + '%' : '—';
 }
 
+function statsYesterday() {
+    var base = new Date();
+    base.setHours(12, 0, 0, 0);
+    base.setDate(base.getDate() - 1);
+    return base;
+}
+
+function statsFillCustomDates(dateFrom, dateTo) {
+    var fromEl = document.getElementById('stats-date-from');
+    var toEl = document.getElementById('stats-date-to');
+    if (fromEl && !fromEl.value) fromEl.value = dateFrom;
+    if (toEl && !toEl.value) toEl.value = dateTo;
+}
+
 function getStatsDateRange() {
-    var period = document.getElementById('filter-period')?.value || 'month';
+    var period = document.getElementById('filter-period')?.value || 'yesterday';
     var custom = document.getElementById('stats-custom-period');
-    var today = new Date();
-    today.setHours(12, 0, 0, 0);
-    var start = new Date(today);
-    var end = new Date(today);
+    var base = statsYesterday();
+    var start = new Date(base);
+    var end = new Date(base);
 
     if (period === 'yesterday') {
-        start.setDate(start.getDate() - 1);
-        end = new Date(start);
+        // base is already yesterday
+    } else if (period === 'last7') {
+        start.setDate(base.getDate() - 6);
     } else if (period === 'week') {
-        start.setDate(start.getDate() - 6);
+        var mondayOffset = (base.getDay() + 6) % 7;
+        start.setDate(base.getDate() - mondayOffset);
     } else if (period === 'custom') {
         if (custom) custom.style.display = 'flex';
         var dateFrom = document.getElementById('stats-date-from')?.value;
         var dateTo = document.getElementById('stats-date-to')?.value;
         if (!dateFrom || !dateTo) {
-            start.setDate(start.getDate() - 29);
+            start = new Date(base);
             dateFrom = statsIsoDate(start);
-            dateTo = statsIsoDate(end);
-            var fromEl = document.getElementById('stats-date-from');
-            var toEl = document.getElementById('stats-date-to');
-            if (fromEl) fromEl.value = dateFrom;
-            if (toEl) toEl.value = dateTo;
+            dateTo = statsIsoDate(base);
+            statsFillCustomDates(dateFrom, dateTo);
         }
         return {dateFrom: dateFrom, dateTo: dateTo};
     } else {
-        start = new Date(today.getFullYear(), today.getMonth(), 1, 12);
+        start = new Date(base.getFullYear(), base.getMonth(), 1, 12);
     }
 
     if (custom) custom.style.display = 'none';

@@ -3698,8 +3698,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Chart.js -->
 <script src="/static/lib/chart.min.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
-<script type="text/javascript" src="/static/js/stats-grid.js?v=20260619c"></script>
-<script type="text/javascript" src="/static/js/opiu-grid.js?v=20260620-ui-periods"></script>
+<script type="text/javascript" src="/static/js/stats-grid.js?v=20260622-periods"></script>
+<script type="text/javascript" src="/static/js/opiu-grid.js?v=20260622-periods"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
@@ -3777,7 +3777,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <span class="page-title" id="page-title">Основные показатели</span>
 <div class="filters" id="top-filters">
 <span style="font-size:.85em">🏪</span><select id="filter-store" onchange="switchTopStore()" style="min-width:160px;border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em;background:#fff"></select>
-<select id="filter-period" onchange="onTopPeriodChange()"><option value="yesterday">Вчера</option><option value="week">Неделя</option><option value="month" selected>Месяц</option><option value="custom">Произвольный период</option></select>
+<select id="filter-period" onchange="onTopPeriodChange()"><option value="yesterday" selected>Вчера</option><option value="last7">7 дней</option><option value="week">Неделя</option><option value="month">Месяц</option><option value="custom">Произвольный период</option></select>
 <input type="text" id="filter-article" placeholder="Артикул" style="width:120px">
 </div>
 </div>
