@@ -19,7 +19,7 @@ from core.tenant_auth import require_query_organization_access
 from models.organization import Role
 from models.user import User
 from models.reference_book import ReferenceBook
-from models.raw_data import TechStatus
+from models.raw_data import RawApiData, TechStatus
 from models.sales_plan import SalesPlan, PlanType, Seasonality
 from domain.unit_economics import (
     apply_financial_formulas,
@@ -353,6 +353,62 @@ async def get_control_metrics(
     )
     row = result.one()
 
+    funnel_result = await db.execute(
+        select(RawApiData.target_date, RawApiData.raw_response).where(
+            RawApiData.organization_id == org_id,
+            RawApiData.api_method == "sales_funnel",
+            RawApiData.status == "ok",
+            RawApiData.target_date >= d_from,
+            RawApiData.target_date <= d_to,
+        )
+    )
+    funnel_summary = {
+        "dates": set(),
+        "total_orders": 0,
+        "total_buyouts": 0,
+        "total_returns": 0,
+        "orders_revenue": 0.0,
+        "buyouts_revenue": 0.0,
+        "cancel_revenue": 0.0,
+    }
+    for fdate, raw in funnel_result.all():
+        if not isinstance(raw, list):
+            continue
+        date_is_valid = False
+        day_totals = {
+            "total_orders": 0,
+            "total_buyouts": 0,
+            "total_returns": 0,
+            "orders_revenue": 0.0,
+            "buyouts_revenue": 0.0,
+            "cancel_revenue": 0.0,
+        }
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            stat = (item.get("statistic") or {}).get("selected") or {}
+            period = stat.get("period") or {}
+            if period.get("start") and period.get("end"):
+                if period.get("start") != str(fdate) or period.get("end") != str(fdate):
+                    continue
+            date_is_valid = True
+            day_totals["total_orders"] += int(stat.get("orderCount", 0) or 0)
+            day_totals["total_buyouts"] += int(stat.get("buyoutCount", 0) or 0)
+            day_totals["total_returns"] += int(stat.get("cancelCount", 0) or 0)
+            day_totals["orders_revenue"] += float(stat.get("orderSum", 0) or 0)
+            day_totals["buyouts_revenue"] += float(stat.get("buyoutSum", 0) or 0)
+            day_totals["cancel_revenue"] += float(stat.get("cancelSum", 0) or 0)
+        if date_is_valid:
+            funnel_summary["dates"].add(fdate)
+            for key in day_totals:
+                funnel_summary[key] += day_totals[key]
+    expected_funnel_dates = set()
+    _fd = d_from
+    while _fd <= d_to:
+        expected_funnel_dates.add(_fd)
+        _fd += timedelta(days=1)
+    has_funnel_summary = bool(expected_funnel_dates) and expected_funnel_dates.issubset(funnel_summary["dates"])
+
     # Остатки и рейтинг берем на последнюю доступную дату периода
     stock_result = await db.execute(
         select(
@@ -586,14 +642,18 @@ async def get_control_metrics(
             "total_stock": (safe_int(stock_row.total_stock) or 0) + (safe_int(stock_row.total_stock_fbo) or 0),
             "total_stock_fbo": safe_int(stock_row.total_stock_fbo) or 0,
             "total_stock_fbs": safe_int(stock_row.total_stock) or 0,
-            "total_orders": safe_int(row.total_orders) or 0,
-            "total_buyouts": safe_int(row.total_buyouts) or 0,
-            "total_returns": safe_int(row.total_returns) or 0,
+            "total_orders": int(funnel_summary["total_orders"]) if has_funnel_summary else (safe_int(row.total_orders) or 0),
+            "total_buyouts": int(funnel_summary["total_buyouts"]) if has_funnel_summary else (safe_int(row.total_buyouts) or 0),
+            "total_returns": int(funnel_summary["total_returns"]) if has_funnel_summary else (safe_int(row.total_returns) or 0),
             "total_impressions": total_impressions,
             "total_clicks": total_clicks,
             "ctr": round(total_clicks / total_impressions * 100, 2) if total_impressions > 0 else 0,
             "total_ad_cost": safe_float(row.total_ad_cost) or 0,
-            "total_revenue": safe_float(row.total_revenue) or 0,
+            "total_revenue": round(funnel_summary["buyouts_revenue"], 2) if has_funnel_summary else (safe_float(row.total_revenue) or 0),
+            "total_orders_revenue": round(funnel_summary["orders_revenue"], 2) if has_funnel_summary else 0,
+            "total_buyouts_revenue": round(funnel_summary["buyouts_revenue"], 2) if has_funnel_summary else (safe_float(row.total_revenue) or 0),
+            "total_cancel_revenue": round(funnel_summary["cancel_revenue"], 2) if has_funnel_summary else 0,
+            "sales_funnel_dates": sorted(str(d) for d in funnel_summary["dates"]),
             "avg_rating": round(float(stock_row.avg_rating), 2) if stock_row.avg_rating else None,
             "zero_stock_count": safe_int(zero_stock.scalar()) or 0,
             "low_stock_count": safe_int(low_stock.scalar()) or 0,

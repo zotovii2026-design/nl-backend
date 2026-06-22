@@ -709,9 +709,9 @@ async def _do_parse_raw(sf):
                 if key not in orders_map:
                     orders_map[key] = {"count": 0, "revenue": 0, "vendor_code": "", "barcode": barcode, "entity_id": entity_id, "nm_id": nm, "price": 0, "price_discount": 0}
                 orders_map[key]["count"] += 1
-                orders_map[key]["revenue"] += float(o.get("totalPrice") or o.get("price") or 0) / 100
-                tp = float(o.get("totalPrice") or 0) / 100
-                pd = float(o.get("priceWithDisc") or 0) / 100
+                orders_map[key]["revenue"] += float(o.get("priceWithDisc") or o.get("totalPrice") or o.get("price") or 0)
+                tp = float(o.get("totalPrice") or 0)
+                pd = float(o.get("priceWithDisc") or 0)
                 if tp > 0:
                     orders_map[key]["price"] = tp
                 if pd > 0:
@@ -770,9 +770,9 @@ async def _do_parse_raw(sf):
                 key = (sale_date, entity_id or nm)
                 if key not in sales_map:
                     sales_map[key] = {"buyouts": 0, "returns": 0, "revenue": 0, "entity_id": entity_id, "nm_id": nm, "price": 0, "price_discount": 0}
-                price = float(s.get("forPay") or s.get("totalPrice") or 0) / 100
-                tp = float(s.get("totalPrice") or 0) / 100
-                pd = float(s.get("priceWithDisc") or 0) / 100
+                price = float(s.get("forPay") or s.get("priceWithDisc") or s.get("totalPrice") or 0)
+                tp = float(s.get("totalPrice") or 0)
+                pd = float(s.get("priceWithDisc") or 0)
                 if tp > 0:
                     sales_map[key]["price"] = tp
                 if pd > 0:
@@ -884,37 +884,39 @@ async def _do_parse_raw(sf):
                     }
 
         # --- Sales Funnel: показы/клики по nm_id за каждый день ---
-        # Формат WB: [{product: {nmId, title, ...}, statistic: {past: {openCount, cartCount, ...}}}]
+        # Формат WB: [{product: {nmId, title, ...}, statistic: {selected: {openCount, cartCount, ...}}}]
         funnel_map = {}  # key = (date, nm_id) -> {impressions, clicks}
         async with sf() as db:
             result = await db.execute(text("""
-                SELECT raw_response FROM raw_api_data
+                SELECT target_date, raw_response FROM raw_api_data
                 WHERE api_method = 'sales_funnel' AND status = 'ok' AND organization_id = :org
-                ORDER BY fetched_at DESC LIMIT 1
-            """), {"org": org_id})
-            funnel_row = result.first()
+                AND target_date >= :start_date
+                ORDER BY target_date
+            """), {"org": org_id, "start_date": window_dates[-1]})
+            funnel_rows = result.all()
 
-        if funnel_row and funnel_row[0]:
-            funnel_data = funnel_row[0] if isinstance(funnel_row[0], list) else []
-            n_days = len(window_dates)
+        for fdate, fraw in funnel_rows:
+            if fdate not in window_dates_set:
+                continue
+            funnel_data = fraw if isinstance(fraw, list) else []
             for fp in funnel_data:
                 if not isinstance(fp, dict):
                     continue
-                # nm_id внутри product.nmId
                 prod = fp.get("product") or {}
                 nm = prod.get("nmId") or prod.get("nmID") or prod.get("nm_id")
                 if not nm:
                     continue
-                # Статистика внутри statistic.past
-                stat = (fp.get("statistic") or {}).get("past") or {}
-                impressions_total = int(stat.get("openCount", 0) or 0)   # показы карточки
-                clicks_total = int(stat.get("cartCount", 0) or 0)        # добавления в корзину ~ клики
-                for td in window_dates:
-                    funnel_map[(td, int(nm))] = {
-                        "impressions": impressions_total // n_days,
-                        "clicks": clicks_total // n_days,
-                    }
-            logger.info(f"[parse_raw] org={org_id[:8]}: sales_funnel products={len(funnel_data)}, funnel_map_keys={len(funnel_map)}")
+                stat = (fp.get("statistic") or {}).get("selected") or {}
+                period = stat.get("period") or {}
+                # Старые raw-строки были 9-дневными. Их нельзя считать дневными.
+                if period.get("start") and period.get("end"):
+                    if period.get("start") != str(fdate) or period.get("end") != str(fdate):
+                        continue
+                funnel_map[(fdate, int(nm))] = {
+                    "impressions": int(stat.get("openCount", 0) or 0),
+                    "clicks": int(stat.get("cartCount", 0) or 0),
+                }
+        logger.info(f"[parse_raw] org={org_id[:8]}: sales_funnel rows={len(funnel_rows)}, funnel_map_keys={len(funnel_map)}")
 
         # --- Ad Stats: расходы по кампаниям за каждый день ---
         # Распределяем расходы пропорционально заказам (из tech_status)
@@ -1436,14 +1438,14 @@ def sched_sales_funnel():
 
 
 async def _do_sales_funnel(sf):
-    """Собирает sales-funnel/products за 9 дней и сохраняет в raw_api_data"""
+    """Собирает sales-funnel/products за текущий день и сохраняет в raw_api_data."""
     all_keys = await _get_all_keys(sf)
     if not all_keys:
         return {"status": "skipped", "reason": "no_keys"}
 
     msk = ZoneInfo("Europe/Moscow")
     today_msk = datetime.now(msk).date()
-    from_date = (today_msk - timedelta(days=8)).isoformat()  # 9 дней
+    from_date = today_msk.isoformat()
     to_date = today_msk.isoformat()
 
     results = {}
