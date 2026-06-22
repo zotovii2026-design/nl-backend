@@ -216,6 +216,14 @@ function updateStatsProductsCount() {
         : active.toLocaleString('ru-RU') + ' из ' + total.toLocaleString('ru-RU') + ' строк';
 }
 
+function setStatsGridPending(isPending) {
+    ['stats-summary-tabulator', 'stats-products-tabulator'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.classList.toggle('stats-grid-pending', !!isPending);
+    });
+}
+
 function renderStatsAlerts(summary) {
     var alerts = [];
     if ((summary.zero_stock_count || 0) > 0) alerts.push('<div class="alert-card red">Нет в наличии: ' + summary.zero_stock_count + ' товаров</div>');
@@ -226,6 +234,7 @@ function renderStatsAlerts(summary) {
 
 async function loadStatsGrid() {
     if (!ORG_ID) return;
+    setStatsGridPending(true);
     initStatsSummaryGrid();
     initStatsProductsGrid();
 
@@ -249,7 +258,7 @@ async function loadStatsGrid() {
         var adCost = Number(s.total_ad_cost || 0);
 
         renderStatsAlerts(s);
-        statsSummaryTabulator.setData([{
+        await statsSummaryTabulator.setData([{
             period: (data.date_from || range.dateFrom) + ' - ' + (data.date_to || range.dateTo),
             revenue: revenue,
             orders: orders,
@@ -266,11 +275,15 @@ async function loadStatsGrid() {
         }]);
 
         statsAllProducts = prepareStatsProducts(data.products || []);
-        statsProductsTabulator.setData(statsAllProducts);
+        await statsProductsTabulator.setData(statsAllProducts);
+        statsSummaryTabulator.redraw(true);
+        statsProductsTabulator.redraw(true);
+        setStatsGridPending(false);
         applyStatsTopSearch();
         updateStatsProductsCount();
     } catch (e) {
         console.error('loadStatsGrid error:', e);
+        setStatsGridPending(false);
         if (count) count.textContent = 'Ошибка загрузки';
         if (statsSummaryTabulator) statsSummaryTabulator.setData([]);
         if (statsProductsTabulator) statsProductsTabulator.setData([]);

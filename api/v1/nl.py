@@ -3688,6 +3688,9 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 .tabulator .tabulator-footer{background:#f8f9fa;border-top:1px solid #e0e0e0;padding:6px 12px}
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-group{background:#f0f1f5;border-bottom:1px solid #e0e0e0;font-size:11px;color:#333;font-weight:400;padding:4px 8px}
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-group .tabulator-arrow{color:#999;margin-right:4px}
+.stats-grid-pending{position:relative;background:#fff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden}
+.stats-grid-pending.tabulator > *{visibility:hidden}
+.stats-grid-pending::after{content:'Загрузка...';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#777;font-size:.86em;background:#fff;z-index:4}
 </style>
 <!-- Tabulator CSS -->
 <link href="/static/lib/tabulator.min.css" rel="stylesheet">
@@ -3698,7 +3701,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Chart.js -->
 <script src="/static/lib/chart.min.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
-<script type="text/javascript" src="/static/js/stats-grid.js?v=20260622-periods"></script>
+<script type="text/javascript" src="/static/js/stats-grid.js?v=20260622-loadfix"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260622-periods"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
@@ -3800,13 +3803,13 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div style="font-size:1.05em;font-weight:700;color:#333">Итоги за период</div>
 <div style="font-size:.82em;color:#888">агрегировано по выбранным датам</div>
 </div>
-<div id="stats-summary-tabulator" style="min-height:120px;width:100%;margin-bottom:18px"></div>
+<div id="stats-summary-tabulator" class="stats-grid-pending" style="min-height:120px;width:100%;margin-bottom:18px"></div>
 
 <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px">
 <div style="font-size:1.05em;font-weight:700;color:#333">Товары</div>
 <div id="stats-products-count" style="font-size:.82em;color:#888"></div>
 </div>
-<div id="stats-products-tabulator" style="min-height:560px;width:100%;"></div>
+<div id="stats-products-tabulator" class="stats-grid-pending" style="min-height:560px;width:100%;"></div>
 </div>
 
 <div id="page-analytics" class="page-section"></div>
