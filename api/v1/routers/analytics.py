@@ -137,6 +137,7 @@ async def add_operating_expense(data: dict, org_id: str, db: AsyncSession = Depe
 @router.get("/api/v1/nl/fbo-needs")
 async def get_fbo_needs(org_id: str, days: int = 14, db: AsyncSession = Depends(get_db)):
     """Расчёт потребности FBO: остатки + темп заказов по складам"""
+    org_id = await resolve_org_id(org_id, db)
 
     # 1) Остатки по складам (из tech_status — последний snapshot)
     stocks_result = await db.execute(text("""
