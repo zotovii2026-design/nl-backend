@@ -202,7 +202,7 @@ function getAdsColumns() {
 // Force smaller header font for readability
 (function(){
     var s = document.createElement('style');
-    s.textContent = '#ads-campaigns-tabulator .tabulator-header .tabulator-col-title{font-size:11px;line-height:1.2}';
+    s.textContent = '#ads-campaigns-tabulator .tabulator-col-title{font-size:8px!important;line-height:1.1!important;padding:2px 4px!important}#ads-campaigns-tabulator .tabulator-col .tabulator-col-content{padding:2px 4px!important}#ads-campaigns-tabulator .tabulator-cell{font-size:11px!important}';
     document.head.appendChild(s);
 })();
 

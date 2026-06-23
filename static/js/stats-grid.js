@@ -1,3 +1,10 @@
+// Единый стиль табуляторов — эталон Справочника (8px заголовки, 11px ячейки)
+(function(){
+    var s = document.createElement('style');
+    s.textContent = '#stats-summary-tabulator .tabulator-col-title,#stats-products-tabulator .tabulator-col-title{font-size:8px!important;line-height:1.1!important;padding:2px 4px!important}#stats-summary-tabulator .tabulator-col .tabulator-col-content,#stats-products-tabulator .tabulator-col .tabulator-col-content{padding:2px 4px!important}#stats-summary-tabulator .tabulator-cell,#stats-products-tabulator .tabulator-cell{font-size:11px!important}';
+    document.head.appendChild(s);
+})();
+
 var statsSummaryTabulator = null;
 var statsProductsTabulator = null;
 var statsAllProducts = [];

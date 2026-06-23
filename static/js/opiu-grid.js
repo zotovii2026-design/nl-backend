@@ -1,3 +1,10 @@
+// Единый стиль табуляторов — эталон Справочника (8px заголовки, 11px ячейки)
+(function(){
+    var s = document.createElement('style');
+    s.textContent = '#opiu-tabulator .tabulator-col-title{font-size:8px!important;line-height:1.1!important;padding:2px 4px!important}#opiu-tabulator .tabulator-col .tabulator-col-content{padding:2px 4px!important}#opiu-tabulator .tabulator-cell{font-size:11px!important}';
+    document.head.appendChild(s);
+})();
+
 let opiuTabulator = null;
 let opiuAllRows = [];
 let opiuTotalRow = null;
