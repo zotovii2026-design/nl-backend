@@ -307,14 +307,39 @@ function nlNotifySection() {
  * Единая функция для всех разделов
  */
 function nlGetDateRange() {
-    // Убедиться что preset актуален
-    if (NL_DATE.preset !== 'custom') {
-        nlSetPreset(NL_DATE.preset);
+    // Убедиться что даты заполнены для preset
+    if (NL_DATE.preset !== 'custom' && !NL_DATE.dateFrom) {
+        nlSetPresetSilent(NL_DATE.preset);
     }
     return {
         dateFrom: NL_DATE.dateFrom,
         dateTo: NL_DATE.dateTo
     };
+}
+
+/**
+ * Бесшумно применить preset без уведомления разделов (для внутреннего использования)
+ */
+function nlSetPresetSilent(preset) {
+    var base = nlYesterday();
+    var start = new Date(base);
+    var end = new Date(base);
+    if (preset === 'today') {
+        var today = new Date();
+        today.setHours(12, 0, 0, 0);
+        start = new Date(today);
+        end = new Date(today);
+    } else if (preset === 'yesterday') {
+        // start = end = yesterday (уже)
+    } else if (preset === 'last7') {
+        start.setDate(base.getDate() - 6);
+    } else if (preset === 'month') {
+        start = new Date(base.getFullYear(), base.getMonth(), 1, 12);
+        end = new Date(base);
+    }
+    NL_DATE.dateFrom = nlIsoDate(start);
+    NL_DATE.dateTo = nlIsoDate(end);
+    nlSaveDate();
 }
 
 /**
