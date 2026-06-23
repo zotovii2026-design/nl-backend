@@ -712,6 +712,8 @@ async def get_rnp(
     org_id: str,
     month: Optional[str] = None,  # YYYY-MM (например 2026-05)
     days: Optional[int] = None,   # Количество дней назад (30, 60, 90)
+    date_from: Optional[str] = None,  # ISO дата начала (от единого datepicker)
+    date_to: Optional[str] = None,    # ISO дата конца (от единого datepicker)
     sort_by: Optional[str] = "orders_revenue",  # orders_revenue, roi, buyout_pct
     filter_status: Optional[str] = None,
     search: Optional[str] = None,
@@ -721,15 +723,25 @@ async def get_rnp(
     """
     РНП — Раздел Нормативных Показателей.
     Данные за месяц: каждая карточка = строка, дни = столбцы.
+    Поддерживает: month (YYYY-MM), days (N), date_from+date_to (ISO).
     """
     from datetime import datetime as dt_mod
     import calendar
     import decimal
 
     from models.product_entity import ProductEntity
-    # Период: N дней назад до сегодня, или выбранный месяц
+    # Период: приоритет date_from/date_to > month > days
     today = date.today()
-    if month:
+    if date_from and date_to:
+        try:
+            first_day = dt_mod.fromisoformat(date_from).date()
+            last_day = dt_mod.fromisoformat(date_to).date()
+            days_in_month = (last_day - first_day).days + 1
+        except ValueError:
+            first_day = today - timedelta(days=89)
+            last_day = today
+            days_in_month = 90
+    elif month:
         year, mon = month.split("-")
         year, mon = int(year), int(mon)
         first_day = date(year, mon, 1)
@@ -3935,7 +3947,6 @@ async function showApp() {
             loadStats();
             loadOpiu();
             loadAnalytics();
-            initRnpMonths();
             loadRnp();
             
             loadWarehouses();
@@ -3959,6 +3970,8 @@ function onTopPeriodChange() {
     }
     else if (_currentSection === 'rnp') loadRnp();
     else if (_currentSection === 'analytics') { if(typeof loadAnalytics === 'function') loadAnalytics(); }
+    else if (_currentSection === 'marketer') loadMarketer();
+    else if (_currentSection === 'fboneeds') loadFboNeeds();
 }
 
 function showAuth() {
@@ -4288,12 +4301,7 @@ var _sectionHTML = {
 <span style="font-size:.9em;color:#666">🏪 Магазин:</span>
 <select id="mkt-store" onchange="switchMktStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
 <span style="font-size:.9em;color:#666;margin-left:8px">📅 Период:</span>
-<select id="mkt-period" onchange="loadMarketer()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<option value="7">7 дней</option>
-<option value="14">14 дней</option>
-<option value="30" selected>30 дней</option>
-<option value="60">60 дней</option>
-</select>
+<span style="font-size:.85em;color:#888">— из верхнего датапикера</span>
 <button class="btn" onclick="loadMarketer()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
 </div>
 
@@ -4387,8 +4395,7 @@ var _sectionHTML = {
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #e0e0e0;flex-wrap:wrap;background:#f8f9fb;padding:10px 16px;border-radius:8px">
 <select id="fbo-warehouse-filter" onchange="filterFboTable()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:160px"><option value="">Все склады</option></select>
 <span style="font-size:.85em;color:#666;font-weight:600">Скорость продаж за</span>
-<select id="fbo-period" onchange="loadFboNeeds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<option value="7">7 дней</option><option value="14" selected>14 дней</option><option value="21">21 день</option><option value="30">30 дней</option></select>
+<span style="font-size:.85em;color:#888">— из верхнего датапикера</span>
 <label style="font-size:.85em;color:#666;display:flex;align-items:center;gap:4px"><input type="checkbox" id="fbo-only-needs" onchange="filterFboTable()" checked> Только с потребностью</label>
 <span style="font-size:.82em;color:#888">Остатки берутся на последнюю дату, скорость продаж считается за выбранное окно.</span>
 </div>
@@ -4633,7 +4640,6 @@ var _sectionHTML = {
 </div>
 `,
     'rnp': `<div class="rnp-ctrl">
-<select id="rnp-month" onchange="loadRnp()" style="min-width:130px"></select>
 <label style="font-size:.85em;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="rnp-buyout-pct" onchange="loadRnp()"> Учесть % выкупа</label>
 <select id="rnp-sort" onchange="loadRnp()">
 <option value="orders_revenue">Сортировка: Заказы, руб</option><option value="roi">ROI</option><option value="buyout_pct">% выкупа</option>
@@ -4764,9 +4770,8 @@ async function _sectionEnter(name) {
             if (!_analyticsInited) { _lazyInit('analytics'); await loadDates(); _analyticsInited = true; }
             loadAnalytics(); break;
         case 'rnp':
-            if (!_rnpInited) { _lazyInit('rnp'); if (typeof initRnpMonths === 'function') initRnpMonths(); _rnpInited = true; }
+            if (!_rnpInited) { _lazyInit('rnp'); _rnpInited = true; }
             if (_rnpState) {
-                var m = document.getElementById('rnp-month'); if (m) m.value = _rnpState.month;
                 var s = document.getElementById('rnp-sort'); if (s) s.value = _rnpState.sort;
                 var q = document.getElementById('rnp-search'); if (q) q.value = _rnpState.search;
                 var b = document.getElementById('rnp-buyout-pct'); if (b) b.checked = _rnpState.buyoutPct;
@@ -4825,7 +4830,6 @@ function _sectionLeave(name) {
     switch(name) {
         case 'rnp':
             _rnpState = {
-                month: document.getElementById('rnp-month')?.value || '',
                 sort: document.getElementById('rnp-sort')?.value || 'orders_revenue',
                 search: document.getElementById('rnp-search')?.value || '',
                 buyoutPct: document.getElementById('rnp-buyout-pct')?.checked || false
@@ -5047,7 +5051,14 @@ var mktAllProducts = [];
 
 async function loadMarketer() {
     if (!ORG_ID || !document.getElementById('mkt-products-list')) return;
-    var period = document.getElementById('mkt-period')?.value || '30';
+    // Единый datepicker: считаем days из dateFrom/dateTo
+    var period = '30';
+    if (typeof nlGetDateRange === 'function') {
+        var range = nlGetDateRange();
+        var d1 = new Date(range.dateFrom + 'T12:00:00');
+        var d2 = new Date(range.dateTo + 'T12:00:00');
+        period = String(Math.max(1, Math.round((d2 - d1) / 86400000) + 1));
+    }
     var params = new URLSearchParams({org_id: ORG_ID, days: period});
     var status = document.getElementById('mkt-flt-status')?.value || '';
     var abcClass = document.getElementById('mkt-flt-class')?.value || '';
@@ -5157,7 +5168,13 @@ function getClassColor(c) {
 }
 
 async function openMktDetail(nmId) {
-    var period = document.getElementById('mkt-period').value;
+    var period = '30';
+    if (typeof nlGetDateRange === 'function') {
+        var range = nlGetDateRange();
+        var d1 = new Date(range.dateFrom + 'T12:00:00');
+        var d2 = new Date(range.dateTo + 'T12:00:00');
+        period = String(Math.max(1, Math.round((d2 - d1) / 86400000) + 1));
+    }
     try {
         var r = await fetch('/api/v1/nl/marketer/product/' + nmId + '?org_id=' + ORG_ID + '&days=' + period, {
             headers: {'Authorization': 'Bearer ' + TOKEN}
@@ -6555,18 +6572,15 @@ function initRnpMonths() {
 }
 async function loadRnp() {
     if (!ORG_ID) return;
-    var monthSel = document.getElementById('rnp-month');
-    var selVal = monthSel ? monthSel.value : '';
     var sort = document.getElementById('rnp-sort')?.value || 'orders_revenue';
     var search = document.getElementById('rnp-search')?.value || '';
     var ubp = document.getElementById('rnp-buyout-pct')?.checked ? '1' : '0';
     try {
         var url = '/api/v1/nl/rnp?org_id=' + ORG_ID + '&sort_by=' + sort + '&use_buyout_pct=' + ubp;
-        // Если выбран месяц (YYYY-MM), передаём month; если дни — передаём days
-        if (selVal && selVal.indexOf('-') > 0 && !/^\d+$/.test(selVal)) {
-            url += '&month=' + selVal;
-        } else if (selVal && /^\d+$/.test(selVal)) {
-            url += '&days=' + selVal;
+        // Единый datepicker: date_from + date_to
+        if (typeof nlGetDateRange === 'function') {
+            var range = nlGetDateRange();
+            url += '&date_from=' + range.dateFrom + '&date_to=' + range.dateTo;
         }
         if (search) url += '&search=' + encodeURIComponent(search);
         var res = await fetch(url);
@@ -7812,7 +7826,14 @@ var fboAllData = [];
 var fboEdits = {};  // key -> edited value
 
 async function loadFboNeeds() {
-    const days = document.getElementById('fbo-period').value;
+    // Единый datepicker: считаем days из dateFrom/dateTo
+    var days = '14';
+    if (typeof nlGetDateRange === 'function') {
+        var range = nlGetDateRange();
+        var d1 = new Date(range.dateFrom + 'T12:00:00');
+        var d2 = new Date(range.dateTo + 'T12:00:00');
+        days = String(Math.max(1, Math.round((d2 - d1) / 86400000) + 1));
+    }
     const tbody = document.getElementById('fbo-body');
     tbody.innerHTML = '<tr><td colspan="13" class="empty">Загрузка...</td></tr>';
     try {
