@@ -6,7 +6,7 @@ from sqlalchemy import text
 from core.database import get_db
 from core.config import settings
 from api.v1 import auth, organizations, wb_keys, sync, admin_tech, nl, external_ad
-from api.v1.routers import opiu, promotions, ads, identity, sales_plans, reference, analytics, sellers, prices, marketer, unit_economics
+from api.v1.routers import opiu, promotions, ads, identity, sales_plans, reference, analytics, sellers, prices, marketer, unit_economics, dashboard, pages
 
 # Импортируем Celery для регистрации задач
 from core.celery import celery_app
@@ -56,6 +56,8 @@ app.include_router(sellers.router)
 app.include_router(prices.router)
 app.include_router(marketer.router)
 app.include_router(unit_economics.router)
+app.include_router(dashboard.router)
+app.include_router(pages.router)
 
 
 @app.get("/favicon.ico")
