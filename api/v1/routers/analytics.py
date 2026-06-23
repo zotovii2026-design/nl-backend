@@ -102,6 +102,7 @@ async def get_analytics(org_id: str, target_date: Optional[str] = None, search: 
 @router.get("/api/v1/nl/warehouses")
 async def get_warehouse_stock(org_id: str, target_date: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """Остатки на складах WB"""
+    org_id = await resolve_org_id(org_id, db)
     d = datetime.strptime(target_date, "%Y-%m-%d").date() if target_date else date.today()
     result = await db.execute(
         select(TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name,
