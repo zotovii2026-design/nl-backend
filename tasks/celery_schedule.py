@@ -2,9 +2,8 @@ from celery.schedules import crontab
 
 
 TASK_MODULES = (
-    "tasks.wb_sync",
-    "tasks.stocks_sync",
-    "tasks.scheduled_sync",
+    "tasks.sync.parse_raw",
+    "tasks.sync.wb_fetch",
     "tasks.ad_sync",
     "tasks.promo_sync",
     "tasks.box_tariffs_sync",

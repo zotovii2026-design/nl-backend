@@ -5,7 +5,7 @@ import pytest
 
 from tasks.celery_observability import find_result_errors
 from tasks.celery_schedule import BEAT_SCHEDULE, TASK_MODULES
-from tasks.scheduled_sync import _fetch_with_retry
+from tasks.sync.utils import _fetch_with_retry
 
 
 EXPECTED_LOCAL_TIMES = {
@@ -108,7 +108,7 @@ async def test_wb_retry_handles_rate_limit_and_server_errors(
     async def no_sleep(_delay):
         return None
 
-    monkeypatch.setattr("tasks.scheduled_sync.asyncio.sleep", no_sleep)
+    monkeypatch.setattr("tasks.sync.utils.asyncio.sleep", no_sleep)
 
     assert await _fetch_with_retry(request, label="test", max_retries=1) == ["ok"]
     assert attempts == 2

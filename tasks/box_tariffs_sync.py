@@ -13,7 +13,7 @@ from celery import shared_task
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from tasks.scheduled_sync import _run, _get_all_keys
+from tasks.sync.utils import _run, _get_all_keys
 from models.wb_box_tariff import WbBoxTariff
 
 logger = logging.getLogger(__name__)
