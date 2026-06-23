@@ -190,7 +190,8 @@ function opiuYesterday() {
 }
 
 function getOpiuDateRange() {
-    const period = document.getElementById('filter-period')?.value || 'yesterday';
+    if (typeof nlGetDateRange === 'function') return nlGetDateRange();
+    const period = 'yesterday';
     const base = opiuYesterday();
     let start = new Date(base);
     let end = new Date(base);

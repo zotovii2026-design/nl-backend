@@ -37,7 +37,8 @@ function statsFillCustomDates(dateFrom, dateTo) {
 }
 
 function getStatsDateRange() {
-    var period = document.getElementById('filter-period')?.value || 'yesterday';
+    if (typeof nlGetDateRange === 'function') return nlGetDateRange();
+    var period = 'yesterday';
     var custom = document.getElementById('stats-custom-period');
     var base = statsYesterday();
     var start = new Date(base);

@@ -3736,14 +3736,15 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Chart.js -->
 <script src="/static/lib/chart.min.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
-<script type="text/javascript" src="/static/js/stats-grid.js?v=20260622-revenue-cols"></script>
-<script type="text/javascript" src="/static/js/opiu-grid.js?v=20260622-periods"></script>
+<script type="text/javascript" src="/static/js/stats-grid.js?v=20260623-dp"></script>
+<script type="text/javascript" src="/static/js/opiu-grid.js?v=20260623-dp"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260609d"></script>
+<script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260623"></script>
 </head>
 <body>
 
@@ -3815,7 +3816,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <span class="page-title" id="page-title">Основные показатели</span>
 <div class="filters" id="top-filters">
 <span style="font-size:.85em">🏪</span><select id="filter-store" onchange="switchTopStore()" style="min-width:160px;border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em;background:#fff"></select>
-<select id="filter-period" onchange="onTopPeriodChange()"><option value="yesterday" selected>Вчера</option><option value="last7">7 дней</option><option value="week">Неделя</option><option value="month">Месяц</option><option value="custom">Произвольный период</option></select>
+<div id="nl-datepicker-container" style="position:relative"></div>
 <input type="text" id="filter-article" placeholder="Артикул" style="width:120px">
 </div>
 </div>
@@ -3952,6 +3953,12 @@ async function loadStats() {
 function onTopPeriodChange() {
     if (_currentSection === 'opiu' && typeof onOpiuPeriodChange === 'function') onOpiuPeriodChange();
     else if (_currentSection === 'stats') loadStats();
+    else if (_currentSection === 'ads') {
+        if(typeof _adsCurrentView !== "undefined" && _adsCurrentView === "art") loadAdsArts();
+        else loadAds();
+    }
+    else if (_currentSection === 'rnp') loadRnp();
+    else if (_currentSection === 'analytics') { if(typeof loadAnalytics === 'function') loadAnalytics(); }
 }
 
 function showAuth() {
@@ -4881,14 +4888,15 @@ async function navTo(name, el) {
     // Top filters: filter-store always visible, period+article conditional
     var topFilters = document.getElementById('top-filters');
     if (topFilters) topFilters.style.display = 'flex';
-    var topPeriod = document.getElementById('filter-period');
-    if (topPeriod) topPeriod.style.display = reg.topFilters ? '' : 'none';
+    // filter-period заменён на nl-datepicker-container
+    // видимость управляется через nlDatepickerVisibility() ниже
     var topArticle = document.getElementById('filter-article');
     if (topArticle) topArticle.style.display = (reg.topFilters && name !== 'opiu') ? '' : 'none';
     // Cleanup popups
     if (typeof cleanupCostPopups === 'function') cleanupCostPopups();
     // Track current & enter
     _currentSection = name;
+    if (typeof nlDatepickerVisibility === 'function') nlDatepickerVisibility(name);
     _sectionEnter(name);
 }
 
@@ -4993,7 +5001,8 @@ function adsCustomDateChange() {
 }
 
 function getAdsDateRange() {
-    const val = document.getElementById('ads-period').value;
+    if (typeof nlGetDateRange === 'function') return nlGetDateRange();
+    const val = '30';
     let days = parseInt(val);
     if (!isNaN(days)) {
         return { days: days };
