@@ -1199,7 +1199,8 @@ async function _sectionEnter(name) {
             else { await loadOrgs(); }
             loadOpiu(); break;
         case 'costprice':
-            if (!_costpriceInited) { _lazyInit('costprice'); loadOrgs(); _costpriceInited = true; }
+            if (!_costpriceInited) { _lazyInit('costprice'); await loadOrgs(); _costpriceInited = true; }
+            else { await loadOrgs(); }
             loadTaxSettings(); loadCostPrices(); break;
         case 'salesplan':
             if (!_salesplanInited) { _lazyInit('salesplan'); loadOrgs(); _salesplanInited = true; }
@@ -1223,7 +1224,8 @@ async function _sectionEnter(name) {
             if (!_fboneedsInited) { _lazyInit('fboneeds'); loadOrgs(); _fboneedsInited = true; }
             loadFboNeeds(); break;
         case 'unitecon':
-            if (!_uniteconInited) { _lazyInit('unitecon'); loadOrgs(); _uniteconInited = true; }
+            if (!_uniteconInited) { _lazyInit('unitecon'); await loadOrgs(); _uniteconInited = true; }
+            else { await loadOrgs(); }
             if (!ueTabulator) initUEGrid(); loadUEData(); break;
         case 'promo':
             if (!_promoInited) { _lazyInit('promo'); loadOrgs(); _promoInited = true; }
@@ -1243,7 +1245,7 @@ async function _sectionEnter(name) {
     }
 }
 
-function _sectionLeave(name) {
+async function _sectionLeave(name) {
     switch(name) {
         case 'rnp':
             _rnpState = {
@@ -1296,7 +1298,7 @@ var _currentSection = 'stats';
 async function navTo(name, el) {
     if (_costDirty) await confirmDirty();
     // Leave current section
-    if (_currentSection && _currentSection !== name) _sectionLeave(_currentSection);
+    if (_currentSection && _currentSection !== name) await _sectionLeave(_currentSection);
     // Nav UI
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     if (el) el.classList.add('active');
