@@ -9,6 +9,8 @@ import math
 
 from core.database import get_db
 from models.user import User
+from core.role_deps import require_organization_role
+from models.organization import Role
 from core.dependencies import get_current_user
 from core.tenant_auth import require_query_organization_access
 from services.reference import resolve_org_id

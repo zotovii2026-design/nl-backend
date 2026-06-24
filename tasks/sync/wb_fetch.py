@@ -3,6 +3,7 @@ WB API fetch-таски (сбор сырых данных).
 Извлечено из scheduled_sync.py без изменения логики.
 """
 
+import asyncio
 import httpx
 import logging
 from datetime import date, datetime, timedelta
