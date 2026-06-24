@@ -9,7 +9,6 @@ router = APIRouter(tags=["nl"])
 
 
 
-# === РНП — API эндпоинт ===
 @router.get("/nl/register", response_class=HTMLResponse)
 async def nl_register_page():
     with open("templates/auth_register.html", "r", encoding="utf-8") as f:
