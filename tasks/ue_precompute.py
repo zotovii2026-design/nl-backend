@@ -9,7 +9,7 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from api.v1.nl import build_unit_economics
+from api.v1.routers.unit_economics import build_unit_economics
 from core.config import settings
 
 logger = logging.getLogger(__name__)
