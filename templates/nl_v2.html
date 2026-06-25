@@ -4356,9 +4356,9 @@ function mktEnsureShell() {
     <strong style="font-size:.92em;color:#1a1a2e">Стол маркетолога</strong>
     <span style="font-size:.82em;color:#777">Период и магазин берутся из верхней панели</span>
     <input id="mkt-filter-nms" type="text" placeholder="Товары WB через ," style="width:150px;border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:.85em;margin-left:auto">
-    <input id="mkt-filter-brand" type="text" placeholder="Бренд" style="width:120px;border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:.85em">
+    <select id="mkt-filter-brand" onchange="loadMarketer()" style="width:130px;border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:.85em"><option value="">Бренд: все</option></select>
     <input id="mkt-filter-group" type="text" placeholder="Группа / класс" style="width:125px;border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:.85em">
-    <input id="mkt-filter-category" type="text" placeholder="Категория" style="width:130px;border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:.85em">
+    <select id="mkt-filter-category" onchange="loadMarketer()" style="width:140px;border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:.85em"><option value="">Категория: все</option></select>
     <button class="btn" onclick="loadMarketer()" style="padding:6px 12px;font-size:.84em">Обновить</button>
   </div>
 
@@ -4394,7 +4394,7 @@ function mktEnsureShell() {
 
   <div id="mkt-product-charts" style="display:flex;flex-direction:column;gap:10px"></div>
 </div>`;
-    ['mkt-filter-nms','mkt-filter-brand','mkt-filter-group','mkt-filter-category'].forEach(function(id) {
+    ['mkt-filter-nms','mkt-filter-group'].forEach(function(id) {
         var el = document.getElementById(id);
         if (el) el.addEventListener('keydown', function(e) { if (e.key === 'Enter') loadMarketer(); });
     });
@@ -4574,6 +4574,32 @@ function mktMetricInfoMap() {
     return map;
 }
 
+function mktFillFilterSelects() {
+    var dataProducts = (mktChartData && mktChartData.product_charts) ? mktChartData.product_charts : [];
+    var brands = {};
+    var categories = {};
+    dataProducts.forEach(function(p) {
+        if (p.brand) brands[p.brand] = (brands[p.brand] || 0) + 1;
+        if (p.category) categories[p.category] = (categories[p.category] || 0) + 1;
+    });
+    var brandSel = document.getElementById('mkt-filter-brand');
+    var catSel = document.getElementById('mkt-filter-category');
+    if (brandSel) {
+        var curBrand = brandSel.value;
+        var opts = '<option value="">Бренд: все</option>';
+        Object.keys(brands).sort().forEach(function(b) { opts += '<option value="' + esc(b) + '"' + (b === curBrand ? ' selected' : '') + '>' + esc(b) + ' (' + brands[b] + ')</option>'; });
+        brandSel.innerHTML = opts;
+        brandSel.value = curBrand;
+    }
+    if (catSel) {
+        var curCat = catSel.value;
+        var opts2 = '<option value="">Категория: все</option>';
+        Object.keys(categories).sort().forEach(function(c) { opts2 += '<option value="' + esc(c) + '"' + (c === curCat ? ' selected' : '') + '>' + esc(c) + ' (' + categories[c] + ')</option>'; });
+        catSel.innerHTML = opts2;
+        catSel.value = curCat;
+    }
+}
+
 function mktRenderMetricMenu() {
     var el = document.getElementById('mkt-metric-menu');
     if (!el || !mktCatalog) return;
@@ -4673,6 +4699,7 @@ async function loadMarketer() {
 
 function mktRenderWorkspace() {
     if (!mktChartData) return;
+    mktFillFilterSelects();
     var topTitle = document.getElementById('mkt-top-title');
     var topSub = document.getElementById('mkt-top-subtitle');
     var summary = document.getElementById('mkt-data-summary');
@@ -4815,6 +4842,21 @@ function mktRenderProductCharts() {
         if (product.has_sizes) html += '<button onclick="mktToggleSizes(' + product.nm_id + ', this)" style="margin-left:auto;border:1px solid #6c5ce7;background:#fff;color:#6c5ce7;border-radius:6px;padding:5px 9px;font-size:.82em;cursor:pointer">Раскрыть размеры</button>';
         html += '</div><div id="mkt-product-metrics-' + product.nm_id + '" style="display:none;margin:6px 0 10px;padding:8px;background:#fbfcfe;border:1px solid #edf0f3;border-radius:6px"></div>';
         html += '<div style="height:230px"><canvas id="mkt-product-chart-' + idx + '"></canvas></div>';
+        // Panель рекомендаций для каждого товара
+        var obsKey = mktProductObservationKey(product.nm_id);
+        var obs = mktLoadProductObservation(product.nm_id);
+        html += '<div style="margin-top:8px;padding:8px;background:#fbfcfe;border:1px solid #edf0f3;border-radius:6px">';
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">';
+        html += '<span style="font-size:.78em;font-weight:700;color:#6c5ce7">Рекомендация / Наблюдение</span>';
+        html += '<span style="font-size:.72em;color:#aaa" id="mkt-obs-saved-' + product.nm_id + '">' + (obs.saved_at ? 'сохранено ' + esc(obs.saved_at) : '') + '</span>';
+        html += '</div>';
+        html += '<input id="mkt-obs-source-' + product.nm_id + '" type="text" placeholder="Источник (n8n / ИИ / человек)" value="' + esc(obs.source || '') + '" style="width:100%;border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:.8em;margin-bottom:4px;box-sizing:border-box">';
+        html += '<textarea id="mkt-obs-text-' + product.nm_id + '" placeholder="Рекомендация или наблюдение по этому товару" style="width:100%;min-height:60px;border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.82em;resize:vertical;box-sizing:border-box">' + esc(obs.text || '') + '</textarea>';
+        html += '<div style="display:flex;gap:6px;margin-top:4px">';
+        html += '<button onclick="mktSaveProductObservation(' + product.nm_id + ')" style="border:1px solid #6c5ce7;background:#6c5ce7;color:#fff;border-radius:6px;padding:4px 10px;font-size:.78em;cursor:pointer">Сохранить</button>';
+        html += '<button onclick="mktClearProductObservation(' + product.nm_id + ')" style="border:1px solid #ddd;background:#fff;color:#777;border-radius:6px;padding:4px 10px;font-size:.78em;cursor:pointer">Очистить</button>';
+        html += '</div>';
+        html += '</div>';
         html += '<div id="mkt-sizes-' + product.nm_id + '" style="display:none;margin-top:10px"></div>';
         html += '</div>';
     });
@@ -4822,6 +4864,41 @@ function mktRenderProductCharts() {
     products.forEach(function(product, idx) {
         mktRenderLineChart('mkt-product-chart-' + idx, product.points || [], mktMetricsByKeys(mktGetProductMetrics(product.nm_id)), 1);
     });
+}
+
+function mktProductObservationKey(nmId) {
+    return 'mktProductObs:' + (ORG_ID || 'default') + ':' + nmId;
+}
+
+function mktLoadProductObservation(nmId) {
+    try {
+        return JSON.parse(localStorage.getItem(mktProductObservationKey(nmId)) || '{}');
+    } catch(e) {
+        return {};
+    }
+}
+
+function mktSaveProductObservation(nmId) {
+    var source = document.getElementById('mkt-obs-source-' + nmId);
+    var text = document.getElementById('mkt-obs-text-' + nmId);
+    var payload = {
+        source: (source ? source.value : '').trim(),
+        text: (text ? text.value : '').trim(),
+        saved_at: new Date().toLocaleString('ru-RU'),
+    };
+    localStorage.setItem(mktProductObservationKey(nmId), JSON.stringify(payload));
+    var saved = document.getElementById('mkt-obs-saved-' + nmId);
+    if (saved) saved.textContent = 'сохранено ' + payload.saved_at;
+}
+
+function mktClearProductObservation(nmId) {
+    localStorage.removeItem(mktProductObservationKey(nmId));
+    var source = document.getElementById('mkt-obs-source-' + nmId);
+    var text = document.getElementById('mkt-obs-text-' + nmId);
+    var saved = document.getElementById('mkt-obs-saved-' + nmId);
+    if (source) source.value = '';
+    if (text) text.value = '';
+    if (saved) saved.textContent = '';
 }
 
 function mktToggleProductMetricPanel(nmId) {
