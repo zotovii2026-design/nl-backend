@@ -2,14 +2,14 @@ from pathlib import Path
 import re
 
 
-DASHBOARD_SOURCE = Path("api/v1/nl.py").read_text(encoding="utf-8")
+DASHBOARD_SOURCE = Path("templates/nl_v2.html").read_text(encoding="utf-8")
 OPIU_SOURCE = Path("static/js/opiu-grid.js").read_text(encoding="utf-8")
 COST_GRID_SOURCE = Path("static/js/cost-grid.js").read_text(encoding="utf-8")
 
 
 def test_marketer_loader_is_defined():
     assert "async function loadMarketer()" in DASHBOARD_SOURCE
-    assert "/api/v1/nl/marketer/products?" in DASHBOARD_SOURCE
+    assert "/api/v1/nl/marketer/chart-data?" in DASHBOARD_SOURCE
 
 
 def test_async_sections_guard_removed_dom_nodes():
