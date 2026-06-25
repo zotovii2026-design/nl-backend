@@ -1,6 +1,7 @@
 """Marketer dashboard API routes."""
 import json
-from fastapi import APIRouter, Depends
+from datetime import date as date_cls
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from typing import Optional
@@ -309,6 +310,15 @@ def _format_chart_points(rows, metric_keys: list[str]) -> list[dict]:
     return points
 
 
+def _resolve_chart_date(value: Optional[str], default_date):
+    if not value:
+        return default_date
+    try:
+        return date_cls.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(400, "date must be in YYYY-MM-DD format") from exc
+
+
 @router.get("/api/v1/nl/marketer/chart-data")
 async def get_marketer_chart_data(
     org_id: str,
@@ -337,8 +347,8 @@ async def get_marketer_chart_data(
     )
     params = {
         "org": org_id,
-        "date_from": date_from or str(date.today() - timedelta(days=29)),
-        "date_to": date_to or str(date.today()),
+        "date_from": _resolve_chart_date(date_from, date.today() - timedelta(days=29)),
+        "date_to": _resolve_chart_date(date_to, date.today()),
         **filter_params,
     }
 
@@ -472,8 +482,8 @@ async def get_marketer_product_sizes(
     params = {
         "org": org_id,
         "nm": nm_id,
-        "date_from": date_from or str(date.today() - timedelta(days=29)),
-        "date_to": date_to or str(date.today()),
+        "date_from": _resolve_chart_date(date_from, date.today() - timedelta(days=29)),
+        "date_to": _resolve_chart_date(date_to, date.today()),
     }
     product_metric_columns = ",\n               ".join(
         f"{MARKETER_CHART_METRICS[key]['expr']} AS {key}" for key in metric_keys
