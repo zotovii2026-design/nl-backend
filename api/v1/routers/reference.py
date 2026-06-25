@@ -28,6 +28,7 @@ from sqlalchemy.sql import func
 
 from core.database import get_db
 from core.security import decrypt_data
+from core.tenant_auth import require_query_organization_access
 from models.organization import WbApiKey
 from models.reference_book import ReferenceBook
 from schemas.reference import RefItem
@@ -39,7 +40,7 @@ from services.reference import (
 from repositories.reference import fetch_reference, fetch_cost_prices
 
 _log = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_query_organization_access)])
 
 
 # ============================================================================
