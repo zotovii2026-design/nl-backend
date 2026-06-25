@@ -13,6 +13,511 @@ router = APIRouter(
     dependencies=[Depends(require_query_organization_access)],
 )
 
+
+MARKETER_ENTITY_LEVELS = [
+    {
+        "key": "store",
+        "label": "Магазин",
+        "default_scope": "all_filtered",
+        "description": "Верхний график по всей выборке из стандартных фильтров.",
+    },
+    {
+        "key": "product",
+        "label": "Товар",
+        "default_scope": "filtered_products",
+        "description": "Нижние графики по товарам, которые попали в фильтр.",
+    },
+    {
+        "key": "size",
+        "label": "Размер",
+        "default_scope": "grouped_by_product",
+        "description": "Размерные товары по умолчанию сгруппированы; размеры раскрываются кнопкой.",
+    },
+]
+
+
+MARKETER_FILTER_CONTRACT = {
+    "source": "top_page_filters",
+    "filters": ["organization", "date_range", "brand", "group", "product", "article"],
+    "top_chart": {
+        "no_product_filter": "store_filtered_aggregate",
+        "with_product_filter": "average_of_filtered_products",
+        "with_group_filter": "average_of_group_products",
+    },
+    "lower_charts": {
+        "scope": "products_matching_current_filters",
+        "default_metrics": "mirror_top_chart",
+        "can_override_metrics": True,
+    },
+    "selected_metric_set": {
+        "persist": True,
+        "levels": ["user", "organization"],
+    },
+}
+
+
+MARKETER_METRIC_CATALOG = [
+    {
+        "key": "economy",
+        "label": "Экономика",
+        "metrics": [
+            {"key": "lifetime_profit", "label": "Сколько заработали всего за всю историю", "unit": "rub", "aggregation": "sum"},
+            {"key": "period_profit", "label": "Сколько за период", "unit": "rub", "aggregation": "sum"},
+            {"key": "price", "label": "Цена", "unit": "rub", "aggregation": "avg"},
+            {"key": "price_spp", "label": "Цена с СПП", "unit": "rub", "aggregation": "avg"},
+            {"key": "cost_price", "label": "Себестоимость", "unit": "rub", "aggregation": "avg"},
+            {"key": "cost_price_pct", "label": "Себестоимость в % от цены товара", "unit": "percent", "aggregation": "avg"},
+            {"key": "margin_income", "label": "Маржинальный доход", "unit": "rub", "aggregation": "sum"},
+            {"key": "penalties", "label": "Штрафы", "unit": "rub", "aggregation": "sum"},
+            {"key": "acquiring", "label": "Эквайринг", "unit": "rub", "aggregation": "sum"},
+            {"key": "extra_costs", "label": "Доп расходы", "unit": "rub", "aggregation": "sum"},
+            {"key": "marketplace_costs_pct_total", "label": "% затрат на маркетплейс итого", "unit": "percent", "aggregation": "avg"},
+            {"key": "taxes_total", "label": "Налоги итого", "unit": "rub", "aggregation": "sum"},
+            {"key": "marketplace_costs_pct_unit", "label": "% затрат на маркетплейс на 1 ед", "unit": "percent", "aggregation": "avg"},
+            {"key": "stock_value", "label": "Стоимость остатка", "unit": "rub", "aggregation": "sum"},
+            {"key": "roi", "label": "Коэффициент рентабельности инвестиций", "unit": "ratio", "aggregation": "avg"},
+            {"key": "pricing_strategy", "label": "Стратегия ценообразования", "unit": "text", "aggregation": "last"},
+        ],
+    },
+    {
+        "key": "logistics_layout",
+        "label": "Логистика и раскладка",
+        "metrics": [
+            {"key": "logistics_per_unit", "label": "В руб на 1 ед", "unit": "rub", "aggregation": "avg"},
+            {"key": "logistics_with_buyout", "label": "В руб с учетом выкупа", "unit": "rub", "aggregation": "avg"},
+            {"key": "buyout_pct", "label": "Выкуп в %", "unit": "percent", "aggregation": "avg"},
+            {"key": "stock_qty", "label": "Остаток", "unit": "pcs", "aggregation": "sum"},
+            {"key": "warehouse_count", "label": "Кол-во складов", "unit": "pcs", "aggregation": "sum"},
+            {"key": "sold_costs_total", "label": "Затраты итого от проданного", "unit": "rub", "aggregation": "sum"},
+            {"key": "deficit_surplus", "label": "Дефицит / профицит", "unit": "pcs", "aggregation": "sum"},
+            {"key": "local_sales", "label": "Локальные продажи", "unit": "pcs", "aggregation": "sum"},
+            {"key": "storage", "label": "Хранение", "unit": "rub", "aggregation": "sum"},
+            {"key": "order_costs_total", "label": "Затраты итого от заказа", "unit": "rub", "aggregation": "sum"},
+            {"key": "to_order_total", "label": "Итого к заказу", "unit": "pcs", "aggregation": "sum"},
+        ],
+    },
+    {
+        "key": "ads_traffic",
+        "label": "Реклама и трафик",
+        "metrics": [
+            {"key": "views", "label": "Показы", "unit": "pcs", "aggregation": "sum"},
+            {"key": "ad_views", "label": "Показы в РК", "unit": "pcs", "aggregation": "sum"},
+            {"key": "ctr_total", "label": "CTR итого", "unit": "percent", "aggregation": "avg"},
+            {"key": "ctr_ad", "label": "CTR в РК", "unit": "percent", "aggregation": "avg"},
+            {"key": "cpm", "label": "CPM", "unit": "rub", "aggregation": "avg"},
+            {"key": "cpm_min", "label": "CPM минимальный", "unit": "rub", "aggregation": "min"},
+            {"key": "cpc", "label": "CPC", "unit": "rub", "aggregation": "avg"},
+            {"key": "click_to_purchase", "label": "Клик покупка (какой клик = покупка)", "unit": "ratio", "aggregation": "avg"},
+            {"key": "organic_views_pct", "label": "Показы органика в % от всего трафика", "unit": "percent", "aggregation": "avg"},
+            {"key": "views_total", "label": "Показы итого", "unit": "pcs", "aggregation": "sum"},
+            {"key": "ad_strategy", "label": "Рекламная стратегия (номер)", "unit": "text", "aggregation": "last"},
+            {"key": "cv", "label": "CV", "unit": "percent", "aggregation": "avg"},
+            {"key": "ad_cost_sum", "label": "Сумма затрат", "unit": "rub", "aggregation": "sum"},
+            {"key": "drr", "label": "ДРР", "unit": "percent", "aggregation": "avg"},
+            {"key": "cart_count", "label": "Кол-во корзин", "unit": "pcs", "aggregation": "sum"},
+            {"key": "orders_count", "label": "Кол-во заказов", "unit": "pcs", "aggregation": "sum"},
+            {"key": "query_frequency_sum", "label": "Суммарная частота запросов", "unit": "pcs", "aggregation": "sum"},
+            {"key": "marketplace_card_count", "label": "Кол-во карточек на МП", "unit": "pcs", "aggregation": "sum"},
+        ],
+    },
+    {
+        "key": "other",
+        "label": "Иное",
+        "metrics": [
+            {"key": "seo_change_milestone", "label": "Веха смена SEO по стратегии", "unit": "event", "aggregation": "event"},
+            {"key": "extra_fields_change_milestone", "label": "Веха смена доп полей", "unit": "event", "aggregation": "event"},
+            {"key": "main_photo_change_milestone", "label": "Веха смена главного фото", "unit": "event", "aggregation": "event"},
+            {"key": "infographic_change_milestone", "label": "Веха смены инфографики", "unit": "event", "aggregation": "event"},
+            {"key": "promo_state", "label": "В акции и какой (да/нет)", "unit": "text", "aggregation": "last"},
+            {"key": "seasonality", "label": "Сезонность товара", "unit": "index", "aggregation": "avg"},
+            {"key": "query_trend", "label": "Тренд запросов", "unit": "index", "aggregation": "avg"},
+            {"key": "sales_plan", "label": "План продаж", "unit": "pcs", "aggregation": "sum"},
+            {"key": "sales_fact", "label": "Факт продаж", "unit": "pcs", "aggregation": "sum"},
+        ],
+    },
+]
+
+
+MARKETER_AI_PANEL_CONTRACT = {
+    "position": "right",
+    "enabled": True,
+    "fields": ["summary", "recommendations", "source", "generated_at"],
+    "note": "Reserved for n8n/AI output; chart analysis remains usable without it.",
+}
+
+
+MARKETER_CHART_METRICS = {
+    "period_profit": {
+        "label": "Сколько за период",
+        "unit": "rub",
+        "expr": "SUM(COALESCE(ts.price_discount, ts.price_spp, ts.price, 0) * COALESCE(ts.buyouts_count, 0))",
+        "point_aggregation": "sum",
+    },
+    "price": {
+        "label": "Цена",
+        "unit": "rub",
+        "expr": "AVG(ts.price)",
+        "point_aggregation": "avg",
+    },
+    "price_spp": {
+        "label": "Цена с СПП",
+        "unit": "rub",
+        "expr": "AVG(ts.price_spp)",
+        "point_aggregation": "avg",
+    },
+    "buyout_pct": {
+        "label": "Выкуп в %",
+        "unit": "percent",
+        "expr": "CASE WHEN SUM(COALESCE(ts.orders_count, 0)) > 0 THEN SUM(COALESCE(ts.buyouts_count, 0))::numeric / SUM(COALESCE(ts.orders_count, 0)) * 100 ELSE 0 END",
+        "point_aggregation": "ratio",
+    },
+    "stock_qty": {
+        "label": "Остаток",
+        "unit": "pcs",
+        "expr": "SUM(COALESCE(ts.stock_qty, 0))",
+        "point_aggregation": "sum",
+    },
+    "views": {
+        "label": "Показы",
+        "unit": "pcs",
+        "expr": "SUM(COALESCE(ts.impressions, 0))",
+        "point_aggregation": "sum",
+    },
+    "clicks": {
+        "label": "Клики",
+        "unit": "pcs",
+        "expr": "SUM(COALESCE(ts.clicks, 0))",
+        "point_aggregation": "sum",
+    },
+    "ctr_total": {
+        "label": "CTR итого",
+        "unit": "percent",
+        "expr": "CASE WHEN SUM(COALESCE(ts.impressions, 0)) > 0 THEN SUM(COALESCE(ts.clicks, 0))::numeric / SUM(COALESCE(ts.impressions, 0)) * 100 ELSE 0 END",
+        "point_aggregation": "ratio",
+    },
+    "ad_cost_sum": {
+        "label": "Сумма затрат",
+        "unit": "rub",
+        "expr": "SUM(COALESCE(ts.ad_cost, 0))",
+        "point_aggregation": "sum",
+    },
+    "orders_count": {
+        "label": "Кол-во заказов",
+        "unit": "pcs",
+        "expr": "SUM(COALESCE(ts.orders_count, 0))",
+        "point_aggregation": "sum",
+    },
+    "sales_fact": {
+        "label": "Факт продаж",
+        "unit": "pcs",
+        "expr": "SUM(COALESCE(ts.buyouts_count, 0))",
+        "point_aggregation": "sum",
+    },
+}
+
+
+@router.get("/api/v1/nl/marketer/metric-catalog")
+async def get_marketer_metric_catalog(org_id: str):
+    """Стол маркетолога — расширяемый каталог разделов и метрик графика."""
+    return {
+        "sections": MARKETER_METRIC_CATALOG,
+        "chart_metrics": _metric_meta(list(MARKETER_CHART_METRICS.keys())),
+        "entity_levels": MARKETER_ENTITY_LEVELS,
+        "filter_contract": MARKETER_FILTER_CONTRACT,
+        "ai_panel": MARKETER_AI_PANEL_CONTRACT,
+    }
+
+
+def _split_ints(value: Optional[str]) -> list[int]:
+    if not value:
+        return []
+    items = []
+    for raw in value.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            items.append(int(raw))
+        except ValueError:
+            continue
+    return items
+
+
+def _split_strings(value: Optional[str]) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _resolve_chart_metrics(metrics: Optional[str]) -> list[str]:
+    requested = _split_strings(metrics)
+    if not requested:
+        requested = ["orders_count", "stock_qty", "price", "price_spp", "buyout_pct", "views", "ctr_total"]
+    resolved = [key for key in requested if key in MARKETER_CHART_METRICS]
+    return resolved or ["orders_count", "stock_qty", "price", "price_spp"]
+
+
+def _metric_meta(metric_keys: list[str]) -> list[dict]:
+    return [
+        {
+            "key": key,
+            "label": MARKETER_CHART_METRICS[key]["label"],
+            "unit": MARKETER_CHART_METRICS[key]["unit"],
+            "aggregation": MARKETER_CHART_METRICS[key]["point_aggregation"],
+        }
+        for key in metric_keys
+    ]
+
+
+def _build_marketer_filter_sql(
+    *,
+    nm_ids: list[int],
+    brand: Optional[str],
+    group: Optional[str],
+    category: Optional[str],
+    article: Optional[str],
+) -> tuple[str, dict]:
+    where = []
+    params = {}
+    if nm_ids:
+        where.append("ts.nm_id = ANY(CAST(:nm_ids AS integer[]))")
+        params["nm_ids"] = nm_ids
+    if brand:
+        where.append("LOWER(COALESCE(ref.brand, pe.brand, '')) = LOWER(:brand)")
+        params["brand"] = brand
+    if group:
+        where.append("(LOWER(COALESCE(ref.product_class, '')) = LOWER(:group) OR LOWER(COALESCE(ref.product_status, '')) = LOWER(:group))")
+        params["group"] = group
+    if category:
+        where.append("LOWER(COALESCE(ref.subject_name, pe.subject_name, '')) = LOWER(:category)")
+        params["category"] = category
+    if article:
+        where.append("(CAST(ts.nm_id AS text) ILIKE :article_like OR COALESCE(ts.vendor_code, pe.vendor_code, '') ILIKE :article_like OR COALESCE(ts.product_name, pe.product_name, '') ILIKE :article_like)")
+        params["article_like"] = f"%{article}%"
+    return ("\n      AND " + "\n      AND ".join(where)) if where else "", params
+
+
+def _format_chart_points(rows, metric_keys: list[str]) -> list[dict]:
+    points = []
+    for row in rows:
+        mapping = row._mapping
+        point = {"date": str(mapping["date"])}
+        for key in metric_keys:
+            value = mapping[key]
+            point[key] = float(value) if value is not None else 0
+        points.append(point)
+    return points
+
+
+@router.get("/api/v1/nl/marketer/chart-data")
+async def get_marketer_chart_data(
+    org_id: str,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    nm_ids: Optional[str] = None,
+    brand: Optional[str] = None,
+    group: Optional[str] = None,
+    category: Optional[str] = None,
+    article: Optional[str] = None,
+    metrics: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Стол маркетолога — данные верхнего и нижних графиков по текущим фильтрам."""
+    from datetime import date, timedelta
+
+    metric_keys = _resolve_chart_metrics(metrics)
+    product_ids = _split_ints(nm_ids)
+    has_selection_filter = bool(product_ids or brand or group or category or article)
+    filter_sql, filter_params = _build_marketer_filter_sql(
+        nm_ids=product_ids,
+        brand=brand,
+        group=group,
+        category=category,
+        article=article,
+    )
+    params = {
+        "org": org_id,
+        "date_from": date_from or str(date.today() - timedelta(days=29)),
+        "date_to": date_to or str(date.today()),
+        **filter_params,
+    }
+
+    latest_ref_sql = """
+        SELECT DISTINCT ON (organization_id, nm_id)
+            organization_id, nm_id, product_class, product_status, brand, subject_name
+        FROM reference_book
+        WHERE organization_id = :org
+        ORDER BY organization_id, nm_id, valid_from DESC
+    """
+    base_from_sql = f"""
+        FROM tech_status ts
+        LEFT JOIN product_entities pe ON pe.id = ts.entity_id
+        LEFT JOIN ({latest_ref_sql}) ref
+            ON ref.organization_id = ts.organization_id
+           AND ref.nm_id = ts.nm_id
+        WHERE ts.organization_id = :org
+          AND ts.target_date BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
+          AND ts.nm_id IS NOT NULL
+          {filter_sql}
+    """
+
+    product_metric_columns = ",\n               ".join(
+        f"{MARKETER_CHART_METRICS[key]['expr']} AS {key}" for key in metric_keys
+    )
+    average_columns = ",\n           ".join(
+        f"AVG(product_daily.{key}) AS {key}" for key in metric_keys
+    )
+    if has_selection_filter:
+        top_scope = "average_of_filtered_products"
+        top_rows = await db.execute(text(f"""
+            WITH product_daily AS (
+                SELECT ts.target_date AS date,
+                       ts.nm_id,
+                       {product_metric_columns}
+                {base_from_sql}
+                GROUP BY ts.target_date, ts.nm_id
+            )
+            SELECT date,
+                   {average_columns}
+            FROM product_daily
+            GROUP BY date
+            ORDER BY date
+        """), params)
+    else:
+        top_scope = "store_filtered_aggregate"
+        top_rows = await db.execute(text(f"""
+            SELECT ts.target_date AS date,
+                   {product_metric_columns}
+            {base_from_sql}
+            GROUP BY ts.target_date
+            ORDER BY ts.target_date
+        """), params)
+
+    product_rows = await db.execute(text(f"""
+        WITH product_daily AS (
+            SELECT ts.target_date AS date,
+                   ts.nm_id,
+                   MAX(COALESCE(ts.vendor_code, pe.vendor_code, '')) AS vendor_code,
+                   MAX(COALESCE(ts.product_name, pe.product_name, '')) AS product_name,
+                   MAX(COALESCE(ts.photo_main, pe.photo_main, '')) AS photo,
+                   MAX(COALESCE(ref.brand, pe.brand, '')) AS brand,
+                   MAX(COALESCE(ref.subject_name, pe.subject_name, '')) AS category,
+                   BOOL_OR(COALESCE(pe.size_name, '') NOT IN ('', '0', 'ONE SIZE')) AS has_sizes,
+                   {product_metric_columns}
+            {base_from_sql}
+            GROUP BY ts.target_date, ts.nm_id
+        )
+        SELECT *
+        FROM product_daily
+        ORDER BY nm_id, date
+    """), params)
+
+    products = {}
+    for row in product_rows:
+        m = row._mapping
+        nm_id = int(m["nm_id"])
+        product = products.setdefault(
+            nm_id,
+            {
+                "nm_id": nm_id,
+                "vendor_code": m["vendor_code"] or "",
+                "product_name": m["product_name"] or "",
+                "photo": m["photo"] or "",
+                "brand": m["brand"] or "",
+                "category": m["category"] or "",
+                "has_sizes": bool(m["has_sizes"]),
+                "size_state": "grouped",
+                "points": [],
+            },
+        )
+        point = {"date": str(m["date"])}
+        for key in metric_keys:
+            value = m[key]
+            point[key] = float(value) if value is not None else 0
+        product["points"].append(point)
+
+    return {
+        "metrics": _metric_meta(metric_keys),
+        "filters": {
+            "org_id": org_id,
+            "date_from": params["date_from"],
+            "date_to": params["date_to"],
+            "nm_ids": product_ids,
+            "brand": brand,
+            "group": group,
+            "category": category,
+            "article": article,
+        },
+        "top_chart": {
+            "scope": top_scope,
+            "points": _format_chart_points(top_rows.all(), metric_keys),
+        },
+        "product_charts": list(products.values()),
+    }
+
+
+@router.get("/api/v1/nl/marketer/product/{nm_id}/sizes")
+async def get_marketer_product_sizes(
+    nm_id: int,
+    org_id: str,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    metrics: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Стол маркетолога — раскрытие размерной сущности товара."""
+    from datetime import date, timedelta
+
+    metric_keys = _resolve_chart_metrics(metrics)
+    params = {
+        "org": org_id,
+        "nm": nm_id,
+        "date_from": date_from or str(date.today() - timedelta(days=29)),
+        "date_to": date_to or str(date.today()),
+    }
+    product_metric_columns = ",\n               ".join(
+        f"{MARKETER_CHART_METRICS[key]['expr']} AS {key}" for key in metric_keys
+    )
+
+    rows = await db.execute(text(f"""
+        SELECT ts.target_date AS date,
+               ts.entity_id::text AS entity_id,
+               COALESCE(pe.size_name, ts.barcode, '') AS size_name,
+               {product_metric_columns}
+        FROM tech_status ts
+        LEFT JOIN product_entities pe ON pe.id = ts.entity_id
+        WHERE ts.organization_id = :org
+          AND ts.nm_id = :nm
+          AND ts.target_date BETWEEN CAST(:date_from AS date) AND CAST(:date_to AS date)
+          AND ts.entity_id IS NOT NULL
+        GROUP BY ts.target_date, ts.entity_id, pe.size_name, ts.barcode
+        ORDER BY size_name, date
+    """), params)
+
+    sizes = {}
+    for row in rows:
+        m = row._mapping
+        entity_id = m["entity_id"]
+        size = sizes.setdefault(
+            entity_id,
+            {
+                "entity_id": entity_id,
+                "size_name": m["size_name"] or "",
+                "points": [],
+            },
+        )
+        point = {"date": str(m["date"])}
+        for key in metric_keys:
+            value = m[key]
+            point[key] = float(value) if value is not None else 0
+        size["points"].append(point)
+
+    return {
+        "nm_id": nm_id,
+        "metrics": _metric_meta(metric_keys),
+        "sizes": list(sizes.values()),
+    }
+
 @router.get("/api/v1/nl/marketer/products")
 async def get_marketer_products(
     org_id: str,
@@ -413,6 +918,3 @@ async def get_marketer_product_detail(
         "best_period": best_day,
         "prices_by_date": prices_by_date,
     }
-
-
-
