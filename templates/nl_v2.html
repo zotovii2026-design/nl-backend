@@ -1521,6 +1521,7 @@ function renderMktProducts() {
     html += '<th style="padding:8px;text-align:right">Расход ₽</th>';
     html += '<th style="padding:8px;text-align:right">Заказы</th>';
     html += '<th style="padding:8px;text-align:right">ДРР %</th>';
+    html += '<th style="padding:8px;text-align:left;min-width:200px">Наблюдение</th>';
     html += '</tr></thead><tbody>';
 
     mktAllProducts.forEach(function(p) {
@@ -1542,6 +1543,16 @@ function renderMktProducts() {
         html += '<td style="padding:6px;text-align:right;font-weight:600">' + fmt(p.total_spent) + '</td>';
         html += '<td style="padding:6px;text-align:right">' + p.total_orders + '</td>';
         html += '<td style="padding:6px;text-align:right;color:' + (p.drr > 15 ? '#e74c3c' : '#27ae60') + '">' + fmt(p.drr) + '</td>';
+        var _obs = mktLoadProductObservation(p.nm_id);
+        html += '<td style="padding:6px" onclick="event.stopPropagation()">';
+        html += '<div style="display:flex;flex-direction:column;gap:4px;min-width:180px">';
+        html += '<input class="mkt-prod-source" data-nm="' + p.nm_id + '" type="text" placeholder="Источник" value="' + esc(_obs.source || '') + '" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.8em;width:100%">';
+        html += '<textarea class="mkt-prod-note" data-nm="' + p.nm_id + '" placeholder="Комментарий" style="border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:.8em;resize:vertical;min-height:36px;width:100%">' + esc(_obs.text || '') + '</textarea>';
+        html += '<div style="display:flex;gap:4px">';
+        html += '<button onclick="mktSaveProductObservation(' + p.nm_id + ')" style="border:1px solid #6c5ce7;background:#6c5ce7;color:#fff;border-radius:4px;padding:3px 8px;font-size:.76em;cursor:pointer">💾</button>';
+        html += '<button onclick="mktClearProductObservation(' + p.nm_id + ')" style="border:1px solid #ddd;background:#fff;color:#777;border-radius:4px;padding:3px 8px;font-size:.76em;cursor:pointer">✕</button>';
+        if (_obs.saved_at) html += '<span style="font-size:.68em;color:#999;align-self:center">' + _obs.saved_at + '</span>';
+        html += '</div></div></td>';
         html += '</tr>';
     });
 
@@ -4669,6 +4680,11 @@ function mktBuildChartParams() {
 }
 
 async function loadMarketer() {
+    TOKEN = localStorage.getItem('nl_token');
+    if (!TOKEN) {
+        showAuth();
+        return;
+    }
     if (!ORG_ID || !mktEnsureShell()) return;
     var loading = document.getElementById('mkt-loading');
     if (loading) loading.style.display = 'inline';
@@ -4833,36 +4849,55 @@ function mktRenderProductCharts() {
     products.forEach(function(product, idx) {
         var title = product.vendor_code || product.product_name || ('WB ' + product.nm_id);
         var hasOverride = !!mktGetProductMetricOverrides()[String(product.nm_id)];
-        html += '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;min-width:0">';
+        html += '<div class="mkt-product-card" style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:12px;align-items:start">';
+        html += '<div style="min-width:0">';
         html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">';
         if (product.photo) html += '<img src="' + esc(product.photo).replace('/hq/', '/c246x328/') + '" style="width:36px;height:48px;object-fit:cover;border-radius:4px" onerror="this.remove()">';
         html += '<div style="min-width:0"><div style="font-weight:700;color:#1a1a2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(title) + '</div>';
         html += '<div style="font-size:.78em;color:#777">WB ' + product.nm_id + (product.category ? ' · ' + esc(product.category) : '') + '</div></div>';
         html += '<button onclick="mktToggleProductMetricPanel(' + product.nm_id + ')" style="margin-left:auto;border:1px solid ' + (hasOverride ? '#00b894' : '#ddd') + ';background:#fff;color:' + (hasOverride ? '#00b894' : '#555') + ';border-radius:6px;padding:5px 9px;font-size:.82em;cursor:pointer">Поля товара</button>';
         if (product.has_sizes) html += '<button onclick="mktToggleSizes(' + product.nm_id + ', this)" style="margin-left:auto;border:1px solid #6c5ce7;background:#fff;color:#6c5ce7;border-radius:6px;padding:5px 9px;font-size:.82em;cursor:pointer">Раскрыть размеры</button>';
-        html += '</div><div id="mkt-product-metrics-' + product.nm_id + '" style="display:none;margin:6px 0 10px;padding:8px;background:#fbfcfe;border:1px solid #edf0f3;border-radius:6px"></div>';
+        html += '</div>';
+        html += '<div id="mkt-product-metrics-' + product.nm_id + '" style="display:none;margin:6px 0 10px;padding:8px;background:#fbfcfe;border:1px solid #edf0f3;border-radius:6px"></div>';
         html += '<div style="height:230px"><canvas id="mkt-product-chart-' + idx + '"></canvas></div>';
-        // Panель рекомендаций для каждого товара
-        var obsKey = mktProductObservationKey(product.nm_id);
-        var obs = mktLoadProductObservation(product.nm_id);
-        html += '<div style="margin-top:8px;padding:8px;background:#fbfcfe;border:1px solid #edf0f3;border-radius:6px">';
-        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">';
-        html += '<span style="font-size:.78em;font-weight:700;color:#6c5ce7">Рекомендация / Наблюдение</span>';
-        html += '<span style="font-size:.72em;color:#aaa" id="mkt-obs-saved-' + product.nm_id + '">' + (obs.saved_at ? 'сохранено ' + esc(obs.saved_at) : '') + '</span>';
-        html += '</div>';
-        html += '<input id="mkt-obs-source-' + product.nm_id + '" type="text" placeholder="Источник (n8n / ИИ / человек)" value="' + esc(obs.source || '') + '" style="width:100%;border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:.8em;margin-bottom:4px;box-sizing:border-box">';
-        html += '<textarea id="mkt-obs-text-' + product.nm_id + '" placeholder="Рекомендация или наблюдение по этому товару" style="width:100%;min-height:60px;border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.82em;resize:vertical;box-sizing:border-box">' + esc(obs.text || '') + '</textarea>';
-        html += '<div style="display:flex;gap:6px;margin-top:4px">';
-        html += '<button onclick="mktSaveProductObservation(' + product.nm_id + ')" style="border:1px solid #6c5ce7;background:#6c5ce7;color:#fff;border-radius:6px;padding:4px 10px;font-size:.78em;cursor:pointer">Сохранить</button>';
-        html += '<button onclick="mktClearProductObservation(' + product.nm_id + ')" style="border:1px solid #ddd;background:#fff;color:#777;border-radius:6px;padding:4px 10px;font-size:.78em;cursor:pointer">Очистить</button>';
-        html += '</div>';
-        html += '</div>';
         html += '<div id="mkt-sizes-' + product.nm_id + '" style="display:none;margin-top:10px"></div>';
+        html += '</div>';
+        html += mktRenderProductObservationHtml(product.nm_id);
         html += '</div>';
     });
     el.innerHTML = html;
+    mktEnsureProductObservationBlocks(products);
     products.forEach(function(product, idx) {
         mktRenderLineChart('mkt-product-chart-' + idx, product.points || [], mktMetricsByKeys(mktGetProductMetrics(product.nm_id)), 1);
+    });
+}
+
+function mktRenderProductObservationHtml(nmId) {
+    var obs = mktLoadProductObservation(nmId);
+    var html = '<aside class="mkt-product-observation" data-nm="' + nmId + '" style="padding:10px 12px;background:#fbfcfe;border:1px solid #edf0f3;border-radius:6px;min-height:230px">';
+    html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">';
+    html += '<span style="font-size:.78em;font-weight:700;color:#6c5ce7">Рекомендация / Наблюдение</span>';
+    html += '<span style="font-size:.72em;color:#aaa" id="mkt-obs-saved-' + nmId + '">' + (obs.saved_at ? 'сохранено ' + esc(obs.saved_at) : '') + '</span>';
+    html += '</div>';
+    html += '<input id="mkt-obs-source-' + nmId + '" type="text" placeholder="Источник (n8n / ИИ / человек)" value="' + esc(obs.source || '') + '" style="width:100%;border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:.8em;margin-bottom:4px;box-sizing:border-box">';
+    html += '<textarea id="mkt-obs-text-' + nmId + '" placeholder="Рекомендация или наблюдение по этому товару" style="width:100%;min-height:60px;border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.82em;resize:vertical;box-sizing:border-box">' + esc(obs.text || '') + '</textarea>';
+    html += '<div style="display:flex;gap:6px;margin-top:4px">';
+    html += '<button onclick="mktSaveProductObservation(' + nmId + ')" style="border:1px solid #6c5ce7;background:#6c5ce7;color:#fff;border-radius:6px;padding:4px 10px;font-size:.78em;cursor:pointer">Сохранить</button>';
+    html += '<button onclick="mktClearProductObservation(' + nmId + ')" style="border:1px solid #ddd;background:#fff;color:#777;border-radius:6px;padding:4px 10px;font-size:.78em;cursor:pointer">Очистить</button>';
+    html += '</div>';
+    html += '</aside>';
+    return html;
+}
+
+function mktEnsureProductObservationBlocks(products) {
+    (products || []).forEach(function(product, idx) {
+        if (!product || !product.nm_id) return;
+        if (document.querySelector('.mkt-product-observation[data-nm="' + product.nm_id + '"]')) return;
+        var canvas = document.getElementById('mkt-product-chart-' + idx);
+        var chartBox = canvas ? canvas.parentElement : null;
+        var card = canvas ? canvas.closest('.mkt-product-card') : null;
+        if (card) card.insertAdjacentHTML('beforeend', mktRenderProductObservationHtml(product.nm_id));
+        else if (chartBox) chartBox.insertAdjacentHTML('beforebegin', mktRenderProductObservationHtml(product.nm_id));
     });
 }
 
@@ -4879,8 +4914,8 @@ function mktLoadProductObservation(nmId) {
 }
 
 function mktSaveProductObservation(nmId) {
-    var source = document.getElementById('mkt-obs-source-' + nmId);
-    var text = document.getElementById('mkt-obs-text-' + nmId);
+    var source = document.getElementById('mkt-obs-source-' + nmId) || document.querySelector('.mkt-prod-source[data-nm="' + nmId + '"]');
+    var text = document.getElementById('mkt-obs-text-' + nmId) || document.querySelector('.mkt-prod-note[data-nm="' + nmId + '"]');
     var payload = {
         source: (source ? source.value : '').trim(),
         text: (text ? text.value : '').trim(),
@@ -4889,16 +4924,22 @@ function mktSaveProductObservation(nmId) {
     localStorage.setItem(mktProductObservationKey(nmId), JSON.stringify(payload));
     var saved = document.getElementById('mkt-obs-saved-' + nmId);
     if (saved) saved.textContent = 'сохранено ' + payload.saved_at;
+    if (document.querySelector('.mkt-prod-source[data-nm="' + nmId + '"]')) {
+        renderMktProducts();
+    }
 }
 
 function mktClearProductObservation(nmId) {
     localStorage.removeItem(mktProductObservationKey(nmId));
-    var source = document.getElementById('mkt-obs-source-' + nmId);
-    var text = document.getElementById('mkt-obs-text-' + nmId);
+    var source = document.getElementById('mkt-obs-source-' + nmId) || document.querySelector('.mkt-prod-source[data-nm="' + nmId + '"]');
+    var text = document.getElementById('mkt-obs-text-' + nmId) || document.querySelector('.mkt-prod-note[data-nm="' + nmId + '"]');
     var saved = document.getElementById('mkt-obs-saved-' + nmId);
     if (source) source.value = '';
     if (text) text.value = '';
     if (saved) saved.textContent = '';
+    if (document.querySelector('.mkt-prod-source[data-nm="' + nmId + '"]')) {
+        renderMktProducts();
+    }
 }
 
 function mktToggleProductMetricPanel(nmId) {
