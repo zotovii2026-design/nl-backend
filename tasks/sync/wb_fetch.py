@@ -25,6 +25,7 @@ from models.raw_data import TechStatus, WarehouseRef
 from models.product_entity import ProductEntity
 from models.wb_tariff_snapshot import WbTariffSnapshot
 from services.wb_api.client import WBApiClient
+from services.entity_sync import sync_entities_from_raw
 
 logger = logging.getLogger(__name__)
 
