@@ -866,7 +866,7 @@ var _sectionHTML = {
 <div style="margin-top:12px;display:flex;gap:16px;font-size:.85em;flex-wrap:wrap" id="promo-summary"></div>
 `,
     'connectors': `
-<div style="max-width:700px;margin:0 auto;padding:20px">
+<div style="max-width:1100px;margin:0 auto;padding:20px">
 <h3 style="color:#6c5ce7;margin-bottom:16px">🔌 Подключения</h3>
 
 <!-- Profile -->
@@ -913,6 +913,33 @@ var _sectionHTML = {
 <button class="btn" onclick="inviteColleague()" style="background:#00b894;color:#fff;padding:8px 20px;border-radius:6px;border:none;cursor:pointer;font-weight:600">Пригласить</button>
 </div>
 <div id="invite-status" style="display:none;margin-top:10px;padding:10px;border-radius:6px;font-size:.9em"></div>
+</div>
+
+<!-- WB API status -->
+<div style="background:#fff;border-radius:8px;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px">
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+<div style="font-weight:600;font-size:1.1em">📡 WB API: контроль данных</div>
+<select id="wb-api-status-shop" onchange="loadWbApiStatus()" style="margin-left:auto;min-width:220px;padding:7px 10px;border:1px solid #ddd;border-radius:6px"></select>
+<button class="btn btn-outline" onclick="loadWbApiStatus()" style="padding:7px 12px;font-size:.85em">🔄 Обновить</button>
+</div>
+<div id="wb-api-status-summary" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:.82em;color:#666"></div>
+<div style="overflow-x:auto">
+<table style="width:100%;border-collapse:collapse;font-size:.86em;min-width:940px">
+<thead>
+<tr style="background:#f6f7fb;color:#666;text-align:left">
+<th style="padding:9px;border-bottom:1px solid #e8e8ef">Метод WB</th>
+<th style="padding:9px;border-bottom:1px solid #e8e8ef">Разделы NL</th>
+<th style="padding:9px;border-bottom:1px solid #e8e8ef">Обновление</th>
+<th style="padding:9px;border-bottom:1px solid #e8e8ef">Кол-во</th>
+<th style="padding:9px;border-bottom:1px solid #e8e8ef">Статус</th>
+<th style="padding:9px;border-bottom:1px solid #e8e8ef">Комментарий</th>
+</tr>
+</thead>
+<tbody id="wb-api-status-body">
+<tr><td colspan="6" style="padding:12px;color:#999">Выберите магазин</td></tr>
+</tbody>
+</table>
+</div>
 </div>
 
 </div>
@@ -3798,6 +3825,12 @@ async function loadProfile() {
         
         if (!data.shops.length) {
             shopsEl.innerHTML = '<div style="color:#999;padding:12px">Магазины не подключены</div>';
+            const apiStatusShopSel = document.getElementById('wb-api-status-shop');
+            const apiStatusBody = document.getElementById('wb-api-status-body');
+            const apiStatusSummary = document.getElementById('wb-api-status-summary');
+            if (apiStatusShopSel) apiStatusShopSel.innerHTML = '';
+            if (apiStatusBody) apiStatusBody.innerHTML = '<tr><td colspan="6" style="padding:12px;color:#999">Магазины не подключены</td></tr>';
+            if (apiStatusSummary) apiStatusSummary.innerHTML = '';
             return;
         }
         
@@ -3831,8 +3864,99 @@ async function loadProfile() {
             inviteOrgSel.innerHTML = '<option value="">Выберите магазин</option>' + 
                 data.shops.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('');
         }
+
+        const apiStatusShopSel = document.getElementById('wb-api-status-shop');
+        if (apiStatusShopSel) {
+            apiStatusShopSel.innerHTML = data.shops.map(s => '<option value="' + s.id + '">' + escapeHtml(s.name) + '</option>').join('');
+            if (ORG_ID && data.shops.some(s => s.id === ORG_ID)) apiStatusShopSel.value = ORG_ID;
+            else if (data.shops[0]) apiStatusShopSel.value = data.shops[0].id;
+            loadWbApiStatus();
+        }
         
     } catch(e) { console.error('loadProfile error:', e); }
+}
+
+function escapeHtml(v) {
+    return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function formatApiDate(value) {
+    if (!value) return '—';
+    try {
+        const d = new Date(value);
+        if (isNaN(d.getTime())) return escapeHtml(String(value).slice(0, 16));
+        return d.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+    } catch(e) {
+        return escapeHtml(String(value).slice(0, 16));
+    }
+}
+
+function apiStatusBadge(item) {
+    const map = {
+        ok: ['#e8f8f0', '#00875a', 'ОК'],
+        partial: ['#fff6df', '#ad6b00', 'Частично'],
+        stale: ['#eef2ff', '#42526e', 'Устарело'],
+        error: ['#ffeceb', '#c9372c', 'Ошибка'],
+        no_data: ['#f1f2f4', '#626f86', 'Нет данных']
+    };
+    const cfg = map[item.status] || map.no_data;
+    return '<span style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;background:' + cfg[0] + ';color:' + cfg[1] + ';font-weight:600;font-size:.82em">' + cfg[2] + '</span>';
+}
+
+async function loadWbApiStatus() {
+    const body = document.getElementById('wb-api-status-body');
+    const summaryEl = document.getElementById('wb-api-status-summary');
+    const shopSel = document.getElementById('wb-api-status-shop');
+    if (!body || !summaryEl || !shopSel) return;
+
+    const orgId = shopSel.value || ORG_ID;
+    if (!orgId) {
+        body.innerHTML = '<tr><td colspan="6" style="padding:12px;color:#999">Магазин не выбран</td></tr>';
+        summaryEl.innerHTML = '';
+        return;
+    }
+
+    body.innerHTML = '<tr><td colspan="6" style="padding:12px;color:#999">Загрузка...</td></tr>';
+    try {
+        const res = await fetch('/api/v1/nl/wb-api-status?org_id=' + encodeURIComponent(orgId));
+        if (!res.ok) throw new Error('Не удалось загрузить статус WB API');
+        const data = await res.json();
+        const s = data.summary || {};
+        summaryEl.innerHTML =
+            '<span style="background:#e8f8f0;color:#00875a;padding:4px 8px;border-radius:999px">ОК: ' + (s.ok || 0) + '</span>' +
+            '<span style="background:#fff6df;color:#ad6b00;padding:4px 8px;border-radius:999px">Частично: ' + (s.partial || 0) + '</span>' +
+            '<span style="background:#eef2ff;color:#42526e;padding:4px 8px;border-radius:999px">Устарело: ' + (s.stale || 0) + '</span>' +
+            '<span style="background:#ffeceb;color:#c9372c;padding:4px 8px;border-radius:999px">Ошибки: ' + (s.error || 0) + '</span>' +
+            '<span style="background:#f1f2f4;color:#626f86;padding:4px 8px;border-radius:999px">Нет данных: ' + (s.no_data || 0) + '</span>';
+
+        if (!data.items || !data.items.length) {
+            body.innerHTML = '<tr><td colspan="6" style="padding:12px;color:#999">Нет методов для отображения</td></tr>';
+            return;
+        }
+
+        body.innerHTML = data.items.map(item => {
+            const sections = (item.sections || []).map(escapeHtml).join(', ');
+            const countText = (item.last_records_count == null ? '—' : item.last_records_count) +
+                '<div style="color:#999;font-size:.82em">' + escapeHtml(item.coverage_label || '') + '</div>';
+            const comment = item.last_error ? item.last_error : (item.update_mode + ' · ' + item.storage);
+            return '<tr style="border-bottom:1px solid #f0f0f3">' +
+                '<td style="padding:9px;vertical-align:top"><div style="font-weight:600">' + escapeHtml(item.title) + '</div><div style="color:#999;font-size:.78em">' + escapeHtml(item.endpoint) + '</div></td>' +
+                '<td style="padding:9px;vertical-align:top;color:#444">' + sections + '</td>' +
+                '<td style="padding:9px;vertical-align:top"><div>' + formatApiDate(item.last_fetched_at) + '</div><div style="color:#999;font-size:.82em">' + escapeHtml(item.schedule || '') + '</div></td>' +
+                '<td style="padding:9px;vertical-align:top">' + countText + '</td>' +
+                '<td style="padding:9px;vertical-align:top">' + apiStatusBadge(item) + '<div style="color:#999;font-size:.8em;margin-top:4px">' + escapeHtml(item.status_label || '') + '</div></td>' +
+                '<td style="padding:9px;vertical-align:top;color:#666;font-size:.9em">' + escapeHtml(comment) + '</td>' +
+                '</tr>';
+        }).join('');
+    } catch(e) {
+        summaryEl.innerHTML = '';
+        body.innerHTML = '<tr><td colspan="6" style="padding:12px;color:#c9372c">Ошибка: ' + escapeHtml(e.message) + '</td></tr>';
+    }
 }
 
 async function verifyShopKey(btn) {
