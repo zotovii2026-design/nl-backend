@@ -212,11 +212,12 @@ async def wb_api_status(org_id: str, db: AsyncSession = Depends(get_db)):
         .where(RawApiData.target_date >= min_target_date)
     )
     ok_dates_by_method: dict[str, set[date]] = {method: set() for method in methods}
-    records_by_method: dict[str, int] = {method: 0 for method in methods}
+    records_by_method: dict[str, dict[date, int]] = {method: {} for method in methods}
     for method, target_date, status, records_count in coverage_result.all():
         if status == "ok":
             ok_dates_by_method.setdefault(method, set()).add(target_date)
-            records_by_method[method] = records_by_method.get(method, 0) + int(records_count or 0)
+            method_records = records_by_method.setdefault(method, {})
+            method_records[target_date] = method_records.get(target_date, 0) + int(records_count or 0)
 
     rows = []
     summary = {"ok": 0, "partial": 0, "error": 0, "stale": 0, "no_data": 0}
@@ -224,7 +225,18 @@ async def wb_api_status(org_id: str, db: AsyncSession = Depends(get_db)):
         method = item["method"]
         latest = latest_by_method.get(method)
         expected_days = item["expected_days"]
-        ok_days = len(ok_dates_by_method.get(method, set()))
+        method_min_date = date.fromordinal(date.today().toordinal() - expected_days + 1)
+        method_ok_dates = {
+            target_date
+            for target_date in ok_dates_by_method.get(method, set())
+            if target_date >= method_min_date
+        }
+        ok_days = len(method_ok_dates)
+        records_count = sum(
+            count
+            for target_date, count in records_by_method.get(method, {}).items()
+            if target_date >= method_min_date
+        )
         status, status_label = _status_for(latest, ok_days, expected_days, item["stale_hours"])
         summary[status] += 1
         rows.append({
@@ -234,7 +246,7 @@ async def wb_api_status(org_id: str, db: AsyncSession = Depends(get_db)):
             "last_target_date": latest.target_date.isoformat() if latest and latest.target_date else None,
             "last_fetched_at": latest.fetched_at.isoformat() if latest and latest.fetched_at else None,
             "last_records_count": latest.records_count if latest else None,
-            "records_count": records_by_method.get(method, 0),
+            "records_count": records_count,
             "coverage_count": ok_days,
             "coverage_expected": expected_days,
             "coverage_label": f"{ok_days} из {expected_days}",
