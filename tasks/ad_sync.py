@@ -356,6 +356,33 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
             if day_offset < days_back - 1:
                 await asyncio.sleep(65)
 
+        # ═══ ШАГ 4b: Обновить nm_ids в ad_campaigns из ad_stats_nm ═══
+        # nm_id для каждой кампании берём из ad_stats_nm (источник: /adv/v3/fullstats)
+        try:
+            async with sf() as db:
+                result = await db.execute(text("""
+                    SELECT wb_campaign_id,
+                           jsonb_agg(DISTINCT nm_id ORDER BY nm_id) AS nm_ids
+                    FROM ad_stats_nm
+                    WHERE organization_id = :org
+                    GROUP BY wb_campaign_id
+                """), {"org": org_id})
+                rows = result.fetchall()
+                updated = 0
+                for row in rows:
+                    cid = row[0]
+                    nm_ids_json = row[1]
+                    await db.execute(text("""
+                        UPDATE ad_campaigns
+                        SET nm_ids = CAST(:nm_ids AS jsonb), updated_at = now()
+                        WHERE organization_id = :org AND wb_campaign_id = :cid
+                    """), {"org": org_id, "cid": cid, "nm_ids": json.dumps(nm_ids_json) if isinstance(nm_ids_json, list) else nm_ids_json})
+                    updated += 1
+                await db.commit()
+                logger.info("[ad_stats] Org %s: updated nm_ids for %d campaigns", org_id, updated)
+        except Exception as e:
+            logger.warning("[ad_stats] Org %s: nm_ids update error: %s", org_id, e)
+
         # ═══ ШАГ 5: Баланс ═══
         try:
             resp4 = await client.get("/adv/v1/balance")
