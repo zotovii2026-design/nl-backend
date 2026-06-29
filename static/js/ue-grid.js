@@ -469,6 +469,7 @@ function initUEGrid() {
     ueTabulator.on('cellEdited', function(cell) {
         if (_ueAutoDate) return;
         _ueEditedIds.add(cell.getRow().getData().entity_id);
+        cell.getRow().getData()._edited = true;
         if (cell.getField() !== 'change_date') {
             _ueAutoDate = true;
             const today = new Date();
@@ -683,6 +684,7 @@ async function saveUEData() {
             alert('Сохранено: ' + (result.saved || payload.length) + ' строк');
             // Снимаем флаг редактирования
             allData.forEach(r => { delete r._edited; });
+            _ueEditedIds.clear();
             ueTabulator.replaceData(allData);
         } else {
             alert('Ошибка: ' + (result.error || 'неизвестная'));
