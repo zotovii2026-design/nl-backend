@@ -173,7 +173,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260609d"></script>
-<script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260623"></script>
+<script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260629-unified"></script>
 </head>
 <body>
 
@@ -387,7 +387,9 @@ function onTopPeriodChange() {
     }
     else if (_currentSection === 'rnp') loadRnp();
     else if (_currentSection === 'analytics') { if(typeof loadAnalytics === 'function') loadAnalytics(); }
+    else if (_currentSection === 'warehouses') { if(typeof loadWarehouses === 'function') loadWarehouses(); }
     else if (_currentSection === 'marketer') loadMarketer();
+    else if (_currentSection === 'extads') { if(typeof loadExtAds === 'function') loadExtAds(); }
     else if (_currentSection === 'fboneeds') loadFboNeeds();
 }
 
@@ -679,13 +681,12 @@ var _sectionHTML = {
 `,
     'warehouses': `
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-<select id="wh-date" onchange="loadWarehouses()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"></select>
 <button class="btn" onclick="loadWarehouses()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
 <label style="font-size:.85em;display:flex;align-items:center;gap:6px"><input type="checkbox" id="wh-sizes" onchange="loadWarehouses()"> Размеры</label>
 </div>
 <div style="overflow-x:auto">
 <table id="wh-table"><thead><tr><th>Арт WB</th><th>Арт продавца</th><th>Товар</th><th>Склад</th><th>Кол-во, шт</th><th>Общая себестоимость</th></tr></thead>
-<tbody id="wh-body"><tr><td colspan="6" class="empty">Выберите дату</td></tr></tbody></table>
+<tbody id="wh-body"><tr><td colspan="6" class="empty">Загрузка...</td></tr></tbody></table>
 </div>
 <div style="margin-top:12px;font-size:.85em;color:#999" id="wh-count"></div>
 `,
@@ -720,8 +721,6 @@ var _sectionHTML = {
 <select id="ext-type" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
 <option value="">Все типы</option><option value="ad">Реклама</option><option value="buyout">Самовыкуп</option></select>
 <select id="ext-source" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:140px"><option value="">Все источники</option></select>
-<input type="date" id="ext-date-from" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<input type="date" id="ext-date-to" onchange="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
 <input type="text" id="ext-search" placeholder="🔍 Поиск..." oninput="loadExtAds()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:160px">
 <span style="flex:1"></span>
 <button class="btn" onclick="showExtAdModal()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff">➕ Добавить</button>
@@ -1003,7 +1002,6 @@ var _sectionHTML = {
     'analytics': `
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
 <input type="text" id="analytics-search" placeholder="🔍 Поиск по артикулу/названию" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;width:250px" oninput="loadAnalytics()">
-<select id="analytics-date" onchange="loadAnalytics()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em"></select>
 <button class="btn" onclick="loadAnalytics()" style="padding:6px 14px;font-size:.85em">🔄 Обновить</button>
 <button class="btn btn-outline" onclick="exportAnalytics()" style="padding:6px 14px;font-size:.85em">📥 Скачать</button>
 </div>
@@ -1072,19 +1070,6 @@ var _sectionHTML = {
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
 <span style="font-size:.9em;color:#666">🏪 Магазин:</span>
 <select id="ads-store" onchange="switchAdsStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
-<span style="font-size:.9em;color:#666;margin-left:8px">📅 Период:</span>
-<select id="ads-period" onchange="adsPeriodPreset()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<option value="1">Сегодня</option>
-<option value="2">Вчера</option>
-<option value="7">7 дней</option>
-<option value="14">14 дней</option>
-<option value="30" selected>30 дней</option>
-<option value="60">60 дней</option>
-<option value="custom">📅 Свой</option>
-</select>
-<input type="date" id="ads-date-from" onchange="adsCustomDateChange()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
-<span style="color:#999;font-size:.85em">—</span>
-<input type="date" id="ads-date-to" onchange="adsCustomDateChange()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em">
 <button class="btn" onclick="refreshAds()" style="padding:6px 14px;font-size:.85em">ð Обновить</button>
 <div style="margin-left:auto;font-size:.85em;color:#999" id="ads-updated"></div>
 </div>
@@ -1331,6 +1316,8 @@ async function loadAds() {
         url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=' + range.days;
     } else if (range.date_from && range.date_to) {
         url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&date_from=' + range.date_from + '&date_to=' + range.date_to;
+    } else if (range.dateFrom && range.dateTo) {
+        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&date_from=' + range.dateFrom + '&date_to=' + range.dateTo;
     } else {
         url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=30';
     }
@@ -1395,12 +1382,13 @@ function toggleDailyTable() {
 function adsPeriodPreset() {
     if(typeof _adsCurrentView !== "undefined" && _adsCurrentView === "art") { loadAdsArts(); return; }
     const sel = document.getElementById('ads-period');
+    if (!sel) { loadAds(); return; }
     const val = sel.value;
     const df = document.getElementById('ads-date-from');
     const dt = document.getElementById('ads-date-to');
     if (val === 'custom') {
         // Дефолт: последние 30 дней если пусто
-        if (!df.value || !dt.value) {
+        if (df && dt && (!df.value || !dt.value)) {
             const today = new Date();
             const from = new Date(today);
             from.setDate(from.getDate() - 30);
@@ -1414,24 +1402,33 @@ function adsPeriodPreset() {
 }
 
 function adsCustomDateChange() {
-    const df = document.getElementById('ads-date-from').value;
-    const dt = document.getElementById('ads-date-to').value;
+    const fromEl = document.getElementById('ads-date-from');
+    const toEl = document.getElementById('ads-date-to');
+    const df = fromEl ? fromEl.value : '';
+    const dt = toEl ? toEl.value : '';
     if (df && dt) {
-        document.getElementById('ads-period').value = 'custom';
+        const periodEl = document.getElementById('ads-period');
+        if (periodEl) periodEl.value = 'custom';
         if(typeof _adsCurrentView !== "undefined" && _adsCurrentView === "art") { loadAdsArts(); return; }
         loadAds();
     }
 }
 
 function getAdsDateRange() {
-    if (typeof nlGetDateRange === 'function') return nlGetDateRange();
+    if (typeof nlGetDateRangeParams === 'function') return nlGetDateRangeParams();
+    if (typeof nlGetDateRange === 'function') {
+        var range = nlGetDateRange();
+        return { date_from: range.dateFrom, date_to: range.dateTo };
+    }
     const val = '30';
     let days = parseInt(val);
     if (!isNaN(days)) {
         return { days: days };
     }
-    const df = document.getElementById('ads-date-from').value;
-    const dt = document.getElementById('ads-date-to').value;
+    const fromEl = document.getElementById('ads-date-from');
+    const toEl = document.getElementById('ads-date-to');
+    const df = fromEl ? fromEl.value : '';
+    const dt = toEl ? toEl.value : '';
     return { date_from: df, date_to: dt };
 }
 
@@ -1877,13 +1874,12 @@ async function loadExtAds() {
         var params = new URLSearchParams({org_id: ORG_ID});
         var tp = document.getElementById('ext-type').value;
         var src = document.getElementById('ext-source').value;
-        var df = document.getElementById('ext-date-from').value;
-        var dt = document.getElementById('ext-date-to').value;
         var sr = document.getElementById('ext-search').value;
+        var range = typeof nlGetDateRangeParams === 'function' ? nlGetDateRangeParams() : null;
         if (tp) params.set('ad_type', tp);
         if (src) params.set('source', src);
-        if (df) params.set('date_from', df);
-        if (dt) params.set('date_to', dt);
+        if (range && range.date_from) params.set('date_from', range.date_from);
+        if (range && range.date_to) params.set('date_to', range.date_to);
         if (sr) params.set('search', sr);
         var r = await fetch('/api/v1/nl/external-ads?' + params, {headers:{'Authorization':'Bearer '+TOKEN}});
         extAdData = await r.json();
@@ -2138,7 +2134,7 @@ async function loadDates() {
 async function loadAnalytics() {
     if (!ORG_ID) return;
     const sel = document.getElementById('analytics-date') || document.getElementById('ref-date');
-    const dateVal = sel ? sel.value : '';
+    const dateVal = (typeof nlGetSnapshotDate === 'function') ? nlGetSnapshotDate() : (sel ? sel.value : '');
     if (!dateVal || dateVal === 'Нет данных') return;
     const search = document.getElementById('analytics-search')?.value || '';
     try {
@@ -2931,7 +2927,7 @@ function exportCostTemplate() {
 async function loadWarehouses() {
     if (!ORG_ID) return;
     const sel = document.getElementById('wh-date') || document.getElementById('ref-date');
-    const d = sel?.value;
+    const d = (typeof nlGetSnapshotDate === 'function') ? nlGetSnapshotDate() : sel?.value;
     if (!d || d === 'Нет данных') return;
     try {
         const res = await fetch('/api/v1/nl/warehouses?org_id=' + ORG_ID + '&target_date=' + d);

@@ -318,6 +318,26 @@ function nlGetDateRange() {
 }
 
 /**
+ * Получить текущий период в формате API-параметров.
+ * Старые участки фронта используют snake_case, поэтому держим конвертацию в одном месте.
+ */
+function nlGetDateRangeParams() {
+    var range = nlGetDateRange();
+    return {
+        date_from: range.dateFrom,
+        date_to: range.dateTo
+    };
+}
+
+/**
+ * Получить дату-срез для разделов, где нельзя суммировать период
+ * (например, остатки на складах). Берём конец выбранного периода.
+ */
+function nlGetSnapshotDate() {
+    return nlGetDateRange().dateTo;
+}
+
+/**
  * Бесшумно применить preset без уведомления разделов (для внутреннего использования)
  */
 function nlSetPresetSilent(preset) {
