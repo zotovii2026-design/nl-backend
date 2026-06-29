@@ -114,7 +114,10 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
         timeout=30.0,
     ) as client:
 
-        # ═══ ШАГ 1: Список ID кампаний + ФИЛЬТР по changeTime ═══
+        # ═══ ШАГ 1: Список ID кампаний из /adv/v1/promotion/count ═══
+        # Статус на уровне группы: 7=active, 9=finished, 11=paused
+        # Статус группы ≠ статус конкретной кампании. Реальный статус
+        # кампании берём из /adv/v1/upd (advertStatus) на шаге 2.
         resp = await client.get("/adv/v1/promotion/count")
         if resp.status_code in (401, 403):
             logger.warning("[ad_stats] Org %s: no access (%d)", org_id, resp.status_code)
@@ -125,34 +128,30 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
         now = datetime.now(ZoneInfo("UTC"))
         cutoff = now - timedelta(days=FRESH_DAYS)
 
-        fresh_campaigns = []  # только свежие кампании
+        all_campaigns = []   # все кампании с метаданными группы
         total_ids = 0
-        skipped_old = 0
 
         for group in campaigns_data.get("adverts", []):
             g_type = group.get("type")
-            g_status = group.get("status")
+            g_status = str(group.get("status"))  # групповой статус — запасной
             for ad in group.get("advert_list", []):
                 total_ids += 1
                 ct = _parse_change_time(ad.get("changeTime", ""))
-                if ct is None or ct < cutoff:
-                    skipped_old += 1
-                    continue
-                fresh_campaigns.append({
+                all_campaigns.append({
                     "advertId": ad["advertId"],
                     "type": str(g_type),
-                    "status": str(g_status),
+                    "group_status": g_status,  # запасной, если нет в upd
                     "changeTime": ct,
                 })
 
-        logger.info("[ad_stats] Org %s: %d total IDs, %d fresh (last %d days), %d skipped (old)",
-                     org_id, total_ids, len(fresh_campaigns), FRESH_DAYS, skipped_old)
+        logger.info("[ad_stats] Org %s: %d total IDs from promotion/count",
+                     org_id, total_ids)
 
-        if not fresh_campaigns:
-            return {"status": "ok", "stats_saved": 0, "campaigns": 0, "skipped_old": skipped_old}
+        if not all_campaigns:
+            return {"status": "ok", "stats_saved": 0, "campaigns": 0}
 
-        # ═══ ШАГ 2: Названия через /adv/v1/upd ═══
-        campaign_names = {}
+        # ═══ ШАГ 2: Названия + РЕАЛЬНЫЙ статус кампаний через /adv/v1/upd ═══
+        campaign_meta = {}  # advertId → {name, status, payment_type}
         try:
             today = datetime.now(ZoneInfo("Europe/Moscow")).date()
             resp_names = await client.get(
@@ -167,16 +166,48 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
                 if isinstance(upd_data, list):
                     for item in upd_data:
                         aid = item.get("advertId")
-                        name = item.get("campName", "")
-                        if aid and name:
-                            campaign_names[aid] = name
-                logger.info("[ad_stats] Org %s: %d names from /upd", org_id, len(campaign_names))
+                        if aid:
+                            campaign_meta[aid] = {
+                                "name": item.get("campName", ""),
+                                "status": str(item.get("advertStatus", "")),
+                                "payment_type": item.get("paymentType", ""),
+                            }
+                logger.info("[ad_stats] Org %s: %d items from /upd (names+status)", org_id, len(campaign_meta))
             else:
                 logger.warning("[ad_stats] Org %s: /upd status %d", org_id, resp_names.status_code)
         except Exception as e:
             logger.warning("[ad_stats] Org %s: /upd error: %s", org_id, e)
 
-        # ═══ ШАГ 3: Upsert в БД — только свежие кампании ═══
+        # ═══ ШАГ 2b: Фильтр — какие кампании сохранять в БД ═══
+        # Сохраняем кампанию если:
+        #   - её статус есть в upd (любой, включая 7=active), ИЛИ
+        #   - changeTime свежая (< FRESH_DAYS), ИЛИ
+        #   - group_status=7 (активная группа — подстраховка)
+        fresh_campaigns = []
+        for camp in all_campaigns:
+            aid = camp["advertId"]
+            meta = campaign_meta.get(aid)
+            real_status = (meta["status"] if meta and meta["status"] else None) or camp["group_status"]
+            ct = camp["changeTime"]
+            is_fresh = ct is not None and ct >= cutoff
+            is_active = real_status == "7"
+            has_meta = meta is not None
+
+            if is_active or is_fresh or has_meta:
+                camp["status"] = real_status
+                camp["name"] = meta["name"] if meta else ""
+                camp["payment_type"] = meta["payment_type"] if meta else ""
+                fresh_campaigns.append(camp)
+
+        skipped_old = total_ids - len(fresh_campaigns)
+        logger.info("[ad_stats] Org %s: %d campaigns to upsert (%d skipped as old/inactive), statuses: %s",
+                     org_id, len(fresh_campaigns), skipped_old,
+                     {s: sum(1 for c in fresh_campaigns if c["status"] == s) for s in sorted(set(c["status"] for c in fresh_campaigns))})
+
+        if not fresh_campaigns:
+            return {"status": "ok", "stats_saved": 0, "campaigns": 0}
+
+        # ═══ ШАГ 3: Upsert в БД — статус кампании из advertStatus ═══
         async with sf() as db:
             for camp in fresh_campaigns:
                 aid = camp["advertId"]
@@ -191,13 +222,13 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
                         wb_change_time = EXCLUDED.wb_change_time, updated_at = now()
                 """), {
                     "org": org_id, "cid": aid,
-                    "name": campaign_names.get(aid, ""),
+                    "name": camp.get("name", ""),
                     "ctype": camp["type"],
                     "cstatus": camp["status"],
                     "ctime": camp["changeTime"],
                 })
             await db.commit()
-            logger.info("[ad_stats] Org %s: upserted %d fresh campaigns", org_id, len(fresh_campaigns))
+            logger.info("[ad_stats] Org %s: upserted %d campaigns", org_id, len(fresh_campaigns))
 
         # ═══ ШАГ 4: Статистика /adv/v3/fullstats ═══
         stat_ids = [str(c["advertId"]) for c in fresh_campaigns]
