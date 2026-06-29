@@ -75,7 +75,7 @@ async def save_reference(item: RefItem, org_id: str, db: AsyncSession = Depends(
         tax_system=item.tax_system, tax_rate=item.tax_rate, vat_rate=item.vat_rate,
     )
     stmt = ins.on_conflict_do_update(
-        constraint="reference_book_org_entity_vf_key",
+        constraint="reference_book_org_nm_eid_vf_key",
         set_={
             "vendor_code": ins.excluded.vendor_code,
             "cost_price": ins.excluded.cost_price, "purchase_cost": ins.excluded.purchase_cost,
@@ -417,7 +417,7 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
             "price_before_spp_change": float(snap["price_with_spp"]) if snap and snap.get("price_with_spp") else None,
             "buyout_niche_pct": float(snap["buyout_pct_fact"]) if snap and snap.get("buyout_pct_fact") else None,
         }
-        stmt = ins.values(**vals).on_conflict_do_nothing(constraint="reference_book_org_nm_vf_key")
+        stmt = ins.values(**vals).on_conflict_do_nothing(constraint="reference_book_org_nm_eid_vf_key")
         try:
             await db.execute(stmt)
             created_count += 1

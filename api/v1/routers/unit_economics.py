@@ -458,7 +458,7 @@ async def save_unit_economics(
         wb_club_discount_pct=data.wb_club_discount_pct,
     )
     stmt = ins.on_conflict_do_update(
-        constraint="reference_book_org_entity_vf_key",
+        constraint="reference_book_org_nm_eid_vf_key",
         set_={
             "mp_correction_pct": ins.excluded.mp_correction_pct,
             "buyout_niche_pct": ins.excluded.buyout_niche_pct,
@@ -523,7 +523,7 @@ async def save_unit_economics_batch(
             wb_club_discount_pct=data.wb_club_discount_pct,
         )
         stmt = ins.on_conflict_do_update(
-            constraint="reference_book_org_entity_vf_key",
+            constraint="reference_book_org_nm_eid_vf_key",
             set_={
                 "mp_correction_pct": ins.excluded.mp_correction_pct,
                 "buyout_niche_pct": ins.excluded.buyout_niche_pct,
