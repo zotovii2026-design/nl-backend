@@ -312,10 +312,10 @@ async def _do_prices(sf):
                             continue
                         sz = sizes[0]
                         discount = item.get("discount", 0)
-                        # WB Prices API возвращает цены в рублях (НЕ в копейках)
-                        price_retail = float(sz.get("price") or 0)
-                        price_discounted = float(sz.get("discountedPrice") or 0)
-                        price_club = float(sz.get("clubDiscountedPrice") or 0)
+# WB Prices API возвращает цены в копейках — делим на 100
+                        price_retail = float(sz.get("price") or 0) / 100
+                        price_discounted = float(sz.get("discountedPrice") or 0) / 100
+                        price_club = float(sz.get("clubDiscountedPrice") or 0) / 100
                         if not price_retail:
                             continue
                         # tech_status
