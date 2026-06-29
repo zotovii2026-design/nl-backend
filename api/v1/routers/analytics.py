@@ -15,13 +15,24 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text
+from sqlalchemy import select, text, func
 
 from core.database import get_db
 from models.raw_data import TechStatus
 from services.reference import resolve_org_id
 
 router = APIRouter()
+
+
+async def _resolve_snapshot_date(db: AsyncSession, org_id: str, target_date: Optional[str]) -> date:
+    requested_date = datetime.strptime(target_date, "%Y-%m-%d").date() if target_date else date.today()
+    result = await db.execute(
+        select(func.max(TechStatus.target_date)).where(
+            TechStatus.organization_id == org_id,
+            TechStatus.target_date <= requested_date,
+        )
+    )
+    return result.scalar() or requested_date
 
 
 # ============================================================================
@@ -32,7 +43,7 @@ async def get_analytics(org_id: str, target_date: Optional[str] = None, search: 
     org_id = await resolve_org_id(org_id, db)
     """Аналитика по товарам — детальная таблица"""
 
-    d = datetime.strptime(target_date, "%Y-%m-%d").date() if target_date else date.today()
+    d = await _resolve_snapshot_date(db, org_id, target_date)
 
     query = select(
         TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name,
@@ -103,7 +114,7 @@ async def get_analytics(org_id: str, target_date: Optional[str] = None, search: 
 async def get_warehouse_stock(org_id: str, target_date: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """Остатки на складах WB"""
     org_id = await resolve_org_id(org_id, db)
-    d = datetime.strptime(target_date, "%Y-%m-%d").date() if target_date else date.today()
+    d = await _resolve_snapshot_date(db, org_id, target_date)
     result = await db.execute(
         select(TechStatus.nm_id, TechStatus.vendor_code, TechStatus.product_name,
                TechStatus.warehouse_name, TechStatus.stock_qty, TechStatus.barcode)

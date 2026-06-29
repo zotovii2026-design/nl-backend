@@ -21,6 +21,13 @@ router = APIRouter(
 )
 
 
+def _parse_iso_date(value: str) -> date:
+    try:
+        return datetime.fromisoformat(value).date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD")
+
+
 # ─── SCHEMAS ────────────────────────────────────────────────
 
 class ExternalAdCreate(BaseModel):
@@ -112,10 +119,10 @@ async def get_external_ads(
         params["source"] = f"%{source}%"
     if date_from:
         conditions.append("ea.ad_date >= :date_from")
-        params["date_from"] = date_from
+        params["date_from"] = _parse_iso_date(date_from)
     if date_to:
         conditions.append("ea.ad_date <= :date_to")
-        params["date_to"] = date_to
+        params["date_to"] = _parse_iso_date(date_to)
     if search:
         conditions.append("(ea.vendor_code ILIKE :search OR ea.article ILIKE :search OR ea.source ILIKE :search OR ea.query ILIKE :search)")
         params["search"] = f"%{search}%"
