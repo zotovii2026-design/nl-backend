@@ -171,8 +171,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260630-adsmodel6"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260630-adsmodel6"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260630-adsmodel7"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260630-adsmodel7"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
 </head>
 <body>
@@ -320,7 +320,7 @@ let ORG_ID = new URL(location).searchParams.get('org') || localStorage.getItem('
 function getCurrentOrgId() {
     const urlOrg = new URL(location.href).searchParams.get('org');
     const selectedOrg = document.getElementById('org-select')?.value || document.getElementById('filter-store')?.value || '';
-    return urlOrg || selectedOrg || ORG_ID || localStorage.getItem('nl_org_id') || '';
+    return selectedOrg || ORG_ID || urlOrg || localStorage.getItem('nl_org_id') || '';
 }
 
 function setCurrentOrgId(orgId) {
@@ -334,6 +334,41 @@ function setCurrentOrgId(orgId) {
             el.value = ORG_ID;
         }
     });
+}
+
+var _adsLoadSeq = 0;
+
+function resetAdsUiForOrgChange() {
+    _adsLoadSeq += 1;
+    if (typeof _adsArtsLoadSeq !== 'undefined') _adsArtsLoadSeq += 1;
+    if (typeof _adsRefreshStatusSeq !== 'undefined') _adsRefreshStatusSeq += 1;
+    window._adsAllCampaigns = [];
+    if (typeof _adsAllData !== 'undefined') _adsAllData = [];
+    if (typeof _adsAllArtsData !== 'undefined') _adsAllArtsData = [];
+    ['ad-views', 'ad-clicks', 'ad-orders', 'ad-atbs'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = '0';
+    });
+    ['ad-spent', 'ad-cpc', 'ad-balance'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = '0 ₽';
+    });
+    ['ad-ctr', 'ad-cr', 'ad-drr'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = '—';
+    });
+    var dailyBody = document.getElementById('ads-daily-body');
+    if (dailyBody) dailyBody.innerHTML = '<tr><td colspan="10" class="empty" style="padding:4px">Загрузка...</td></tr>';
+    var dailyTotal = document.getElementById('ads-daily-total');
+    if (dailyTotal) dailyTotal.innerHTML = '';
+    var dailyCount = document.getElementById('ads-daily-count');
+    if (dailyCount) dailyCount.textContent = '';
+    var campCount = document.getElementById('ads-camp-count');
+    if (campCount) campCount.textContent = '0 из 0';
+    var filterCount = document.getElementById('ads-filter-count');
+    if (filterCount) filterCount.textContent = '0 из 0';
+    if (typeof updateAdsTabulator === 'function') updateAdsTabulator([]);
+    if (typeof renderAdsArtsTable === 'function') renderAdsArtsTable([]);
 }
 
 const _nativeFetch = window.fetch.bind(window);
@@ -1326,6 +1361,7 @@ async function navTo(name, el) {
 async function loadAds() {
     const orgId = getCurrentOrgId();
     if (!orgId || orgId === 'null') { console.warn('loadAds: no orgId'); return; }
+    const requestSeq = ++_adsLoadSeq;
     const range = getAdsDateRange();
     const statuses = (typeof _adsStatusFilters !== 'undefined' && _adsStatusFilters.length) ? _adsStatusFilters.join(',') : '9,11';
     let url;
@@ -1351,6 +1387,7 @@ async function loadAds() {
         }
         const d = await r.json();
         if (!document.getElementById('ad-views')) return;
+        if (requestSeq !== _adsLoadSeq || orgId !== getCurrentOrgId()) return;
         // Totals
         const t = d.totals || {};
         const fmt = (v, s='') => v != null ? Number(v).toLocaleString('ru-RU', {maximumFractionDigits: v >= 1000 ? 0 : 2}) + s : '—';
@@ -3615,6 +3652,7 @@ async function switchOrg() {
     if (_costDirty && !await confirmDirty()) return;
     // Update URL so refresh keeps the right org
     setCurrentOrgId(document.getElementById('org-select').value);
+    resetAdsUiForOrgChange();
     // Sync all store dropdowns
     const cpSel = document.getElementById('cp-store');
     if (cpSel) cpSel.value = ORG_ID;
@@ -3638,7 +3676,7 @@ async function switchOrg() {
         else if (tabName === 'promo') { if (typeof promoTabulator === 'undefined' || !promoTabulator) initPromoGrid(); loadPromoData(); }
         else if (tabName === 'salesplan') loadSalesPlans();
         else if (tabName === 'fboneeds') loadFboNeeds();
-        else if (tabName === 'ads') { if (!adsTabulator) initAdsGrid(); loadAds(); }
+        else if (tabName === 'ads') { if (!adsTabulator) initAdsGrid(); loadAds(); if (typeof loadAdsArts === 'function') loadAdsArts(); }
         else if (tabName === 'extads') loadExtAds();
         else if (tabName === 'analytics') loadAnalytics();
         else if (tabName === 'marketer') loadMarketer();
@@ -3707,6 +3745,7 @@ async function switchTopStore() {
     const newOrgId = fSel.value;
     if (newOrgId === ORG_ID) return;
     setCurrentOrgId(newOrgId);
+    resetAdsUiForOrgChange();
     // Sync all other selectors
     const sideSel = document.getElementById('org-select');
     if (sideSel) sideSel.value = ORG_ID;
@@ -3730,7 +3769,7 @@ async function switchTopStore() {
         else if (tabName === 'analytics') loadAnalytics();
         else if (tabName === 'rnp') loadRnp();
         else if (tabName === 'opiu') loadOpiu();
-        else if (tabName === 'ads') loadAds();
+        else if (tabName === 'ads') { loadAds(); if (typeof loadAdsArts === 'function') loadAdsArts(); }
         else if (tabName === 'marketer') loadMarketer();
         else if (tabName === 'extads') loadExtAds();
     }

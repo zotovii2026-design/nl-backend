@@ -36,6 +36,10 @@ function getAdsProductFilterQuery() {
     return qs ? '&' + qs : '';
 }
 
+function hasAdsProductFilters() {
+    return !!getAdsProductFilterQuery();
+}
+
 // Маппинги
 const statusMap = {'-1':'🗑 Удалена','4':'⏳ Готова','7':'☑ Завершена','8':'❌ Отклонена','9':'🟢 Активна','11':'⏸ Пауза'};
 const typeMap = {'4':'Автоматическая','5':'Поиск','6':'Каталог','7':'Таргет','8':'Рек. в рекомендациях','9':'Аукцион'};
@@ -263,7 +267,7 @@ function initAdsGrid() {
 function updateAdsTabulator(campaigns) {
     if (!adsTabulator) initAdsGrid();
     _adsAllData = campaigns || [];
-    populateAdsFilterOptionsForRK();
+    if (!hasAdsProductFilters()) populateAdsFilterOptionsForRK();
     applyAdsFilters();
 }
 
@@ -297,6 +301,7 @@ function fillAdsSelect(id, emptyLabel, values) {
     var sel = document.getElementById(id);
     if (!sel) return;
     var current = sel.value;
+    if (current && values.indexOf(current) < 0) values = values.concat([current]).sort();
     sel.innerHTML = '<option value="">' + emptyLabel + '</option>';
     values.forEach(function(v) {
         if (v == null || v === '') return;

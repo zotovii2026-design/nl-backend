@@ -4,6 +4,8 @@ var adsArtsTabulator = null;
 var _adsStatusFilters = ['9', '11']; // default: active + paused
 var _adsExpandedRow = null; // текущая раскрытая строка
 var _adsAllArtsData = [];  // Полные данные до фильтрации
+var _adsArtsLoadSeq = 0;
+var _adsRefreshStatusSeq = 0;
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
@@ -71,8 +73,9 @@ function toggleAdsStatusFilter(btn) {
 }
 
 function loadAdsArts() {
-    var orgId = (typeof getOrgId === 'function') ? getOrgId() : (typeof ORG_ID !== 'undefined' ? ORG_ID : '');
+    var orgId = (typeof getCurrentOrgId === 'function') ? getCurrentOrgId() : ((typeof getOrgId === 'function') ? getOrgId() : (typeof ORG_ID !== 'undefined' ? ORG_ID : ''));
     if (!orgId || orgId === 'null') return;
+    var requestSeq = ++_adsArtsLoadSeq;
     var range = getAdsDateRange();
     var statuses = _adsStatusFilters.join(',');
     var url;
@@ -91,6 +94,8 @@ function loadAdsArts() {
             return r.json();
         })
         .then(function(d) {
+            var currentOrgId = (typeof getCurrentOrgId === 'function') ? getCurrentOrgId() : orgId;
+            if (requestSeq !== _adsArtsLoadSeq || orgId !== currentOrgId) return;
             updateAdsArtsMetrics(d.totals || {});
             renderAdsArtsTable(d.items || []);
         })
@@ -240,12 +245,12 @@ function renderAdsArtsTable(items) {
     if (adsArtsTabulator) {
         closeArtCampaigns();
         _adsAllArtsData = items || [];
-        populateAdsFilterOptions();
+        if (typeof hasAdsProductFilters !== 'function' || !hasAdsProductFilters()) populateAdsFilterOptions();
         filterAdsArtsLocally();
         return;
     }
     _adsAllArtsData = items || [];
-    populateAdsFilterOptions();
+    if (typeof hasAdsProductFilters !== 'function' || !hasAdsProductFilters()) populateAdsFilterOptions();
 
     container.style.width = '100%';
     adsArtsTabulator = new Tabulator(container, {
@@ -272,8 +277,6 @@ function renderAdsArtsTable(items) {
 var _adsFilterReloadTimer = null;
 
 function filterAdsArtsLocally() {
-    if (!_adsAllArtsData.length) return;
-
     var search = (document.getElementById('ads-flt-search')?.value || '').toLowerCase();
     var fltStatus = document.getElementById('ads-flt-status')?.value || '';
     var fltClass = document.getElementById('ads-flt-class')?.value || '';
@@ -403,20 +406,25 @@ function renderAdsRefreshStatus(data, prefix) {
 }
 
 function loadAdsRefreshStatus() {
-    var orgId = (typeof getOrgId === 'function') ? getOrgId() : (typeof ORG_ID !== 'undefined' ? ORG_ID : '');
+    var orgId = (typeof getCurrentOrgId === 'function') ? getCurrentOrgId() : ((typeof getOrgId === 'function') ? getOrgId() : (typeof ORG_ID !== 'undefined' ? ORG_ID : ''));
     if (!orgId || orgId === 'null') return;
+    var requestSeq = ++_adsRefreshStatusSeq;
     fetch('/api/v1/nl/ad-stats/refresh-status?org_id=' + encodeURIComponent(orgId), {
         headers: {'Authorization': 'Bearer ' + TOKEN}
     })
         .then(function(r) { return r.json(); })
-        .then(function(d) { renderAdsRefreshStatus(d); })
+        .then(function(d) {
+            var currentOrgId = (typeof getCurrentOrgId === 'function') ? getCurrentOrgId() : orgId;
+            if (requestSeq !== _adsRefreshStatusSeq || orgId !== currentOrgId) return;
+            renderAdsRefreshStatus(d);
+        })
         .catch(function(e) {
             console.warn('loadAdsRefreshStatus error:', e);
         });
 }
 
 function refreshAds() {
-    var orgId = (typeof getOrgId === 'function') ? getOrgId() : (typeof ORG_ID !== 'undefined' ? ORG_ID : '');
+    var orgId = (typeof getCurrentOrgId === 'function') ? getCurrentOrgId() : ((typeof getOrgId === 'function') ? getOrgId() : (typeof ORG_ID !== 'undefined' ? ORG_ID : ''));
     if (!orgId || orgId === 'null') return;
     var btn = document.getElementById('ads-refresh-btn');
     if (btn) btn.disabled = true;

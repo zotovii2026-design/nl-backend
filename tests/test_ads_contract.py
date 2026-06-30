@@ -86,11 +86,34 @@ def test_ads_uses_url_org_and_handles_unauthorized_without_breaking_tabs():
 
     assert "function getCurrentOrgId()" in template
     assert "const urlOrg = new URL(location.href).searchParams.get('org');" in template
-    assert "urlOrg || selectedOrg || ORG_ID || localStorage.getItem('nl_org_id')" in template
+    assert "selectedOrg || ORG_ID || urlOrg || localStorage.getItem('nl_org_id')" in template
     assert "setCurrentOrgId(new URL(location.href).searchParams.get('org') || data.org_id);" in template
     assert "if (urlOrg && orgs.some(function(o) { return o.id === urlOrg; }))" in template
     assert "showAdsLoadError('Нет доступа к выбранному магазину" in template
-    assert "var orgId = (typeof getOrgId === 'function') ? getOrgId()" in arts
+    assert "var orgId = (typeof getCurrentOrgId === 'function') ? getCurrentOrgId()" in arts
     assert "encodeURIComponent(orgId)" in arts
     assert "if (typeof getCurrentOrgId === 'function') return getCurrentOrgId();" in grid
-    assert "adsmodel6" in template
+    assert "adsmodel7" in template
+
+
+def test_ads_org_switch_resets_state_and_ignores_stale_responses():
+    template = Path("templates/nl_v2.html").read_text(encoding="utf-8")
+    arts = Path("static/js/ads-arts-grid.js").read_text(encoding="utf-8")
+
+    assert "function resetAdsUiForOrgChange()" in template
+    assert "resetAdsUiForOrgChange();" in template
+    assert "const requestSeq = ++_adsLoadSeq;" in template
+    assert "if (requestSeq !== _adsLoadSeq || orgId !== getCurrentOrgId()) return;" in template
+    assert "var requestSeq = ++_adsArtsLoadSeq;" in arts
+    assert "if (requestSeq !== _adsArtsLoadSeq || orgId !== currentOrgId) return;" in arts
+    assert "var requestSeq = ++_adsRefreshStatusSeq;" in arts
+
+
+def test_ads_filter_options_do_not_shrink_after_server_side_filtering():
+    grid = Path("static/js/ads-grid.js").read_text(encoding="utf-8")
+    arts = Path("static/js/ads-arts-grid.js").read_text(encoding="utf-8")
+
+    assert "function hasAdsProductFilters()" in grid
+    assert "if (!hasAdsProductFilters()) populateAdsFilterOptionsForRK();" in grid
+    assert "if (current && values.indexOf(current) < 0) values = values.concat([current]).sort();" in grid
+    assert "if (typeof hasAdsProductFilters !== 'function' || !hasAdsProductFilters()) populateAdsFilterOptions();" in arts
