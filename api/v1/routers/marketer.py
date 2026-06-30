@@ -214,6 +214,66 @@ MARKETER_CHART_METRICS = {
         "expr": "SUM(COALESCE(ts.buyouts_count, 0))",
         "point_aggregation": "sum",
     },
+    "drr": {
+        "label": "ДРР",
+        "unit": "percent",
+        "expr": "CASE WHEN SUM(COALESCE(ts.price_discount, ts.price_spp, ts.price, 0) * COALESCE(ts.buyouts_count, 0)) > 0 THEN SUM(COALESCE(ts.ad_cost, 0))::numeric / SUM(COALESCE(ts.price_discount, ts.price_spp, ts.price, 0) * COALESCE(ts.buyouts_count, 0)) * 100 ELSE 0 END",
+        "point_aggregation": "ratio",
+    },
+    "cv": {
+        "label": "CV (конверсия в заказ)",
+        "unit": "percent",
+        "expr": "CASE WHEN SUM(COALESCE(ts.clicks, 0)) > 0 THEN SUM(COALESCE(ts.orders_count, 0))::numeric / SUM(COALESCE(ts.clicks, 0)) * 100 ELSE 0 END",
+        "point_aggregation": "ratio",
+    },
+    "cpc": {
+        "label": "CPC",
+        "unit": "rub",
+        "expr": "CASE WHEN SUM(COALESCE(ts.clicks, 0)) > 0 THEN SUM(COALESCE(ts.ad_cost, 0))::numeric / SUM(COALESCE(ts.clicks, 0)) ELSE 0 END",
+        "point_aggregation": "avg",
+    },
+    "cpm": {
+        "label": "CPM",
+        "unit": "rub",
+        "expr": "CASE WHEN SUM(COALESCE(ts.impressions, 0)) > 0 THEN SUM(COALESCE(ts.ad_cost, 0))::numeric / SUM(COALESCE(ts.impressions, 0)) * 1000 ELSE 0 END",
+        "point_aggregation": "avg",
+    },
+    "returns_count": {
+        "label": "Возвраты (шт)",
+        "unit": "pcs",
+        "expr": "SUM(COALESCE(ts.returns_count, 0))",
+        "point_aggregation": "sum",
+    },
+    "rating": {
+        "label": "Рейтинг",
+        "unit": "ratio",
+        "expr": "AVG(ts.rating)",
+        "point_aggregation": "avg",
+    },
+    "price_discount": {
+        "label": "Цена со скидкой",
+        "unit": "rub",
+        "expr": "AVG(ts.price_discount)",
+        "point_aggregation": "avg",
+    },
+    "stock_fbo_qty": {
+        "label": "Остаток FBO",
+        "unit": "pcs",
+        "expr": "SUM(COALESCE(ts.stock_fbo_qty, 0))",
+        "point_aggregation": "sum",
+    },
+    "revenue": {
+        "label": "Выручка (по выкупам)",
+        "unit": "rub",
+        "expr": "SUM(COALESCE(ts.price_discount, ts.price_spp, ts.price, 0) * COALESCE(ts.buyouts_count, 0))",
+        "point_aggregation": "sum",
+    },
+    "ad_cost_per_order": {
+        "label": "Затраты на заказ",
+        "unit": "rub",
+        "expr": "CASE WHEN SUM(COALESCE(ts.orders_count, 0)) > 0 THEN SUM(COALESCE(ts.ad_cost, 0))::numeric / SUM(COALESCE(ts.orders_count, 0)) ELSE 0 END",
+        "point_aggregation": "avg",
+    },
 }
 
 
@@ -253,7 +313,7 @@ def _split_strings(value: Optional[str]) -> list[str]:
 def _resolve_chart_metrics(metrics: Optional[str]) -> list[str]:
     requested = _split_strings(metrics)
     if not requested:
-        requested = ["orders_count", "stock_qty", "price", "price_spp", "buyout_pct", "views", "ctr_total"]
+        requested = ["orders_count", "stock_qty", "price", "price_spp", "buyout_pct", "views", "ctr_total", "drr", "cv", "cpc", "revenue"]
     resolved = [key for key in requested if key in MARKETER_CHART_METRICS]
     return resolved or ["orders_count", "stock_qty", "price", "price_spp"]
 
