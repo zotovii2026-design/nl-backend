@@ -19,6 +19,9 @@ router = APIRouter(
     dependencies=[Depends(require_query_organization_access)],
 )
 
+VALID_AD_STATUSES = ("-1", "4", "7", "8", "9", "11")
+DEFAULT_AD_STATUSES = ["9", "11"]
+
 
 def _sf(v):
     """Безопасное преобразование в float."""
@@ -55,11 +58,11 @@ def _parse_date_range(days: str, date_from: Optional[str], date_to: Optional[str
 
 def _parse_statuses(statuses: Optional[str]):
     if not statuses:
-        return []
+        return DEFAULT_AD_STATUSES
     return [
         s.strip()
         for s in statuses.split(",")
-        if s.strip() and s.strip() in ("7", "9", "11")
+        if s.strip() and s.strip() in VALID_AD_STATUSES
     ]
 
 
@@ -76,10 +79,8 @@ async def get_ad_stats(
     d_from, d_to = _parse_date_range(days, date_from, date_to)
     params = {"org": org_id, "d_from": d_from, "d_to": d_to}
     status_list = _parse_statuses(statuses)
-    status_cond = ""
-    if status_list:
-        status_cond = "AND c.status = ANY(:statuses)"
-        params["statuses"] = status_list
+    status_cond = "AND (c.wb_campaign_id IS NULL OR c.status = ANY(:statuses))"
+    params["statuses"] = status_list
 
     # ═══ Статистика по дням (из ad_stats_nm) ═══
     daily_rows = await db.execute(text("""
@@ -140,45 +141,35 @@ async def get_ad_stats(
             "drr": drr_day,
         })
 
-    # ═══ Список кампаний: берём ad_campaigns как источник списка, статистику подмешиваем слева ═══
+    # ═══ Список кампаний: только фактические строки рекламы за период ═══
     camp_rows = await db.execute(text("""
-        WITH stat_campaigns AS (
-            SELECT sn.wb_campaign_id,
-                   SUM(sn.views) as views,
-                   SUM(sn.clicks) as clicks,
-                   SUM(sn.spent) as spent,
-                   SUM(sn.orders) as orders,
-                   SUM(sn.atbs) as atbs,
-                   COUNT(DISTINCT sn.nm_id) as nm_count,
-                   ARRAY_REMOVE(ARRAY_AGG(DISTINCT sn.nm_id), NULL) as nm_ids,
-                   COALESCE(SUM(sn.sum_price), 0) as sum_price
-            FROM ad_stats_nm sn
-            WHERE sn.organization_id = :org
-                AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
-                AND sn.spent > 0
-            GROUP BY sn.wb_campaign_id
-        )
-        SELECT COALESCE(c.wb_campaign_id, s.wb_campaign_id) as wb_campaign_id,
-               COALESCE(c.name, 'Кампания ' || s.wb_campaign_id::text) as name,
+        SELECT sn.wb_campaign_id,
+               COALESCE(NULLIF(c.name, ''), 'Кампания ' || sn.wb_campaign_id::text) as name,
                c.status,
                c.type,
-               COALESCE(s.views, 0) as views,
-               COALESCE(s.clicks, 0) as clicks,
-               COALESCE(s.spent, 0) as spent,
-               COALESCE(s.orders, 0) as orders,
-               COALESCE(s.atbs, 0) as atbs,
-               COALESCE(s.nm_count, 0) as nm_count,
-               COALESCE(s.nm_ids, ARRAY[]::integer[]) as nm_ids,
-               COALESCE(s.sum_price, 0) as sum_price
-        FROM ad_campaigns c
-        FULL OUTER JOIN stat_campaigns s ON s.wb_campaign_id = c.wb_campaign_id
-        WHERE COALESCE(c.organization_id, :org) = :org
+               SUM(sn.views) as views,
+               SUM(sn.clicks) as clicks,
+               SUM(sn.spent) as spent,
+               SUM(sn.orders) as orders,
+               SUM(sn.atbs) as atbs,
+               COUNT(DISTINCT sn.nm_id) as nm_count,
+               ARRAY_REMOVE(ARRAY_AGG(DISTINCT sn.nm_id), NULL) as nm_ids,
+               COALESCE(SUM(sn.sum_price), 0) as sum_price,
+               CASE WHEN c.wb_campaign_id IS NULL THEN 'stats_only' ELSE 'both' END as source_side
+        FROM ad_stats_nm sn
+        LEFT JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
+            AND c.organization_id = sn.organization_id
+        WHERE sn.organization_id = :org
+            AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
+            AND sn.spent > 0
             """ + status_cond + """
-        ORDER BY COALESCE(s.spent, 0) DESC, c.status, COALESCE(c.name, 'Кампания ' || s.wb_campaign_id::text)
+        GROUP BY sn.wb_campaign_id, c.wb_campaign_id, c.name, c.status, c.type
+        ORDER BY SUM(sn.spent) DESC, c.status, COALESCE(NULLIF(c.name, ''), 'Кампания ' || sn.wb_campaign_id::text)
     """), params)
 
     all_campaign_rows = list(camp_rows)
     all_nm_ids = sorted({int(nm) for r in all_campaign_rows for nm in (r[10] or []) if nm})
+    all_campaign_ids = sorted({int(r[0]) for r in all_campaign_rows if r[0]})
     product_by_nm = {}
     if all_nm_ids:
         prod_row = await db.execute(text("""
@@ -207,6 +198,44 @@ async def get_ad_stats(
                         "photo": photo_url,
                     }
 
+    products_by_campaign = {}
+    if all_campaign_ids:
+        camp_product_rows = await db.execute(text("""
+            SELECT sn.wb_campaign_id,
+                   sn.nm_id,
+                   SUM(sn.spent) as spent,
+                   SUM(sn.views) as views,
+                   SUM(sn.clicks) as clicks,
+                   SUM(sn.orders) as orders,
+                   SUM(sn.atbs) as atbs,
+                   COALESCE(SUM(sn.sum_price), 0) as sum_price
+            FROM ad_stats_nm sn
+            LEFT JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
+                AND c.organization_id = sn.organization_id
+            WHERE sn.organization_id = :org
+                AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
+                AND sn.wb_campaign_id = ANY(:campaign_ids)
+                AND sn.spent > 0
+                """ + status_cond + """
+            GROUP BY sn.wb_campaign_id, sn.nm_id
+            ORDER BY SUM(sn.spent) DESC
+        """), {**params, "campaign_ids": all_campaign_ids})
+        for r in camp_product_rows:
+            cid = int(r[0])
+            nm_id = int(r[1])
+            info = product_by_nm.get(nm_id, {"nm_id": nm_id})
+            product = {
+                **info,
+                "nm_id": nm_id,
+                "spent_share": round(_sf(r[2]), 2),
+                "views": int(r[3] or 0),
+                "clicks": int(r[4] or 0),
+                "orders": int(r[5] or 0),
+                "atbs": int(r[6] or 0),
+                "sum_price": round(_sf(r[7]), 2),
+            }
+            products_by_campaign.setdefault(cid, []).append(product)
+
     campaigns = []
     for r in all_campaign_rows:
         views = int(r[4] or 0)
@@ -218,25 +247,8 @@ async def get_ad_stats(
         nm_ids = [int(n) for n in (r[10] or []) if n]
 
         # Инфо о товарах
-        products = [product_by_nm[nm] for nm in nm_ids if nm in product_by_nm]
+        products = products_by_campaign.get(int(r[0]), [])
         sum_price_val = round(_sf(r[11]), 2)
-
-        # Общие заказы и выручка по товарам этой РК из tech_status
-        total_orders_rk = 0
-        total_revenue_rk = 0
-        if nm_ids:
-            rk_totals_row = await db.execute(text("""
-                SELECT COALESCE(SUM(ts.orders_count), 0),
-                       COALESCE(SUM(ts.orders_count * ts.price_discount), 0)
-                FROM tech_status ts
-                WHERE ts.organization_id = :org
-                    AND ts.target_date >= :d_from AND ts.target_date <= :d_to
-                    AND ts.nm_id = ANY(:nm_ids)
-            """), {**params, "nm_ids": nm_ids})
-            rk_totals = rk_totals_row.first()
-            if rk_totals:
-                total_orders_rk = int(rk_totals[0] or 0)
-                total_revenue_rk = round(_sf(rk_totals[1]), 2)
 
         drr_rk = round(spent / sum_price_val * 100, 1) if sum_price_val else 0
 
@@ -256,9 +268,10 @@ async def get_ad_stats(
             "products": products,
             "sum_price": sum_price_val,
             "cr": round(orders / clicks * 100, 2) if clicks else 0,
-            "total_orders": total_orders_rk,
-            "total_revenue": total_revenue_rk,
+            "total_orders": orders,
+            "total_revenue": sum_price_val,
             "drr": drr_rk,
+            "source_side": r[12] or "both",
         })
 
     # ═══ Баланс ═══
@@ -290,6 +303,7 @@ async def get_ad_stats(
         "top_campaigns": campaigns[:20],
         "totals": totals,
         "balance": balance,
+        "statuses": status_list,
     }
 
 
@@ -306,13 +320,9 @@ async def get_ad_stats_by_art(
     d_from, d_to = _parse_date_range(days, date_from, date_to)
     params = {"org": org_id, "d_from": d_from, "d_to": d_to}
 
-    # Parse status filter — только реальные статусы WB: 7, 9, 11
     status_list = _parse_statuses(statuses)
-
-    status_cond = ""
-    if status_list:
-        status_cond = "AND c.status = ANY(:statuses)"
-        params["statuses"] = status_list
+    status_cond = "AND (c.wb_campaign_id IS NULL OR c.status = ANY(:statuses))"
+    params["statuses"] = status_list
 
     # ═══ Основной запрос: агрегация по nm_id из ad_stats_nm ═══
     rows = await db.execute(text("""
@@ -361,7 +371,6 @@ async def get_ad_stats_by_art(
                 SUM(sn.spent) as camp_spent,
                 SUM(sn.views) as camp_views,
                 SUM(sn.clicks) as camp_clicks,
-                AVG(sn.ctr) as camp_ctr,
                 SUM(sn.orders) as camp_orders,
                 SUM(sn.atbs) as camp_atbs,
                 SUM(sn.sum_price) as camp_sum_price
@@ -390,30 +399,11 @@ async def get_ad_stats_by_art(
                 "spent_share": round(_sf(r[5]), 2),
                 "views": int(r[6] or 0),
                 "clicks": int(r[7] or 0),
-                "ctr": round(_sf(r[8]), 2),
-                "orders": int(r[9] or 0),
-                "atbs": int(r[10] or 0),
-                "sum_price": round(_sf(r[11]), 2),
+                "ctr": round((int(r[7] or 0) / int(r[6] or 0)) * 100, 2) if int(r[6] or 0) else 0,
+                "orders": int(r[8] or 0),
+                "atbs": int(r[9] or 0),
+                "sum_price": round(_sf(r[10]), 2),
             })
-
-    # ═══ Общие заказы и цена по nm_id из tech_status (для ДРР) ═══
-    nm_orders_price = {}
-    if all_nm_ids:
-        ts_rows = await db.execute(text("""
-            SELECT ts.nm_id,
-                   SUM(ts.orders_count) as total_orders,
-                   SUM(ts.orders_count * ts.price_discount) as total_revenue
-            FROM tech_status ts
-            WHERE ts.organization_id = :org
-                AND ts.target_date >= :d_from AND ts.target_date <= :d_to
-                AND ts.nm_id = ANY(:nm_ids)
-            GROUP BY ts.nm_id
-        """), {**params, "nm_ids": all_nm_ids})
-        for r in ts_rows:
-            nm_orders_price[int(r[0])] = {
-                "total_orders": int(r[1] or 0),
-                "total_revenue": round(_sf(r[2]), 2),
-            }
 
     # ═══ Собираем items ═══
     items = []
@@ -425,7 +415,6 @@ async def get_ad_stats_by_art(
         orders = d["orders"]
         campaigns = nm_campaigns.get(nm_id, [])
         sum_price_art = sum(c.get("sum_price", 0) for c in campaigns) if campaigns else 0
-        op = nm_orders_price.get(nm_id, {"total_orders": 0, "total_revenue": 0})
         drr_art = round(spent / sum_price_art * 100, 1) if sum_price_art else 0
         items.append({
             "nm_id": nm_id,
@@ -438,8 +427,8 @@ async def get_ad_stats_by_art(
             "cr": round(orders / clicks * 100, 2) if clicks else 0,
             "campaigns_count": len(campaigns),
             "campaigns": campaigns,
-            "total_orders": op["total_orders"],
-            "total_revenue": op["total_revenue"],
+            "total_orders": orders,
+            "total_revenue": round(sum_price_art, 2),
             "drr": drr_art,
         })
 
@@ -483,6 +472,7 @@ async def get_ad_stats_by_art(
         "views": sum(i["views"] for i in items),
         "clicks": sum(i["clicks"] for i in items),
         "orders": sum(i["orders"] for i in items),
+        "atbs": sum(sum(c.get("atbs", 0) for c in i.get("campaigns", [])) for i in items),
         "ctr": round(sum(i["clicks"] for i in items) / max(sum(i["views"] for i in items), 1) * 100, 2),
         "cpc": round(sum(i["spent"] for i in items) / max(sum(i["clicks"] for i in items), 1), 2),
         "cr": round(sum(i["orders"] for i in items) / max(sum(i["clicks"] for i in items), 1) * 100, 2),
@@ -490,7 +480,9 @@ async def get_ad_stats_by_art(
         "campaigns_count": sum(i["campaigns_count"] for i in items),
         "total_orders": sum(i["total_orders"] for i in items),
         "total_revenue": round(sum(i["total_revenue"] for i in items), 2),
+        "sum_price": round(sum(c.get("sum_price", 0) for i in items for c in i.get("campaigns", [])), 2),
         "drr": round(sum(i["spent"] for i in items) / max(sum(c.get("sum_price", 0) for i in items for c in i.get("campaigns", [])), 1) * 100, 1),
+        "statuses": status_list,
     }
 
     return {"items": items, "totals": totals}

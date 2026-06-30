@@ -171,8 +171,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260630-active"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260609d"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260630-adsmodel1"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260630-adsmodel1"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
 </head>
 <body>
@@ -1112,9 +1112,9 @@ var _sectionHTML = {
 <button id="ads-view-rk" class="ads-view-btn active" onclick="switchAdsView('rk')" style="padding:4px 12px;border:1px solid #6c5ce7;background:#6c5ce7;color:#fff;border-radius:6px;font-size:.8em;cursor:pointer;font-weight:600">📊 По РК</button>
 <button id="ads-view-art" class="ads-view-btn" onclick="switchAdsView('art')" style="padding:4px 12px;border:1px solid #ddd;background:#fff;color:#333;border-radius:6px;font-size:.8em;cursor:pointer;font-weight:600">📦 По артикулам</button>
 <span style="width:1px;height:20px;background:#ddd;margin:0 4px"></span>
-<button class="ads-status-btn" data-status="7" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #00b894;background:#00b894;color:#fff;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">🟢 Активные</button>
-<button class="ads-status-btn" data-status="9" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #fdcb6e;background:#fdcb6e;color:#fff;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">⏸ Приостановл.</button>
-<button class="ads-status-btn" data-status="11" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #dfe6e9;background:#fff;color:#636e72;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">✅ Завершённые</button>
+<button class="ads-status-btn" data-status="9" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #00b894;background:#00b894;color:#fff;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">🟢 Активные</button>
+<button class="ads-status-btn" data-status="11" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #fdcb6e;background:#fdcb6e;color:#fff;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">⏸ Пауза</button>
+<button class="ads-status-btn" data-status="7" onclick="toggleAdsStatusFilter(this)" style="padding:4px 10px;border:1px solid #dfe6e9;background:#fff;color:#636e72;border-radius:6px;font-size:.78em;cursor:pointer;font-weight:600">✅ Завершённые</button>
 <span style="width:1px;height:20px;background:#ddd;margin:0 4px"></span>
 <select id="ads-flt-status" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется</option></select>
 <select id="ads-flt-class" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Класс: все</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select>
@@ -1297,7 +1297,7 @@ async function navTo(name, el) {
     // filter-period заменён на nl-datepicker-container
     // видимость управляется через nlDatepickerVisibility() ниже
     var topArticle = document.getElementById('filter-article');
-    if (topArticle) topArticle.style.display = (reg.topFilters && name !== 'opiu') ? '' : 'none';
+    if (topArticle) topArticle.style.display = (reg.topFilters && name !== 'opiu' && name !== 'ads') ? '' : 'none';
     // Cleanup popups
     if (typeof cleanupCostPopups === 'function') cleanupCostPopups();
     // Track current & enter
@@ -1309,15 +1309,16 @@ async function navTo(name, el) {
 async function loadAds() {
     if (!ORG_ID || ORG_ID === 'null') { console.warn('loadAds: no ORG_ID'); return; }
     const range = getAdsDateRange();
+    const statuses = (typeof _adsStatusFilters !== 'undefined' && _adsStatusFilters.length) ? _adsStatusFilters.join(',') : '9,11';
     let url;
     if (range.days) {
-        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=' + range.days;
+        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=' + range.days + '&statuses=' + statuses;
     } else if (range.date_from && range.date_to) {
-        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&date_from=' + range.date_from + '&date_to=' + range.date_to;
+        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&date_from=' + range.date_from + '&date_to=' + range.date_to + '&statuses=' + statuses;
     } else if (range.dateFrom && range.dateTo) {
-        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&date_from=' + range.dateFrom + '&date_to=' + range.dateTo;
+        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&date_from=' + range.dateFrom + '&date_to=' + range.dateTo + '&statuses=' + statuses;
     } else {
-        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=30';
+        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=30&statuses=' + statuses;
     }
     try {
         const r = await fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}});

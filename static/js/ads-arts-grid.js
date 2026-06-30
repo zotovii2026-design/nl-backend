@@ -1,7 +1,7 @@
 // ===== ADS VIEW SWITCHER =====
 var _adsCurrentView = 'rk';
 var adsArtsTabulator = null;
-var _adsStatusFilters = ['7', '9']; // default: active + paused
+var _adsStatusFilters = ['9', '11']; // default: active + paused
 var _adsExpandedRow = null; // текущая раскрытая строка
 var _adsAllArtsData = [];  // Полные данные до фильтрации
 
@@ -45,9 +45,9 @@ function switchAdsView(view) {
 
 // ===== STATUS FILTER TOGGLE =====
 var _statusColors = {
-    '7':  { on: '#00b894', off: '#fff', offText: '#636e72' },
-    '9':  { on: '#fdcb6e', off: '#fff', offText: '#636e72' },
-    '11': { on: '#dfe6e9', off: '#fff', offText: '#636e72' }
+    '9':  { on: '#00b894', off: '#fff', offText: '#636e72' },
+    '11': { on: '#fdcb6e', off: '#fff', offText: '#636e72' },
+    '7':  { on: '#dfe6e9', off: '#fff', offText: '#636e72' }
 };
 
 function toggleAdsStatusFilter(btn) {
@@ -64,9 +64,8 @@ function toggleAdsStatusFilter(btn) {
         btn.style.background = sc.on;
         btn.style.color = '#fff';
     }
-    if (_adsCurrentView === 'rk') {
-        applyAdsFilters();
-    } else {
+    loadAds();
+    if (_adsCurrentView === 'art') {
         loadAdsArts();
     }
 }
@@ -371,7 +370,7 @@ function toggleArtCampaigns(row) {
         return;
     }
 
-    var statusIcons = {'4':'⏳','7':'🟢','8':'❌','9':'⏸','11':'☑'};
+    var statusIcons = {'-1':'🗑','4':'⏳','7':'☑','8':'❌','9':'🟢','11':'⏸'};
     var typeNames = {'4':'Авто','5':'Поиск','6':'Каталог','7':'Таргет','8':'Рек.','9':'Аукцион'};
 
     var html = '<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">';

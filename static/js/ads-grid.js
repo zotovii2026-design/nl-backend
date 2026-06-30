@@ -21,9 +21,9 @@ function getOrgId() {
 }
 
 // Маппинги
-const statusMap = {'4':'⏳ Ожидает','7':'🟢 Активна','8':'❌ Отклонена','9':'⏸ Приостановлена','11':'☑ Завершена'};
+const statusMap = {'-1':'🗑 Удалена','4':'⏳ Готова','7':'☑ Завершена','8':'❌ Отклонена','9':'🟢 Активна','11':'⏸ Пауза'};
 const typeMap = {'4':'Автоматическая','5':'Поиск','6':'Каталог','7':'Таргет','8':'Рек. в рекомендациях','9':'Аукцион'};
-const statusColors = {'4':'background:#fff3cd','7':'background:#d4edda','8':'background:#f8d7da','9':'background:#fff3cd','11':'background:#e2e3e5'};
+const statusColors = {'-1':'background:#f1f3f5','4':'background:#fff3cd','7':'background:#e2e3e5','8':'background:#f8d7da','9':'background:#d4edda','11':'background:#fff3cd'};
 
 // Конфигурация колонок
 function getAdsColumns() {
@@ -283,7 +283,7 @@ function populateAdsFilterOptionsForRK() {
  */
 function applyAdsFilters() {
     if (!adsTabulator) return;
-    var activeStatuses = typeof _adsStatusFilters !== 'undefined' ? _adsStatusFilters : ['7', '9'];
+    var activeStatuses = typeof _adsStatusFilters !== 'undefined' ? _adsStatusFilters : ['9', '11'];
     var filtered = _adsAllData.filter(function(c) {
         return activeStatuses.indexOf(c.status) >= 0;
     });
@@ -390,7 +390,7 @@ function exportAdsExcel() {
     rows.forEach(function(row) {
         var vals = flatCols.map(function(c) {
             var v = row[c.field];
-            if (c.field === 'status') v = ({'4':'Ожидает','7':'Активна','8':'Отклонена','9':'Приостановлена','11':'Завершена'})[v] || v;
+            if (c.field === 'status') v = ({'-1':'Удалена','4':'Готова','7':'Завершена','8':'Отклонена','9':'Активна','11':'Пауза'})[v] || v;
             if (c.field === 'type') v = ({'4':'Авто','5':'Поиск','6':'Каталог','7':'Таргет','8':'Рек.рек.','9':'Аукцион'})[v] || v;
             return v != null ? v : '';
         });
