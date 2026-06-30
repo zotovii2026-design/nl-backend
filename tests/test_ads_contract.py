@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from api.v1.routers.ads import (
+    ADS_REFRESH_COOLDOWN_SECONDS,
     ADS_REFRESH_DAYS_BACK,
     DEFAULT_AD_STATUSES,
     _parse_statuses,
@@ -25,6 +26,7 @@ def test_ads_router_does_not_mix_tech_status_into_ad_conversions():
 
 def test_ads_manual_refresh_uses_nine_day_window():
     assert ADS_REFRESH_DAYS_BACK == 9
+    assert ADS_REFRESH_COOLDOWN_SECONDS == 60 * 60
 
 
 def test_ads_manual_refresh_passes_selected_org_to_celery():

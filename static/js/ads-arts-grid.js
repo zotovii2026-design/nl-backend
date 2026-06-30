@@ -320,6 +320,11 @@ function formatAdsRefreshSeconds(seconds) {
     seconds = Math.max(0, parseInt(seconds || 0, 10));
     var mins = Math.floor(seconds / 60);
     var secs = seconds % 60;
+    if (mins >= 60) {
+        var hours = Math.floor(mins / 60);
+        var restMins = mins % 60;
+        return hours + ' ч ' + (restMins < 10 ? '0' : '') + restMins + ' мин';
+    }
     return mins + ':' + (secs < 10 ? '0' : '') + secs;
 }
 
