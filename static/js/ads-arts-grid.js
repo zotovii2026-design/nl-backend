@@ -79,7 +79,7 @@ function loadAdsArts() {
     } else if (range.date_from && range.date_to) {
         url = '/api/v1/nl/ad-stats/by-art?org_id=' + ORG_ID + '&date_from=' + range.date_from + '&date_to=' + range.date_to + '&statuses=' + statuses;
     } else {
-        url = '/api/v1/nl/ad-stats/by-art?org_id=' + ORG_ID + '&days=30&statuses=' + statuses;
+        url = '/api/v1/nl/ad-stats/by-art?org_id=' + ORG_ID + '&days=9&statuses=' + statuses;
     }
     fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}})
         .then(function(r) { return r.json(); })
@@ -314,11 +314,101 @@ function populateAdsFilterOptions() {
     }
 }
 
-function refreshAds() {
-    loadAds();
-    if (_adsCurrentView === 'art') {
-        loadAdsArts();
+var _adsRefreshTimer = null;
+
+function formatAdsRefreshSeconds(seconds) {
+    seconds = Math.max(0, parseInt(seconds || 0, 10));
+    var mins = Math.floor(seconds / 60);
+    var secs = seconds % 60;
+    return mins + ':' + (secs < 10 ? '0' : '') + secs;
+}
+
+function formatAdsRefreshDate(value) {
+    if (!value) return '';
+    var d = new Date(value);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function renderAdsRefreshStatus(data, prefix) {
+    var statusEl = document.getElementById('ads-updated');
+    var btn = document.getElementById('ads-refresh-btn');
+    if (!statusEl) return;
+
+    if (_adsRefreshTimer) {
+        clearInterval(_adsRefreshTimer);
+        _adsRefreshTimer = null;
     }
+
+    var remaining = parseInt((data && data.cooldown_remaining_seconds) || 0, 10);
+    var lastSync = formatAdsRefreshDate(data && data.last_sync_at);
+    var lastDate = data && data.last_stat_date ? data.last_stat_date : '';
+    var base = prefix || (lastSync ? 'Последний сбор: ' + lastSync : 'Сбор еще не запускался');
+    if (lastDate) base += ' · данные до ' + lastDate;
+
+    function paint(sec) {
+        if (sec > 0) {
+            statusEl.textContent = base + ' · следующий запуск через ' + formatAdsRefreshSeconds(sec);
+            if (btn) btn.disabled = true;
+        } else {
+            statusEl.textContent = base + ' · можно обновить';
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    paint(remaining);
+    if (remaining > 0) {
+        _adsRefreshTimer = setInterval(function() {
+            remaining -= 1;
+            paint(remaining);
+            if (remaining <= 0) {
+                clearInterval(_adsRefreshTimer);
+                _adsRefreshTimer = null;
+            }
+        }, 1000);
+    }
+}
+
+function loadAdsRefreshStatus() {
+    if (!ORG_ID || ORG_ID === 'null') return;
+    fetch('/api/v1/nl/ad-stats/refresh-status?org_id=' + ORG_ID, {
+        headers: {'Authorization': 'Bearer ' + TOKEN}
+    })
+        .then(function(r) { return r.json(); })
+        .then(function(d) { renderAdsRefreshStatus(d); })
+        .catch(function(e) {
+            console.warn('loadAdsRefreshStatus error:', e);
+        });
+}
+
+function refreshAds() {
+    if (!ORG_ID || ORG_ID === 'null') return;
+    var btn = document.getElementById('ads-refresh-btn');
+    if (btn) btn.disabled = true;
+    fetch('/api/v1/nl/ad-stats/refresh?org_id=' + ORG_ID, {
+        method: 'POST',
+        headers: {'Authorization': 'Bearer ' + TOKEN}
+    })
+        .then(function(r) {
+            return r.json().then(function(d) {
+                if (!r.ok) {
+                    if (d && d.detail) renderAdsRefreshStatus(d.detail, 'WB ограничивает частоту запросов');
+                    throw new Error((d && d.message) || (d && d.detail && d.detail.message) || 'Не удалось запустить сбор');
+                }
+                return d;
+            });
+        })
+        .then(function(d) {
+            renderAdsRefreshStatus(d, 'Сбор запущен за ' + (d.days_back || 9) + ' дней');
+            loadAds();
+            if (_adsCurrentView === 'art') {
+                loadAdsArts();
+            }
+        })
+        .catch(function(e) {
+            console.warn('refreshAds error:', e);
+            loadAdsRefreshStatus();
+        });
 }
 
 // ===== Раскрытие строки — список РК для этого артикула =====

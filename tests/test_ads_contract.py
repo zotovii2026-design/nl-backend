@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from api.v1.routers.ads import DEFAULT_AD_STATUSES, _parse_statuses
+from api.v1.routers.ads import (
+    ADS_REFRESH_DAYS_BACK,
+    DEFAULT_AD_STATUSES,
+    _parse_statuses,
+)
 
 
 def test_ads_default_statuses_are_active_and_paused_only():
@@ -17,3 +21,12 @@ def test_ads_router_does_not_mix_tech_status_into_ad_conversions():
     source = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
     assert "FROM tech_status" not in source
     assert "JOIN tech_status" not in source
+
+
+def test_ads_manual_refresh_uses_nine_day_window():
+    assert ADS_REFRESH_DAYS_BACK == 9
+
+
+def test_ads_manual_refresh_passes_selected_org_to_celery():
+    source = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
+    assert 'kwargs={"days_back": ADS_REFRESH_DAYS_BACK, "org_id": org_id}' in source

@@ -171,8 +171,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260630-adsmodel1"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260630-adsmodel1"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260630-adsmodel2"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260630-adsmodel2"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
 </head>
 <body>
@@ -1068,7 +1068,7 @@ var _sectionHTML = {
 <div style="margin-top:12px;font-size:.85em;color:#999" id="rnp-count"></div>`,
     'ads': `
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
-<button class="btn" onclick="refreshAds()" style="padding:6px 14px;font-size:.85em">ð Обновить</button>
+<button class="btn" id="ads-refresh-btn" onclick="refreshAds()" style="padding:6px 14px;font-size:.85em">Обновить статистику</button>
 <div style="margin-left:auto;font-size:.85em;color:#999" id="ads-updated"></div>
 </div>
 
@@ -1318,7 +1318,7 @@ async function loadAds() {
     } else if (range.dateFrom && range.dateTo) {
         url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&date_from=' + range.dateFrom + '&date_to=' + range.dateTo + '&statuses=' + statuses;
     } else {
-        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=30&statuses=' + statuses;
+        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=9&statuses=' + statuses;
     }
     try {
         const r = await fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}});
@@ -1359,7 +1359,11 @@ async function loadAds() {
         window._adsAllCampaigns = d.campaigns || [];
         updateAdsTabulator(d.campaigns || []);
 
-        document.getElementById('ads-updated').textContent = 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
+        if (typeof loadAdsRefreshStatus === 'function') {
+            loadAdsRefreshStatus();
+        } else {
+            document.getElementById('ads-updated').textContent = 'Данные загружены: ' + new Date().toLocaleTimeString('ru-RU');
+        }
     } catch(e) {
         console.error('loadAds error:', e);
         const body = document.getElementById('ads-daily-body');
@@ -1419,7 +1423,7 @@ function getAdsDateRange() {
         var range = nlGetDateRange();
         return { date_from: range.dateFrom, date_to: range.dateTo };
     }
-    const val = '30';
+    const val = '9';
     let days = parseInt(val);
     if (!isNaN(days)) {
         return { days: days };

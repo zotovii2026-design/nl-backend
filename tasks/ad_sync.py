@@ -70,20 +70,22 @@ def _parse_change_time(raw: str) -> Optional[datetime]:
 
 
 @shared_task(name="wb.sched.ad_stats")
-def sched_ad_stats(days_back: int = 1):
+def sched_ad_stats(days_back: int = 1, org_id: Optional[str] = None):
     async def _main():
         engine, sf = _make_session()
         try:
-            return await _do_ad_stats(sf, days_back)
+            return await _do_ad_stats(sf, days_back, org_id)
         finally:
             await engine.dispose()
     return asyncio.run(_main())
 
 
-async def _do_ad_stats(sf, days_back=1):
+async def _do_ad_stats(sf, days_back=1, only_org_id: Optional[str] = None):
     all_keys = await _get_all_keys(sf)
+    if only_org_id:
+        all_keys = [(oid, key) for oid, key in all_keys if oid == only_org_id]
     if not all_keys:
-        return {"status": "skipped", "reason": "no_keys"}
+        return {"status": "skipped", "reason": "no_keys", "org_id": only_org_id}
 
     total_result = {"status": "ok", "orgs": {}, "total_stats": 0, "total_campaigns": 0}
 
@@ -115,9 +117,8 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
     ) as client:
 
         # ═══ ШАГ 1: Список ID кампаний из /adv/v1/promotion/count ═══
-        # Статус на уровне группы: 7=active, 9=finished, 11=paused
-        # Статус группы ≠ статус конкретной кампании. Реальный статус
-        # кампании берём из /adv/v1/upd (advertStatus) на шаге 2.
+        # Статус группы из promotion/count не используем как бизнес-статус РК.
+        # Реальный статус кампании берём из /adv/v1/upd (advertStatus) на шаге 2.
         resp = await client.get("/adv/v1/promotion/count")
         if resp.status_code in (401, 403):
             logger.warning("[ad_stats] Org %s: no access (%d)", org_id, resp.status_code)

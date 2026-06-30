@@ -69,7 +69,7 @@ BEAT_SCHEDULE = {
     "ad-stats-daily": {
         "task": "wb.sched.ad_stats",
         "schedule": crontab(hour=21, minute=0),
-        "kwargs": {"days_back": 2},
+        "kwargs": {"days_back": 9},
     },
     "ad-stats-weekly-backfill": {
         "task": "wb.sched.ad_stats",

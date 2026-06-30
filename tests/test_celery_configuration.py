@@ -42,6 +42,10 @@ def test_schedule_uses_documented_moscow_times():
         assert _single_int(schedule.minute) == minute
 
 
+def test_ad_stats_daily_refreshes_nine_day_window():
+    assert BEAT_SCHEDULE["ad-stats-daily"]["kwargs"] == {"days_back": 9}
+
+
 def test_every_scheduled_task_is_registered():
     from tasks.celery_app import celery_app
 

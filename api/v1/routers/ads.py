@@ -3,15 +3,18 @@
 Контракты (URL, параметры, JSON) сохранены без изменений.
 """
 import decimal as _dec
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
+from core.rate_limit import get_rate_limit_redis
 from core.tenant_auth import require_query_organization_access
+from services.reference import resolve_org_id
+from tasks.celery_app import celery_app
 
 
 router = APIRouter(
@@ -21,6 +24,8 @@ router = APIRouter(
 
 VALID_AD_STATUSES = ("-1", "4", "7", "8", "9", "11")
 DEFAULT_AD_STATUSES = ["9", "11"]
+ADS_REFRESH_DAYS_BACK = 9
+ADS_REFRESH_COOLDOWN_SECONDS = 15 * 60
 
 
 def _sf(v):
@@ -64,6 +69,92 @@ def _parse_statuses(statuses: Optional[str]):
         for s in statuses.split(",")
         if s.strip() and s.strip() in VALID_AD_STATUSES
     ]
+
+
+def _ads_refresh_key(org_id: str) -> str:
+    return f"nl:ads-refresh:{org_id}"
+
+
+async def _ads_refresh_status(org_id: str, db: AsyncSession):
+    cooldown_remaining = 0
+    triggered_at = None
+    try:
+        redis = get_rate_limit_redis()
+        ttl = await redis.ttl(_ads_refresh_key(org_id))
+        cooldown_remaining = ttl if ttl and ttl > 0 else 0
+        triggered_at = await redis.get(_ads_refresh_key(org_id))
+    except Exception:
+        cooldown_remaining = 0
+
+    row = await db.execute(text("""
+        SELECT
+            (SELECT MAX(fetched_at)
+             FROM raw_api_data
+             WHERE organization_id = :org AND api_method = 'ad_balance' AND status = 'ok') AS last_sync_at,
+            (SELECT MAX(stat_date)
+             FROM ad_stats_nm
+             WHERE organization_id = :org) AS last_stat_date
+    """), {"org": org_id})
+    latest = row.first()
+    last_sync_at = latest[0] if latest else None
+    last_stat_date = latest[1] if latest else None
+
+    return {
+        "can_refresh": cooldown_remaining == 0,
+        "cooldown_remaining_seconds": int(cooldown_remaining),
+        "cooldown_seconds": ADS_REFRESH_COOLDOWN_SECONDS,
+        "days_back": ADS_REFRESH_DAYS_BACK,
+        "last_sync_at": last_sync_at.isoformat() if last_sync_at else None,
+        "last_stat_date": last_stat_date.isoformat() if last_stat_date else None,
+        "triggered_at": triggered_at,
+    }
+
+
+@router.get("/api/v1/nl/ad-stats/refresh-status")
+async def get_ad_stats_refresh_status(
+    org_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    org_id = await resolve_org_id(org_id, db)
+    return await _ads_refresh_status(org_id, db)
+
+
+@router.post("/api/v1/nl/ad-stats/refresh")
+async def refresh_ad_stats(
+    org_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Запустить сбор рекламы за 9 дней с понятным кулдауном WB."""
+    org_id = await resolve_org_id(org_id, db)
+    state = await _ads_refresh_status(org_id, db)
+    if not state["can_refresh"]:
+        raise HTTPException(status_code=429, detail=state)
+
+    triggered_at = datetime.now(timezone.utc).isoformat()
+    try:
+        redis = get_rate_limit_redis()
+        await redis.set(
+            _ads_refresh_key(org_id),
+            triggered_at,
+            ex=ADS_REFRESH_COOLDOWN_SECONDS,
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Не удалось поставить таймер обновления рекламы",
+        )
+
+    task = celery_app.send_task(
+        "wb.sched.ad_stats",
+        kwargs={"days_back": ADS_REFRESH_DAYS_BACK, "org_id": org_id},
+    )
+    state = await _ads_refresh_status(org_id, db)
+    return {
+        "ok": True,
+        "task_id": task.id,
+        "message": f"Запущен сбор рекламы за {ADS_REFRESH_DAYS_BACK} дней",
+        **state,
+    }
 
 
 @router.get("/api/v1/nl/ad-stats")
