@@ -1068,8 +1068,6 @@ var _sectionHTML = {
 <div style="margin-top:12px;font-size:.85em;color:#999" id="rnp-count"></div>`,
     'ads': `
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
-<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
-<select id="ads-store" onchange="switchAdsStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
 <button class="btn" onclick="refreshAds()" style="padding:6px 14px;font-size:.85em">ð Обновить</button>
 <div style="margin-left:auto;font-size:.85em;color:#999" id="ads-updated"></div>
 </div>
@@ -3600,18 +3598,6 @@ async function loadOrgs() {
             mktSel.appendChild(opt);
         });
     }
-    // Sync ads-store dropdown in Реклама
-    const adsSel = document.getElementById("ads-store");
-    if (adsSel) {
-        adsSel.innerHTML = "";
-        orgs.forEach(o => {
-            const opt = document.createElement("option");
-            opt.value = o.id;
-            opt.textContent = o.name + (o.wb_seller_id ? " (ID " + o.wb_seller_id + ")" : "");
-            if (o.id === ORG_ID) opt.selected = true;
-            adsSel.appendChild(opt);
-        });
-    }
 }
 
 async function switchOrg() {
@@ -3633,8 +3619,6 @@ async function switchOrg() {
     if (fSel2) fSel2.value = ORG_ID;
     const mktSel2 = document.getElementById('mkt-store');
     if (mktSel2) mktSel2.value = ORG_ID;
-    const adsSel2 = document.getElementById('ads-store');
-    if (adsSel2) adsSel2.value = ORG_ID;
     showApp();
     // Reload current active tab data for new org
     var activeTab = document.querySelector('.page-section.active');
@@ -3690,31 +3674,8 @@ async function switchUEStore() {
     if (promoSel3) promoSel3.value = ORG_ID;
     const mktSel3 = document.getElementById("mkt-store");
     if (mktSel3) mktSel3.value = ORG_ID;
-    const adsSel4 = document.getElementById("ads-store");
-    if (adsSel4) adsSel4.value = ORG_ID;
     history.replaceState(null, "", "/nl/v2?org=" + ORG_ID);
     loadUEData();
-}
-
-async function switchAdsStore() {
-    const adsSel = document.getElementById("ads-store");
-    const newOrgId = adsSel.value;
-    if (newOrgId === ORG_ID) return;
-    ORG_ID = newOrgId;
-    localStorage.setItem("nl_org_id", ORG_ID);
-    // Sync sidebar + cp-store + ue-store + promo-store + mkt-store
-    const sideSel = document.getElementById("org-select");
-    if (sideSel) sideSel.value = ORG_ID;
-    const cpSel = document.getElementById("cp-store");
-    if (cpSel) cpSel.value = ORG_ID;
-    const ueSel4 = document.getElementById("ue-store");
-    if (ueSel4) ueSel4.value = ORG_ID;
-    const promoSel5 = document.getElementById("promo-store");
-    if (promoSel5) promoSel5.value = ORG_ID;
-    const mktSel5 = document.getElementById("mkt-store");
-    if (mktSel5) mktSel5.value = ORG_ID;
-    history.replaceState(null, "", "/nl/v2?org=" + ORG_ID);
-    loadAds();
 }
 
 async function switchAnalyticsStore() {
@@ -3755,8 +3716,6 @@ async function switchTopStore() {
     if (promoSel) promoSel.value = ORG_ID;
     const anSel = document.getElementById('analytics-store');
     if (anSel) anSel.value = ORG_ID;
-    const adsSel = document.getElementById("ads-store");
-    if (adsSel) adsSel.value = ORG_ID;
     const mktSel = document.getElementById("mkt-store");
     if (mktSel) mktSel.value = ORG_ID;
     const extAdsSel = document.getElementById("ext-ad-store");
