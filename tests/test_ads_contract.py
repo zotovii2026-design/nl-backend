@@ -32,3 +32,18 @@ def test_ads_manual_refresh_uses_nine_day_window():
 def test_ads_manual_refresh_passes_selected_org_to_celery():
     source = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
     assert 'kwargs={"days_back": ADS_REFRESH_DAYS_BACK, "org_id": org_id}' in source
+
+
+def test_ads_template_uses_unified_period_and_daily_table():
+    source = Path("templates/nl_v2.html").read_text(encoding="utf-8")
+    for legacy_id in (
+        "adsPeriodPreset",
+        "adsCustomDateChange",
+        "ads-period",
+        "ads-date-from",
+        "ads-date-to",
+        "toggleDailyTable",
+    ):
+        assert legacy_id not in source
+    assert "ads-daily-total" in source
+    assert "ad-atbs" in source

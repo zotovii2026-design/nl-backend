@@ -99,7 +99,7 @@ function updateAdsArtsMetrics(totals) {
     el = document.getElementById('ad-cpc'); if (el) el.textContent = (totals.cpc || 0).toFixed(2) + ' ₽';
     el = document.getElementById('ad-orders'); if (el) el.textContent = totals.orders || 0;
     el = document.getElementById('ad-cr'); if (el) el.textContent = (totals.cr || 0).toFixed(1) + '%';
-    el = document.getElementById('ad-arts-count'); if (el) el.textContent = totals.items_count || 0;
+    el = document.getElementById('ad-atbs'); if (el) el.textContent = totals.atbs || 0;
     el = document.getElementById('ad-drr'); if (el) el.textContent = totals.drr ? totals.drr + '%' : '—';
 }
 

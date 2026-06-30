@@ -171,8 +171,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260630-adsmodel2"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260630-adsmodel2"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260630-adsmodel3"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260630-adsmodel3"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
 </head>
 <body>
@@ -1093,16 +1093,17 @@ var _sectionHTML = {
 <div style="display:flex;gap:6px;align-items:stretch">
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Заказы</div><div style="font-size:.95em;font-weight:700;color:#00cec9" id="ad-orders">—</div></div>
 <div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CR</div><div style="font-size:.95em;font-weight:700;color:#e84393" id="ad-cr">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">В корзину</div><div style="font-size:.95em;font-weight:700;color:#636e72" id="ad-arts-count">—</div></div>
+<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">В корзину</div><div style="font-size:.95em;font-weight:700;color:#636e72" id="ad-atbs">—</div></div>
 </div>
 </div>
 <!-- Статистика по дням (на всю ширину, под метриками) -->
 <div style="background:#fff;border-radius:8px;border:1px solid #eee;padding:8px 12px;margin-bottom:8px">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;cursor:pointer" onclick="toggleDailyTable()"><span style="font-size:.78em;font-weight:600;color:#6c5ce7">📅 По дням</span><span style="font-size:.7em;color:#999" id="ads-daily-count"></span><span style="font-size:.7em;color:#999" id="ads-daily-toggle">▼</span></div>
-<div id="ads-daily-wrapper" style="display:none;max-height:180px;overflow-y:auto;font-size:.78em">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:.78em;font-weight:600;color:#6c5ce7">📅 По дням</span><span style="font-size:.7em;color:#999" id="ads-daily-count"></span></div>
+<div id="ads-daily-wrapper" style="display:block;max-height:260px;overflow-y:auto;font-size:.78em">
 <table id="ads-daily-table" style="width:100%">
 <thead><tr><th style="padding:2px 6px;text-align:left">Дата</th><th style="padding:2px 6px;text-align:right">Расход ₽</th><th style="padding:2px 6px;text-align:right">Показы</th><th style="padding:2px 6px;text-align:right">Клики</th><th style="padding:2px 6px;text-align:right">CTR</th><th style="padding:2px 6px;text-align:right">CPC ₽</th><th style="padding:2px 6px;text-align:right">Заказы</th><th style="padding:2px 6px;text-align:right">CR</th><th style="padding:2px 6px;text-align:right">В корзину</th><th style="padding:2px 6px;text-align:right">ДРР %</th></tr></thead>
-<tbody id="ads-daily-body"><tr><td colspan="9" class="empty" style="padding:4px">Загрузка...</td></tr></tbody>
+<tbody id="ads-daily-body"><tr><td colspan="10" class="empty" style="padding:4px">Загрузка...</td></tr></tbody>
+<tfoot id="ads-daily-total"></tfoot>
 </table>
 </div>
 </div>
@@ -1335,9 +1336,7 @@ async function loadAds() {
         document.getElementById('ad-orders').textContent = fmt(t.orders);
         document.getElementById('ad-cr').textContent = t.cr ? t.cr + '%' : '—';
         document.getElementById('ad-drr').textContent = t.drr ? t.drr + '%' : '—';
-        // Подсчёт уникальных артикулов из кампаний
-        var _nmSet = new Set(); (d.campaigns||[]).forEach(function(c){ (c.products||[]).forEach(function(p){ if(p.nm_id) _nmSet.add(p.nm_id); }); });
-        document.getElementById('ad-arts-count').textContent = _nmSet.size || '—';
+        document.getElementById('ad-atbs').textContent = fmt(t.atbs);
         // Balance
         if (d.balance) {
             var balNum = d.balance.net || d.balance.balance || d.balance.balanceXdiscount || 0;
@@ -1349,10 +1348,16 @@ async function loadAds() {
         // Daily table
         const daily = d.daily || [];
         const db = document.getElementById('ads-daily-body');
+        const dt = document.getElementById('ads-daily-total');
         if (!daily.length) {
-            db.innerHTML = '<tr><td colspan="5" class="empty" style="padding:4px">Нет данных</td></tr>';
+            db.innerHTML = '<tr><td colspan="10" class="empty" style="padding:4px">Нет данных</td></tr>';
+            if (dt) dt.innerHTML = '';
+            document.getElementById('ads-daily-count').textContent = '0 дней';
         } else {
             db.innerHTML = daily.map(r => '<tr><td style="padding:2px 6px">'+r.date+'</td><td style="padding:2px 6px;text-align:right">'+r.spent.toLocaleString('ru-RU',{maximumFractionDigits:0})+'₽</td><td style="padding:2px 6px;text-align:right">'+r.views.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.clicks.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.ctr+'%</td><td style="padding:2px 6px;text-align:right">'+r.cpc.toFixed(2)+'₽</td><td style="padding:2px 6px;text-align:right">'+r.orders+'</td><td style="padding:2px 6px;text-align:right">'+r.cr+'%</td><td style="padding:2px 6px;text-align:right">'+(r.atbs||0)+'</td><td style="padding:2px 6px;text-align:right">'+(r.drr > 100 ? '<span style="color:#b2bec3">н/д</span>' : r.drr ? '<span style="color:'+(r.drr>50?'#e74c3c':r.drr>25?'#e17055':'#00b894')+';font-weight:600">'+r.drr+'%</span>' : '\u2014')+'</td></tr>').join('');
+            if (dt) {
+                dt.innerHTML = '<tr style="border-top:1px solid #eee;background:#fafafa;font-weight:700"><td style="padding:3px 6px;text-align:left">Итого</td><td style="padding:3px 6px;text-align:right">'+Number(t.spent||0).toLocaleString('ru-RU',{maximumFractionDigits:0})+'₽</td><td style="padding:3px 6px;text-align:right">'+Number(t.views||0).toLocaleString('ru-RU')+'</td><td style="padding:3px 6px;text-align:right">'+Number(t.clicks||0).toLocaleString('ru-RU')+'</td><td style="padding:3px 6px;text-align:right">'+(t.ctr ? t.ctr+'%' : '—')+'</td><td style="padding:3px 6px;text-align:right">'+(t.cpc ? Number(t.cpc).toFixed(2)+'₽' : '—')+'</td><td style="padding:3px 6px;text-align:right">'+Number(t.orders||0).toLocaleString('ru-RU')+'</td><td style="padding:3px 6px;text-align:right">'+(t.cr ? t.cr+'%' : '—')+'</td><td style="padding:3px 6px;text-align:right">'+Number(t.atbs||0).toLocaleString('ru-RU')+'</td><td style="padding:3px 6px;text-align:right">'+(t.drr ? t.drr+'%' : '—')+'</td></tr>';
+            }
             document.getElementById('ads-daily-count').textContent = daily.length + ' дней';
         }
         // --- Рендер таблицы кампаний (Tabulator) ---
@@ -1367,55 +1372,12 @@ async function loadAds() {
     } catch(e) {
         console.error('loadAds error:', e);
         const body = document.getElementById('ads-daily-body');
-        if (body) body.innerHTML = '<tr><td colspan="5" class="empty" style="padding:4px">Ошибка: '+e.message+'</td></tr>';
+        if (body) body.innerHTML = '<tr><td colspan="10" class="empty" style="padding:4px">Ошибка: '+e.message+'</td></tr>';
     }
 }
 
 
 
-
-function toggleDailyTable() {
-    var w = document.getElementById('ads-daily-wrapper');
-    var t = document.getElementById('ads-daily-toggle');
-    if (w.style.display === 'none') { w.style.display = 'block'; t.textContent = '▲'; }
-    else { w.style.display = 'none'; t.textContent = '▼'; }
-}
-
-// ===== ADS PERIOD & CALENDAR =====
-function adsPeriodPreset() {
-    if(typeof _adsCurrentView !== "undefined" && _adsCurrentView === "art") { loadAdsArts(); return; }
-    const sel = document.getElementById('ads-period');
-    if (!sel) { loadAds(); return; }
-    const val = sel.value;
-    const df = document.getElementById('ads-date-from');
-    const dt = document.getElementById('ads-date-to');
-    if (val === 'custom') {
-        // Дефолт: последние 30 дней если пусто
-        if (df && dt && (!df.value || !dt.value)) {
-            const today = new Date();
-            const from = new Date(today);
-            from.setDate(from.getDate() - 30);
-            df.value = from.toISOString().split('T')[0];
-            dt.value = today.toISOString().split('T')[0];
-        }
-        return; // ждём ручной ввод + кнопку Обновить
-    }
-    // Пресет — обновляем сразу
-    loadAds();
-}
-
-function adsCustomDateChange() {
-    const fromEl = document.getElementById('ads-date-from');
-    const toEl = document.getElementById('ads-date-to');
-    const df = fromEl ? fromEl.value : '';
-    const dt = toEl ? toEl.value : '';
-    if (df && dt) {
-        const periodEl = document.getElementById('ads-period');
-        if (periodEl) periodEl.value = 'custom';
-        if(typeof _adsCurrentView !== "undefined" && _adsCurrentView === "art") { loadAdsArts(); return; }
-        loadAds();
-    }
-}
 
 function getAdsDateRange() {
     if (typeof nlGetDateRangeParams === 'function') return nlGetDateRangeParams();
@@ -1428,11 +1390,7 @@ function getAdsDateRange() {
     if (!isNaN(days)) {
         return { days: days };
     }
-    const fromEl = document.getElementById('ads-date-from');
-    const toEl = document.getElementById('ads-date-to');
-    const df = fromEl ? fromEl.value : '';
-    const dt = toEl ? toEl.value : '';
-    return { date_from: df, date_to: dt };
+    return { days: 9 };
 }
 
 function filterMarketer() {
