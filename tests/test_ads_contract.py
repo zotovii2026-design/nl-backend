@@ -87,6 +87,8 @@ def test_ads_uses_url_org_and_handles_unauthorized_without_breaking_tabs():
     assert "function getCurrentOrgId()" in template
     assert "const urlOrg = new URL(location.href).searchParams.get('org');" in template
     assert "urlOrg || selectedOrg || ORG_ID || localStorage.getItem('nl_org_id')" in template
+    assert "setCurrentOrgId(new URL(location.href).searchParams.get('org') || data.org_id);" in template
+    assert "if (urlOrg && orgs.some(function(o) { return o.id === urlOrg; }))" in template
     assert "showAdsLoadError('Нет доступа к выбранному магазину" in template
     assert "var orgId = (typeof getOrgId === 'function') ? getOrgId()" in arts
     assert "encodeURIComponent(orgId)" in arts

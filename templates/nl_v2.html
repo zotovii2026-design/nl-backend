@@ -430,9 +430,9 @@ async function doLogin() {
         });
         if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Ошибка'); }
         const data = await res.json();
-        TOKEN = data.access_token; ORG_ID = data.org_id;
+        TOKEN = data.access_token;
         localStorage.setItem('nl_token', TOKEN);
-        localStorage.setItem('nl_org_id', ORG_ID);
+        setCurrentOrgId(new URL(location.href).searchParams.get('org') || data.org_id);
         document.getElementById('user-email').textContent = email;
         showApp();
         loadOrgs();
@@ -453,9 +453,9 @@ async function doRegister() {
         });
         if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Ошибка'); }
         const data = await res.json();
-        TOKEN = data.access_token; ORG_ID = data.org_id;
+        TOKEN = data.access_token;
         localStorage.setItem('nl_token', TOKEN);
-        localStorage.setItem('nl_org_id', ORG_ID);
+        setCurrentOrgId(data.org_id);
         document.getElementById('user-email').textContent = email;
         showApp();
         loadOrgs();
@@ -3513,6 +3513,11 @@ async function loadOrgs() {
     const res = await fetch('/api/v1/nl/organizations');
     if (!res.ok) return;
     const orgs = await res.json();
+    const urlOrg = new URL(location.href).searchParams.get('org');
+    if (urlOrg && orgs.some(function(o) { return o.id === urlOrg; })) {
+        ORG_ID = urlOrg;
+        localStorage.setItem('nl_org_id', ORG_ID);
+    }
     const sel = document.getElementById('org-select');
     sel.innerHTML = '';
     orgs.forEach(o => {
