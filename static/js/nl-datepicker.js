@@ -411,7 +411,8 @@ function nlDatepickerVisibility(sectionName) {
 document.addEventListener('click', function(e) {
     var pop = document.getElementById('nl-dp-popover');
     var container = document.getElementById('nl-datepicker-container');
-    if (pop && pop.style.display !== 'none' && container && !container.contains(e.target)) {
-        nlCloseCalendar();
-    }
+    if (!pop || pop.style.display === 'none' || !container) return;
+    var path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+    if (container.contains(e.target) || path.indexOf(container) !== -1) return;
+    nlCloseCalendar();
 });
