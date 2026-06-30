@@ -61,3 +61,19 @@ def test_ads_campaign_filters_recalculate_from_matching_products():
     assert "function buildFilteredCampaign" in source
     assert "productMatchesAdsFilters" in source
     assert "spent_share" in source
+
+
+def test_ads_product_filters_are_server_side_for_all_ads_views():
+    backend = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
+    template = Path("templates/nl_v2.html").read_text(encoding="utf-8")
+    arts = Path("static/js/ads-arts-grid.js").read_text(encoding="utf-8")
+    grid = Path("static/js/ads-grid.js").read_text(encoding="utf-8")
+
+    assert "def _ads_product_filter_sql" in backend
+    assert "product_status: Optional[str] = None" in backend
+    assert "product_class: Optional[str] = None" in backend
+    assert "COALESCE(rb.product_status, '') = :product_status" in backend
+    assert "COALESCE(rb.product_class, '') = :product_class" in backend
+    assert "getAdsProductFilterQuery" in grid
+    assert "url += getAdsProductFilterQuery()" in template
+    assert "url += getAdsProductFilterQuery()" in arts

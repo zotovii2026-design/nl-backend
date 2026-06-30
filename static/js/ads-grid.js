@@ -8,7 +8,7 @@ let _adsAllData = [];  // Полные данные до фильтрации
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ads-grid-v8';
+    const VER = 'ads-grid-v9';
     if (localStorage.getItem('ads-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ads-grid-state-columns');
         localStorage.removeItem('tabulator-ads-grid-state-sort');
@@ -18,6 +18,20 @@ let _adsAllData = [];  // Полные данные до фильтрации
 
 function getOrgId() {
     return typeof ORG_ID !== 'undefined' ? ORG_ID : localStorage.getItem('nl_org_id');
+}
+
+function getAdsProductFilterQuery() {
+    var params = new URLSearchParams();
+    var productStatus = document.getElementById('ads-flt-status')?.value || '';
+    var productClass = document.getElementById('ads-flt-class')?.value || '';
+    var brand = document.getElementById('ads-flt-brand')?.value || '';
+    var search = (document.getElementById('ads-flt-search')?.value || '').trim();
+    if (productStatus) params.set('product_status', productStatus);
+    if (productClass) params.set('product_class', productClass);
+    if (brand) params.set('brand', brand);
+    if (search) params.set('search', search);
+    var qs = params.toString();
+    return qs ? '&' + qs : '';
 }
 
 // Маппинги

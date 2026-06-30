@@ -71,6 +71,62 @@ def _parse_statuses(statuses: Optional[str]):
     ]
 
 
+def _ads_product_filter_sql(
+    product_status: Optional[str],
+    product_class: Optional[str],
+    brand: Optional[str],
+    search: Optional[str],
+    params: dict,
+):
+    """SQL join/where for product-level ads filters over the primary ad_stats_nm rows."""
+    filters = []
+    if product_status:
+        params["product_status"] = product_status
+        filters.append("COALESCE(rb.product_status, '') = :product_status")
+    if product_class:
+        params["product_class"] = product_class
+        filters.append("COALESCE(rb.product_class, '') = :product_class")
+    if brand:
+        params["brand"] = brand
+        filters.append("COALESCE(NULLIF(rb.brand, ''), pe.brand, '') = :brand")
+    if search:
+        params["search_like"] = f"%{search.strip()}%"
+        filters.append("""(
+            sn.nm_id::text ILIKE :search_like
+            OR COALESCE(rb.vendor_code, pe.vendor_code, '') ILIKE :search_like
+            OR COALESCE(pe.product_name, '') ILIKE :search_like
+        )""")
+
+    if not filters:
+        return "", ""
+
+    join_sql = """
+        LEFT JOIN (
+            SELECT DISTINCT ON (nm_id)
+                   nm_id,
+                   product_status,
+                   product_class,
+                   brand,
+                   vendor_code
+            FROM reference_book
+            WHERE organization_id = :org
+              AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+            ORDER BY nm_id, valid_from DESC, created_at DESC NULLS LAST
+        ) rb ON rb.nm_id = sn.nm_id
+        LEFT JOIN (
+            SELECT DISTINCT ON (nm_id)
+                   nm_id,
+                   vendor_code,
+                   product_name,
+                   brand
+            FROM product_entities
+            WHERE organization_id = :org
+            ORDER BY nm_id, created_at DESC
+        ) pe ON pe.nm_id = sn.nm_id
+    """
+    return join_sql, " AND " + " AND ".join(filters)
+
+
 def _ads_refresh_key(org_id: str) -> str:
     return f"nl:ads-refresh:{org_id}"
 
@@ -164,6 +220,10 @@ async def get_ad_stats(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     statuses: Optional[str] = None,
+    product_status: Optional[str] = None,
+    product_class: Optional[str] = None,
+    brand: Optional[str] = None,
+    search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Рекламная статистика — из ad_stats_nm (те же данные что по артикулам)."""
@@ -172,6 +232,9 @@ async def get_ad_stats(
     status_list = _parse_statuses(statuses)
     status_cond = "AND (c.wb_campaign_id IS NULL OR c.status = ANY(:statuses))"
     params["statuses"] = status_list
+    product_join, product_cond = _ads_product_filter_sql(
+        product_status, product_class, brand, search, params
+    )
 
     # ═══ Статистика по дням (из ad_stats_nm) ═══
     daily_rows = await db.execute(text("""
@@ -184,10 +247,12 @@ async def get_ad_stats(
         FROM ad_stats_nm sn
         LEFT JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
             AND c.organization_id = sn.organization_id
+        """ + product_join + """
         WHERE sn.organization_id = :org
             AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
             AND sn.spent > 0
             """ + status_cond + """
+            """ + product_cond + """
         GROUP BY sn.stat_date
         ORDER BY sn.stat_date DESC
     """), params)
@@ -198,10 +263,12 @@ async def get_ad_stats(
         FROM ad_stats_nm sn
         LEFT JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
             AND c.organization_id = sn.organization_id
+        """ + product_join + """
         WHERE sn.organization_id = :org
             AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
             AND sn.spent > 0
             """ + status_cond + """
+            """ + product_cond + """
         GROUP BY sn.stat_date
     """), params)
     sp_by_date = {}
@@ -250,10 +317,12 @@ async def get_ad_stats(
         FROM ad_stats_nm sn
         LEFT JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
             AND c.organization_id = sn.organization_id
+        """ + product_join + """
         WHERE sn.organization_id = :org
             AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
             AND sn.spent > 0
             """ + status_cond + """
+            """ + product_cond + """
         GROUP BY sn.wb_campaign_id, c.wb_campaign_id, c.name, c.status, c.type
         ORDER BY SUM(sn.spent) DESC, c.status, COALESCE(NULLIF(c.name, ''), 'Кампания ' || sn.wb_campaign_id::text)
     """), params)
@@ -325,11 +394,13 @@ async def get_ad_stats(
             FROM ad_stats_nm sn
             LEFT JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
                 AND c.organization_id = sn.organization_id
+            """ + product_join + """
             WHERE sn.organization_id = :org
                 AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
                 AND sn.wb_campaign_id = ANY(:campaign_ids)
                 AND sn.spent > 0
                 """ + status_cond + """
+                """ + product_cond + """
             GROUP BY sn.wb_campaign_id, sn.nm_id
             ORDER BY SUM(sn.spent) DESC
         """), {**params, "campaign_ids": all_campaign_ids})
@@ -427,6 +498,10 @@ async def get_ad_stats_by_art(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     statuses: Optional[str] = None,
+    product_status: Optional[str] = None,
+    product_class: Optional[str] = None,
+    brand: Optional[str] = None,
+    search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Рекламная статистика по артикулам — данные из ad_stats_nm (разбивка WB по nm_id)."""
@@ -436,6 +511,9 @@ async def get_ad_stats_by_art(
     status_list = _parse_statuses(statuses)
     status_cond = "AND (c.wb_campaign_id IS NULL OR c.status = ANY(:statuses))"
     params["statuses"] = status_list
+    product_join, product_cond = _ads_product_filter_sql(
+        product_status, product_class, brand, search, params
+    )
 
     # ═══ Основной запрос: агрегация по nm_id из ad_stats_nm ═══
     rows = await db.execute(text("""
@@ -449,10 +527,12 @@ async def get_ad_stats_by_art(
         FROM ad_stats_nm sn
         LEFT JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
             AND c.organization_id = sn.organization_id
+        """ + product_join + """
         WHERE sn.organization_id = :org
             AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
             AND sn.spent > 0
             """ + status_cond + """
+            """ + product_cond + """
         GROUP BY sn.nm_id
         HAVING SUM(sn.spent) > 0
         ORDER BY SUM(sn.spent) DESC
@@ -490,11 +570,13 @@ async def get_ad_stats_by_art(
             FROM ad_stats_nm sn
             LEFT JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
                 AND c.organization_id = sn.organization_id
+            """ + product_join + """
             WHERE sn.organization_id = :org
                 AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
                 AND sn.nm_id = ANY(:nm_ids)
                 AND sn.spent > 0
                 """ + status_cond + """
+                """ + product_cond + """
             GROUP BY sn.nm_id, sn.wb_campaign_id, c.name, c.status, c.type
             HAVING SUM(sn.spent) > 0
             ORDER BY SUM(sn.spent) DESC

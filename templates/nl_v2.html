@@ -171,8 +171,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260630-adsmodel4"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260630-adsmodel4"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260630-adsmodel5"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260630-adsmodel5"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
 </head>
 <body>
@@ -1321,6 +1321,7 @@ async function loadAds() {
     } else {
         url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=9&statuses=' + statuses;
     }
+    if (typeof getAdsProductFilterQuery === 'function') url += getAdsProductFilterQuery();
     try {
         const r = await fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}});
         const d = await r.json();
