@@ -299,7 +299,7 @@ async def get_ad_stats(
             WHERE organization_id = :org
               AND nm_id = ANY(:nm_ids)
               AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
-            ORDER BY nm_id, valid_from DESC, updated_at DESC NULLS LAST
+            ORDER BY nm_id, valid_from DESC, created_at DESC NULLS LAST
         """), {"org": org_id, "nm_ids": all_nm_ids})
         for r in ref_rows:
             nm = int(r[0])
@@ -583,7 +583,7 @@ async def get_ad_stats_by_art(
             WHERE organization_id = :org
               AND nm_id = ANY(:nm_ids)
               AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
-            ORDER BY nm_id, valid_from DESC, updated_at DESC NULLS LAST
+            ORDER BY nm_id, valid_from DESC, created_at DESC NULLS LAST
         """), {"org": org_id, "nm_ids": all_nm_ids})
         for r in ref_rows:
             nm = int(r[0])
