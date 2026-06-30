@@ -288,6 +288,28 @@ async def get_ad_stats(
                         "brand": cd.get("brand", ""),
                         "photo": photo_url,
                     }
+        ref_rows = await db.execute(text("""
+            SELECT DISTINCT ON (nm_id)
+                   nm_id,
+                   product_status,
+                   product_class,
+                   brand,
+                   vendor_code
+            FROM reference_book
+            WHERE organization_id = :org
+              AND nm_id = ANY(:nm_ids)
+              AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+            ORDER BY nm_id, valid_from DESC, updated_at DESC NULLS LAST
+        """), {"org": org_id, "nm_ids": all_nm_ids})
+        for r in ref_rows:
+            nm = int(r[0])
+            product_by_nm.setdefault(nm, {"nm_id": nm})
+            product_by_nm[nm]["product_status"] = r[1] or ""
+            product_by_nm[nm]["product_class"] = r[2] or ""
+            if r[3]:
+                product_by_nm[nm]["brand"] = r[3]
+            if r[4] and not product_by_nm[nm].get("vendor_code"):
+                product_by_nm[nm]["vendor_code"] = r[4]
 
     products_by_campaign = {}
     if all_campaign_ids:
@@ -550,6 +572,28 @@ async def get_ad_stats_by_art(
                         "vendor_code": c.get("vendorCode", ""),
                         "photo": photo_url,
                     }
+        ref_rows = await db.execute(text("""
+            SELECT DISTINCT ON (nm_id)
+                   nm_id,
+                   product_status,
+                   product_class,
+                   brand,
+                   vendor_code
+            FROM reference_book
+            WHERE organization_id = :org
+              AND nm_id = ANY(:nm_ids)
+              AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+            ORDER BY nm_id, valid_from DESC, updated_at DESC NULLS LAST
+        """), {"org": org_id, "nm_ids": all_nm_ids})
+        for r in ref_rows:
+            nm = int(r[0])
+            nm_to_info.setdefault(nm, {})
+            nm_to_info[nm]["product_status"] = r[1] or ""
+            nm_to_info[nm]["product_class"] = r[2] or ""
+            if r[3]:
+                nm_to_info[nm]["brand"] = r[3]
+            if r[4] and not nm_to_info[nm].get("vendor_code"):
+                nm_to_info[nm]["vendor_code"] = r[4]
 
     for item in items:
         info = nm_to_info.get(item["nm_id"], {})
@@ -557,6 +601,8 @@ async def get_ad_stats_by_art(
         item["brand"] = info.get("brand", "")
         item["vendor_code"] = info.get("vendor_code", "")
         item["photo"] = info.get("photo", "")
+        item["product_status"] = info.get("product_status", "")
+        item["product_class"] = info.get("product_class", "")
 
     totals = {
         "spent": round(sum(i["spent"] for i in items), 2),

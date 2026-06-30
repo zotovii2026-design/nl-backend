@@ -47,3 +47,17 @@ def test_ads_template_uses_unified_period_and_daily_table():
         assert legacy_id not in source
     assert "ads-daily-total" in source
     assert "ad-atbs" in source
+
+
+def test_ads_items_include_reference_product_filters():
+    source = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
+    assert "FROM reference_book" in source
+    assert "product_status" in source
+    assert "product_class" in source
+
+
+def test_ads_campaign_filters_recalculate_from_matching_products():
+    source = Path("static/js/ads-grid.js").read_text(encoding="utf-8")
+    assert "function buildFilteredCampaign" in source
+    assert "productMatchesAdsFilters" in source
+    assert "spent_share" in source

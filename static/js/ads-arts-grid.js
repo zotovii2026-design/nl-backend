@@ -135,6 +135,8 @@ function getAdsArtsColumns() {
                         return '<div style="white-space:normal;line-height:1.3;font-size:.82em">' + v + '</div>';
                     }
                 },
+                { title: 'Класс', field: 'product_class', width: 70, headerSort: true, hozAlign: 'center' },
+                { title: 'Статус', field: 'product_status', width: 110, headerSort: true, tooltip: true },
                 {
                     title: 'РК', field: 'campaigns_count', width: 55, headerSort: true, hozAlign: 'center',
                     formatter: function(cell) {
@@ -164,10 +166,10 @@ function getAdsArtsColumns() {
                     title: 'ДРР %', field: 'drr', width: 85, headerSort: true, hozAlign: 'right',
                     tooltip: function(e, cell) {
                         var d = cell.getRow().getData();
-                        var tip = 'ДРР (от оборота без учета агрегир. конверсий)';
+                        var tip = 'ДРР по рекламным заказам WB';
                         tip += '\nРасход: ' + (d.spent||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽';
-                        tip += '\nОбщие заказы: ' + (d.total_orders||0);
-                        tip += '\nОборот: ' + (d.total_revenue||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽';
+                        tip += '\nРекламные заказы: ' + (d.total_orders||0);
+                        tip += '\nСумма заказов: ' + (d.total_revenue||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽';
                         return tip;
                     },
                     formatter: function(cell) {
@@ -295,22 +297,23 @@ function resetAdsColumnFilters() {
 function populateAdsFilterOptions() {
     if (!_adsAllArtsData.length) return;
     var brands = [];
+    var statuses = [];
+    var classes = [];
     var seen = {};
+    var seenStatus = {};
+    var seenClass = {};
     _adsAllArtsData.forEach(function(p) {
         if (p.brand && !seen[p.brand]) { seen[p.brand] = true; brands.push(p.brand); }
+        if (p.product_status && !seenStatus[p.product_status]) { seenStatus[p.product_status] = true; statuses.push(p.product_status); }
+        if (p.product_class && !seenClass[p.product_class]) { seenClass[p.product_class] = true; classes.push(p.product_class); }
     });
     brands.sort();
-    var brandSel = document.getElementById('ads-flt-brand');
-    if (brandSel) {
-        var current = brandSel.value;
-        brandSel.innerHTML = '<option value="">Бренд: все</option>';
-        brands.forEach(function(b) {
-            var opt = document.createElement('option');
-            opt.value = b;
-            opt.textContent = b;
-            brandSel.appendChild(opt);
-        });
-        brandSel.value = current;
+    statuses.sort();
+    classes.sort();
+    if (typeof fillAdsSelect === 'function') {
+        fillAdsSelect('ads-flt-brand', 'Бренд: все', brands);
+        fillAdsSelect('ads-flt-status', 'Статус: все', statuses);
+        fillAdsSelect('ads-flt-class', 'Класс: все', classes);
     }
 }
 

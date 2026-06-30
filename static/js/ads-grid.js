@@ -257,25 +257,73 @@ function updateAdsTabulator(campaigns) {
 function populateAdsFilterOptionsForRK() {
     if (!_adsAllData.length) return;
     var brands = [];
+    var statuses = [];
+    var classes = [];
     var seen = {};
+    var seenStatus = {};
+    var seenClass = {};
     _adsAllData.forEach(function(c) {
         (c.products || []).forEach(function(p) {
             if (p.brand && !seen[p.brand]) { seen[p.brand] = true; brands.push(p.brand); }
+            if (p.product_status && !seenStatus[p.product_status]) { seenStatus[p.product_status] = true; statuses.push(p.product_status); }
+            if (p.product_class && !seenClass[p.product_class]) { seenClass[p.product_class] = true; classes.push(p.product_class); }
         });
     });
     brands.sort();
-    var brandSel = document.getElementById('ads-flt-brand');
-    if (brandSel) {
-        var current = brandSel.value;
-        brandSel.innerHTML = '<option value="">Бренд: все</option>';
-        brands.forEach(function(b) {
-            var opt = document.createElement('option');
-            opt.value = b;
-            opt.textContent = b;
-            brandSel.appendChild(opt);
-        });
-        brandSel.value = current;
-    }
+    statuses.sort();
+    classes.sort();
+    fillAdsSelect('ads-flt-brand', 'Бренд: все', brands);
+    fillAdsSelect('ads-flt-status', 'Статус: все', statuses);
+    fillAdsSelect('ads-flt-class', 'Класс: все', classes);
+}
+
+function fillAdsSelect(id, emptyLabel, values) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    var current = sel.value;
+    sel.innerHTML = '<option value="">' + emptyLabel + '</option>';
+    values.forEach(function(v) {
+        if (v == null || v === '') return;
+        var opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        sel.appendChild(opt);
+    });
+    sel.value = values.indexOf(current) >= 0 ? current : '';
+}
+
+function buildFilteredCampaign(campaign, products) {
+    var spent = products.reduce(function(s, p) { return s + (parseFloat(p.spent_share) || 0); }, 0);
+    var views = products.reduce(function(s, p) { return s + (parseInt(p.views || 0, 10) || 0); }, 0);
+    var clicks = products.reduce(function(s, p) { return s + (parseInt(p.clicks || 0, 10) || 0); }, 0);
+    var orders = products.reduce(function(s, p) { return s + (parseInt(p.orders || 0, 10) || 0); }, 0);
+    var atbs = products.reduce(function(s, p) { return s + (parseInt(p.atbs || 0, 10) || 0); }, 0);
+    var sumPrice = products.reduce(function(s, p) { return s + (parseFloat(p.sum_price) || 0); }, 0);
+    return Object.assign({}, campaign, {
+        spent: Math.round(spent * 100) / 100,
+        views: views,
+        clicks: clicks,
+        orders: orders,
+        atbs: atbs,
+        sum_price: Math.round(sumPrice * 100) / 100,
+        ctr: views ? Math.round((clicks / views * 100) * 100) / 100 : 0,
+        cpc: clicks ? Math.round((spent / clicks) * 100) / 100 : 0,
+        cr: clicks ? Math.round((orders / clicks * 100) * 100) / 100 : 0,
+        drr: sumPrice ? Math.round((spent / sumPrice * 100) * 10) / 10 : 0,
+        nm_count: products.length,
+        products: products,
+    });
+}
+
+function productMatchesAdsFilters(product, search, brand, status, productClass) {
+    var matchSearch = !search ||
+        (product.name || '').toLowerCase().indexOf(search) >= 0 ||
+        String(product.nm_id || '').indexOf(search) >= 0 ||
+        (product.vendor_code || '').toLowerCase().indexOf(search) >= 0;
+    var matchBrand = !brand || (product.brand || '') === brand;
+    var matchStatus = !status || (product.product_status || '') === status;
+    var matchClass = !productClass || (product.product_class || '') === productClass;
+    return matchSearch && matchBrand && matchStatus && matchClass;
 }
 
 /**
@@ -291,19 +339,16 @@ function applyAdsFilters() {
     // Дополнительные фильтры по колонкам (для кампаний — фильтруем по товарам внутри РК)
     var search = (document.getElementById('ads-flt-search')?.value || '').toLowerCase();
     var fltBrand = document.getElementById('ads-flt-brand')?.value || '';
-    if (search || fltBrand) {
-        filtered = filtered.filter(function(c) {
+    var fltStatus = document.getElementById('ads-flt-status')?.value || '';
+    var fltClass = document.getElementById('ads-flt-class')?.value || '';
+    if (search || fltBrand || fltStatus || fltClass) {
+        filtered = filtered.map(function(c) {
             var prods = c.products || [];
-            // Если хоть один товар подходит — оставляем кампанию
-            return prods.some(function(p) {
-                var matchSearch = !search || 
-                    (p.name || '').toLowerCase().indexOf(search) >= 0 ||
-                    String(p.nm_id || '').indexOf(search) >= 0 ||
-                    (p.vendor_code || '').toLowerCase().indexOf(search) >= 0;
-                var matchBrand = !fltBrand || (p.brand || '') === fltBrand;
-                return matchSearch && matchBrand;
+            var matchedProducts = prods.filter(function(p) {
+                return productMatchesAdsFilters(p, search, fltBrand, fltStatus, fltClass);
             });
-        });
+            return matchedProducts.length ? buildFilteredCampaign(c, matchedProducts) : null;
+        }).filter(Boolean);
     }
 
     adsTabulator.setData(filtered);
@@ -351,6 +396,9 @@ function showAdsCampaignDetail(campaign) {
             html += '<div>';
             html += '<div style="font-weight:600;font-size:.82em">' + (p.vendor_code || p.nm_id) + '</div>';
             html += '<div style="color:#999;font-size:.78em">' + (p.name || 'Арт. ' + p.nm_id) + '</div>';
+            if (p.product_class || p.product_status) {
+                html += '<div style="color:#636e72;font-size:.72em">' + (p.product_class || '') + (p.product_class && p.product_status ? ' · ' : '') + (p.product_status || '') + '</div>';
+            }
             html += '<div style="color:#e17055;font-size:.78em;font-weight:600">' + (p.spent_share||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽</div>';
             html += '</div></div>';
         });
