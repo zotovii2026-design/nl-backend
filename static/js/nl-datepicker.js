@@ -12,11 +12,14 @@
 (function(){
     var style = document.createElement('style');
     style.textContent = `
-.nl-dp-buttons{display:flex;align-items:center;gap:0;border:1px solid #e0e0e0;border-radius:6px;overflow:hidden;background:#fff}
+.nl-dp-wrap{display:flex;align-items:center;gap:8px}
+.nl-dp-label{font-size:.78em;color:#666;white-space:nowrap}
+.nl-dp-buttons{display:flex;align-items:center;gap:0;border:1px solid #d8d8e2;border-radius:6px;overflow:hidden;background:#fff}
 .nl-dp-btn{padding:5px 12px;font-size:.82em;border:none;border-right:1px solid #e0e0e0;background:#fff;color:#333;cursor:pointer;transition:background .15s,color .15s;white-space:nowrap}
 .nl-dp-btn:last-child{border-right:none}
 .nl-dp-btn:hover{background:#f0f0f5}
 .nl-dp-btn.nl-dp-active{background:#6c5ce7;color:#fff;font-weight:600}
+.nl-dp-current{font-size:.78em;color:#444;white-space:nowrap;min-width:98px}
 .nl-dp-popover{position:absolute;top:100%;right:0;margin-top:6px;background:#fff;border:1px solid #e0e0e0;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.12);z-index:1000;display:flex;padding:14px;gap:14px}
 .nl-dp-cal{width:280px}
 .nl-dp-cal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-size:.9em;font-weight:600;color:#1a1a2e}
@@ -76,12 +79,16 @@ function initNlDatepicker() {
     container.dataset.ready = '1';
 
     container.innerHTML = ''
+        + '<div class="nl-dp-wrap">'
+        + '<span class="nl-dp-label">Период:</span>'
         + '<div class="nl-dp-buttons">'
         + '  <button class="nl-dp-btn" data-preset="today" onclick="nlSetPreset(\'today\')">Сегодня</button>'
         + '  <button class="nl-dp-btn" data-preset="yesterday" onclick="nlSetPreset(\'yesterday\')">Вчера</button>'
         + '  <button class="nl-dp-btn" data-preset="last7" onclick="nlSetPreset(\'last7\')">7 дней</button>'
         + '  <button class="nl-dp-btn" data-preset="month" onclick="nlSetPreset(\'month\')">Месяц</button>'
-        + '  <button class="nl-dp-btn" data-preset="custom" onclick="nlToggleCalendar()">Выбор даты</button>'
+        + '  <button class="nl-dp-btn" data-preset="custom" onclick="nlToggleCalendar()">Выбор периода</button>'
+        + '</div>'
+        + '<span class="nl-dp-current" id="nl-dp-current"></span>'
         + '</div>'
         + '<div class="nl-dp-popover" id="nl-dp-popover" style="display:none">'
         + '  <div class="nl-dp-cal">'
@@ -104,6 +111,7 @@ function initNlDatepicker() {
         + '</div>';
 
     nlHighlightPreset();
+    nlUpdateCurrentLabel();
 }
 
 function nlIsoDate(d) {
@@ -145,6 +153,7 @@ function nlSetPreset(preset) {
     nlSaveDate();
     nlCloseCalendar();
     nlHighlightPreset();
+    nlUpdateCurrentLabel();
     nlNotifySection();
 }
 
@@ -233,10 +242,10 @@ function nlRenderCalendar() {
 function nlCalClick(iso) {
     var clicked = new Date(iso + 'T12:00:00');
 
-    if (!_nlCalSelecting || (_nlCalStart && _nlCalEnd)) {
+    if (!_nlCalSelecting) {
         // Первый клик — начало диапазона
         _nlCalStart = clicked;
-        _nlCalEnd = clicked;
+        _nlCalEnd = null;
         _nlCalSelecting = true;
     } else {
         // Второй клик — конец диапазона
@@ -270,6 +279,9 @@ function nlUpdateRangeLabel() {
 }
 
 function nlApplyCustom() {
+    if (_nlCalStart && !_nlCalEnd) {
+        _nlCalEnd = new Date(_nlCalStart);
+    }
     if (_nlCalStart && _nlCalEnd) {
         NL_DATE.preset = 'custom';
         NL_DATE.dateFrom = nlIsoDate(_nlCalStart);
@@ -277,6 +289,7 @@ function nlApplyCustom() {
         nlSaveDate();
         nlCloseCalendar();
         nlHighlightPreset();
+        nlUpdateCurrentLabel();
         nlNotifySection();
     }
 }
@@ -293,6 +306,22 @@ function nlHighlightPreset() {
             btn.classList.remove('nl-dp-active');
         }
     });
+}
+
+function nlShortDate(iso) {
+    if (!iso || iso.length < 10) return '';
+    return iso.slice(8, 10) + '.' + iso.slice(5, 7);
+}
+
+function nlUpdateCurrentLabel() {
+    var el = document.getElementById('nl-dp-current');
+    if (!el) return;
+    if (!NL_DATE.dateFrom || !NL_DATE.dateTo) {
+        nlSetPresetSilent(NL_DATE.preset || 'yesterday');
+    }
+    var from = nlShortDate(NL_DATE.dateFrom);
+    var to = nlShortDate(NL_DATE.dateTo);
+    el.textContent = from && to ? (from === to ? from : from + '-' + to) : '';
 }
 
 /**
@@ -360,6 +389,7 @@ function nlSetPresetSilent(preset) {
     NL_DATE.dateFrom = nlIsoDate(start);
     NL_DATE.dateTo = nlIsoDate(end);
     nlSaveDate();
+    nlUpdateCurrentLabel();
 }
 
 /**

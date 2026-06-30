@@ -53,17 +53,33 @@ def _parse_date_range(days: str, date_from: Optional[str], date_to: Optional[str
     )
 
 
+def _parse_statuses(statuses: Optional[str]):
+    if not statuses:
+        return []
+    return [
+        s.strip()
+        for s in statuses.split(",")
+        if s.strip() and s.strip() in ("7", "9", "11")
+    ]
+
+
 @router.get("/api/v1/nl/ad-stats")
 async def get_ad_stats(
     org_id: str,
     days: str = "7",
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    statuses: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Рекламная статистика — из ad_stats_nm (те же данные что по артикулам)."""
     d_from, d_to = _parse_date_range(days, date_from, date_to)
     params = {"org": org_id, "d_from": d_from, "d_to": d_to}
+    status_list = _parse_statuses(statuses)
+    status_cond = ""
+    if status_list:
+        status_cond = "AND c.status = ANY(:statuses)"
+        params["statuses"] = status_list
 
     # ═══ Статистика по дням (из ad_stats_nm) ═══
     daily_rows = await db.execute(text("""
@@ -74,9 +90,12 @@ async def get_ad_stats(
                SUM(sn.orders) as orders,
                SUM(sn.atbs) as atbs
         FROM ad_stats_nm sn
+        LEFT JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
+            AND c.organization_id = sn.organization_id
         WHERE sn.organization_id = :org
             AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
             AND sn.spent > 0
+            """ + status_cond + """
         GROUP BY sn.stat_date
         ORDER BY sn.stat_date DESC
     """), params)
@@ -85,9 +104,12 @@ async def get_ad_stats(
     sum_price_by_day = await db.execute(text("""
         SELECT sn.stat_date, COALESCE(SUM(sn.sum_price), 0) as sum_price
         FROM ad_stats_nm sn
+        LEFT JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
+            AND c.organization_id = sn.organization_id
         WHERE sn.organization_id = :org
             AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
             AND sn.spent > 0
+            """ + status_cond + """
         GROUP BY sn.stat_date
     """), params)
     sp_by_date = {}
@@ -118,89 +140,86 @@ async def get_ad_stats(
             "drr": drr_day,
         })
 
-    # ═══ Список кампаний (из ad_stats_nm, агрегировано по РК) ═══
+    # ═══ Список кампаний: берём ad_campaigns как источник списка, статистику подмешиваем слева ═══
     camp_rows = await db.execute(text("""
-        SELECT sn.wb_campaign_id,
-               COALESCE(c.name, 'Кампания ' || sn.wb_campaign_id::text) as name,
+        WITH stat_campaigns AS (
+            SELECT sn.wb_campaign_id,
+                   SUM(sn.views) as views,
+                   SUM(sn.clicks) as clicks,
+                   SUM(sn.spent) as spent,
+                   SUM(sn.orders) as orders,
+                   SUM(sn.atbs) as atbs,
+                   COUNT(DISTINCT sn.nm_id) as nm_count,
+                   ARRAY_REMOVE(ARRAY_AGG(DISTINCT sn.nm_id), NULL) as nm_ids,
+                   COALESCE(SUM(sn.sum_price), 0) as sum_price
+            FROM ad_stats_nm sn
+            WHERE sn.organization_id = :org
+                AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
+                AND sn.spent > 0
+            GROUP BY sn.wb_campaign_id
+        )
+        SELECT COALESCE(c.wb_campaign_id, s.wb_campaign_id) as wb_campaign_id,
+               COALESCE(c.name, 'Кампания ' || s.wb_campaign_id::text) as name,
                c.status,
                c.type,
-               SUM(sn.views) as views,
-               SUM(sn.clicks) as clicks,
-               SUM(sn.spent) as spent,
-               SUM(sn.orders) as orders,
-               SUM(sn.atbs) as atbs,
-               (SELECT COUNT(DISTINCT sn2.nm_id) FROM ad_stats_nm sn2
-                    WHERE sn2.organization_id = :org
-                    AND sn2.wb_campaign_id = sn.wb_campaign_id
-                    AND sn2.spent > 0
-                    AND sn2.stat_date >= :d_from AND sn2.stat_date <= :d_to
-               ) as nm_count
-        FROM ad_stats_nm sn
-        LEFT JOIN ad_campaigns c ON c.wb_campaign_id = sn.wb_campaign_id
-            AND c.organization_id = sn.organization_id
-        WHERE sn.organization_id = :org
-            AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
-            AND sn.spent > 0
-        GROUP BY sn.wb_campaign_id, c.name, c.status, c.type
-        ORDER BY SUM(sn.spent) DESC
+               COALESCE(s.views, 0) as views,
+               COALESCE(s.clicks, 0) as clicks,
+               COALESCE(s.spent, 0) as spent,
+               COALESCE(s.orders, 0) as orders,
+               COALESCE(s.atbs, 0) as atbs,
+               COALESCE(s.nm_count, 0) as nm_count,
+               COALESCE(s.nm_ids, ARRAY[]::integer[]) as nm_ids,
+               COALESCE(s.sum_price, 0) as sum_price
+        FROM ad_campaigns c
+        FULL OUTER JOIN stat_campaigns s ON s.wb_campaign_id = c.wb_campaign_id
+        WHERE COALESCE(c.organization_id, :org) = :org
+            """ + status_cond + """
+        ORDER BY COALESCE(s.spent, 0) DESC, c.status, COALESCE(c.name, 'Кампания ' || s.wb_campaign_id::text)
     """), params)
 
+    all_campaign_rows = list(camp_rows)
+    all_nm_ids = sorted({int(nm) for r in all_campaign_rows for nm in (r[10] or []) if nm})
+    product_by_nm = {}
+    if all_nm_ids:
+        prod_row = await db.execute(text("""
+            SELECT raw_response FROM raw_api_data
+            WHERE api_method = 'products' AND organization_id = :org
+            ORDER BY fetched_at DESC LIMIT 1
+        """), {"org": org_id})
+        pr = prod_row.first()
+        if pr and pr[0]:
+            cards_data = pr[0] if isinstance(pr[0], list) else (pr[0].get("cards", []) if isinstance(pr[0], dict) else [])
+            nm_set = set(all_nm_ids)
+            for cd in cards_data:
+                if not isinstance(cd, dict):
+                    continue
+                nm = cd.get("nmID")
+                if nm and int(nm) in nm_set:
+                    photos = cd.get("photos") or []
+                    photo_url = ""
+                    if photos:
+                        photo_url = photos[0].get("c246x328", "") or photos[0].get("big", "") or photos[0].get("hq", "")
+                    product_by_nm[int(nm)] = {
+                        "nm_id": int(nm),
+                        "vendor_code": cd.get("vendorCode", ""),
+                        "name": cd.get("title", ""),
+                        "brand": cd.get("brand", ""),
+                        "photo": photo_url,
+                    }
+
     campaigns = []
-    for r in camp_rows:
+    for r in all_campaign_rows:
         views = int(r[4] or 0)
         clicks = int(r[5] or 0)
         spent = round(_sf(r[6]), 2)
         orders = int(r[7] or 0)
         atbs = int(r[8] or 0)
         nm_count = int(r[9] or 0)
-
-        # Состав РК — nm_id из ad_stats_nm
-        nm_ids_row = await db.execute(text("""
-            SELECT DISTINCT nm_id FROM ad_stats_nm
-            WHERE organization_id = :org AND wb_campaign_id = :cid
-                AND stat_date >= :d_from AND stat_date <= :d_to AND spent > 0
-            ORDER BY nm_id
-        """), {**params, "cid": r[0]})
-        nm_ids = [int(n[0]) for n in nm_ids_row]
+        nm_ids = [int(n) for n in (r[10] or []) if n]
 
         # Инфо о товарах
-        products = []
-        if nm_ids:
-            prod_row = await db.execute(text("""
-                SELECT raw_response FROM raw_api_data
-                WHERE api_method = 'products' AND organization_id = :org
-                ORDER BY fetched_at DESC LIMIT 1
-            """), {"org": org_id})
-            pr = prod_row.first()
-            if pr and pr[0]:
-                cards_data = pr[0] if isinstance(pr[0], list) else (pr[0].get("cards", []) if isinstance(pr[0], dict) else [])
-                nm_set = set(nm_ids)
-                for cd in cards_data:
-                    if not isinstance(cd, dict):
-                        continue
-                    nm = cd.get("nmID")
-                    if nm and int(nm) in nm_set:
-                        photos = cd.get("photos") or []
-                        photo_url = ""
-                        if photos:
-                            photo_url = photos[0].get("c246x328", "") or photos[0].get("big", "") or photos[0].get("hq", "")
-                        products.append({
-                            "nm_id": int(nm),
-                            "vendor_code": cd.get("vendorCode", ""),
-                            "name": cd.get("title", ""),
-                            "brand": cd.get("brand", ""),
-                            "photo": photo_url,
-                        })
-
-        # Сумма заказов для ДРР из ad_stats_nm (только состав РК)
-        sum_price_row = await db.execute(text("""
-            SELECT COALESCE(SUM(sn.sum_price), 0) as sum_price
-            FROM ad_stats_nm sn
-            WHERE sn.organization_id = :org AND sn.wb_campaign_id = :cid
-                AND sn.stat_date >= :d_from AND sn.stat_date <= :d_to
-                AND sn.spent > 0
-        """), {**params, "cid": r[0]})
-        sum_price_val = round(_sf(sum_price_row.scalar()), 2)
+        products = [product_by_nm[nm] for nm in nm_ids if nm in product_by_nm]
+        sum_price_val = round(_sf(r[11]), 2)
 
         # Общие заказы и выручка по товарам этой РК из tech_status
         total_orders_rk = 0
@@ -222,7 +241,7 @@ async def get_ad_stats(
         drr_rk = round(spent / sum_price_val * 100, 1) if sum_price_val else 0
 
         campaigns.append({
-            "campaign_id": r[0],
+            "campaign_id": int(r[0]) if r[0] else None,
             "name": r[1] or "Без названия",
             "status": str(r[2]) if r[2] else "",
             "type": str(r[3]) if r[3] else "",
@@ -288,9 +307,7 @@ async def get_ad_stats_by_art(
     params = {"org": org_id, "d_from": d_from, "d_to": d_to}
 
     # Parse status filter — только реальные статусы WB: 7, 9, 11
-    status_list = []
-    if statuses:
-        status_list = [s.strip() for s in statuses.split(",") if s.strip() and s.strip() in ("7", "9", "11")]
+    status_list = _parse_statuses(statuses)
 
     status_cond = ""
     if status_list:
