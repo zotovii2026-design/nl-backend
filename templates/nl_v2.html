@@ -171,8 +171,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260630-adsmodel5"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260630-adsmodel5"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260630-adsmodel6"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260630-adsmodel6"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
 </head>
 <body>
@@ -316,6 +316,26 @@ function toggleGroup(tr) {
 
 let TOKEN = localStorage.getItem('nl_token');
 let ORG_ID = new URL(location).searchParams.get('org') || localStorage.getItem('nl_org_id');
+
+function getCurrentOrgId() {
+    const urlOrg = new URL(location.href).searchParams.get('org');
+    const selectedOrg = document.getElementById('org-select')?.value || document.getElementById('filter-store')?.value || '';
+    return urlOrg || selectedOrg || ORG_ID || localStorage.getItem('nl_org_id') || '';
+}
+
+function setCurrentOrgId(orgId) {
+    if (!orgId || orgId === 'null') return;
+    ORG_ID = orgId;
+    localStorage.setItem('nl_org_id', ORG_ID);
+    history.replaceState(null, '', '/nl/v2?org=' + encodeURIComponent(ORG_ID));
+    ['org-select', 'filter-store', 'cp-store', 'ue-store', 'promo-store', 'analytics-store', 'mkt-store', 'ext-ad-store', 'wb-api-status-shop'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el && Array.from(el.options || []).some(function(opt) { return opt.value === ORG_ID; })) {
+            el.value = ORG_ID;
+        }
+    });
+}
+
 const _nativeFetch = window.fetch.bind(window);
 window.fetch = function(input, init) {
     init = init ? Object.assign({}, init) : {};
@@ -361,13 +381,9 @@ async function showApp() {
     try {
         if (ORG_ID) {
             await loadDates();
-            loadStats();
-            loadOpiu();
-            loadAnalytics();
-            loadRnp();
-            
-            loadWarehouses();
-            loadOpEx();
+            var activeTab = document.querySelector('.page-section.active');
+            var activeName = activeTab ? activeTab.id.replace('page-', '') : _currentSection;
+            if (activeName) await _sectionEnter(activeName);
         }
     } catch(e) { console.error('init error:', e); }
 }
@@ -1308,22 +1324,31 @@ async function navTo(name, el) {
 }
 
 async function loadAds() {
-    if (!ORG_ID || ORG_ID === 'null') { console.warn('loadAds: no ORG_ID'); return; }
+    const orgId = getCurrentOrgId();
+    if (!orgId || orgId === 'null') { console.warn('loadAds: no orgId'); return; }
     const range = getAdsDateRange();
     const statuses = (typeof _adsStatusFilters !== 'undefined' && _adsStatusFilters.length) ? _adsStatusFilters.join(',') : '9,11';
     let url;
     if (range.days) {
-        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=' + range.days + '&statuses=' + statuses;
+        url = '/api/v1/nl/ad-stats?org_id=' + encodeURIComponent(orgId) + '&days=' + range.days + '&statuses=' + statuses;
     } else if (range.date_from && range.date_to) {
-        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&date_from=' + range.date_from + '&date_to=' + range.date_to + '&statuses=' + statuses;
+        url = '/api/v1/nl/ad-stats?org_id=' + encodeURIComponent(orgId) + '&date_from=' + range.date_from + '&date_to=' + range.date_to + '&statuses=' + statuses;
     } else if (range.dateFrom && range.dateTo) {
-        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&date_from=' + range.dateFrom + '&date_to=' + range.dateTo + '&statuses=' + statuses;
+        url = '/api/v1/nl/ad-stats?org_id=' + encodeURIComponent(orgId) + '&date_from=' + range.dateFrom + '&date_to=' + range.dateTo + '&statuses=' + statuses;
     } else {
-        url = '/api/v1/nl/ad-stats?org_id=' + ORG_ID + '&days=9&statuses=' + statuses;
+        url = '/api/v1/nl/ad-stats?org_id=' + encodeURIComponent(orgId) + '&days=9&statuses=' + statuses;
     }
     if (typeof getAdsProductFilterQuery === 'function') url += getAdsProductFilterQuery();
     try {
         const r = await fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}});
+        if (r.status === 401) {
+            showAdsLoadError('Нет доступа к выбранному магазину. Переключите магазин или обновите страницу.');
+            return;
+        }
+        if (!r.ok) {
+            showAdsLoadError('Ошибка загрузки рекламы: ' + r.status);
+            return;
+        }
         const d = await r.json();
         if (!document.getElementById('ad-views')) return;
         // Totals
@@ -1372,9 +1397,18 @@ async function loadAds() {
         }
     } catch(e) {
         console.error('loadAds error:', e);
-        const body = document.getElementById('ads-daily-body');
-        if (body) body.innerHTML = '<tr><td colspan="10" class="empty" style="padding:4px">Ошибка: '+e.message+'</td></tr>';
+        showAdsLoadError('Ошибка: ' + e.message);
     }
+}
+
+function showAdsLoadError(message) {
+    const body = document.getElementById('ads-daily-body');
+    const total = document.getElementById('ads-daily-total');
+    const count = document.getElementById('ads-daily-count');
+    if (body) body.innerHTML = '<tr><td colspan="10" class="empty" style="padding:4px">' + esc(message || 'Ошибка загрузки') + '</td></tr>';
+    if (total) total.innerHTML = '';
+    if (count) count.textContent = '0 дней';
+    if (typeof updateAdsTabulator === 'function') updateAdsTabulator([]);
 }
 
 
@@ -2094,21 +2128,25 @@ async function loadDates() {
 }
 
 async function loadAnalytics() {
-    if (!ORG_ID) return;
+    const orgId = getCurrentOrgId();
+    if (!orgId) return;
+    const countEl = document.getElementById('analytics-count');
+    const bodyEl = document.getElementById('analytics-body');
+    if (!countEl || !bodyEl) return;
     const sel = document.getElementById('analytics-date') || document.getElementById('ref-date');
     const dateVal = (typeof nlGetSnapshotDate === 'function') ? nlGetSnapshotDate() : (sel ? sel.value : '');
     if (!dateVal || dateVal === 'Нет данных') return;
     const search = document.getElementById('analytics-search')?.value || '';
     try {
-        const res = await fetch('/api/v1/nl/analytics?org_id=' + ORG_ID + '&target_date=' + dateVal + (search ? '&search=' + encodeURIComponent(search) : ''));
-        if (!res.ok) { document.getElementById('analytics-body').innerHTML = '<tr><td colspan="37" class="empty">Ошибка загрузки</td></tr>'; return; }
+        const res = await fetch('/api/v1/nl/analytics?org_id=' + encodeURIComponent(orgId) + '&target_date=' + dateVal + (search ? '&search=' + encodeURIComponent(search) : ''));
+        if (!res.ok) { bodyEl.innerHTML = '<tr><td colspan="37" class="empty">Ошибка загрузки</td></tr>'; return; }
         const data = await res.json();
         const prods = data.products || [];
-        document.getElementById('analytics-count').textContent = prods.length + ' товаров';
-        if (!prods.length) { document.getElementById('analytics-body').innerHTML = '<tr><td colspan="37" class="empty">Нет данных</td></tr>'; return; }
+        countEl.textContent = prods.length + ' товаров';
+        if (!prods.length) { bodyEl.innerHTML = '<tr><td colspan="37" class="empty">Нет данных</td></tr>'; return; }
         const fmt = (v, s) => { if (v == null) return '—'; return Number(v).toLocaleString('ru-RU', {maximumFractionDigits:2}) + (s || ''); };
         const size = parseInt(document.getElementById('analytics-pagesize')?.value || '25');
-        document.getElementById('analytics-body').innerHTML = prods.slice(0, size).map(p => {
+        bodyEl.innerHTML = prods.slice(0, size).map(p => {
             const thumb = (p.photo_main || '').replace('/hq/', '/c246x328/').replace('/big/', '/c246x328/').replace('/tm/', '/c246x328/');
             return '<tr>' +
                 '<td>' + (thumb ? '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover">' : '') + '</td>' +
@@ -2887,17 +2925,21 @@ function exportCostTemplate() {
 }
 
 async function loadWarehouses() {
-    if (!ORG_ID) return;
+    const orgId = getCurrentOrgId();
+    if (!orgId) return;
+    const countEl = document.getElementById('wh-count');
+    const bodyEl = document.getElementById('wh-body');
+    if (!countEl || !bodyEl) return;
     const sel = document.getElementById('wh-date') || document.getElementById('ref-date');
     const d = (typeof nlGetSnapshotDate === 'function') ? nlGetSnapshotDate() : sel?.value;
     if (!d || d === 'Нет данных') return;
     try {
-        const res = await fetch('/api/v1/nl/warehouses?org_id=' + ORG_ID + '&target_date=' + d);
+        const res = await fetch('/api/v1/nl/warehouses?org_id=' + encodeURIComponent(orgId) + '&target_date=' + d);
         if (!res.ok) return;
         const items = await res.json();
-        document.getElementById('wh-count').textContent = items.length + ' записей';
-        if (!items.length) { document.getElementById('wh-body').innerHTML = '<tr><td colspan="6" class="empty">Нет данных</td></tr>'; return; }
-        document.getElementById('wh-body').innerHTML = items.map(i =>
+        countEl.textContent = items.length + ' записей';
+        if (!items.length) { bodyEl.innerHTML = '<tr><td colspan="6" class="empty">Нет данных</td></tr>'; return; }
+        bodyEl.innerHTML = items.map(i =>
             '<tr><td>' + (i.nm_id||'') + '</td><td>' + esc(i.vendor_code||'') + '</td><td>' + esc(i.product_name||'') +
             '</td><td>' + (i.warehouse||'—') + '</td><td>' + (i.qty||0) + '</td><td>—</td></tr>'
         ).join('');
@@ -3567,9 +3609,7 @@ async function loadOrgs() {
 async function switchOrg() {
     if (_costDirty && !await confirmDirty()) return;
     // Update URL so refresh keeps the right org
-    ORG_ID = document.getElementById('org-select').value;
-    localStorage.setItem('nl_org_id', ORG_ID);
-    history.replaceState(null, '', '/nl/v2?org=' + ORG_ID);
+    setCurrentOrgId(document.getElementById('org-select').value);
     // Sync all store dropdowns
     const cpSel = document.getElementById('cp-store');
     if (cpSel) cpSel.value = ORG_ID;
@@ -3605,8 +3645,7 @@ async function switchCostStore() {
     const cpSel = document.getElementById('cp-store');
     const newOrgId = cpSel.value;
     if (newOrgId === ORG_ID) return;
-    ORG_ID = newOrgId;
-    localStorage.setItem('nl_org_id', ORG_ID);
+    setCurrentOrgId(newOrgId);
     // Sync sidebar org-select + ue-store + promo-store
     const sideSel = document.getElementById('org-select');
     if (sideSel) sideSel.value = ORG_ID;
@@ -3616,7 +3655,6 @@ async function switchCostStore() {
     if (promoSel4) promoSel4.value = ORG_ID;
     const mktSel4 = document.getElementById('mkt-store');
     if (mktSel4) mktSel4.value = ORG_ID;
-    history.replaceState(null, '', '/nl/v2?org=' + ORG_ID);
     showApp();
     // Reload cost prices for new org
     loadTaxSettings();
@@ -3627,8 +3665,7 @@ async function switchUEStore() {
     const ueSel = document.getElementById("ue-store");
     const newOrgId = ueSel.value;
     if (newOrgId === ORG_ID) return;
-    ORG_ID = newOrgId;
-    localStorage.setItem("nl_org_id", ORG_ID);
+    setCurrentOrgId(newOrgId);
     // Sync sidebar + cp-store + promo-store
     const sideSel = document.getElementById("org-select");
     if (sideSel) sideSel.value = ORG_ID;
@@ -3638,7 +3675,6 @@ async function switchUEStore() {
     if (promoSel3) promoSel3.value = ORG_ID;
     const mktSel3 = document.getElementById("mkt-store");
     if (mktSel3) mktSel3.value = ORG_ID;
-    history.replaceState(null, "", "/nl/v2?org=" + ORG_ID);
     loadUEData();
 }
 
@@ -3646,8 +3682,7 @@ async function switchAnalyticsStore() {
     const anSel = document.getElementById("analytics-store");
     const newOrgId = anSel.value;
     if (newOrgId === ORG_ID) return;
-    ORG_ID = newOrgId;
-    localStorage.setItem("nl_org_id", ORG_ID);
+    setCurrentOrgId(newOrgId);
     // Sync sidebar + cp-store + ue-store + promo-store
     const sideSel = document.getElementById("org-select");
     if (sideSel) sideSel.value = ORG_ID;
@@ -3659,7 +3694,6 @@ async function switchAnalyticsStore() {
     if (promoSel) promoSel.value = ORG_ID;
     const anSel2 = document.getElementById("analytics-store");
     if (anSel2) anSel2.value = ORG_ID;
-    history.replaceState(null, "", "/nl/v2?org=" + ORG_ID);
     loadAnalytics();
 }
 
@@ -3667,8 +3701,7 @@ async function switchTopStore() {
     const fSel = document.getElementById('filter-store');
     const newOrgId = fSel.value;
     if (newOrgId === ORG_ID) return;
-    ORG_ID = newOrgId;
-    localStorage.setItem('nl_org_id', ORG_ID);
+    setCurrentOrgId(newOrgId);
     // Sync all other selectors
     const sideSel = document.getElementById('org-select');
     if (sideSel) sideSel.value = ORG_ID;
@@ -3684,7 +3717,6 @@ async function switchTopStore() {
     if (mktSel) mktSel.value = ORG_ID;
     const extAdsSel = document.getElementById("ext-ad-store");
     if (extAdsSel) extAdsSel.value = ORG_ID;
-    history.replaceState(null, '', '/nl/v2?org=' + ORG_ID);
     // Reload current tab data
     var activeTab = document.querySelector('.page-section.active');
     if (activeTab) {

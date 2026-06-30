@@ -17,7 +17,9 @@ let _adsAllData = [];  // Полные данные до фильтрации
 })();
 
 function getOrgId() {
-    return typeof ORG_ID !== 'undefined' ? ORG_ID : localStorage.getItem('nl_org_id');
+    if (typeof getCurrentOrgId === 'function') return getCurrentOrgId();
+    var urlOrg = new URL(location.href).searchParams.get('org');
+    return urlOrg || (typeof ORG_ID !== 'undefined' ? ORG_ID : localStorage.getItem('nl_org_id'));
 }
 
 function getAdsProductFilterQuery() {

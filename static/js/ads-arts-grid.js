@@ -71,24 +71,33 @@ function toggleAdsStatusFilter(btn) {
 }
 
 function loadAdsArts() {
+    var orgId = (typeof getOrgId === 'function') ? getOrgId() : (typeof ORG_ID !== 'undefined' ? ORG_ID : '');
+    if (!orgId || orgId === 'null') return;
     var range = getAdsDateRange();
     var statuses = _adsStatusFilters.join(',');
     var url;
     if (range.days) {
-        url = '/api/v1/nl/ad-stats/by-art?org_id=' + ORG_ID + '&days=' + range.days + '&statuses=' + statuses;
+        url = '/api/v1/nl/ad-stats/by-art?org_id=' + encodeURIComponent(orgId) + '&days=' + range.days + '&statuses=' + statuses;
     } else if (range.date_from && range.date_to) {
-        url = '/api/v1/nl/ad-stats/by-art?org_id=' + ORG_ID + '&date_from=' + range.date_from + '&date_to=' + range.date_to + '&statuses=' + statuses;
+        url = '/api/v1/nl/ad-stats/by-art?org_id=' + encodeURIComponent(orgId) + '&date_from=' + range.date_from + '&date_to=' + range.date_to + '&statuses=' + statuses;
     } else {
-        url = '/api/v1/nl/ad-stats/by-art?org_id=' + ORG_ID + '&days=9&statuses=' + statuses;
+        url = '/api/v1/nl/ad-stats/by-art?org_id=' + encodeURIComponent(orgId) + '&days=9&statuses=' + statuses;
     }
     if (typeof getAdsProductFilterQuery === 'function') url += getAdsProductFilterQuery();
     fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}})
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+            if (r.status === 401) throw new Error('Нет доступа к выбранному магазину. Переключите магазин или обновите страницу.');
+            if (!r.ok) throw new Error('Ошибка загрузки рекламы: ' + r.status);
+            return r.json();
+        })
         .then(function(d) {
             updateAdsArtsMetrics(d.totals || {});
             renderAdsArtsTable(d.items || []);
         })
-        .catch(function(e) { console.error('loadAdsArts error:', e); });
+        .catch(function(e) {
+            console.error('loadAdsArts error:', e);
+            if (typeof showAdsLoadError === 'function') showAdsLoadError(e.message);
+        });
 }
 
 function updateAdsArtsMetrics(totals) {
@@ -394,8 +403,9 @@ function renderAdsRefreshStatus(data, prefix) {
 }
 
 function loadAdsRefreshStatus() {
-    if (!ORG_ID || ORG_ID === 'null') return;
-    fetch('/api/v1/nl/ad-stats/refresh-status?org_id=' + ORG_ID, {
+    var orgId = (typeof getOrgId === 'function') ? getOrgId() : (typeof ORG_ID !== 'undefined' ? ORG_ID : '');
+    if (!orgId || orgId === 'null') return;
+    fetch('/api/v1/nl/ad-stats/refresh-status?org_id=' + encodeURIComponent(orgId), {
         headers: {'Authorization': 'Bearer ' + TOKEN}
     })
         .then(function(r) { return r.json(); })
@@ -406,10 +416,11 @@ function loadAdsRefreshStatus() {
 }
 
 function refreshAds() {
-    if (!ORG_ID || ORG_ID === 'null') return;
+    var orgId = (typeof getOrgId === 'function') ? getOrgId() : (typeof ORG_ID !== 'undefined' ? ORG_ID : '');
+    if (!orgId || orgId === 'null') return;
     var btn = document.getElementById('ads-refresh-btn');
     if (btn) btn.disabled = true;
-    fetch('/api/v1/nl/ad-stats/refresh?org_id=' + ORG_ID, {
+    fetch('/api/v1/nl/ad-stats/refresh?org_id=' + encodeURIComponent(orgId), {
         method: 'POST',
         headers: {'Authorization': 'Bearer ' + TOKEN}
     })

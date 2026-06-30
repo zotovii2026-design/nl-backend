@@ -77,3 +77,18 @@ def test_ads_product_filters_are_server_side_for_all_ads_views():
     assert "getAdsProductFilterQuery" in grid
     assert "url += getAdsProductFilterQuery()" in template
     assert "url += getAdsProductFilterQuery()" in arts
+
+
+def test_ads_uses_url_org_and_handles_unauthorized_without_breaking_tabs():
+    template = Path("templates/nl_v2.html").read_text(encoding="utf-8")
+    arts = Path("static/js/ads-arts-grid.js").read_text(encoding="utf-8")
+    grid = Path("static/js/ads-grid.js").read_text(encoding="utf-8")
+
+    assert "function getCurrentOrgId()" in template
+    assert "const urlOrg = new URL(location.href).searchParams.get('org');" in template
+    assert "urlOrg || selectedOrg || ORG_ID || localStorage.getItem('nl_org_id')" in template
+    assert "showAdsLoadError('Нет доступа к выбранному магазину" in template
+    assert "var orgId = (typeof getOrgId === 'function') ? getOrgId()" in arts
+    assert "encodeURIComponent(orgId)" in arts
+    assert "if (typeof getCurrentOrgId === 'function') return getCurrentOrgId();" in grid
+    assert "adsmodel6" in template
