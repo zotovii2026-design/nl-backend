@@ -106,6 +106,20 @@ def test_reference_book_uses_global_store_selector_only():
     assert "const orgId = getCurrentOrgId();" in DASHBOARD_SOURCE
 
 
+def test_expired_session_is_handled_globally():
+    assert "function handleAuthExpired()" in DASHBOARD_SOURCE
+    assert "Сессия истекла. Войдите заново." in DASHBOARD_SOURCE
+    assert "response.status === 401" in DASHBOARD_SOURCE
+    assert "AUTH_EXEMPT_PATHS.includes(url.pathname)" in DASHBOARD_SOURCE
+
+
+def test_reference_upload_ui_advertises_real_file_types():
+    assert "Загрузить CSV/XLSX" in DASHBOARD_SOURCE
+    assert 'accept=".xlsx,.csv"' in DASHBOARD_SOURCE
+    assert "Скачать CSV-шаблон" in DASHBOARD_SOURCE
+    assert "encodeURIComponent(orgId)" in DASHBOARD_SOURCE
+
+
 def test_reference_book_save_payload_does_not_zero_hidden_legacy_fields():
     payload_block = COST_GRID_SOURCE.split("function getCostDataForSave()", 1)[1]
     payload_block = payload_block.split("\n}", 1)[0]

@@ -372,16 +372,31 @@ function resetAdsUiForOrgChange() {
 }
 
 const _nativeFetch = window.fetch.bind(window);
+const AUTH_EXEMPT_PATHS = ['/api/v1/nl/login', '/api/v1/nl/register'];
+let _authExpiredHandled = false;
+
+function handleAuthExpired() {
+    if (_authExpiredHandled) return;
+    _authExpiredHandled = true;
+    showAuth('Сессия истекла. Войдите заново.');
+}
+
 window.fetch = function(input, init) {
     init = init ? Object.assign({}, init) : {};
     const rawUrl = typeof input === 'string' ? input : input.url;
     const url = new URL(rawUrl, window.location.origin);
+    const isApi = url.origin === window.location.origin && url.pathname.startsWith('/api/');
     if (TOKEN && url.origin === window.location.origin && url.pathname.startsWith('/api/')) {
         const headers = new Headers(init.headers || (typeof input !== 'string' ? input.headers : undefined));
         if (!headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + TOKEN);
         init.headers = headers;
     }
-    return _nativeFetch(input, init);
+    return _nativeFetch(input, init).then(function(response) {
+        if (response.status === 401 && isApi && TOKEN && !AUTH_EXEMPT_PATHS.includes(url.pathname)) {
+            handleAuthExpired();
+        }
+        return response;
+    });
 };
 let FBS_WAREHOUSES = [];
 let _taxSettings = {tax_system: '', tax_rate: null, vat_type: 'нет'};
@@ -446,7 +461,7 @@ function onTopPeriodChange() {
     else if (_currentSection === 'fboneeds') loadFboNeeds();
 }
 
-function showAuth() {
+function showAuth(message) {
     document.getElementById('app-section').style.display = 'none';
     document.getElementById('auth-section').style.display = '';
     document.getElementById('auth-login').style.display = '';
@@ -454,12 +469,20 @@ function showAuth() {
     TOKEN = null; ORG_ID = null;
     localStorage.removeItem('nl_token');
     localStorage.removeItem('nl_org_id');
+    const err = document.getElementById('login-error');
+    if (err) {
+        err.textContent = message || '';
+        err.style.display = message ? '' : 'none';
+    }
 }
 
 async function doLogin() {
+    _authExpiredHandled = false;
     const email = document.getElementById('login-email').value;
     const password = document.getElementById('login-password').value;
     const err = document.getElementById('login-error');
+    err.textContent = '';
+    err.style.display = 'none';
     try {
         const res = await fetch('/api/v1/nl/login', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -479,6 +502,7 @@ async function doLogin() {
 }
 
 async function doRegister() {
+    _authExpiredHandled = false;
     const email = document.getElementById('reg-email').value;
     const password = document.getElementById('reg-password').value;
     const org_name = document.getElementById('reg-org').value;
@@ -598,9 +622,9 @@ var _sectionHTML = {
 </div>
 <button id="tax-apply-btn" onclick="applyTaxToAll()" title="Применить налоги ко всем строкам" style="padding:6px 10px;font-size:.85em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px">📋 Применить ко всему</button>
 <button id="tax-lock-btn" onclick="toggleTaxLock()" title="Заблокировать/разблокировать" style="padding:6px 10px;font-size:1.2em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px;transition:all .2s">🔒</button>
-<button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить Excel</button>
+<button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить CSV/XLSX</button>
 <input type="file" id="cost-file-input" accept=".xlsx,.csv" style="display:none" onchange="uploadCostExcel(this)">
-<button class="btn btn-outline" onclick="downloadEmptyTemplate()" style="padding:6px 14px;font-size:.85em">📥 Скачать шаблон</button>
+<button class="btn btn-outline" onclick="downloadEmptyTemplate()" style="padding:6px 14px;font-size:.85em">📥 Скачать CSV-шаблон</button>
 <button class="btn btn-outline" onclick="exportCostTemplate()" style="padding:6px 14px;font-size:.85em">📤 Экспорт данных</button>
 <span style="font-size:.85em;color:#999" id="cost-count"></span>
 <button class="btn" onclick="autoFillReference()" style="padding:5px 12px;font-size:.82em;background:#6c5ce7;color:#fff;border-radius:4px">🔄 Автозаполнение</button>
@@ -2869,6 +2893,8 @@ async function autoFillReference() {
 }
 
 async function saveAllCostPrices() {
+    const orgId = getCurrentOrgId();
+    if (!orgId) { showToast("❌ Выберите магазин", "error"); return; }
     // Сначала сохраняем налоговые настройки (тихо, без alert)
     try { await saveTaxSettings(); } catch(e) { console.warn("Tax save failed", e); }
 
@@ -2876,7 +2902,7 @@ async function saveAllCostPrices() {
     if (typeof Tabulator !== "undefined" && costTabulator && typeof getCostDataForSave === "function") {
         const saveData = getCostDataForSave();
         try {
-            const resp = await fetch("/api/v1/nl/cost-prices/batch?org_id=" + ORG_ID, {
+            const resp = await fetch("/api/v1/nl/cost-prices/batch?org_id=" + encodeURIComponent(orgId), {
                 method: "POST", headers: {"Content-Type": "application/json"},
                 body: JSON.stringify(saveData)
             });
@@ -2901,10 +2927,12 @@ async function saveAllCostPrices() {
 
 async function uploadCostExcel(input) {
     if (!input.files.length) return;
+    const orgId = getCurrentOrgId();
+    if (!orgId) { showToast("❌ Выберите магазин", "error"); input.value = ''; return; }
     const file = input.files[0];
     const body = await file.arrayBuffer();
     try {
-        const res = await fetch('/api/v1/nl/cost-prices/upload?org_id=' + ORG_ID, {
+        const res = await fetch('/api/v1/nl/cost-prices/upload?org_id=' + encodeURIComponent(orgId), {
             method: 'POST', headers: {'Content-Type': 'application/octet-stream', 'x-filename': file.name},
             body: body
         });

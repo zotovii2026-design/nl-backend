@@ -438,11 +438,15 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
     """Загрузка справочника из Excel/CSV — колонки строго по Tabulator"""
     body = await request.body()
     filename = request.headers.get("x-filename", "upload.csv")
+    filename_lower = filename.lower()
     rows = []
-    if filename.endswith(".csv"):
-        reader = csv.DictReader(io.StringIO(body.decode("utf-8-sig")), delimiter=";")
+    if filename_lower.endswith(".csv"):
+        try:
+            reader = csv.DictReader(io.StringIO(body.decode("utf-8-sig")), delimiter=";")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(400, "CSV должен быть в UTF-8") from exc
         rows = list(reader)
-    else:
+    elif filename_lower.endswith(".xlsx"):
         try:
             import openpyxl
             wb = openpyxl.load_workbook(io.BytesIO(body))
@@ -452,6 +456,10 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
                 rows.append(dict(zip(headers, row)))
         except ImportError:
             raise HTTPException(400, "xlsx не поддерживается")
+        except Exception as exc:
+            raise HTTPException(400, "Не удалось прочитать XLSX-файл") from exc
+    else:
+        raise HTTPException(400, "Поддерживаются только CSV и XLSX")
 
     def pf(row, *keys):
         for k in keys:
