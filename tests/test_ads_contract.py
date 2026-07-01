@@ -107,8 +107,9 @@ def test_ads_has_separate_campaign_and_total_drr_columns():
     assert '"drr": drr_rk' in backend
     assert '"drr_total": drr_total' in backend
     assert '"drr_total": drr_total_art' in backend
-    assert "COALESCE(ts.price_discount, ts.price_spp, ts.price, 0)" in backend
-    assert "COALESCE(ts.orders_count, 0)" in backend
+    assert "r.api_method = 'orders'" in backend
+    assert "DISTINCT ON (srid)" in backend
+    assert "priceWithDisc" in backend
     assert "ДРР по РК" in template
     assert "ДРР общий" in template
     assert "field: 'drr_total'" in grid

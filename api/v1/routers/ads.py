@@ -134,7 +134,7 @@ def _ads_total_revenue_filter_sql(
     search: Optional[str],
     params: dict,
 ):
-    """SQL join/where for total cabinet order revenue over tech_status."""
+    """SQL join/where for total cabinet order revenue over raw WB orders."""
     filters = []
     if product_status:
         params["total_product_status"] = product_status
@@ -148,9 +148,9 @@ def _ads_total_revenue_filter_sql(
     if search:
         params["total_search_like"] = f"%{search.strip()}%"
         filters.append("""(
-            ts.nm_id::text ILIKE :total_search_like
-            OR COALESCE(ts.vendor_code, rb_total.vendor_code, pe_total.vendor_code, '') ILIKE :total_search_like
-            OR COALESCE(ts.product_name, pe_total.product_name, '') ILIKE :total_search_like
+            ro.nm_id::text ILIKE :total_search_like
+            OR COALESCE(ro.vendor_code, rb_total.vendor_code, pe_total.vendor_code, '') ILIKE :total_search_like
+            OR COALESCE(pe_total.product_name, '') ILIKE :total_search_like
         )""")
 
     join_sql = ""
@@ -167,7 +167,7 @@ def _ads_total_revenue_filter_sql(
                 WHERE organization_id = :org
                   AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
                 ORDER BY nm_id, valid_from DESC, created_at DESC NULLS LAST
-            ) rb_total ON rb_total.nm_id = ts.nm_id
+            ) rb_total ON rb_total.nm_id = ro.nm_id
             LEFT JOIN (
                 SELECT DISTINCT ON (nm_id)
                        nm_id,
@@ -177,7 +177,7 @@ def _ads_total_revenue_filter_sql(
                 FROM product_entities
                 WHERE organization_id = :org
                 ORDER BY nm_id, created_at DESC
-            ) pe_total ON pe_total.nm_id = ts.nm_id
+            ) pe_total ON pe_total.nm_id = ro.nm_id
         """
 
     return join_sql, " AND " + " AND ".join(filters) if filters else ""
@@ -197,18 +197,47 @@ async def _get_total_orders_revenue_by_day(
         product_status, product_class, brand, search, total_params
     )
     rows = await db.execute(text("""
-        SELECT ts.target_date,
-               COALESCE(SUM(
-                   COALESCE(ts.price_discount, ts.price_spp, ts.price, 0)
-                   * COALESCE(ts.orders_count, 0)
-               ), 0) as orders_revenue
-        FROM tech_status ts
+        WITH raw_orders AS (
+            SELECT
+                r.target_date,
+                COALESCE(o.elem->>'srid', '') AS srid,
+                COALESCE(NULLIF(o.elem->>'nmId', '')::bigint, NULLIF(o.elem->>'nm_id', '')::bigint) AS nm_id,
+                COALESCE(o.elem->>'supplierArticle', '') AS vendor_code,
+                LEFT(o.elem->>'date', 10)::date AS order_date,
+                COALESCE(
+                    NULLIF(o.elem->>'priceWithDisc', '')::numeric,
+                    NULLIF(o.elem->>'totalPrice', '')::numeric,
+                    NULLIF(o.elem->>'price', '')::numeric,
+                    0
+                ) AS order_revenue
+            FROM raw_api_data r
+            CROSS JOIN LATERAL jsonb_array_elements(r.raw_response) AS o(elem)
+            WHERE r.organization_id = :org
+              AND r.api_method = 'orders'
+              AND r.status = 'ok'
+              AND r.target_date >= :d_from AND r.target_date <= :d_to
+        ),
+        dedup_non_empty_orders AS (
+            SELECT DISTINCT ON (srid) *
+            FROM raw_orders
+            WHERE srid <> ''
+            ORDER BY srid, target_date
+        ),
+        dedup_orders AS (
+            SELECT *
+            FROM dedup_non_empty_orders
+            UNION ALL
+            SELECT *
+            FROM raw_orders
+            WHERE srid = ''
+        )
+        SELECT ro.order_date,
+               COALESCE(SUM(ro.order_revenue), 0) as orders_revenue
+        FROM dedup_orders ro
         """ + join_sql + """
-        WHERE ts.organization_id = :org
-          AND ts.target_date >= :d_from AND ts.target_date <= :d_to
-          AND COALESCE(ts.orders_count, 0) > 0
+        WHERE ro.order_date >= :d_from AND ro.order_date <= :d_to
           """ + filter_sql + """
-        GROUP BY ts.target_date
+        GROUP BY ro.order_date
     """), total_params)
     return {str(r[0]): round(_sf(r[1]), 2) for r in rows}
 
