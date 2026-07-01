@@ -9,7 +9,7 @@ var _adsRefreshStatusSeq = 0;
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    var VER = 'ads-arts-grid-v6';
+    var VER = 'ads-arts-grid-v7';
     if (localStorage.getItem('ads-arts-grid-ver') !== VER) {
         localStorage.removeItem('ads-arts-grid-state-columns');
         localStorage.removeItem('ads-arts-grid-state-sort');
@@ -179,13 +179,32 @@ function getAdsArtsColumns() {
                     }
                 },
                 {
-                    title: 'ДРР товара %', field: 'drr', width: 105, headerSort: true, hozAlign: 'right',
+                    title: 'ДРР по РК %', field: 'drr', width: 105, headerSort: true, hozAlign: 'right',
                     tooltip: function(e, cell) {
                         var d = cell.getRow().getData();
-                        var tip = 'ДРР товара по всем РК';
+                        var tip = 'ДРР по РК для артикула';
                         tip += '\nРасход: ' + (d.spent||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽';
-                        tip += '\nРекламные заказы товара: ' + (d.total_orders||0);
-                        tip += '\nСумма заказов товара: ' + (d.total_revenue||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽';
+                        tip += '\nЗаказы из рекламы: ' + (d.total_orders||0);
+                        tip += '\nСумма заказов из рекламы: ' + (d.total_revenue||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽';
+                        tip += '\nФормула: расход / сумма заказов из рекламы';
+                        return tip;
+                    },
+                    formatter: function(cell) {
+                        var v = parseFloat(cell.getValue())||0;
+                        if (!v) return '—';
+                        var color = v > 50 ? '#e74c3c' : v > 25 ? '#e17055' : '#00b894';
+                        return '<span style="color:' + color + ';font-weight:600">' + v.toFixed(1) + '%</span>';
+                    },
+                },
+                {
+                    title: 'ДРР товара %', field: 'drr_product', width: 105, headerSort: true, hozAlign: 'right',
+                    tooltip: function(e, cell) {
+                        var d = cell.getRow().getData();
+                        var tip = 'ДРР товара за период';
+                        tip += '\nРасход: ' + (d.spent||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽';
+                        tip += '\nВсе заказы товара: ' + (d.total_orders_product||0);
+                        tip += '\nСумма всех заказов товара: ' + (d.total_revenue_product||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽';
+                        tip += '\nФормула: расход / сумма всех заказов товара';
                         return tip;
                     },
                     formatter: function(cell) {

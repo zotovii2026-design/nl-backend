@@ -242,6 +242,67 @@ async def _get_total_orders_revenue_by_day(
     return {str(r[0]): round(_sf(r[1]), 2) for r in rows}
 
 
+async def _get_total_orders_revenue_by_nm(
+    db: AsyncSession,
+    org_id: str,
+    d_from: date,
+    d_to: date,
+    nm_ids: list[int],
+):
+    """Total product order revenue by nm_id for product-level DRR."""
+    if not nm_ids:
+        return {}
+    rows = await db.execute(text("""
+        WITH raw_orders AS (
+            SELECT
+                r.target_date,
+                COALESCE(o.elem->>'srid', '') AS srid,
+                COALESCE(NULLIF(o.elem->>'nmId', '')::bigint, NULLIF(o.elem->>'nm_id', '')::bigint) AS nm_id,
+                LEFT(o.elem->>'date', 10)::date AS order_date,
+                COALESCE(
+                    NULLIF(o.elem->>'priceWithDisc', '')::numeric,
+                    NULLIF(o.elem->>'totalPrice', '')::numeric,
+                    NULLIF(o.elem->>'price', '')::numeric,
+                    0
+                ) AS order_revenue
+            FROM raw_api_data r
+            CROSS JOIN LATERAL jsonb_array_elements(r.raw_response) AS o(elem)
+            WHERE r.organization_id = :org
+              AND r.api_method = 'orders'
+              AND r.status = 'ok'
+              AND r.target_date >= :d_from AND r.target_date <= :d_to
+        ),
+        dedup_non_empty_orders AS (
+            SELECT DISTINCT ON (srid) *
+            FROM raw_orders
+            WHERE srid <> ''
+            ORDER BY srid, target_date
+        ),
+        dedup_orders AS (
+            SELECT *
+            FROM dedup_non_empty_orders
+            UNION ALL
+            SELECT *
+            FROM raw_orders
+            WHERE srid = ''
+        )
+        SELECT ro.nm_id,
+               COUNT(*) as orders_all,
+               COALESCE(SUM(ro.order_revenue), 0) as revenue_all
+        FROM dedup_orders ro
+        WHERE ro.order_date >= :d_from AND ro.order_date <= :d_to
+          AND ro.nm_id = ANY(:nm_ids)
+        GROUP BY ro.nm_id
+    """), {"org": org_id, "d_from": d_from, "d_to": d_to, "nm_ids": nm_ids})
+    return {
+        int(r[0]): {
+            "orders_all": int(r[1] or 0),
+            "revenue_all": round(_sf(r[2]), 2),
+        }
+        for r in rows
+    }
+
+
 def _ads_refresh_key(org_id: str) -> str:
     return f"nl:ads-refresh:{org_id}"
 
@@ -682,6 +743,9 @@ async def get_ad_stats_by_art(
         }
 
     all_nm_ids = list(art_data.keys())
+    product_orders_by_nm = await _get_total_orders_revenue_by_nm(
+        db, org_id, d_from, d_to, all_nm_ids
+    )
 
     # ═══ Для каждого артикула — список РК с данными по этому nm_id ═══
     nm_campaigns = {}
@@ -742,7 +806,11 @@ async def get_ad_stats_by_art(
         orders = d["orders"]
         campaigns = nm_campaigns.get(nm_id, [])
         sum_price_art = sum(c.get("sum_price", 0) for c in campaigns) if campaigns else 0
+        product_orders = product_orders_by_nm.get(nm_id, {"orders_all": 0, "revenue_all": 0})
+        total_orders_product = product_orders["orders_all"]
+        total_revenue_product = product_orders["revenue_all"]
         drr_art = round(spent / sum_price_art * 100, 1) if sum_price_art else 0
+        drr_product = round(spent / total_revenue_product * 100, 1) if total_revenue_product else 0
         items.append({
             "nm_id": nm_id,
             "spent": spent,
@@ -756,7 +824,10 @@ async def get_ad_stats_by_art(
             "campaigns": campaigns,
             "total_orders": orders,
             "total_revenue": round(sum_price_art, 2),
+            "total_orders_product": total_orders_product,
+            "total_revenue_product": total_revenue_product,
             "drr": drr_art,
+            "drr_product": drr_product,
         })
 
     # ═══ Информация о товарах (название, фото, vendor_code) ═══
@@ -831,9 +902,12 @@ async def get_ad_stats_by_art(
         "campaigns_count": sum(i["campaigns_count"] for i in items),
         "total_orders": sum(i["total_orders"] for i in items),
         "total_revenue": round(sum(i["total_revenue"] for i in items), 2),
+        "total_orders_product": sum(i["total_orders_product"] for i in items),
+        "total_revenue_product": round(sum(i["total_revenue_product"] for i in items), 2),
         "total_revenue_period": total_revenue_period,
         "sum_price": round(sum(c.get("sum_price", 0) for i in items for c in i.get("campaigns", [])), 2),
         "drr": round(sum(i["spent"] for i in items) / max(sum(c.get("sum_price", 0) for i in items for c in i.get("campaigns", [])), 1) * 100, 1),
+        "drr_product": round(sum(i["spent"] for i in items) / max(sum(i["total_revenue_product"] for i in items), 1) * 100, 1),
         "drr_total": round(sum(i["spent"] for i in items) / total_revenue_period * 100, 1) if total_revenue_period else 0,
         "statuses": status_list,
     }

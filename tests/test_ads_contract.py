@@ -96,7 +96,7 @@ def test_ads_uses_url_org_and_handles_unauthorized_without_breaking_tabs():
     assert "encodeURIComponent(orgId)" in arts
     assert "if (typeof getCurrentOrgId === 'function') return getCurrentOrgId();" in grid
     assert "adsmodel8" in template
-    assert "adsmodel9" in template
+    assert "adsmodel10" in template
 
 
 def test_ads_has_separate_campaign_and_total_drr_columns():
@@ -113,9 +113,13 @@ def test_ads_has_separate_campaign_and_total_drr_columns():
     assert "ДРР по РК" in template
     assert "ДРР общий" in template
     assert "field: 'drr_total'" in grid
+    assert "ДРР по РК %" in arts
     assert "ДРР товара %" in arts
+    assert "field: 'drr_product'" in arts
     assert "field: 'drr_total'" not in arts
     assert '"drr_total": drr_total_art' not in backend
+    assert '"drr_product": drr_product' in backend
+    assert "total_revenue_product" in backend
 
 
 def test_ads_org_switch_resets_state_and_ignores_stale_responses():
