@@ -51,7 +51,7 @@ async def fetch_reference(db: AsyncSession, org_id: str, target_date: Optional[s
 # GET cost-prices (полный справочник с entity)
 # ============================================================================
 COST_PRICES_SQL = text(
-    "SELECT pe.id as entity_id, pe.nm_id, pe.size_name, pe.vendor_code, pe.brand, "
+    "SELECT pe.id as entity_id, pe.nm_id, pe.size_name, pe.vendor_code, COALESCE(cp.brand, pe.brand) as brand, "
     "pe.subject_id, pe.subject_name, pe.length, pe.width, pe.height, pe.weight, "
     "(SELECT string_agg(eb.barcode, ', ') FROM entity_barcodes eb WHERE eb.entity_id = pe.id AND eb.is_active = true) as barcodes, "
     "cp.id as ref_id, cp.cost_price, cp.purchase_cost, cp.logistics_cost, cp.packaging_cost, "
