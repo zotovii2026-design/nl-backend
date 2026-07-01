@@ -130,7 +130,7 @@ def test_ads_uses_url_org_and_handles_unauthorized_without_breaking_tabs():
     assert "var orgId = (typeof getCurrentOrgId === 'function') ? getCurrentOrgId()" in arts
     assert "encodeURIComponent(orgId)" in arts
     assert "if (typeof getCurrentOrgId === 'function') return getCurrentOrgId();" in grid
-    assert "adsmodel11" in template
+    assert "adsmodel12" in template
     assert "adsmodel10" in template
 
 
@@ -147,14 +147,30 @@ def test_ads_has_separate_campaign_and_total_drr_columns():
     assert "priceWithDisc" in backend
     assert "ДРР по РК" in template
     assert "ДРР общий" in template
-    assert "field: 'drr_total'" in grid
+    assert "field: 'drr_product'" in grid
+    assert "ДРР товара %" in grid
+    assert "campaignDrrTooltip" in grid
     assert "ДРР по РК %" in arts
     assert "ДРР товара %" in arts
     assert "field: 'drr_product'" in arts
-    assert "field: 'drr_total'" not in arts
     assert '"drr_total": drr_total_art' not in backend
     assert '"drr_product": drr_product' in backend
     assert "total_revenue_product" in backend
+
+
+def test_ads_campaign_rows_use_product_revenue_for_product_drr():
+    backend = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
+    grid = Path("static/js/ads-grid.js").read_text(encoding="utf-8")
+    template = Path("templates/nl_v2.html").read_text(encoding="utf-8")
+
+    assert "product_orders_by_nm = await _get_total_orders_revenue_by_nm" in backend
+    assert '"total_orders_product": product_orders_by_nm.get' in backend
+    assert '"total_revenue_product": product_orders_by_nm.get' in backend
+    assert "drr_product = round(spent / total_revenue_product * 100, 1)" in backend
+    assert '"drr_product": drr_product' in backend
+    assert "totalRevenueProduct = products.reduce" in grid
+    assert "ads-grid-v12" in grid
+    assert "adsmodel12" in template
 
 
 def test_ads_org_switch_resets_state_and_ignores_stale_responses():

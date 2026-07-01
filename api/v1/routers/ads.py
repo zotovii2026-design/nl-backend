@@ -551,6 +551,9 @@ async def get_ad_stats(
     all_campaign_rows = list(camp_rows)
     all_nm_ids = sorted({int(nm) for r in all_campaign_rows for nm in (r[12] or []) if nm})
     all_campaign_ids = sorted({int(r[0]) for r in all_campaign_rows if r[0]})
+    product_orders_by_nm = await _get_total_orders_revenue_by_nm(
+        db, org_id, d_from, d_to, all_nm_ids
+    )
     product_by_nm = {}
     if all_nm_ids:
         prod_row = await db.execute(text("""
@@ -638,6 +641,8 @@ async def get_ad_stats(
                 "orders": int(r[5] or 0),
                 "atbs": int(r[6] or 0),
                 "sum_price": round(_sf(r[7]), 2),
+                "total_orders_product": product_orders_by_nm.get(nm_id, {}).get("orders_all", 0),
+                "total_revenue_product": product_orders_by_nm.get(nm_id, {}).get("revenue_all", 0),
             }
             products_by_campaign.setdefault(cid, []).append(product)
 
@@ -654,9 +659,13 @@ async def get_ad_stats(
         # Инфо о товарах
         products = products_by_campaign.get(int(r[0]), [])
         sum_price_val = round(_sf(r[13]), 2)
+        total_orders_product = sum(int(p.get("total_orders_product") or 0) for p in products)
+        total_revenue_product = round(
+            sum(_sf(p.get("total_revenue_product")) for p in products), 2
+        )
 
         drr_rk = round(spent / sum_price_val * 100, 1) if sum_price_val else 0
-        drr_total = round(spent / total_revenue_period * 100, 1) if total_revenue_period else 0
+        drr_product = round(spent / total_revenue_product * 100, 1) if total_revenue_product else 0
 
         campaigns.append({
             "campaign_id": int(r[0]) if r[0] else None,
@@ -679,9 +688,12 @@ async def get_ad_stats(
             "cr": round(orders / clicks * 100, 2) if clicks else 0,
             "total_orders": orders,
             "total_revenue": sum_price_val,
+            "total_orders_product": total_orders_product,
+            "total_revenue_product": total_revenue_product,
             "total_revenue_period": total_revenue_period,
             "drr": drr_rk,
-            "drr_total": drr_total,
+            "drr_total": drr_product,
+            "drr_product": drr_product,
             "source_side": r[14] or "both",
         })
 

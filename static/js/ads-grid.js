@@ -8,7 +8,7 @@ let _adsAllData = [];  // Полные данные до фильтрации
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ads-grid-v11';
+    const VER = 'ads-grid-v12';
     if (localStorage.getItem('ads-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ads-grid-state-columns');
         localStorage.removeItem('tabulator-ads-grid-state-sort');
@@ -44,6 +44,44 @@ function hasAdsProductFilters() {
 const statusMap = {'-1':'🗑 Удалена','4':'⏳ Готова','7':'☑ Завершена','8':'❌ Отклонена','9':'🟢 Активна','11':'⏸ Пауза'};
 const typeMap = {'4':'Автоматическая','5':'Поиск','6':'Каталог','7':'Таргет','8':'Рек. в рекомендациях','9':'Аукцион'};
 const statusColors = {'-1':'background:#f1f3f5','4':'background:#fff3cd','7':'background:#e2e3e5','8':'background:#f8d7da','9':'background:#d4edda','11':'background:#fff3cd'};
+
+function formatAdsRub(value) {
+    return (parseFloat(value) || 0).toLocaleString('ru-RU', {maximumFractionDigits: 0}) + ' ₽';
+}
+
+function getCampaignProductBreakdown(campaign) {
+    var products = (campaign.products || []).slice(0, 3);
+    if (!products.length) return '';
+    var lines = products.map(function(p) {
+        return [
+            p.nm_id || '?',
+            'расход ' + formatAdsRub(p.spent_share),
+            'РК ' + formatAdsRub(p.sum_price),
+            'товар ' + formatAdsRub(p.total_revenue_product)
+        ].join(' · ');
+    });
+    if ((campaign.products || []).length > products.length) {
+        lines.push('ещё ' + ((campaign.products || []).length - products.length) + ' товар(ов)');
+    }
+    return '\n\nТовары:\n' + lines.join('\n');
+}
+
+function campaignDrrTooltip(campaign, mode) {
+    if (mode === 'product') {
+        return 'ДРР товара за период'
+            + '\nРасход РК: ' + formatAdsRub(campaign.spent)
+            + '\nВсе заказы товаров: ' + (campaign.total_orders_product || 0)
+            + '\nСумма всех заказов товаров: ' + formatAdsRub(campaign.total_revenue_product)
+            + '\nФормула: расход РК / сумма всех заказов товаров РК'
+            + getCampaignProductBreakdown(campaign);
+    }
+    return 'ДРР по РК'
+        + '\nРасход РК: ' + formatAdsRub(campaign.spent)
+        + '\nЗаказы из рекламы: ' + (campaign.total_orders || 0)
+        + '\nСумма заказов из рекламы: ' + formatAdsRub(campaign.total_revenue)
+        + '\nФормула: расход РК / сумма рекламных заказов товаров РК'
+        + getCampaignProductBreakdown(campaign);
+}
 
 // Конфигурация колонок
 function getAdsColumns() {
@@ -131,6 +169,9 @@ function getAdsColumns() {
                 },
                 {
                     title: 'ДРР по РК %', field: 'drr', headerTooltip: 'Расход / сумма рекламных заказов WB', width: 100, headerSort: true, hozAlign: 'right',
+                    tooltip: function(e, cell) {
+                        return campaignDrrTooltip(cell.getRow().getData(), 'rk');
+                    },
                     formatter: function(cell) {
                         const v = parseFloat(cell.getValue()) || 0;
                         if (!v) return '—';
@@ -139,7 +180,10 @@ function getAdsColumns() {
                     }
                 },
                 {
-                    title: 'ДРР общий %', field: 'drr_total', headerTooltip: 'Расход / все заказы кабинета за период', width: 105, headerSort: true, hozAlign: 'right',
+                    title: 'ДРР товара %', field: 'drr_product', headerTooltip: 'Расход РК / все заказы товаров РК за период', width: 105, headerSort: true, hozAlign: 'right',
+                    tooltip: function(e, cell) {
+                        return campaignDrrTooltip(cell.getRow().getData(), 'product');
+                    },
                     formatter: function(cell) {
                         const v = parseFloat(cell.getValue()) || 0;
                         if (!v) return '—';
@@ -330,7 +374,8 @@ function buildFilteredCampaign(campaign, products) {
     var orders = products.reduce(function(s, p) { return s + (parseInt(p.orders || 0, 10) || 0); }, 0);
     var atbs = products.reduce(function(s, p) { return s + (parseInt(p.atbs || 0, 10) || 0); }, 0);
     var sumPrice = products.reduce(function(s, p) { return s + (parseFloat(p.sum_price) || 0); }, 0);
-    var totalRevenuePeriod = parseFloat(campaign.total_revenue_period) || 0;
+    var totalOrdersProduct = products.reduce(function(s, p) { return s + (parseInt(p.total_orders_product || 0, 10) || 0); }, 0);
+    var totalRevenueProduct = products.reduce(function(s, p) { return s + (parseFloat(p.total_revenue_product) || 0); }, 0);
     return Object.assign({}, campaign, {
         spent: Math.round(spent * 100) / 100,
         views: views,
@@ -342,7 +387,10 @@ function buildFilteredCampaign(campaign, products) {
         cpc: clicks ? Math.round((spent / clicks) * 100) / 100 : 0,
         cr: clicks ? Math.round((orders / clicks * 100) * 100) / 100 : 0,
         drr: sumPrice ? Math.round((spent / sumPrice * 100) * 10) / 10 : 0,
-        drr_total: totalRevenuePeriod ? Math.round((spent / totalRevenuePeriod * 100) * 10) / 10 : 0,
+        drr_product: totalRevenueProduct ? Math.round((spent / totalRevenueProduct * 100) * 10) / 10 : 0,
+        drr_total: totalRevenueProduct ? Math.round((spent / totalRevenueProduct * 100) * 10) / 10 : 0,
+        total_orders_product: totalOrdersProduct,
+        total_revenue_product: Math.round(totalRevenueProduct * 100) / 100,
         nm_count: products.length,
         products: products,
     });
@@ -410,7 +458,7 @@ function showAdsCampaignDetail(campaign) {
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:16px">';
     html += '<div style="background:#fff4e6;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">Расход</div><div style="font-weight:700;color:#e17055">' + (campaign.spent||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽</div></div>';
     html += '<div style="background:#e8f8f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">ДРР по РК</div><div style="font-weight:700">' + (campaign.drr||0).toFixed(1) + '%</div></div>';
-    html += '<div style="background:#fff4e6;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">ДРР общий</div><div style="font-weight:700">' + (campaign.drr_total||0).toFixed(1) + '%</div></div>';
+    html += '<div style="background:#fff4e6;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">ДРР товара</div><div style="font-weight:700">' + (campaign.drr_product||campaign.drr_total||0).toFixed(1) + '%</div></div>';
     html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">Показы</div><div style="font-weight:700">' + (campaign.views||0).toLocaleString('ru-RU') + '</div></div>';
     html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">Клики</div><div style="font-weight:700">' + (campaign.clicks||0).toLocaleString('ru-RU') + '</div></div>';
     html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">CTR</div><div style="font-weight:700">' + (campaign.ctr||0).toFixed(2) + '%</div></div>';
