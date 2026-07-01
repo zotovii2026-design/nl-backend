@@ -235,8 +235,34 @@ def calculate_reverse_delivery(
     return cost, debug
 
 
+def normalize_tax_system(raw: str | None) -> str | None:
+    """Преобразует человекочитаемое название системы налогообложения
+    в код, понятный calculate_tax.
+
+    >>> normalize_tax_system("УСН Доходы")
+    'usn'
+    >>> normalize_tax_system("УСН Доходы-Расходы")
+    'usn_dr'
+    >>> normalize_tax_system("ОСНО")
+    'osn'
+    """
+    if not raw:
+        return None
+    s = raw.strip().lower().replace("ё", "е")
+    if "усн" in s and "расход" in s:
+        return "usn_dr"
+    if "усн" in s or "ausn" in s:
+        return "usn"
+    if "осн" in s:
+        return "osn"
+    # уже код
+    if s in ("usn", "usn_dr", "osn"):
+        return s
+    return None
+
+
 def calculate_tax(item: dict[str, Any], price: float, commission: float) -> float:
-    tax_system = item["tax_system"]
+    tax_system = normalize_tax_system(item.get("tax_system"))
     if tax_system == "usn":
         return round(price * item["tax_rate"] / 100, 2)
     if tax_system == "usn_dr":

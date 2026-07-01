@@ -63,6 +63,16 @@ async def build_unit_economics(
         db=db,
     )
 
+    # ── Налоговые настройки организации (fallback для товаров без tax_system) ──
+    from domain.unit_economics import normalize_tax_system
+    org_tax = await db.execute(
+        text("SELECT tax_system, tax_rate, vat_type FROM organizations WHERE id = :oid"),
+        {"oid": org_id},
+    )
+    org_tax_row = org_tax.fetchone()
+    org_tax_system = normalize_tax_system(org_tax_row[0] if org_tax_row else None)
+    org_tax_rate = float(org_tax_row[1]) if org_tax_row and org_tax_row[1] else 0
+
     # ── Обработка единого запроса reference_book ──────────
     # Колонки rb_rows:
     #  0: entity_id, 1: nm_id
@@ -302,8 +312,8 @@ async def build_unit_economics(
             "other_costs": float(cost.get("other_costs") or 0),
             "product_class": cost.get("product_class"),
             "brand": cost.get("brand"),
-            "tax_system": cost.get("tax_system"),
-            "tax_rate": float(cost.get("tax_rate") or 0),
+            "tax_system": cost.get("tax_system") or org_tax_system,
+            "tax_rate": float(cost.get("tax_rate") or 0) or org_tax_rate,
             "vat_rate": float(cost.get("vat_rate") or 0),
 
             # Из wb_tariff_snapshot (автоподтяжка)
