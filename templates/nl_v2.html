@@ -328,7 +328,7 @@ function setCurrentOrgId(orgId) {
     ORG_ID = orgId;
     localStorage.setItem('nl_org_id', ORG_ID);
     history.replaceState(null, '', '/nl/v2?org=' + encodeURIComponent(ORG_ID));
-    ['org-select', 'filter-store', 'cp-store', 'ue-store', 'promo-store', 'analytics-store', 'mkt-store', 'ext-ad-store', 'wb-api-status-shop'].forEach(function(id) {
+    ['org-select', 'filter-store', 'ue-store', 'promo-store', 'analytics-store', 'mkt-store', 'ext-ad-store', 'wb-api-status-shop'].forEach(function(id) {
         const el = document.getElementById(id);
         if (el && Array.from(el.options || []).some(function(opt) { return opt.value === ORG_ID; })) {
             el.value = ORG_ID;
@@ -394,9 +394,11 @@ window.addEventListener('beforeunload', function(e) {
     }
 });
 
-async function loadFbsWarehouses() {
+async function loadFbsWarehouses(orgId) {
+    orgId = orgId || getCurrentOrgId();
+    if (!orgId) return;
     try {
-        const r = await fetch('/api/v1/nl/fbs-warehouses?org_id=' + ORG_ID);
+        const r = await fetch('/api/v1/nl/fbs-warehouses?org_id=' + orgId);
         if (r.ok) FBS_WAREHOUSES = await r.json();
     } catch(e) { console.warn('FBS warehouses load failed', e); }
 }
@@ -567,10 +569,7 @@ var _sectionHTML = {
 <div id="opiu-tabulator" style="min-height:520px;width:100%;"></div>
 `,
     'costprice': `
-<!-- Верхняя панель: текущий магазин -->
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
-<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
-<select id="cp-store" onchange="switchCostStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
+<div style="margin-bottom:16px;color:#888;font-size:.82em">
 <span style="font-size:.82em;color:#888">Справочник — актуальные настройки товара. Не является отчётом за период.</span>
 </div>
 
@@ -2442,21 +2441,22 @@ function showToast(msg, type) {
 }
 
 async function loadCostPrices() {
-    console.log("[CP] ORG_ID=", ORG_ID);
-    loadFbsWarehouses();
-    if (!ORG_ID) { console.warn("[CP] No ORG_ID"); return; }
+    const orgId = getCurrentOrgId();
+    console.log("[CP] ORG_ID=", orgId);
+    loadFbsWarehouses(orgId);
+    if (!orgId) { console.warn("[CP] No ORG_ID"); return; }
     try {
-        const datesRes = await fetch('/api/v1/nl/dates?org_id=' + ORG_ID);
+        const datesRes = await fetch('/api/v1/nl/dates?org_id=' + orgId);
         const dates = datesRes.ok ? await datesRes.json() : [];
         if (!dates.length) { document.getElementById('cost-count').textContent = 'Нет данных'; return; }
         
-        const prodsRes = await fetch('/api/v1/nl/control?org_id=' + ORG_ID + '&target_date=' + dates[0]);
+        const prodsRes = await fetch('/api/v1/nl/control?org_id=' + orgId + '&target_date=' + dates[0]);
         if (!prodsRes.ok) return;
         const prodsData = await prodsRes.json();
         _costProducts = prodsData.products || [];
         console.log("[CP] products:", _costProducts.length, "dates:", dates.length);
         
-        const costRes = await fetch('/api/v1/nl/cost-prices?org_id=' + ORG_ID);
+        const costRes = await fetch('/api/v1/nl/cost-prices?org_id=' + orgId);
         _costMap = {};  // entity_id -> cost data
         _costSizes = {};
         if (costRes.ok) {
@@ -3621,18 +3621,6 @@ async function loadOrgs() {
         localStorage.setItem('nl_org_id', ORG_ID);
         sel.value = ORG_ID;
     }
-    // Sync cp-store dropdown in Справочник
-    const cpSel = document.getElementById('cp-store');
-    if (cpSel) {
-        cpSel.innerHTML = '';
-        orgs.forEach(o => {
-            const opt = document.createElement('option');
-            opt.value = o.id;
-            opt.textContent = o.name + (o.wb_seller_id ? ' (ID ' + o.wb_seller_id + ')' : '');
-            if (o.id === ORG_ID) opt.selected = true;
-            cpSel.appendChild(opt);
-        });
-    }
     // Sync ue-store dropdown in Юнит-экономика
     const ueSel = document.getElementById("ue-store");
     if (ueSel) {
@@ -3701,8 +3689,6 @@ async function switchOrg() {
     setCurrentOrgId(document.getElementById('org-select').value);
     resetAdsUiForOrgChange();
     // Sync all store dropdowns
-    const cpSel = document.getElementById('cp-store');
-    if (cpSel) cpSel.value = ORG_ID;
     const ueSel2 = document.getElementById('ue-store');
     if (ueSel2) ueSel2.value = ORG_ID;
     const promoSel2 = document.getElementById('promo-store');
@@ -3730,37 +3716,14 @@ async function switchOrg() {
     }
 }
 
-async function switchCostStore() {
-    if (_costDirty && !await confirmDirty()) return;
-    const cpSel = document.getElementById('cp-store');
-    const newOrgId = cpSel.value;
-    if (newOrgId === ORG_ID) return;
-    setCurrentOrgId(newOrgId);
-    // Sync sidebar org-select + ue-store + promo-store
-    const sideSel = document.getElementById('org-select');
-    if (sideSel) sideSel.value = ORG_ID;
-    const ueSel3 = document.getElementById('ue-store');
-    if (ueSel3) ueSel3.value = ORG_ID;
-    const promoSel4 = document.getElementById('promo-store');
-    if (promoSel4) promoSel4.value = ORG_ID;
-    const mktSel4 = document.getElementById('mkt-store');
-    if (mktSel4) mktSel4.value = ORG_ID;
-    showApp();
-    // Reload cost prices for new org
-    loadTaxSettings();
-    loadCostPrices();
-}
-
 async function switchUEStore() {
     const ueSel = document.getElementById("ue-store");
     const newOrgId = ueSel.value;
     if (newOrgId === ORG_ID) return;
     setCurrentOrgId(newOrgId);
-    // Sync sidebar + cp-store + promo-store
+    // Sync sidebar + promo-store
     const sideSel = document.getElementById("org-select");
     if (sideSel) sideSel.value = ORG_ID;
-    const cpSel = document.getElementById("cp-store");
-    if (cpSel) cpSel.value = ORG_ID;
     const promoSel3 = document.getElementById("promo-store");
     if (promoSel3) promoSel3.value = ORG_ID;
     const mktSel3 = document.getElementById("mkt-store");
@@ -3773,11 +3736,9 @@ async function switchAnalyticsStore() {
     const newOrgId = anSel.value;
     if (newOrgId === ORG_ID) return;
     setCurrentOrgId(newOrgId);
-    // Sync sidebar + cp-store + ue-store + promo-store
+    // Sync sidebar + ue-store + promo-store
     const sideSel = document.getElementById("org-select");
     if (sideSel) sideSel.value = ORG_ID;
-    const cpSel = document.getElementById("cp-store");
-    if (cpSel) cpSel.value = ORG_ID;
     const ueSel = document.getElementById("ue-store");
     if (ueSel) ueSel.value = ORG_ID;
     const promoSel = document.getElementById("promo-store");
@@ -3796,8 +3757,6 @@ async function switchTopStore() {
     // Sync all other selectors
     const sideSel = document.getElementById('org-select');
     if (sideSel) sideSel.value = ORG_ID;
-    const cpSel = document.getElementById('cp-store');
-    if (cpSel) cpSel.value = ORG_ID;
     const ueSel = document.getElementById('ue-store');
     if (ueSel) ueSel.value = ORG_ID;
     const promoSel = document.getElementById('promo-store');

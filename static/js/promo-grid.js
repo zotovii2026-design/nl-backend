@@ -376,8 +376,6 @@ async function switchPromoStore() {
     localStorage.setItem("nl_org_id", ORG_ID);
     const sideSel = document.getElementById("org-select");
     if (sideSel) sideSel.value = ORG_ID;
-    const cpSel = document.getElementById("cp-store");
-    if (cpSel) cpSel.value = ORG_ID;
     const ueSel = document.getElementById("ue-store");
     if (ueSel) ueSel.value = ORG_ID;
     history.replaceState(null, "", "/nl/v2?org=" + ORG_ID);

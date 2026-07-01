@@ -99,6 +99,13 @@ def test_reference_book_visible_columns_contract_is_stable():
     ]
 
 
+def test_reference_book_uses_global_store_selector_only():
+    assert 'id="cp-store"' not in DASHBOARD_SOURCE
+    assert "switchCostStore" not in DASHBOARD_SOURCE
+    assert "loadFbsWarehouses(orgId)" in DASHBOARD_SOURCE
+    assert "const orgId = getCurrentOrgId();" in DASHBOARD_SOURCE
+
+
 def test_reference_book_save_payload_does_not_zero_hidden_legacy_fields():
     payload_block = COST_GRID_SOURCE.split("function getCostDataForSave()", 1)[1]
     payload_block = payload_block.split("\n}", 1)[0]
