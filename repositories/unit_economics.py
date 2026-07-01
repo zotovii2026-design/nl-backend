@@ -40,7 +40,8 @@ PRODUCTS_SQL = """
 """
 
 REFERENCE_BOOK_SQL = """
-    SELECT entity_id, nm_id,
+    SELECT DISTINCT ON (entity_id, nm_id)
+           entity_id, nm_id,
            mp_correction_pct, buyout_niche_pct, extra_costs, ad_plan_rub,
            price_before_spp_plan, price_before_spp_change, change_date,
            fulfillment_model, wb_club_discount_pct, storage_pct, product_status,
@@ -51,16 +52,16 @@ REFERENCE_BOOK_SQL = """
     FROM reference_book
     WHERE organization_id = :org
       AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
-    ORDER BY entity_id NULLS LAST, valid_from DESC
+    ORDER BY entity_id NULLS LAST, nm_id, valid_from DESC
 """
 
 TARIFF_SNAPSHOT_SQL = """
-    SELECT nm_id, logistics_tariff, storage_tariff, ad_cost_fact,
+    SELECT DISTINCT ON (nm_id) nm_id, logistics_tariff, storage_tariff, ad_cost_fact,
            buyout_pct_fact, commission_pct, price_retail, price_with_spp,
            spp_pct, commission_fbs_pct
     FROM wb_tariff_snapshot
     WHERE organization_id = :org
-    ORDER BY target_date DESC
+    ORDER BY nm_id, target_date DESC
 """
 
 BOX_TARIFFS_SQL = """

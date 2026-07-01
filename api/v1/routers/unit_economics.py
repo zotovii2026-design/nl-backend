@@ -175,8 +175,12 @@ async def build_unit_economics(
     search_q = search.lower() if search else ""
     
     # size_name и subject_name берутся напрямую из product_entities (индексы 10, 11)
+    # P1: серверная пагинация — обрезаем до цикла обработки
+    _process_products = products
+    if limit and limit > 0 and not search:
+        _process_products = products[:limit]
 
-    for p in products:
+    for p in _process_products:
         entity_id = str(p[0]) if p[0] else None
         nm_id = p[1]
         vendor_code = p[2] or ""
@@ -211,79 +215,9 @@ async def build_unit_economics(
             _volume_liters
         )
 
-        # Tooltip расшифровка логистики (детальная WB-методика)
-        _logistics_tooltip_parts = []
-        if _pe_width and _pe_height and _pe_length:
-            _logistics_tooltip_parts.append(f"Габариты: {_pe_length}x{_pe_width}x{_pe_height} см")
-            _logistics_tooltip_parts.append(f"Объём: {_volume_liters:.3f} л (окр. {math.ceil(_volume_liters)})")
-
+        # Компактный tooltip (однострочный) + debug dict для фронта
         _meth = _delivery_debug.get("method", "")
-        # Модель отгрузки
-        if _fulfillment_model == "fbs":
-            _model_label = f"Модель: ФБС (склад: {_fbs_warehouse or 'не указан'})"
-        else:
-            _model_label = "Модель: ФБО"
-        _logistics_tooltip_parts.append(_model_label)
-        _logistics_tooltip_parts.append(f"Методика: {_meth}")
-
-        if "сетка" in _meth:
-            # <= 1 литр: показываем сетку WB
-            _logistics_tooltip_parts.append("")
-            _logistics_tooltip_parts.append("WB-сетка (<= 1 л):")
-            _logistics_tooltip_parts.append("  0.001-0.200 л → 23 ₽/л")
-            _logistics_tooltip_parts.append("  0.201-0.400 л → 26 ₽/л")
-            _logistics_tooltip_parts.append("  0.401-0.600 л → 29 ₽/л")
-            _logistics_tooltip_parts.append("  0.601-0.800 л → 30 ₽/л")
-            _logistics_tooltip_parts.append("  0.801-1.000 л → 32 ₽/л")
-            _tr = _delivery_debug.get("tier_rate", 0)
-            _logistics_tooltip_parts.append(f"  → Товар {_volume_liters:.3f} л = {_tr:.0f} ₽/л")
-            _logistics_tooltip_parts.append("")
-            if "ФБО-среднее" in _meth:
-                _kd = box_tariffs.get("Коледино", {})
-                _kr = box_tariffs.get("Краснодар", {})
-                _kz = box_tariffs.get("Казань", {})
-                _logistics_tooltip_parts.append(f"Коледино: коэфф. {_kd.get('fbo_coef', 0):.0f}%")
-                _logistics_tooltip_parts.append(f"Краснодар: коэфф. {_kr.get('fbo_coef', 0):.0f}%")
-                _logistics_tooltip_parts.append(f"Казань: коэфф. {_kz.get('fbo_coef', 0):.0f}%")
-                _ac = _delivery_debug.get("avg_coef", 0)
-                _logistics_tooltip_parts.append(f"Средний коэфф.: {_ac:.2f}%")
-                _logistics_tooltip_parts.append(f"Формула: {_tr:.0f} × {_ac:.2f}% = {_delivery_to_client:.2f} ₽")
-            else:
-                _wh = _delivery_debug.get("warehouse", "?")
-                _coef = _delivery_debug.get("coef", 0)
-                _logistics_tooltip_parts.append(f"Склад: {_wh}, коэфф. {_coef:.0f}%")
-                _logistics_tooltip_parts.append(f"Формула: {_tr:.0f} × {_coef:.0f}% = {_delivery_to_client:.2f} ₽")
-        elif ">1л" in _meth:
-            # > 1 литр: показываем формулу
-            _logistics_tooltip_parts.append("")
-            _vc = _delivery_debug.get("vol_ceil", 0)
-            if "ФБС" in _meth:
-                # ФБС: конкретный склад
-                _b = _delivery_debug.get("base", 0)
-                _l = _delivery_debug.get("liter", 0)
-                _c = _delivery_debug.get("coef", 0)
-                _wh = _delivery_debug.get("warehouse", "?")
-                _fw = _delivery_debug.get("warehouse_requested", "")
-                if _fw:
-                    _logistics_tooltip_parts.append(f"Склад: {_fw} → тариф по {_wh}")
-                else:
-                    _logistics_tooltip_parts.append(f"Склад: {_wh}")
-                _logistics_tooltip_parts.append(f"Базовый тариф: {_b:.2f} ₽ + {_l:.2f} ₽/л, коэфф. {_c:.0f}%")
-                _logistics_tooltip_parts.append(f"Формула: {_b:.2f} + ({_vc}-1) × {_l:.2f} = {_delivery_to_client:.2f} ₽")
-            elif "ФБО" in _meth:
-                _kd = box_tariffs.get("Коледино", {})
-                _kr = box_tariffs.get("Краснодар", {})
-                _kz = box_tariffs.get("Казань", {})
-                _ab = round((_kd.get('fbo_base') or 0) + (_kr.get('fbo_base') or 0) + (_kz.get('fbo_base') or 0), 2)
-                _al = round((_kd.get('fbo_liter') or 0) + (_kr.get('fbo_liter') or 0) + (_kz.get('fbo_liter') or 0), 2)
-                _logistics_tooltip_parts.append(f"Коледино: {_kd.get('fbo_base', 0):.2f} + {_kd.get('fbo_liter', 0):.2f}/л (коэфф. {_kd.get('fbo_coef', 0):.0f}%)")
-                _logistics_tooltip_parts.append(f"Краснодар: {_kr.get('fbo_base', 0):.2f} + {_kr.get('fbo_liter', 0):.2f}/л (коэфф. {_kr.get('fbo_coef', 0):.0f}%)")
-                _logistics_tooltip_parts.append(f"Казань: {_kz.get('fbo_base', 0):.2f} + {_kz.get('fbo_liter', 0):.2f}/л (коэфф. {_kz.get('fbo_coef', 0):.0f}%)")
-                _logistics_tooltip_parts.append(f"Среднее: {_ab/3:.2f} + {_al/3:.2f}/л")
-
-        _logistics_tooltip_parts.append("")
-        _logistics_tooltip_parts.append(f"Итого логистика: {_delivery_to_client:.2f} ₽")
-        _logistics_tooltip = chr(10).join(_logistics_tooltip_parts)
+        _logistics_tooltip = f"{_meth} | {_delivery_to_client:.2f} ₽ | V={_volume_liters:.1f}л"
 
         # Фильтр поиска
         if search_q and search_q not in str(nm_id) and search_q not in product_name.lower() and search_q not in vendor_code.lower():
@@ -367,13 +301,15 @@ async def build_unit_economics(
     _result_full = {"items": items, "total": len(items)}
     if not search:
         try:
-            _redis.setex(_cache_key, 1800, _json.dumps(_result_full, ensure_ascii=False, default=str))
+            _redis.setex(_cache_key, 3600, _json.dumps(_result_full, ensure_ascii=False, default=str))
         except Exception:
             pass
 
-    # Пагинация: если limit указан — обрезаем items
+    # Пагинация: total всегда по всем товарам
+    _total_all = len(products)
     if limit and limit > 0:
-        return {"items": items[:limit], "total": len(items)}
+        return {"items": items[:limit], "total": _total_all}
+    _result_full["total"] = _total_all
     return _result_full
 
 
