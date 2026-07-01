@@ -509,6 +509,10 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             warnings.append(f"Строка {idx}: Арт WB '{nm_raw}' не число — пропущено")
             skipped += 1
             continue
+        if nm <= 0 or nm > 2147483647:
+            warnings.append(f"Строка {idx}: Арт WB '{nm_raw}' вне допустимого диапазона — пропущено")
+            skipped += 1
+            continue
 
         sz_val = ps(row, "Размер", "size_name")
         eid = None
