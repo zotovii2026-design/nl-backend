@@ -743,7 +743,6 @@ async def get_ad_stats_by_art(
         campaigns = nm_campaigns.get(nm_id, [])
         sum_price_art = sum(c.get("sum_price", 0) for c in campaigns) if campaigns else 0
         drr_art = round(spent / sum_price_art * 100, 1) if sum_price_art else 0
-        drr_total_art = round(spent / total_revenue_period * 100, 1) if total_revenue_period else 0
         items.append({
             "nm_id": nm_id,
             "spent": spent,
@@ -757,9 +756,7 @@ async def get_ad_stats_by_art(
             "campaigns": campaigns,
             "total_orders": orders,
             "total_revenue": round(sum_price_art, 2),
-            "total_revenue_period": total_revenue_period,
             "drr": drr_art,
-            "drr_total": drr_total_art,
         })
 
     # ═══ Информация о товарах (название, фото, vendor_code) ═══

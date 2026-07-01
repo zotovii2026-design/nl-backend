@@ -9,7 +9,7 @@ var _adsRefreshStatusSeq = 0;
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    var VER = 'ads-arts-grid-v5';
+    var VER = 'ads-arts-grid-v6';
     if (localStorage.getItem('ads-arts-grid-ver') !== VER) {
         localStorage.removeItem('ads-arts-grid-state-columns');
         localStorage.removeItem('ads-arts-grid-state-sort');
@@ -179,35 +179,19 @@ function getAdsArtsColumns() {
                     }
                 },
                 {
-                    title: 'ДРР по РК %', field: 'drr', width: 100, headerSort: true, hozAlign: 'right',
+                    title: 'ДРР товара %', field: 'drr', width: 105, headerSort: true, hozAlign: 'right',
                     tooltip: function(e, cell) {
                         var d = cell.getRow().getData();
-                        var tip = 'ДРР по рекламным заказам WB';
+                        var tip = 'ДРР товара по всем РК';
                         tip += '\nРасход: ' + (d.spent||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽';
-                        tip += '\nРекламные заказы: ' + (d.total_orders||0);
-                        tip += '\nСумма заказов: ' + (d.total_revenue||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽';
+                        tip += '\nРекламные заказы товара: ' + (d.total_orders||0);
+                        tip += '\nСумма заказов товара: ' + (d.total_revenue||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽';
                         return tip;
                     },
                     formatter: function(cell) {
                         var v = parseFloat(cell.getValue())||0;
                         if (!v) return '—';
                         var color = v > 50 ? '#e74c3c' : v > 25 ? '#e17055' : '#00b894';
-                        return '<span style="color:' + color + ';font-weight:600">' + v.toFixed(1) + '%</span>';
-                    },
-                },
-                {
-                    title: 'ДРР общий %', field: 'drr_total', width: 105, headerSort: true, hozAlign: 'right',
-                    tooltip: function(e, cell) {
-                        var d = cell.getRow().getData();
-                        var tip = 'ДРР от общего оборота кабинета';
-                        tip += '\nРасход: ' + (d.spent||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽';
-                        tip += '\nВсе заказы кабинета: ' + (d.total_revenue_period||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽';
-                        return tip;
-                    },
-                    formatter: function(cell) {
-                        var v = parseFloat(cell.getValue())||0;
-                        if (!v) return '—';
-                        var color = v > 20 ? '#e74c3c' : v > 10 ? '#e17055' : '#00b894';
                         return '<span style="color:' + color + ';font-weight:600">' + v.toFixed(1) + '%</span>';
                     },
                 },
