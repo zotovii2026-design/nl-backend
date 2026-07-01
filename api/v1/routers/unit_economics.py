@@ -175,12 +175,7 @@ async def build_unit_economics(
     search_q = search.lower() if search else ""
     
     # size_name и subject_name берутся напрямую из product_entities (индексы 10, 11)
-    # P1: серверная пагинация — обрезаем до цикла обработки
-    _process_products = products
-    if limit and limit > 0 and not search:
-        _process_products = products[:limit]
-
-    for p in _process_products:
+    for p in products:
         entity_id = str(p[0]) if p[0] else None
         nm_id = p[1]
         vendor_code = p[2] or ""
