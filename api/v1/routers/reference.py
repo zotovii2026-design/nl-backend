@@ -601,7 +601,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "subn": ps(row, "Категория", "subject_name"),
             "sdays": pf(row, "Скорость достав. дн", "Скорость доставки, дн", "supply_days"),
             "minbat": pf(row, "Мин партия", "Минимальная партия FBO", "min_batch_fbo"),
-            "vfrom": pd(row, "Дата начала", "valid_from"),
+            "vfrom": pd(row, "Дата начала", "valid_from") or date.today(),
         }
 
         await db.execute(text(_UPLOAD_SQL), params)
@@ -729,7 +729,7 @@ def _build_save_params(data: dict, org_id: str, nm_id: int, entity_id: str, vali
         "cdate": date.today(),
         "wbcd": pfloat(data.get("wb_club_discount_pct")),
         "adpr": (
-            min(99, max(0, pfloat(data.get("ad_plan_rub"))))
+            pfloat(data.get("ad_plan_rub"))
             if pfloat(data.get("ad_plan_rub")) is not None else None
         ),
         "sdays": pint(data.get("supply_days")),
