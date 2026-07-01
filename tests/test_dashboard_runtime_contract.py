@@ -106,6 +106,15 @@ def test_reference_book_uses_global_store_selector_only():
     assert "const orgId = getCurrentOrgId();" in DASHBOARD_SOURCE
 
 
+def test_top_store_switch_reloads_reference_book():
+    switch_top_store = DASHBOARD_SOURCE.split("async function switchTopStore()", 1)[1].split(
+        "\n}\n\nfunction showNewOrgDialog", 1
+    )[0]
+
+    assert "if (_costDirty && !await confirmDirty()) return;" in switch_top_store
+    assert "else if (tabName === 'costprice') { loadTaxSettings(); loadCostPrices(); }" in switch_top_store
+
+
 def test_expired_session_is_handled_globally():
     assert "function handleAuthExpired()" in DASHBOARD_SOURCE
     assert "Сессия истекла. Войдите заново." in DASHBOARD_SOURCE

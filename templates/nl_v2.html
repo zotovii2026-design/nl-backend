@@ -3777,6 +3777,7 @@ async function switchAnalyticsStore() {
 }
 
 async function switchTopStore() {
+    if (_costDirty && !await confirmDirty()) return;
     const fSel = document.getElementById('filter-store');
     const newOrgId = fSel.value;
     if (newOrgId === ORG_ID) return;
@@ -3803,6 +3804,7 @@ async function switchTopStore() {
         else if (tabName === 'analytics') loadAnalytics();
         else if (tabName === 'rnp') loadRnp();
         else if (tabName === 'opiu') loadOpiu();
+        else if (tabName === 'costprice') { loadTaxSettings(); loadCostPrices(); }
         else if (tabName === 'ads') { loadAds(); if (typeof loadAdsArts === 'function') loadAdsArts(); }
         else if (tabName === 'marketer') loadMarketer();
         else if (tabName === 'extads') loadExtAds();
