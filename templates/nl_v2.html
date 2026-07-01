@@ -171,8 +171,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel14"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260701-adsmodel12"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260701-adsmodel13"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
 </head>
 <body>
@@ -353,7 +353,7 @@ function resetAdsUiForOrgChange() {
         var el = document.getElementById(id);
         if (el) el.textContent = '0 ₽';
     });
-    ['ad-ctr', 'ad-cr', 'ad-drr', 'ad-drr-total'].forEach(function(id) {
+    ['ad-ctr', 'ad-cr', 'ad-drr', 'ad-drr-total', 'ad-clicks-per-order'].forEach(function(id) {
         var el = document.getElementById(id);
         if (el) el.textContent = '—';
     });
@@ -1140,6 +1140,7 @@ var _sectionHTML = {
 <div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">CPC <span title="CPC = расход / клики" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#fdcb6e" id="ad-cpc">—</div></div>
 <div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">Заказы РК <span title="Заказы из рекламной статистики WB" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#00cec9" id="ad-orders">—</div></div>
 <div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">CR <span title="CR = рекламные заказы / клики * 100" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#e84393" id="ad-cr">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">клик / заказ <span title="Клики / заказы. Показывает, какой клик привел к заказу" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#1a1a2e" id="ad-clicks-per-order">—</div></div>
 <div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">В корзину <span title="Добавления в корзину из рекламной статистики WB" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#636e72" id="ad-atbs">—</div></div>
 </div>
 </div>
@@ -1149,8 +1150,8 @@ var _sectionHTML = {
 <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:.78em;font-weight:600;color:#6c5ce7">По дням</span><span style="font-size:.7em;color:#999" id="ads-daily-count"></span></div>
 <div id="ads-daily-wrapper" style="display:block;max-height:220px;overflow-y:auto;font-size:.78em">
 <table id="ads-daily-table" style="width:100%">
-<thead><tr><th style="padding:2px 6px;text-align:left">Дата</th><th style="padding:2px 6px;text-align:right">Расход ₽</th><th style="padding:2px 6px;text-align:right">Показы</th><th style="padding:2px 6px;text-align:right">Клики</th><th style="padding:2px 6px;text-align:right">CTR</th><th style="padding:2px 6px;text-align:right">CPC ₽</th><th style="padding:2px 6px;text-align:right">Заказы</th><th style="padding:2px 6px;text-align:right">CR</th><th style="padding:2px 6px;text-align:right">В корзину</th><th style="padding:2px 6px;text-align:right">ДРР по РК %</th><th style="padding:2px 6px;text-align:right">ДРР общий %</th></tr></thead>
-<tbody id="ads-daily-body"><tr><td colspan="11" class="empty" style="padding:4px">Загрузка...</td></tr></tbody>
+<thead><tr><th style="padding:2px 6px;text-align:left">Дата</th><th style="padding:2px 6px;text-align:right">Расход ₽</th><th style="padding:2px 6px;text-align:right">Показы</th><th style="padding:2px 6px;text-align:right">Клики</th><th style="padding:2px 6px;text-align:right">CTR</th><th style="padding:2px 6px;text-align:right">CPC ₽</th><th style="padding:2px 6px;text-align:right">Заказы</th><th style="padding:2px 6px;text-align:right">клик / заказ</th><th style="padding:2px 6px;text-align:right">CR</th><th style="padding:2px 6px;text-align:right">В корзину</th><th style="padding:2px 6px;text-align:right">ДРР по РК %</th><th style="padding:2px 6px;text-align:right">ДРР общий %</th></tr></thead>
+<tbody id="ads-daily-body"><tr><td colspan="12" class="empty" style="padding:4px">Загрузка...</td></tr></tbody>
 <tfoot id="ads-daily-total"></tfoot>
 </table>
 </div>
@@ -1396,6 +1397,7 @@ async function loadAds() {
         document.getElementById('ad-cpc').textContent = fmt(t.cpc, ' ₽');
         document.getElementById('ad-orders').textContent = fmt(t.orders);
         document.getElementById('ad-cr').textContent = t.cr ? t.cr + '%' : '—';
+        document.getElementById('ad-clicks-per-order').textContent = t.clicks_per_order ? t.clicks_per_order : '—';
         document.getElementById('ad-drr').textContent = t.drr ? t.drr + '%' : '—';
         document.getElementById('ad-drr-total').textContent = t.drr_total ? t.drr_total + '%' : '—';
         document.getElementById('ad-atbs').textContent = fmt(t.atbs);
@@ -1412,13 +1414,13 @@ async function loadAds() {
         const db = document.getElementById('ads-daily-body');
         const dt = document.getElementById('ads-daily-total');
         if (!daily.length) {
-            db.innerHTML = '<tr><td colspan="11" class="empty" style="padding:4px">Нет данных</td></tr>';
+            db.innerHTML = '<tr><td colspan="12" class="empty" style="padding:4px">Нет данных</td></tr>';
             if (dt) dt.innerHTML = '';
             document.getElementById('ads-daily-count').textContent = '0 дней';
         } else {
-            db.innerHTML = daily.map(r => '<tr><td style="padding:2px 6px">'+r.date+'</td><td style="padding:2px 6px;text-align:right">'+r.spent.toLocaleString('ru-RU',{maximumFractionDigits:0})+'₽</td><td style="padding:2px 6px;text-align:right">'+r.views.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.clicks.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.ctr+'%</td><td style="padding:2px 6px;text-align:right">'+r.cpc.toFixed(2)+'₽</td><td style="padding:2px 6px;text-align:right">'+r.orders+'</td><td style="padding:2px 6px;text-align:right">'+r.cr+'%</td><td style="padding:2px 6px;text-align:right">'+(r.atbs||0)+'</td><td style="padding:2px 6px;text-align:right">'+(r.drr > 100 ? '<span style="color:#b2bec3">н/д</span>' : r.drr ? '<span style="color:'+(r.drr>50?'#e74c3c':r.drr>25?'#e17055':'#00b894')+';font-weight:600">'+r.drr+'%</span>' : '\u2014')+'</td><td style="padding:2px 6px;text-align:right">'+(r.drr_total ? '<span style="font-weight:600">'+r.drr_total+'%</span>' : '\u2014')+'</td></tr>').join('');
+            db.innerHTML = daily.map(r => '<tr><td style="padding:2px 6px">'+r.date+'</td><td style="padding:2px 6px;text-align:right">'+r.spent.toLocaleString('ru-RU',{maximumFractionDigits:0})+'₽</td><td style="padding:2px 6px;text-align:right">'+r.views.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.clicks.toLocaleString('ru-RU')+'</td><td style="padding:2px 6px;text-align:right">'+r.ctr+'%</td><td style="padding:2px 6px;text-align:right">'+r.cpc.toFixed(2)+'₽</td><td style="padding:2px 6px;text-align:right">'+r.orders+'</td><td style="padding:2px 6px;text-align:right">'+(r.clicks_per_order || '—')+'</td><td style="padding:2px 6px;text-align:right">'+r.cr+'%</td><td style="padding:2px 6px;text-align:right">'+(r.atbs||0)+'</td><td style="padding:2px 6px;text-align:right">'+(r.drr > 100 ? '<span style="color:#b2bec3">н/д</span>' : r.drr ? '<span style="color:'+(r.drr>50?'#e74c3c':r.drr>25?'#e17055':'#00b894')+';font-weight:600">'+r.drr+'%</span>' : '\u2014')+'</td><td style="padding:2px 6px;text-align:right">'+(r.drr_total ? '<span style="font-weight:600">'+r.drr_total+'%</span>' : '\u2014')+'</td></tr>').join('');
             if (dt) {
-                dt.innerHTML = '<tr style="border-top:1px solid #eee;background:#fafafa;font-weight:700"><td style="padding:3px 6px;text-align:left">Итого</td><td style="padding:3px 6px;text-align:right">'+Number(t.spent||0).toLocaleString('ru-RU',{maximumFractionDigits:0})+'₽</td><td style="padding:3px 6px;text-align:right">'+Number(t.views||0).toLocaleString('ru-RU')+'</td><td style="padding:3px 6px;text-align:right">'+Number(t.clicks||0).toLocaleString('ru-RU')+'</td><td style="padding:3px 6px;text-align:right">'+(t.ctr ? t.ctr+'%' : '—')+'</td><td style="padding:3px 6px;text-align:right">'+(t.cpc ? Number(t.cpc).toFixed(2)+'₽' : '—')+'</td><td style="padding:3px 6px;text-align:right">'+Number(t.orders||0).toLocaleString('ru-RU')+'</td><td style="padding:3px 6px;text-align:right">'+(t.cr ? t.cr+'%' : '—')+'</td><td style="padding:3px 6px;text-align:right">'+Number(t.atbs||0).toLocaleString('ru-RU')+'</td><td style="padding:3px 6px;text-align:right">'+(t.drr ? t.drr+'%' : '—')+'</td><td style="padding:3px 6px;text-align:right">'+(t.drr_total ? t.drr_total+'%' : '—')+'</td></tr>';
+                dt.innerHTML = '<tr style="border-top:1px solid #eee;background:#fafafa;font-weight:700"><td style="padding:3px 6px;text-align:left">Итого</td><td style="padding:3px 6px;text-align:right">'+Number(t.spent||0).toLocaleString('ru-RU',{maximumFractionDigits:0})+'₽</td><td style="padding:3px 6px;text-align:right">'+Number(t.views||0).toLocaleString('ru-RU')+'</td><td style="padding:3px 6px;text-align:right">'+Number(t.clicks||0).toLocaleString('ru-RU')+'</td><td style="padding:3px 6px;text-align:right">'+(t.ctr ? t.ctr+'%' : '—')+'</td><td style="padding:3px 6px;text-align:right">'+(t.cpc ? Number(t.cpc).toFixed(2)+'₽' : '—')+'</td><td style="padding:3px 6px;text-align:right">'+Number(t.orders||0).toLocaleString('ru-RU')+'</td><td style="padding:3px 6px;text-align:right">'+(t.clicks_per_order || '—')+'</td><td style="padding:3px 6px;text-align:right">'+(t.cr ? t.cr+'%' : '—')+'</td><td style="padding:3px 6px;text-align:right">'+Number(t.atbs||0).toLocaleString('ru-RU')+'</td><td style="padding:3px 6px;text-align:right">'+(t.drr ? t.drr+'%' : '—')+'</td><td style="padding:3px 6px;text-align:right">'+(t.drr_total ? t.drr_total+'%' : '—')+'</td></tr>';
             }
             document.getElementById('ads-daily-count').textContent = daily.length + ' дней';
         }
@@ -1442,7 +1444,7 @@ function showAdsLoadError(message) {
     const body = document.getElementById('ads-daily-body');
     const total = document.getElementById('ads-daily-total');
     const count = document.getElementById('ads-daily-count');
-    if (body) body.innerHTML = '<tr><td colspan="11" class="empty" style="padding:4px">' + esc(message || 'Ошибка загрузки') + '</td></tr>';
+    if (body) body.innerHTML = '<tr><td colspan="12" class="empty" style="padding:4px">' + esc(message || 'Ошибка загрузки') + '</td></tr>';
     if (total) total.innerHTML = '';
     if (count) count.textContent = '0 дней';
     if (typeof updateAdsTabulator === 'function') updateAdsTabulator([]);

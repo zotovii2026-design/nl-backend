@@ -596,6 +596,7 @@ async def get_ad_stats(
             "orders": orders,
             "atbs": atbs,
             "cr": round(orders / clicks * 100, 2) if clicks else 0,
+            "clicks_per_order": round(clicks / orders, 1) if orders else 0,
             "sum_price": sum_price_day,
             "total_revenue": total_revenue_day,
             "drr": drr_day,
@@ -725,6 +726,7 @@ async def get_ad_stats(
                 "orders": int(r[5] or 0),
                 "atbs": int(r[6] or 0),
                 "sum_price": round(_sf(r[7]), 2),
+                "clicks_per_order": round(int(r[4] or 0) / int(r[5] or 0), 1) if int(r[5] or 0) else 0,
                 "total_orders_product": product_orders_by_nm.get(nm_id, {}).get("orders_all", 0),
                 "total_revenue_product": product_orders_by_nm.get(nm_id, {}).get("revenue_all", 0),
             }
@@ -770,6 +772,7 @@ async def get_ad_stats(
             "products": products,
             "sum_price": sum_price_val,
             "cr": round(orders / clicks * 100, 2) if clicks else 0,
+            "clicks_per_order": round(clicks / orders, 1) if orders else 0,
             "total_orders": orders,
             "total_revenue": sum_price_val,
             "total_orders_product": total_orders_product,
@@ -800,6 +803,7 @@ async def get_ad_stats(
     totals["ctr"] = round(totals["clicks"] / totals["views"] * 100, 2) if totals["views"] else 0
     totals["cpc"] = round(totals["spent"] / totals["clicks"], 2) if totals["clicks"] else 0
     totals["cr"] = round(totals["orders"] / totals["clicks"] * 100, 2) if totals["clicks"] else 0
+    totals["clicks_per_order"] = round(totals["clicks"] / totals["orders"], 1) if totals["orders"] else 0
     all_sum_price = sum(d.get("sum_price", 0) for d in daily)
     totals["drr"] = round(totals["spent"] / all_sum_price * 100, 1) if all_sum_price else 0
     totals["sum_price"] = round(all_sum_price, 2)
@@ -977,6 +981,7 @@ async def get_ad_stats_by_art(
                 "ctr": round(clicks_day / views_day * 100, 2) if views_day else 0,
                 "cpc": round(spent_day / clicks_day, 2) if clicks_day else 0,
                 "cr": round(orders_day / clicks_day * 100, 2) if clicks_day else 0,
+                "clicks_per_order": round(clicks_day / orders_day, 1) if orders_day else 0,
                 "drr": round(spent_day / sum_price_day * 100, 1) if sum_price_day else 0,
             })
 
@@ -986,6 +991,7 @@ async def get_ad_stats_by_art(
             camp["ctr"] = round(camp["clicks"] / camp["views"] * 100, 2) if camp["views"] else 0
             camp["cpc"] = round(camp["spent_share"] / camp["clicks"], 2) if camp["clicks"] else 0
             camp["cr"] = round(camp["orders"] / camp["clicks"] * 100, 2) if camp["clicks"] else 0
+            camp["clicks_per_order"] = round(camp["clicks"] / camp["orders"], 1) if camp["orders"] else 0
             camp["drr"] = round(camp["spent_share"] / camp["sum_price"] * 100, 1) if camp["sum_price"] else 0
             camp["daily"].sort(key=lambda item: item["date"])
             camps.append(camp)
@@ -1015,6 +1021,7 @@ async def get_ad_stats_by_art(
             "cpc": round(spent / clicks, 2) if clicks else 0,
             "orders": orders,
             "cr": round(orders / clicks * 100, 2) if clicks else 0,
+            "clicks_per_order": round(clicks / orders, 1) if orders else 0,
             "campaigns_count": len(campaigns),
             "campaigns": campaigns,
             "total_orders": orders,
@@ -1093,6 +1100,7 @@ async def get_ad_stats_by_art(
         "ctr": round(sum(i["clicks"] for i in items) / max(sum(i["views"] for i in items), 1) * 100, 2),
         "cpc": round(sum(i["spent"] for i in items) / max(sum(i["clicks"] for i in items), 1), 2),
         "cr": round(sum(i["orders"] for i in items) / max(sum(i["clicks"] for i in items), 1) * 100, 2),
+        "clicks_per_order": round(sum(i["clicks"] for i in items) / max(sum(i["orders"] for i in items), 1), 1) if sum(i["orders"] for i in items) else 0,
         "items_count": len(items),
         "campaigns_count": sum(i["campaigns_count"] for i in items),
         "total_orders": sum(i["total_orders"] for i in items),

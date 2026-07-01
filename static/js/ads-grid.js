@@ -8,7 +8,7 @@ let _adsAllData = [];  // Полные данные до фильтрации
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ads-grid-v12';
+    const VER = 'ads-grid-v13';
     if (localStorage.getItem('ads-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ads-grid-state-columns');
         localStorage.removeItem('tabulator-ads-grid-state-sort');
@@ -252,6 +252,13 @@ function getAdsColumns() {
                     }
                 },
                 {
+                    title: 'клик / заказ', field: 'clicks_per_order', headerTooltip: 'Клики / заказы. Показывает, какой клик привел к заказу', width: 95, headerSort: true, hozAlign: 'right',
+                    formatter: function(cell) {
+                        const v = parseFloat(cell.getValue()) || 0;
+                        return v ? v.toFixed(1) : '—';
+                    }
+                },
+                {
                     title: 'В корз.', field: 'atbs', headerTooltip: 'Добавлений в корзину', width: 75, headerSort: true, hozAlign: 'right',
                     bottomCalc: 'sum', bottomCalcFormatter: function(cell) {
                         const v = cell.getValue() || 0;
@@ -403,6 +410,7 @@ function buildFilteredCampaign(campaign, products) {
         ctr: views ? Math.round((clicks / views * 100) * 100) / 100 : 0,
         cpc: clicks ? Math.round((spent / clicks) * 100) / 100 : 0,
         cr: clicks ? Math.round((orders / clicks * 100) * 100) / 100 : 0,
+        clicks_per_order: orders ? Math.round((clicks / orders) * 10) / 10 : 0,
         drr: sumPrice ? Math.round((spent / sumPrice * 100) * 10) / 10 : 0,
         drr_product: totalRevenueProduct ? Math.round((spent / totalRevenueProduct * 100) * 10) / 10 : 0,
         drr_total: totalRevenueProduct ? Math.round((spent / totalRevenueProduct * 100) * 10) / 10 : 0,
@@ -480,6 +488,7 @@ function showAdsCampaignDetail(campaign) {
     html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">Клики</div><div style="font-weight:700">' + (campaign.clicks||0).toLocaleString('ru-RU') + '</div></div>';
     html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">CTR</div><div style="font-weight:700">' + (campaign.ctr||0).toFixed(2) + '%</div></div>';
     html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">Заказы</div><div style="font-weight:700">' + (campaign.orders||0) + '</div></div>';
+    html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center" title="Клики / заказы. Показывает, какой клик привел к заказу"><div style="font-size:.75em;color:#999">клик / заказ</div><div style="font-weight:700">' + (campaign.clicks_per_order ? campaign.clicks_per_order.toFixed(1) : '—') + '</div></div>';
     html += '</div>';
 
     // Состав РК

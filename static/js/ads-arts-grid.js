@@ -10,7 +10,7 @@ var _adsArtCharts = [];
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    var VER = 'ads-arts-grid-v9';
+    var VER = 'ads-arts-grid-v10';
     if (localStorage.getItem('ads-arts-grid-ver') !== VER) {
         localStorage.removeItem('ads-arts-grid-state-columns');
         localStorage.removeItem('ads-arts-grid-state-sort');
@@ -115,6 +115,7 @@ function updateAdsArtsMetrics(totals) {
     el = document.getElementById('ad-cpc'); if (el) el.textContent = (totals.cpc || 0).toFixed(2) + ' ₽';
     el = document.getElementById('ad-orders'); if (el) el.textContent = totals.orders || 0;
     el = document.getElementById('ad-cr'); if (el) el.textContent = (totals.cr || 0).toFixed(1) + '%';
+    el = document.getElementById('ad-clicks-per-order'); if (el) el.textContent = totals.clicks_per_order ? totals.clicks_per_order : '—';
     el = document.getElementById('ad-atbs'); if (el) el.textContent = totals.atbs || 0;
     el = document.getElementById('ad-drr'); if (el) el.textContent = totals.drr ? totals.drr + '%' : '—';
     el = document.getElementById('ad-drr-total'); if (el) el.textContent = totals.drr_total ? totals.drr_total + '%' : '—';
@@ -242,6 +243,11 @@ function getAdsArtsColumns() {
                 {
                     title: 'Заказы', field: 'orders', width: 80, headerSort: true, hozAlign: 'right',
                     bottomCalc: 'sum', bottomCalcFormatter: function(cell) { return '<b>' + (cell.getValue()||0) + '</b>'; }
+                },
+                {
+                    title: 'клик / заказ', field: 'clicks_per_order', width: 95, headerSort: true, hozAlign: 'right',
+                    headerTooltip: 'Клики / заказы. Показывает, какой клик привел к заказу',
+                    formatter: function(cell) { var v = parseFloat(cell.getValue())||0; return v ? v.toFixed(1) : '—'; }
                 },
                 {
                     title: 'CR %', field: 'cr', width: 70, headerSort: true, hozAlign: 'right',
@@ -541,50 +547,33 @@ function toggleArtCampaigns(row) {
     html += '<span style="font-size:.75em;color:#999;background:#e8f8f5;padding:2px 6px;border-radius:3px">Данные из WB по nm_id</span>';
     html += '</div>';
 
-    html += '<div style="display:grid;grid-template-columns:minmax(320px,38%) minmax(420px,1fr);gap:10px;align-items:start">';
     html += '<div style="display:grid;grid-template-columns:1fr;gap:10px">';
     camps.forEach(function(c, i) {
-        html += '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px;min-width:0">';
-        html += '<div style="font-size:.78em;font-weight:700;color:#1a1a2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px">' + (c.name || ('РК #' + c.campaign_id)) + '</div>';
-        html += '<div style="height:155px"><canvas id="ads-art-campaign-chart-' + nmId + '-' + i + '"></canvas></div>';
+        var cpc = c.clicks > 0 ? (c.spent_share / c.clicks).toFixed(2) : '—';
+        var ctr = c.views > 0 ? (c.clicks / c.views * 100).toFixed(2) + '%' : '—';
+        var clicksPerOrder = c.clicks_per_order ? c.clicks_per_order.toFixed(1) : '—';
+        html += '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px;min-width:0;display:grid;grid-template-columns:minmax(320px,42%) minmax(320px,1fr);gap:12px;align-items:start">';
+        html += '<div style="min-width:0">';
+        html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">';
+        html += '<span style="font-size:.82em;font-weight:700;color:#1a1a2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px">' + (c.name || ('РК #' + c.campaign_id)) + '</span>';
+        html += '<span style="font-size:.74em;color:#999">ID: ' + c.campaign_id + '</span>';
+        html += '<span style="font-size:.74em;color:#777">' + (statusIcons[c.status] || '') + ' ' + (c.type_label || typeNames[c.type] || c.type || '—') + '</span>';
+        html += '</div>';
+        html += '<div style="display:grid;grid-template-columns:repeat(3,minmax(78px,1fr));gap:6px;font-size:.78em">';
+        html += '<div><span style="color:#999">Расход</span><br><b style="color:#e17055">' + c.spent_share.toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽</b></div>';
+        html += '<div><span style="color:#999">Показы</span><br><b>' + (c.views||0).toLocaleString('ru-RU') + '</b></div>';
+        html += '<div><span style="color:#999">Клики</span><br><b>' + (c.clicks||0).toLocaleString('ru-RU') + '</b></div>';
+        html += '<div><span style="color:#999">CTR</span><br><b>' + ctr + '</b></div>';
+        html += '<div><span style="color:#999">CPC</span><br><b>' + cpc + '</b></div>';
+        html += '<div title="Клики / заказы. Показывает, какой клик привел к заказу"><span style="color:#999">клик / заказ</span><br><b>' + clicksPerOrder + '</b></div>';
+        html += '<div><span style="color:#999">Заказы</span><br><b>' + (c.orders||0) + '</b></div>';
+        html += '<div><span style="color:#999">В корзину</span><br><b>' + (c.atbs||0) + '</b></div>';
+        html += '<div><span style="color:#999">ДРР</span><br><b>' + (c.drr ? c.drr.toFixed(1) + '%' : '—') + '</b></div>';
+        html += '</div></div>';
+        html += '<div style="height:160px;min-width:0"><canvas id="ads-art-campaign-chart-' + nmId + '-' + i + '"></canvas></div>';
         html += '</div>';
     });
     html += '</div>';
-    html += '<div style="overflow-x:auto;min-width:0">';
-    html += '<table style="width:100%;border-collapse:collapse;font-size:.82em">';
-    html += '<tr style="background:#e0e0e0">';
-    html += '<th style="padding:4px 8px;text-align:left">РК</th>';
-    html += '<th style="padding:4px 8px">Статус</th>';
-    html += '<th style="padding:4px 8px">Тип</th>';
-    html += '<th style="padding:4px 8px;text-align:right">Расход</th>';
-    html += '<th style="padding:4px 8px;text-align:right">Показы</th>';
-    html += '<th style="padding:4px 8px;text-align:right">Клики</th>';
-    html += '<th style="padding:4px 8px;text-align:right">CTR</th>';
-    html += '<th style="padding:4px 8px;text-align:right">CPC</th>';
-    html += '<th style="padding:4px 8px;text-align:right">Заказы</th>';
-    html += '<th style="padding:4px 8px;text-align:right">В корзину</th>';
-    html += '</tr>';
-
-    camps.forEach(function(c, i) {
-        var bg = i % 2 === 0 ? '#fff' : '#f8f9fa';
-        var cpc = c.clicks > 0 ? (c.spent_share / c.clicks).toFixed(2) : '—';
-        var ctr = c.clicks > 0 ? (c.clicks / c.views * 100).toFixed(2) + '%' : '—';
-        html += '<tr style="background:' + bg + '">';
-        html += '<td style="padding:4px 8px;font-weight:600">' + c.name + '<br><span style="color:#999;font-size:.8em">ID: ' + c.campaign_id + '</span></td>';
-        html += '<td style="padding:4px 8px;text-align:center">' + (statusIcons[c.status] || '') + '</td>';
-        html += '<td style="padding:4px 8px;text-align:center">' + (c.type_label || typeNames[c.type] || c.type || '—') + '</td>';
-        html += '<td style="padding:4px 8px;text-align:right;font-weight:600;color:#e17055">' + c.spent_share.toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽</td>';
-        html += '<td style="padding:4px 8px;text-align:right">' + (c.views||0).toLocaleString('ru-RU') + '</td>';
-        html += '<td style="padding:4px 8px;text-align:right">' + (c.clicks||0).toLocaleString('ru-RU') + '</td>';
-        html += '<td style="padding:4px 8px;text-align:right">' + ctr + '</td>';
-        html += '<td style="padding:4px 8px;text-align:right">' + cpc + '</td>';
-        html += '<td style="padding:4px 8px;text-align:right">' + (c.orders||0) + '</td>';
-        html += '<td style="padding:4px 8px;text-align:right">' + (c.atbs||0) + '</td>';
-        html += '</tr>';
-    });
-
-    html += '</table>';
-    html += '</div></div>';
     td.innerHTML = html;
     tr.appendChild(td);
     el.parentNode.insertBefore(tr, el.nextSibling);
@@ -594,7 +583,7 @@ function toggleArtCampaigns(row) {
 function renderAdsArtCampaignCharts(nmId, camps) {
     if (typeof Chart === 'undefined') return;
     destroyAdsArtCharts();
-    var palette = ['#6c5ce7', '#00b894', '#fdcb6e', '#e17055', '#0984e3', '#e84393', '#636e72'];
+    var palette = ['#6c5ce7', '#00b894', '#fdcb6e', '#e17055', '#0984e3', '#e84393', '#636e72', '#2d3436'];
     (camps || []).forEach(function(c, i) {
         var canvas = document.getElementById('ads-art-campaign-chart-' + nmId + '-' + i);
         var daily = (c.daily || []).slice().sort(function(a, b) {
@@ -613,7 +602,8 @@ function renderAdsArtCampaignCharts(nmId, camps) {
                     {label: 'Расход', data: daily.map(function(p) { return Number(p.spent || 0); }), borderColor: palette[3], backgroundColor: palette[3] + '22', yAxisID: 'rub', tension: 0.2, borderWidth: 2, pointRadius: 1, pointHoverRadius: 4},
                     {label: 'CPC', data: daily.map(function(p) { return Number(p.cpc || 0); }), borderColor: palette[4], backgroundColor: palette[4] + '22', yAxisID: 'rub', tension: 0.2, borderWidth: 2, pointRadius: 1, pointHoverRadius: 4},
                     {label: 'Цена', data: daily.map(function(p) { return Number(p.avg_price || 0); }), borderColor: palette[5], backgroundColor: palette[5] + '22', yAxisID: 'rub', tension: 0.2, borderWidth: 2, pointRadius: 1, pointHoverRadius: 4},
-                    {label: 'ДРР', data: daily.map(function(p) { return Number(p.drr || 0); }), borderColor: palette[6], backgroundColor: palette[6] + '22', yAxisID: 'pct', tension: 0.2, borderWidth: 2, pointRadius: 1, pointHoverRadius: 4, borderDash: [5, 5]},
+                    {label: 'клик / заказ', data: daily.map(function(p) { return Number(p.clicks_per_order || 0); }), borderColor: palette[6], backgroundColor: palette[6] + '22', yAxisID: 'pct', tension: 0.2, borderWidth: 2, pointRadius: 1, pointHoverRadius: 4, borderDash: [3, 3]},
+                    {label: 'ДРР', data: daily.map(function(p) { return Number(p.drr || 0); }), borderColor: palette[7], backgroundColor: palette[7] + '22', yAxisID: 'pct', tension: 0.2, borderWidth: 2, pointRadius: 1, pointHoverRadius: 4, borderDash: [5, 5]},
                 ],
             },
             options: {
