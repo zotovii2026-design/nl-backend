@@ -552,7 +552,7 @@ function toggleArtCampaigns(row) {
         html += '<tr style="background:' + bg + '">';
         html += '<td style="padding:4px 8px;font-weight:600">' + c.name + '<br><span style="color:#999;font-size:.8em">ID: ' + c.campaign_id + '</span></td>';
         html += '<td style="padding:4px 8px;text-align:center">' + (statusIcons[c.status] || '') + '</td>';
-        html += '<td style="padding:4px 8px;text-align:center">' + (typeNames[c.type] || c.type || '—') + '</td>';
+        html += '<td style="padding:4px 8px;text-align:center">' + (c.type_label || typeNames[c.type] || c.type || '—') + '</td>';
         html += '<td style="padding:4px 8px;text-align:right;font-weight:600;color:#e17055">' + c.spent_share.toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽</td>';
         html += '<td style="padding:4px 8px;text-align:right">' + (c.views||0).toLocaleString('ru-RU') + '</td>';
         html += '<td style="padding:4px 8px;text-align:right">' + (c.clicks||0).toLocaleString('ru-RU') + '</td>';

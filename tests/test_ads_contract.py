@@ -4,6 +4,7 @@ from api.v1.routers.ads import (
     ADS_REFRESH_COOLDOWN_SECONDS,
     ADS_REFRESH_DAYS_BACK,
     DEFAULT_AD_STATUSES,
+    _ad_type_label,
     _parse_statuses,
 )
 
@@ -34,6 +35,31 @@ def test_ads_manual_refresh_uses_nine_day_window():
 def test_ads_manual_refresh_passes_selected_org_to_celery():
     source = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
     assert 'kwargs={"days_back": ADS_REFRESH_DAYS_BACK, "org_id": org_id}' in source
+
+
+def test_ads_campaign_type_label_uses_bid_and_payment_type():
+    assert _ad_type_label("9", "unified", "cpm") == "Единая / CPM"
+    assert _ad_type_label("9", "manual", "cpc") == "Ручная / CPC"
+    assert _ad_type_label("9", "manual", "cpm") == "Ручная / CPM"
+    assert _ad_type_label("5", "", "") == "Поиск"
+
+
+def test_ads_sync_persists_wb_bid_and_payment_type():
+    source = Path("tasks/ad_sync.py").read_text(encoding="utf-8")
+    assert 'item.get("paymentType", item.get("payment_type", ""))' in source
+    assert 'item.get("bidType", item.get("bid_type", ""))' in source
+    assert "payment_type = EXCLUDED.payment_type, bid_type = EXCLUDED.bid_type" in source
+
+
+def test_ads_frontend_prefers_api_campaign_type_label():
+    backend = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
+    grid = Path("static/js/ads-grid.js").read_text(encoding="utf-8")
+    arts = Path("static/js/ads-arts-grid.js").read_text(encoding="utf-8")
+
+    assert '"type_label": _ad_type_label' in backend
+    assert "data.type_label || typeMap" in grid
+    assert "row.type_label ||" in grid
+    assert "c.type_label || typeNames" in arts
 
 
 def test_ads_template_uses_unified_period_and_daily_table():
@@ -95,7 +121,7 @@ def test_ads_uses_url_org_and_handles_unauthorized_without_breaking_tabs():
     assert "var orgId = (typeof getCurrentOrgId === 'function') ? getCurrentOrgId()" in arts
     assert "encodeURIComponent(orgId)" in arts
     assert "if (typeof getCurrentOrgId === 'function') return getCurrentOrgId();" in grid
-    assert "adsmodel8" in template
+    assert "adsmodel11" in template
     assert "adsmodel10" in template
 
 

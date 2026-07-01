@@ -26,6 +26,22 @@ VALID_AD_STATUSES = ("-1", "4", "7", "8", "9", "11")
 DEFAULT_AD_STATUSES = ["9", "11"]
 ADS_REFRESH_DAYS_BACK = 9
 ADS_REFRESH_COOLDOWN_SECONDS = 60 * 60
+AD_TYPE_NAMES = {
+    "4": "Автоматическая",
+    "5": "Поиск",
+    "6": "Каталог",
+    "7": "Таргет",
+    "8": "Рек. в рекомендациях",
+    "9": "Аукцион",
+}
+AD_BID_TYPE_NAMES = {
+    "unified": "Единая",
+    "manual": "Ручная",
+}
+AD_PAYMENT_TYPE_NAMES = {
+    "cpm": "CPM",
+    "cpc": "CPC",
+}
 
 
 def _sf(v):
@@ -69,6 +85,25 @@ def _parse_statuses(statuses: Optional[str]):
         for s in statuses.split(",")
         if s.strip() and s.strip() in VALID_AD_STATUSES
     ]
+
+
+def _normalize_ad_attr(value):
+    if value is None:
+        return ""
+    return str(value).strip().lower()
+
+
+def _ad_type_label(raw_type, bid_type=None, payment_type=None):
+    bid_label = AD_BID_TYPE_NAMES.get(_normalize_ad_attr(bid_type), "")
+    payment_label = AD_PAYMENT_TYPE_NAMES.get(_normalize_ad_attr(payment_type), "")
+
+    if bid_label and payment_label:
+        return f"{bid_label} / {payment_label}"
+    if bid_label:
+        return bid_label
+    if payment_label:
+        return payment_label
+    return AD_TYPE_NAMES.get(str(raw_type) if raw_type is not None else "", str(raw_type) if raw_type else "")
 
 
 def _ads_product_filter_sql(
@@ -489,6 +524,8 @@ async def get_ad_stats(
                COALESCE(NULLIF(c.name, ''), 'Кампания ' || sn.wb_campaign_id::text) as name,
                c.status,
                c.type,
+               c.bid_type,
+               c.payment_type,
                SUM(sn.views) as views,
                SUM(sn.clicks) as clicks,
                SUM(sn.spent) as spent,
@@ -507,7 +544,7 @@ async def get_ad_stats(
             AND sn.spent > 0
             """ + status_cond + """
             """ + product_cond + """
-        GROUP BY sn.wb_campaign_id, c.wb_campaign_id, c.name, c.status, c.type
+        GROUP BY sn.wb_campaign_id, c.wb_campaign_id, c.name, c.status, c.type, c.bid_type, c.payment_type
         ORDER BY SUM(sn.spent) DESC, c.status, COALESCE(NULLIF(c.name, ''), 'Кампания ' || sn.wb_campaign_id::text)
     """), params)
 
@@ -606,17 +643,17 @@ async def get_ad_stats(
 
     campaigns = []
     for r in all_campaign_rows:
-        views = int(r[4] or 0)
-        clicks = int(r[5] or 0)
-        spent = round(_sf(r[6]), 2)
-        orders = int(r[7] or 0)
-        atbs = int(r[8] or 0)
-        nm_count = int(r[9] or 0)
-        nm_ids = [int(n) for n in (r[10] or []) if n]
+        views = int(r[6] or 0)
+        clicks = int(r[7] or 0)
+        spent = round(_sf(r[8]), 2)
+        orders = int(r[9] or 0)
+        atbs = int(r[10] or 0)
+        nm_count = int(r[11] or 0)
+        nm_ids = [int(n) for n in (r[12] or []) if n]
 
         # Инфо о товарах
         products = products_by_campaign.get(int(r[0]), [])
-        sum_price_val = round(_sf(r[11]), 2)
+        sum_price_val = round(_sf(r[13]), 2)
 
         drr_rk = round(spent / sum_price_val * 100, 1) if sum_price_val else 0
         drr_total = round(spent / total_revenue_period * 100, 1) if total_revenue_period else 0
@@ -626,6 +663,9 @@ async def get_ad_stats(
             "name": r[1] or "Без названия",
             "status": str(r[2]) if r[2] else "",
             "type": str(r[3]) if r[3] else "",
+            "type_label": _ad_type_label(r[3], r[4], r[5]),
+            "bid_type": str(r[4]) if r[4] else "",
+            "payment_type": str(r[5]) if r[5] else "",
             "views": views,
             "clicks": clicks,
             "spent": spent,
@@ -642,7 +682,7 @@ async def get_ad_stats(
             "total_revenue_period": total_revenue_period,
             "drr": drr_rk,
             "drr_total": drr_total,
-            "source_side": r[12] or "both",
+            "source_side": r[14] or "both",
         })
 
     # ═══ Баланс ═══
@@ -757,6 +797,8 @@ async def get_ad_stats_by_art(
                 COALESCE(c.name, 'Кампания ' || sn.wb_campaign_id::text) as name,
                 c.status,
                 c.type,
+                c.bid_type,
+                c.payment_type,
                 SUM(sn.spent) as camp_spent,
                 SUM(sn.views) as camp_views,
                 SUM(sn.clicks) as camp_clicks,
@@ -773,7 +815,7 @@ async def get_ad_stats_by_art(
                 AND sn.spent > 0
                 """ + status_cond + """
                 """ + product_cond + """
-            GROUP BY sn.nm_id, sn.wb_campaign_id, c.name, c.status, c.type
+            GROUP BY sn.nm_id, sn.wb_campaign_id, c.name, c.status, c.type, c.bid_type, c.payment_type
             HAVING SUM(sn.spent) > 0
             ORDER BY SUM(sn.spent) DESC
         """), {**params, "nm_ids": all_nm_ids})
@@ -787,13 +829,16 @@ async def get_ad_stats_by_art(
                 "name": r[2] or "Без названия",
                 "status": str(r[3]) if r[3] else "",
                 "type": str(r[4]) if r[4] else "",
-                "spent_share": round(_sf(r[5]), 2),
-                "views": int(r[6] or 0),
-                "clicks": int(r[7] or 0),
-                "ctr": round((int(r[7] or 0) / int(r[6] or 0)) * 100, 2) if int(r[6] or 0) else 0,
-                "orders": int(r[8] or 0),
-                "atbs": int(r[9] or 0),
-                "sum_price": round(_sf(r[10]), 2),
+                "type_label": _ad_type_label(r[4], r[5], r[6]),
+                "bid_type": str(r[5]) if r[5] else "",
+                "payment_type": str(r[6]) if r[6] else "",
+                "spent_share": round(_sf(r[7]), 2),
+                "views": int(r[8] or 0),
+                "clicks": int(r[9] or 0),
+                "ctr": round((int(r[9] or 0) / int(r[8] or 0)) * 100, 2) if int(r[8] or 0) else 0,
+                "orders": int(r[10] or 0),
+                "atbs": int(r[11] or 0),
+                "sum_price": round(_sf(r[12]), 2),
             })
 
     # ═══ Собираем items ═══

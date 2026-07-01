@@ -151,33 +151,72 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
         if not all_campaigns:
             return {"status": "ok", "stats_saved": 0, "campaigns": 0}
 
-        # ═══ ШАГ 2: Названия + РЕАЛЬНЫЙ статус кампаний через /adv/v1/upd ═══
-        campaign_meta = {}  # advertId → {name, status, payment_type}
+        # ═══ ШАГ 2: Названия + РЕАЛЬНЫЙ статус + тип ставки/оплаты через /api/advert/v2/adverts ═══
+        campaign_meta = {}  # advertId → {name, status, payment_type, bid_type}
         try:
-            today = datetime.now(ZoneInfo("Europe/Moscow")).date()
-            resp_names = await client.get(
-                "/adv/v1/upd",
-                params={
-                    "from": (today - timedelta(days=30)).isoformat(),
-                    "to": today.isoformat(),
-                },
-            )
-            if resp_names.status_code == 200:
-                upd_data = resp_names.json()
-                if isinstance(upd_data, list):
-                    for item in upd_data:
-                        aid = item.get("advertId")
-                        if aid:
-                            campaign_meta[aid] = {
-                                "name": item.get("campName", ""),
-                                "status": str(item.get("advertStatus", "")),
-                                "payment_type": item.get("paymentType", ""),
-                            }
-                logger.info("[ad_stats] Org %s: %d items from /upd (names+status)", org_id, len(campaign_meta))
-            else:
-                logger.warning("[ad_stats] Org %s: /upd status %d", org_id, resp_names.status_code)
+            advert_ids = [str(c["advertId"]) for c in all_campaigns]
+            for start in range(0, len(advert_ids), 50):
+                chunk = advert_ids[start:start + 50]
+                resp_names = await client.get(
+                    "/api/advert/v2/adverts",
+                    params={"ids": ",".join(chunk)},
+                )
+                if resp_names.status_code == 200:
+                    data = resp_names.json()
+                    adverts = data.get("adverts", data if isinstance(data, list) else [])
+                    if isinstance(adverts, list):
+                        for item in adverts:
+                            settings = item.get("settings") or {}
+                            aid = item.get("id") or item.get("advertId")
+                            if aid:
+                                campaign_meta[aid] = {
+                                    "name": settings.get("name") or item.get("campName", "") or item.get("name", ""),
+                                    "status": str(item.get("status", item.get("advertStatus", ""))),
+                                    "payment_type": (
+                                        settings.get("payment_type")
+                                        or settings.get("paymentType")
+                                        or item.get("paymentType")
+                                        or item.get("payment_type")
+                                        or ""
+                                    ),
+                                    "bid_type": item.get("bid_type", item.get("bidType", "")),
+                                }
+                else:
+                    logger.warning("[ad_stats] Org %s: /api/advert/v2/adverts status %d", org_id, resp_names.status_code)
+                if start + 50 < len(advert_ids):
+                    await asyncio.sleep(0.25)
+            logger.info("[ad_stats] Org %s: %d items from /api/advert/v2/adverts", org_id, len(campaign_meta))
         except Exception as e:
-            logger.warning("[ad_stats] Org %s: /upd error: %s", org_id, e)
+            logger.warning("[ad_stats] Org %s: /api/advert/v2/adverts error: %s", org_id, e)
+
+        # Fallback for names/statuses if the new campaign-info endpoint is unavailable.
+        if not campaign_meta:
+            try:
+                today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+                resp_names = await client.get(
+                    "/adv/v1/upd",
+                    params={
+                        "from": (today - timedelta(days=30)).isoformat(),
+                        "to": today.isoformat(),
+                    },
+                )
+                if resp_names.status_code == 200:
+                    upd_data = resp_names.json()
+                    if isinstance(upd_data, list):
+                        for item in upd_data:
+                            aid = item.get("advertId")
+                            if aid:
+                                campaign_meta[aid] = {
+                                    "name": item.get("campName", ""),
+                                    "status": str(item.get("advertStatus", "")),
+                                    "payment_type": item.get("paymentType", item.get("payment_type", "")),
+                                    "bid_type": item.get("bidType", item.get("bid_type", "")),
+                                }
+                    logger.info("[ad_stats] Org %s: %d items from /upd fallback", org_id, len(campaign_meta))
+                else:
+                    logger.warning("[ad_stats] Org %s: /upd status %d", org_id, resp_names.status_code)
+            except Exception as e:
+                logger.warning("[ad_stats] Org %s: /upd fallback error: %s", org_id, e)
 
         # ═══ ШАГ 2b: Фильтр — какие кампании сохранять в БД ═══
         # Сохраняем кампанию если:
@@ -198,6 +237,7 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
                 camp["status"] = real_status
                 camp["name"] = meta["name"] if meta else ""
                 camp["payment_type"] = meta["payment_type"] if meta else ""
+                camp["bid_type"] = meta["bid_type"] if meta else ""
                 fresh_campaigns.append(camp)
 
         skipped_old = total_ids - len(fresh_campaigns)
@@ -214,18 +254,23 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
                 aid = camp["advertId"]
                 await db.execute(text("""
                     INSERT INTO ad_campaigns (
-                        id, organization_id, wb_campaign_id, name, type, status, wb_change_time
+                        id, organization_id, wb_campaign_id, name, type, status,
+                        payment_type, bid_type, wb_change_time
                     ) VALUES (
-                        gen_random_uuid(), :org, :cid, :name, :ctype, :cstatus, :ctime
+                        gen_random_uuid(), :org, :cid, :name, :ctype, :cstatus,
+                        :payment_type, :bid_type, :ctime
                     )
                     ON CONFLICT (organization_id, wb_campaign_id) DO UPDATE SET
                         name = EXCLUDED.name, type = EXCLUDED.type, status = EXCLUDED.status,
+                        payment_type = EXCLUDED.payment_type, bid_type = EXCLUDED.bid_type,
                         wb_change_time = EXCLUDED.wb_change_time, updated_at = now()
                 """), {
                     "org": org_id, "cid": aid,
                     "name": camp.get("name", ""),
                     "ctype": camp["type"],
                     "cstatus": camp["status"],
+                    "payment_type": camp.get("payment_type", ""),
+                    "bid_type": camp.get("bid_type", ""),
                     "ctime": camp["changeTime"],
                 })
             await db.commit()

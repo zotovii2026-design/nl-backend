@@ -8,7 +8,7 @@ let _adsAllData = [];  // Полные данные до фильтрации
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ads-grid-v10';
+    const VER = 'ads-grid-v11';
     if (localStorage.getItem('ads-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ads-grid-state-columns');
         localStorage.removeItem('tabulator-ads-grid-state-sort');
@@ -71,7 +71,8 @@ function getAdsColumns() {
                 {
                     title: 'Тип', field: 'type', headerTooltip: 'Тип кампании', width: 100, headerSort: true,
                     formatter: function(cell) {
-                        return typeMap[cell.getValue()] || cell.getValue() || '—';
+                        const data = cell.getRow().getData();
+                        return data.type_label || typeMap[cell.getValue()] || cell.getValue() || '—';
                     }
                 },
             ]
@@ -472,7 +473,7 @@ function exportAdsExcel() {
         var vals = flatCols.map(function(c) {
             var v = row[c.field];
             if (c.field === 'status') v = ({'-1':'Удалена','4':'Готова','7':'Завершена','8':'Отклонена','9':'Активна','11':'Пауза'})[v] || v;
-            if (c.field === 'type') v = ({'4':'Авто','5':'Поиск','6':'Каталог','7':'Таргет','8':'Рек.рек.','9':'Аукцион'})[v] || v;
+            if (c.field === 'type') v = row.type_label || ({'4':'Авто','5':'Поиск','6':'Каталог','7':'Таргет','8':'Рек.рек.','9':'Аукцион'})[v] || v;
             return v != null ? v : '';
         });
         lines.push(vals.map(csvEscape).join(';'));
