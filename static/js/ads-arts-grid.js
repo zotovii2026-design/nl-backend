@@ -6,10 +6,11 @@ var _adsExpandedRow = null; // текущая раскрытая строка
 var _adsAllArtsData = [];  // Полные данные до фильтрации
 var _adsArtsLoadSeq = 0;
 var _adsRefreshStatusSeq = 0;
+var _adsArtCharts = [];
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    var VER = 'ads-arts-grid-v7';
+    var VER = 'ads-arts-grid-v8';
     if (localStorage.getItem('ads-arts-grid-ver') !== VER) {
         localStorage.removeItem('ads-arts-grid-state-columns');
         localStorage.removeItem('ads-arts-grid-state-sort');
@@ -484,6 +485,7 @@ function initArtsRowExpand() {
 }
 
 function closeArtCampaigns() {
+    destroyAdsArtCharts();
     if (_adsExpandedRow) {
         var el = _adsExpandedRow.getElement();
         var next = el.nextElementSibling;
@@ -492,6 +494,14 @@ function closeArtCampaigns() {
         }
         _adsExpandedRow = null;
     }
+}
+
+function destroyAdsArtCharts() {
+    if (!_adsArtCharts || !_adsArtCharts.length) return;
+    _adsArtCharts.forEach(function(chart) {
+        if (chart && typeof chart.destroy === 'function') chart.destroy();
+    });
+    _adsArtCharts = [];
 }
 
 function toggleArtCampaigns(row) {
@@ -564,7 +574,56 @@ function toggleArtCampaigns(row) {
     });
 
     html += '</table>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:10px">';
+    camps.forEach(function(c, i) {
+        html += '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:8px;min-width:0">';
+        html += '<div style="font-size:.78em;font-weight:700;color:#1a1a2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px">' + (c.name || ('РК #' + c.campaign_id)) + '</div>';
+        html += '<div style="height:150px"><canvas id="ads-art-campaign-chart-' + nmId + '-' + i + '"></canvas></div>';
+        html += '</div>';
+    });
+    html += '</div>';
     td.innerHTML = html;
     tr.appendChild(td);
     el.parentNode.insertBefore(tr, el.nextSibling);
+    setTimeout(function() { renderAdsArtCampaignCharts(nmId, camps); }, 0);
+}
+
+function renderAdsArtCampaignCharts(nmId, camps) {
+    if (typeof Chart === 'undefined') return;
+    destroyAdsArtCharts();
+    var palette = ['#6c5ce7', '#00b894', '#fdcb6e', '#e17055', '#0984e3', '#e84393'];
+    (camps || []).forEach(function(c, i) {
+        var canvas = document.getElementById('ads-art-campaign-chart-' + nmId + '-' + i);
+        var daily = (c.daily || []).slice().sort(function(a, b) {
+            return String(a.date || '') < String(b.date || '') ? -1 : 1;
+        });
+        if (!canvas || daily.length < 1) return;
+        var labels = daily.map(function(p) { return String(p.date || '').slice(5); });
+        var chart = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {label: 'Показы', data: daily.map(function(p) { return Number(p.views || 0); }), borderColor: palette[0], backgroundColor: palette[0] + '22', yAxisID: 'qty', tension: 0.2, borderWidth: 2, pointRadius: 1, pointHoverRadius: 4},
+                    {label: 'Клики', data: daily.map(function(p) { return Number(p.clicks || 0); }), borderColor: palette[1], backgroundColor: palette[1] + '22', yAxisID: 'qty', tension: 0.2, borderWidth: 2, pointRadius: 1, pointHoverRadius: 4},
+                    {label: 'Заказы', data: daily.map(function(p) { return Number(p.orders || 0); }), borderColor: palette[2], backgroundColor: palette[2] + '22', yAxisID: 'qty', tension: 0.2, borderWidth: 2, pointRadius: 1, pointHoverRadius: 4},
+                    {label: 'Расход', data: daily.map(function(p) { return Number(p.spent || 0); }), borderColor: palette[3], backgroundColor: palette[3] + '22', yAxisID: 'rub', tension: 0.2, borderWidth: 2, pointRadius: 1, pointHoverRadius: 4},
+                    {label: 'CPC', data: daily.map(function(p) { return Number(p.cpc || 0); }), borderColor: palette[4], backgroundColor: palette[4] + '22', yAxisID: 'rub', tension: 0.2, borderWidth: 2, pointRadius: 1, pointHoverRadius: 4},
+                    {label: 'ДРР', data: daily.map(function(p) { return Number(p.drr || 0); }), borderColor: palette[5], backgroundColor: palette[5] + '22', yAxisID: 'pct', tension: 0.2, borderWidth: 2, pointRadius: 1, pointHoverRadius: 4, borderDash: [5, 5]},
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {mode: 'index', intersect: false},
+                plugins: {legend: {position: 'top', labels: {boxWidth: 10, font: {size: 10}}}},
+                scales: {
+                    qty: {type: 'linear', position: 'left', grid: {color: 'rgba(0,0,0,.06)'}},
+                    rub: {type: 'linear', position: 'right', grid: {drawOnChartArea: false}},
+                    pct: {type: 'linear', position: 'right', display: false, grid: {drawOnChartArea: false}},
+                },
+            },
+        });
+        _adsArtCharts.push(chart);
+    });
 }

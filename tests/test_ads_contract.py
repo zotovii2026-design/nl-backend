@@ -130,8 +130,8 @@ def test_ads_uses_url_org_and_handles_unauthorized_without_breaking_tabs():
     assert "var orgId = (typeof getCurrentOrgId === 'function') ? getCurrentOrgId()" in arts
     assert "encodeURIComponent(orgId)" in arts
     assert "if (typeof getCurrentOrgId === 'function') return getCurrentOrgId();" in grid
-    assert "adsmodel12" in template
-    assert "adsmodel10" in template
+    assert "adsmodel13" in template
+    assert "adsmodel11" in template
 
 
 def test_ads_has_separate_campaign_and_total_drr_columns():
@@ -170,7 +170,37 @@ def test_ads_campaign_rows_use_product_revenue_for_product_drr():
     assert '"drr_product": drr_product' in backend
     assert "totalRevenueProduct = products.reduce" in grid
     assert "ads-grid-v12" in grid
-    assert "adsmodel12" in template
+    assert "adsmodel13" in template
+
+
+def test_ads_top_chart_uses_cabinet_daily_context():
+    backend = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
+    template = Path("templates/nl_v2.html").read_text(encoding="utf-8")
+
+    assert "def _ads_tech_status_filter_sql" in backend
+    assert "FROM tech_status ts" in backend
+    assert "AVG(COALESCE(NULLIF(ts.price_discount, 0), NULLIF(ts.price_spp, 0), NULLIF(ts.price, 0)))" in backend
+    assert '"organic_views": organic_views' in backend
+    assert '"avg_price": tech_day.get("avg_price", 0)' in backend
+    assert '"chart_daily": sorted(daily' in backend
+    assert "ads-top-chart" in template
+    assert "function renderAdsTopChart" in template
+    assert "Показы органика" in template
+    assert "Средняя цена" in template
+    assert "ДРР общий = расход рекламы / все заказы кабинета" in template
+
+
+def test_ads_by_art_expanded_campaigns_have_daily_charts():
+    backend = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
+    arts = Path("static/js/ads-arts-grid.js").read_text(encoding="utf-8")
+
+    assert "sn.stat_date" in backend
+    assert '"daily": []' in backend
+    assert '"date": str(r[7])' in backend
+    assert "renderAdsArtCampaignCharts" in arts
+    assert "ads-art-campaign-chart-" in arts
+    assert "destroyAdsArtCharts" in arts
+    assert "ads-arts-grid-v8" in arts
 
 
 def test_ads_org_switch_resets_state_and_ignores_stale_responses():

@@ -218,6 +218,62 @@ def _ads_total_revenue_filter_sql(
     return join_sql, " AND " + " AND ".join(filters) if filters else ""
 
 
+def _ads_tech_status_filter_sql(
+    product_status: Optional[str],
+    product_class: Optional[str],
+    brand: Optional[str],
+    search: Optional[str],
+    params: dict,
+):
+    """SQL join/where for cabinet-level product metrics from tech_status."""
+    filters = []
+    if product_status:
+        params["tech_product_status"] = product_status
+        filters.append("COALESCE(rb_tech.product_status, '') = :tech_product_status")
+    if product_class:
+        params["tech_product_class"] = product_class
+        filters.append("COALESCE(rb_tech.product_class, '') = :tech_product_class")
+    if brand:
+        params["tech_brand"] = brand
+        filters.append("COALESCE(NULLIF(rb_tech.brand, ''), pe_tech.brand, '') = :tech_brand")
+    if search:
+        params["tech_search_like"] = f"%{search.strip()}%"
+        filters.append("""(
+            ts.nm_id::text ILIKE :tech_search_like
+            OR COALESCE(ts.vendor_code, rb_tech.vendor_code, pe_tech.vendor_code, '') ILIKE :tech_search_like
+            OR COALESCE(ts.product_name, pe_tech.product_name, '') ILIKE :tech_search_like
+        )""")
+
+    if not filters:
+        return "", ""
+
+    join_sql = """
+        LEFT JOIN (
+            SELECT DISTINCT ON (nm_id)
+                   nm_id,
+                   product_status,
+                   product_class,
+                   brand,
+                   vendor_code
+            FROM reference_book
+            WHERE organization_id = :org
+              AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+            ORDER BY nm_id, valid_from DESC, created_at DESC NULLS LAST
+        ) rb_tech ON rb_tech.nm_id = ts.nm_id
+        LEFT JOIN (
+            SELECT DISTINCT ON (nm_id)
+                   nm_id,
+                   vendor_code,
+                   product_name,
+                   brand
+            FROM product_entities
+            WHERE organization_id = :org
+            ORDER BY nm_id, created_at DESC
+        ) pe_tech ON pe_tech.nm_id = ts.nm_id
+    """
+    return join_sql, " AND " + " AND ".join(filters)
+
+
 async def _get_total_orders_revenue_by_day(
     db: AsyncSession,
     params: dict,
@@ -450,6 +506,27 @@ async def get_ad_stats(
         db, params, product_status, product_class, brand, search
     )
     total_revenue_period = round(sum(total_revenue_by_day.values()), 2)
+    tech_join, tech_cond = _ads_tech_status_filter_sql(
+        product_status, product_class, brand, search, params
+    )
+    tech_rows = await db.execute(text("""
+        SELECT ts.target_date,
+               COALESCE(SUM(ts.impressions), 0) as total_views,
+               AVG(COALESCE(NULLIF(ts.price_discount, 0), NULLIF(ts.price_spp, 0), NULLIF(ts.price, 0))) as avg_price
+        FROM tech_status ts
+        """ + tech_join + """
+        WHERE ts.organization_id = :org
+          AND ts.target_date >= :d_from AND ts.target_date <= :d_to
+          AND ts.nm_id IS NOT NULL
+          """ + tech_cond + """
+        GROUP BY ts.target_date
+    """), params)
+    tech_by_date = {}
+    for r in tech_rows:
+        tech_by_date[str(r[0])] = {
+            "total_views": int(r[1] or 0),
+            "avg_price": round(_sf(r[2]), 2),
+        }
 
     # ═══ Статистика по дням (из ad_stats_nm) ═══
     daily_rows = await db.execute(text("""
@@ -500,11 +577,18 @@ async def get_ad_stats(
         date_str = str(r[0])
         sum_price_day = sp_by_date.get(date_str, 0)
         total_revenue_day = total_revenue_by_day.get(date_str, 0)
+        tech_day = tech_by_date.get(date_str, {})
+        cabinet_views = int(tech_day.get("total_views") or 0)
+        organic_views = max(cabinet_views - views, 0)
         drr_day = round(spent / sum_price_day * 100, 1) if sum_price_day else 0
         drr_total_day = round(spent / total_revenue_day * 100, 1) if total_revenue_day else 0
         daily.append({
             "date": date_str,
             "views": views,
+            "ad_views": views,
+            "cabinet_views": cabinet_views,
+            "organic_views": organic_views,
+            "avg_price": tech_day.get("avg_price", 0),
             "clicks": clicks,
             "spent": spent,
             "ctr": round(clicks / views * 100, 2) if views else 0,
@@ -724,6 +808,7 @@ async def get_ad_stats(
 
     return {
         "daily": daily,
+        "chart_daily": sorted(daily, key=lambda row: row["date"]),
         "campaigns": campaigns,
         "top_campaigns": campaigns[:20],
         "totals": totals,
@@ -811,6 +896,7 @@ async def get_ad_stats_by_art(
                 c.type,
                 c.bid_type,
                 c.payment_type,
+                sn.stat_date,
                 SUM(sn.spent) as camp_spent,
                 SUM(sn.views) as camp_views,
                 SUM(sn.clicks) as camp_clicks,
@@ -827,31 +913,67 @@ async def get_ad_stats_by_art(
                 AND sn.spent > 0
                 """ + status_cond + """
                 """ + product_cond + """
-            GROUP BY sn.nm_id, sn.wb_campaign_id, c.name, c.status, c.type, c.bid_type, c.payment_type
+            GROUP BY sn.nm_id, sn.wb_campaign_id, c.name, c.status, c.type, c.bid_type, c.payment_type, sn.stat_date
             HAVING SUM(sn.spent) > 0
-            ORDER BY SUM(sn.spent) DESC
+            ORDER BY sn.nm_id, sn.wb_campaign_id, sn.stat_date
         """), {**params, "nm_ids": all_nm_ids})
 
         for r in camp_rows:
             nm_id = int(r[0])
-            if nm_id not in nm_campaigns:
-                nm_campaigns[nm_id] = []
-            nm_campaigns[nm_id].append({
-                "campaign_id": int(r[1]),
+            cid = int(r[1])
+            campaigns_for_nm = nm_campaigns.setdefault(nm_id, {})
+            camp = campaigns_for_nm.setdefault(cid, {
+                "campaign_id": cid,
                 "name": r[2] or "Без названия",
                 "status": str(r[3]) if r[3] else "",
                 "type": str(r[4]) if r[4] else "",
                 "type_label": _ad_type_label(r[4], r[5], r[6]),
                 "bid_type": str(r[5]) if r[5] else "",
                 "payment_type": str(r[6]) if r[6] else "",
-                "spent_share": round(_sf(r[7]), 2),
-                "views": int(r[8] or 0),
-                "clicks": int(r[9] or 0),
-                "ctr": round((int(r[9] or 0) / int(r[8] or 0)) * 100, 2) if int(r[8] or 0) else 0,
-                "orders": int(r[10] or 0),
-                "atbs": int(r[11] or 0),
-                "sum_price": round(_sf(r[12]), 2),
+                "spent_share": 0,
+                "views": 0,
+                "clicks": 0,
+                "orders": 0,
+                "atbs": 0,
+                "sum_price": 0,
+                "daily": [],
             })
+            spent_day = round(_sf(r[8]), 2)
+            views_day = int(r[9] or 0)
+            clicks_day = int(r[10] or 0)
+            orders_day = int(r[11] or 0)
+            atbs_day = int(r[12] or 0)
+            sum_price_day = round(_sf(r[13]), 2)
+            camp["spent_share"] = round(camp["spent_share"] + spent_day, 2)
+            camp["views"] += views_day
+            camp["clicks"] += clicks_day
+            camp["orders"] += orders_day
+            camp["atbs"] += atbs_day
+            camp["sum_price"] = round(camp["sum_price"] + sum_price_day, 2)
+            camp["daily"].append({
+                "date": str(r[7]),
+                "views": views_day,
+                "clicks": clicks_day,
+                "spent": spent_day,
+                "orders": orders_day,
+                "atbs": atbs_day,
+                "sum_price": sum_price_day,
+                "ctr": round(clicks_day / views_day * 100, 2) if views_day else 0,
+                "cpc": round(spent_day / clicks_day, 2) if clicks_day else 0,
+                "cr": round(orders_day / clicks_day * 100, 2) if clicks_day else 0,
+                "drr": round(spent_day / sum_price_day * 100, 1) if sum_price_day else 0,
+            })
+
+    for nm_id, campaigns_by_id in list(nm_campaigns.items()):
+        camps = []
+        for camp in campaigns_by_id.values():
+            camp["ctr"] = round(camp["clicks"] / camp["views"] * 100, 2) if camp["views"] else 0
+            camp["cpc"] = round(camp["spent_share"] / camp["clicks"], 2) if camp["clicks"] else 0
+            camp["cr"] = round(camp["orders"] / camp["clicks"] * 100, 2) if camp["clicks"] else 0
+            camp["drr"] = round(camp["spent_share"] / camp["sum_price"] * 100, 1) if camp["sum_price"] else 0
+            camp["daily"].sort(key=lambda item: item["date"])
+            camps.append(camp)
+        nm_campaigns[nm_id] = sorted(camps, key=lambda item: item["spent_share"], reverse=True)
 
     # ═══ Собираем items ═══
     items = []

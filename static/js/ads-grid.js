@@ -362,6 +362,7 @@ function fillAdsSelect(id, emptyLabel, values) {
         var opt = document.createElement('option');
         opt.value = v;
         opt.textContent = v;
+        opt.title = v;
         sel.appendChild(opt);
     });
     sel.value = values.indexOf(current) >= 0 ? current : '';

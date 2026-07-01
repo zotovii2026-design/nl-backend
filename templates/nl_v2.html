@@ -171,8 +171,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel12"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260701-adsmodel10"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel13"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260701-adsmodel11"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
 </head>
 <body>
@@ -1123,35 +1123,31 @@ var _sectionHTML = {
 <div style="margin-left:auto;font-size:.85em;color:#999" id="ads-updated"></div>
 </div>
 
-<!-- Карточки метрик (сгруппированные) -->
-<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:stretch" id="ads-metrics">
-<!-- Финансы -->
-<div style="display:flex;gap:6px;align-items:stretch">
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Расход</div><div style="font-size:.95em;font-weight:700;color:#e17055" id="ad-spent">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:88px;border:1px solid #eee"><div style="font-size:.68em;color:#999" title="Расход / сумма рекламных заказов WB">ДРР по РК</div><div style="font-size:.95em;font-weight:700;color:#e17055" id="ad-drr">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:88px;border:1px solid #eee"><div style="font-size:.68em;color:#999" title="Расход / все заказы кабинета за период">ДРР общий</div><div style="font-size:.95em;font-weight:700;color:#e17055" id="ad-drr-total">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Баланс</div><div style="font-size:.95em;font-weight:700;color:#2d3436" id="ad-balance">—</div></div>
+<div class="ads-top-panel" style="display:grid;grid-template-columns:minmax(340px,1.15fr) minmax(360px,.85fr);gap:10px;margin-bottom:8px;align-items:stretch">
+<div style="background:#fff;border-radius:8px;border:1px solid #eee;padding:10px 12px;min-width:0">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:.78em;font-weight:600;color:#6c5ce7">Динамика</span><span style="font-size:.7em;color:#999" id="ads-chart-count"></span></div>
+<div style="height:210px;min-width:0"><canvas id="ads-top-chart"></canvas></div>
 </div>
-<div style="width:1px;background:#e0e0e0;margin:0 4px;align-self:stretch"></div>
-<!-- Трафик -->
-<div style="display:flex;gap:6px;align-items:stretch">
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Показы</div><div style="font-size:.95em;font-weight:700;color:#6c5ce7" id="ad-views">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Клики</div><div style="font-size:.95em;font-weight:700;color:#0984e3" id="ad-clicks">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CTR</div><div style="font-size:.95em;font-weight:700;color:#00b894" id="ad-ctr">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CPC</div><div style="font-size:.95em;font-weight:700;color:#fdcb6e" id="ad-cpc">—</div></div>
-</div>
-<div style="width:1px;background:#e0e0e0;margin:0 4px;align-self:stretch"></div>
-<!-- Конверсии -->
-<div style="display:flex;gap:6px;align-items:stretch">
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">Заказы</div><div style="font-size:.95em;font-weight:700;color:#00cec9" id="ad-orders">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">CR</div><div style="font-size:.95em;font-weight:700;color:#e84393" id="ad-cr">—</div></div>
-<div style="background:#fff;border-radius:6px;padding:6px 10px;text-align:center;min-width:78px;border:1px solid #eee"><div style="font-size:.68em;color:#999">В корзину</div><div style="font-size:.95em;font-weight:700;color:#636e72" id="ad-atbs">—</div></div>
+<div style="background:#fff;border-radius:8px;border:1px solid #eee;padding:8px 10px;min-width:0">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:6px;align-items:stretch" id="ads-metrics">
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="Сумма расходов WB-рекламы по выбранному магазину, периоду, статусам и товарным фильтрам"><div style="font-size:.66em;color:#999">Расход</div><div style="font-size:.92em;font-weight:700;color:#e17055" id="ad-spent">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="ДРР по РК = расход рекламы / сумма заказов из рекламной статистики WB * 100"><div style="font-size:.66em;color:#999">ДРР по РК</div><div style="font-size:.92em;font-weight:700;color:#e17055" id="ad-drr">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="ДРР общий = расход рекламы / все заказы кабинета за период * 100. Если выбран бренд/класс/поиск, знаменатель считается по этой выборке товаров"><div style="font-size:.66em;color:#999">ДРР общий</div><div style="font-size:.92em;font-weight:700;color:#e17055" id="ad-drr-total">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="Баланс рекламного кабинета из последнего ответа WB"><div style="font-size:.66em;color:#999">Баланс</div><div style="font-size:.92em;font-weight:700;color:#2d3436" id="ad-balance">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="Рекламные показы из ad_stats_nm по выбранной выборке"><div style="font-size:.66em;color:#999">Показы РК</div><div style="font-size:.92em;font-weight:700;color:#6c5ce7" id="ad-views">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="Клики из рекламной статистики WB"><div style="font-size:.66em;color:#999">Клики</div><div style="font-size:.92em;font-weight:700;color:#0984e3" id="ad-clicks">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="CTR = клики / рекламные показы * 100"><div style="font-size:.66em;color:#999">CTR</div><div style="font-size:.92em;font-weight:700;color:#00b894" id="ad-ctr">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="CPC = расход / клики"><div style="font-size:.66em;color:#999">CPC</div><div style="font-size:.92em;font-weight:700;color:#fdcb6e" id="ad-cpc">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="Заказы из рекламной статистики WB"><div style="font-size:.66em;color:#999">Заказы РК</div><div style="font-size:.92em;font-weight:700;color:#00cec9" id="ad-orders">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="CR = рекламные заказы / клики * 100"><div style="font-size:.66em;color:#999">CR</div><div style="font-size:.92em;font-weight:700;color:#e84393" id="ad-cr">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="Добавления в корзину из рекламной статистики WB"><div style="font-size:.66em;color:#999">В корзину</div><div style="font-size:.92em;font-weight:700;color:#636e72" id="ad-atbs">—</div></div>
 </div>
 </div>
-<!-- Статистика по дням (на всю ширину, под метриками) -->
+</div>
+<!-- Статистика по дням -->
 <div style="background:#fff;border-radius:8px;border:1px solid #eee;padding:8px 12px;margin-bottom:8px">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:.78em;font-weight:600;color:#6c5ce7">📅 По дням</span><span style="font-size:.7em;color:#999" id="ads-daily-count"></span></div>
-<div id="ads-daily-wrapper" style="display:block;max-height:260px;overflow-y:auto;font-size:.78em">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:.78em;font-weight:600;color:#6c5ce7">По дням</span><span style="font-size:.7em;color:#999" id="ads-daily-count"></span></div>
+<div id="ads-daily-wrapper" style="display:block;max-height:220px;overflow-y:auto;font-size:.78em">
 <table id="ads-daily-table" style="width:100%">
 <thead><tr><th style="padding:2px 6px;text-align:left">Дата</th><th style="padding:2px 6px;text-align:right">Расход ₽</th><th style="padding:2px 6px;text-align:right">Показы</th><th style="padding:2px 6px;text-align:right">Клики</th><th style="padding:2px 6px;text-align:right">CTR</th><th style="padding:2px 6px;text-align:right">CPC ₽</th><th style="padding:2px 6px;text-align:right">Заказы</th><th style="padding:2px 6px;text-align:right">CR</th><th style="padding:2px 6px;text-align:right">В корзину</th><th style="padding:2px 6px;text-align:right">ДРР по РК %</th><th style="padding:2px 6px;text-align:right">ДРР общий %</th></tr></thead>
 <tbody id="ads-daily-body"><tr><td colspan="11" class="empty" style="padding:4px">Загрузка...</td></tr></tbody>
@@ -1171,7 +1167,7 @@ var _sectionHTML = {
 <span style="width:1px;height:20px;background:#ddd;margin:0 4px"></span>
 <select id="ads-flt-status" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется</option></select>
 <select id="ads-flt-class" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Класс: все</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select>
-<select id="ads-flt-brand" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Бренд: все</option></select>
+<select id="ads-flt-brand" onchange="applyAdsColumnFilters()" title="Бренд: все доступные значения в списке, при большом количестве используйте прокрутку" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em;min-width:190px;max-width:280px"><option value="">Бренд: все</option></select>
 <input type="text" id="ads-flt-search" placeholder="🔍 Поиск" oninput="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em;width:140px">
 <button onclick="resetAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 8px;font-size:.82em;background:#fff;cursor:pointer">✕</button>
 <span style="font-size:.8em;color:#999" id="ads-filter-count"></span>
@@ -1425,6 +1421,7 @@ async function loadAds() {
             }
             document.getElementById('ads-daily-count').textContent = daily.length + ' дней';
         }
+        renderAdsTopChart(d.chart_daily || daily);
         // --- Рендер таблицы кампаний (Tabulator) ---
         window._adsAllCampaigns = d.campaigns || [];
         updateAdsTabulator(d.campaigns || []);
@@ -1448,6 +1445,51 @@ function showAdsLoadError(message) {
     if (total) total.innerHTML = '';
     if (count) count.textContent = '0 дней';
     if (typeof updateAdsTabulator === 'function') updateAdsTabulator([]);
+    renderAdsTopChart([]);
+}
+
+var adsTopChart = null;
+
+function renderAdsTopChart(points) {
+    var canvas = document.getElementById('ads-top-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    if (adsTopChart) {
+        adsTopChart.destroy();
+        adsTopChart = null;
+    }
+    points = (points || []).slice().sort(function(a, b) {
+        return String(a.date || '') < String(b.date || '') ? -1 : 1;
+    });
+    var count = document.getElementById('ads-chart-count');
+    if (count) count.textContent = points.length ? points.length + ' дней' : 'нет данных';
+    if (!points.length) return;
+    var labels = points.map(function(p) { return String(p.date || '').slice(5); });
+    var palette = ['#6c5ce7', '#00b894', '#fdcb6e', '#e17055', '#0984e3', '#e84393', '#636e72'];
+    adsTopChart = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {label: 'Показы РК', data: points.map(function(p) { return Number(p.ad_views ?? p.views ?? 0); }), borderColor: palette[0], backgroundColor: palette[0] + '22', yAxisID: 'qty', tension: 0.2, borderWidth: 2, pointRadius: 2, pointHoverRadius: 5},
+                {label: 'Показы органика', data: points.map(function(p) { return Number(p.organic_views || 0); }), borderColor: palette[1], backgroundColor: palette[1] + '22', yAxisID: 'qty', tension: 0.2, borderWidth: 2, pointRadius: 2, pointHoverRadius: 5},
+                {label: 'Заказы РК', data: points.map(function(p) { return Number(p.orders || 0); }), borderColor: palette[2], backgroundColor: palette[2] + '22', yAxisID: 'qty', tension: 0.2, borderWidth: 2, pointRadius: 2, pointHoverRadius: 5},
+                {label: 'Средняя цена', data: points.map(function(p) { return Number(p.avg_price || 0); }), borderColor: palette[3], backgroundColor: palette[3] + '22', yAxisID: 'rub', tension: 0.2, borderWidth: 2, pointRadius: 2, pointHoverRadius: 5},
+                {label: 'CPC', data: points.map(function(p) { return Number(p.cpc || 0); }), borderColor: palette[4], backgroundColor: palette[4] + '22', yAxisID: 'rub', tension: 0.2, borderWidth: 2, pointRadius: 2, pointHoverRadius: 5},
+                {label: 'ДРР общий', data: points.map(function(p) { return Number(p.drr_total || 0); }), borderColor: palette[5], backgroundColor: palette[5] + '22', yAxisID: 'pct', tension: 0.2, borderWidth: 2, pointRadius: 2, pointHoverRadius: 5, borderDash: [5, 5]},
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {mode: 'index', intersect: false},
+            plugins: {legend: {position: 'top', labels: {boxWidth: 12, font: {size: 11}}}},
+            scales: {
+                qty: {type: 'linear', position: 'left', grid: {color: 'rgba(0,0,0,.06)'}},
+                rub: {type: 'linear', position: 'right', grid: {drawOnChartArea: false}},
+                pct: {type: 'linear', position: 'right', display: false, grid: {drawOnChartArea: false}},
+            },
+        },
+    });
 }
 
 
