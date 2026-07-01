@@ -127,6 +127,92 @@ def _ads_product_filter_sql(
     return join_sql, " AND " + " AND ".join(filters)
 
 
+def _ads_total_revenue_filter_sql(
+    product_status: Optional[str],
+    product_class: Optional[str],
+    brand: Optional[str],
+    search: Optional[str],
+    params: dict,
+):
+    """SQL join/where for total cabinet order revenue over tech_status."""
+    filters = []
+    if product_status:
+        params["total_product_status"] = product_status
+        filters.append("COALESCE(rb_total.product_status, '') = :total_product_status")
+    if product_class:
+        params["total_product_class"] = product_class
+        filters.append("COALESCE(rb_total.product_class, '') = :total_product_class")
+    if brand:
+        params["total_brand"] = brand
+        filters.append("COALESCE(NULLIF(rb_total.brand, ''), pe_total.brand, '') = :total_brand")
+    if search:
+        params["total_search_like"] = f"%{search.strip()}%"
+        filters.append("""(
+            ts.nm_id::text ILIKE :total_search_like
+            OR COALESCE(ts.vendor_code, rb_total.vendor_code, pe_total.vendor_code, '') ILIKE :total_search_like
+            OR COALESCE(ts.product_name, pe_total.product_name, '') ILIKE :total_search_like
+        )""")
+
+    join_sql = ""
+    if filters:
+        join_sql = """
+            LEFT JOIN (
+                SELECT DISTINCT ON (nm_id)
+                       nm_id,
+                       product_status,
+                       product_class,
+                       brand,
+                       vendor_code
+                FROM reference_book
+                WHERE organization_id = :org
+                  AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+                ORDER BY nm_id, valid_from DESC, created_at DESC NULLS LAST
+            ) rb_total ON rb_total.nm_id = ts.nm_id
+            LEFT JOIN (
+                SELECT DISTINCT ON (nm_id)
+                       nm_id,
+                       vendor_code,
+                       product_name,
+                       brand
+                FROM product_entities
+                WHERE organization_id = :org
+                ORDER BY nm_id, created_at DESC
+            ) pe_total ON pe_total.nm_id = ts.nm_id
+        """
+
+    return join_sql, " AND " + " AND ".join(filters) if filters else ""
+
+
+async def _get_total_orders_revenue_by_day(
+    db: AsyncSession,
+    params: dict,
+    product_status: Optional[str],
+    product_class: Optional[str],
+    brand: Optional[str],
+    search: Optional[str],
+):
+    """Total cabinet order revenue by day for overall DRR denominator."""
+    total_params = dict(params)
+    join_sql, filter_sql = _ads_total_revenue_filter_sql(
+        product_status, product_class, brand, search, total_params
+    )
+    rows = await db.execute(text("""
+        SELECT ts.target_date,
+               COALESCE(SUM(
+                   COALESCE(ts.price_discount, ts.price_spp, ts.price, 0)
+                   * COALESCE(ts.orders_count, 0)
+               ), 0) as orders_revenue
+        FROM tech_status ts
+        """ + join_sql + """
+        WHERE ts.organization_id = :org
+          AND ts.target_date >= :d_from AND ts.target_date <= :d_to
+          AND COALESCE(ts.orders_count, 0) > 0
+          """ + filter_sql + """
+        GROUP BY ts.target_date
+    """), total_params)
+    return {str(r[0]): round(_sf(r[1]), 2) for r in rows}
+
+
 def _ads_refresh_key(org_id: str) -> str:
     return f"nl:ads-refresh:{org_id}"
 
@@ -235,6 +321,10 @@ async def get_ad_stats(
     product_join, product_cond = _ads_product_filter_sql(
         product_status, product_class, brand, search, params
     )
+    total_revenue_by_day = await _get_total_orders_revenue_by_day(
+        db, params, product_status, product_class, brand, search
+    )
+    total_revenue_period = round(sum(total_revenue_by_day.values()), 2)
 
     # ═══ Статистика по дням (из ad_stats_nm) ═══
     daily_rows = await db.execute(text("""
@@ -284,7 +374,9 @@ async def get_ad_stats(
         atbs = int(r[5] or 0)
         date_str = str(r[0])
         sum_price_day = sp_by_date.get(date_str, 0)
+        total_revenue_day = total_revenue_by_day.get(date_str, 0)
         drr_day = round(spent / sum_price_day * 100, 1) if sum_price_day else 0
+        drr_total_day = round(spent / total_revenue_day * 100, 1) if total_revenue_day else 0
         daily.append({
             "date": date_str,
             "views": views,
@@ -296,7 +388,9 @@ async def get_ad_stats(
             "atbs": atbs,
             "cr": round(orders / clicks * 100, 2) if clicks else 0,
             "sum_price": sum_price_day,
+            "total_revenue": total_revenue_day,
             "drr": drr_day,
+            "drr_total": drr_total_day,
         })
 
     # ═══ Список кампаний: только фактические строки рекламы за период ═══
@@ -435,6 +529,7 @@ async def get_ad_stats(
         sum_price_val = round(_sf(r[11]), 2)
 
         drr_rk = round(spent / sum_price_val * 100, 1) if sum_price_val else 0
+        drr_total = round(spent / total_revenue_period * 100, 1) if total_revenue_period else 0
 
         campaigns.append({
             "campaign_id": int(r[0]) if r[0] else None,
@@ -454,7 +549,9 @@ async def get_ad_stats(
             "cr": round(orders / clicks * 100, 2) if clicks else 0,
             "total_orders": orders,
             "total_revenue": sum_price_val,
+            "total_revenue_period": total_revenue_period,
             "drr": drr_rk,
+            "drr_total": drr_total,
             "source_side": r[12] or "both",
         })
 
@@ -480,6 +577,8 @@ async def get_ad_stats(
     all_sum_price = sum(d.get("sum_price", 0) for d in daily)
     totals["drr"] = round(totals["spent"] / all_sum_price * 100, 1) if all_sum_price else 0
     totals["sum_price"] = round(all_sum_price, 2)
+    totals["total_revenue"] = total_revenue_period
+    totals["drr_total"] = round(totals["spent"] / total_revenue_period * 100, 1) if total_revenue_period else 0
 
     return {
         "daily": daily,
@@ -514,6 +613,10 @@ async def get_ad_stats_by_art(
     product_join, product_cond = _ads_product_filter_sql(
         product_status, product_class, brand, search, params
     )
+    total_revenue_by_day = await _get_total_orders_revenue_by_day(
+        db, params, product_status, product_class, brand, search
+    )
+    total_revenue_period = round(sum(total_revenue_by_day.values()), 2)
 
     # ═══ Основной запрос: агрегация по nm_id из ad_stats_nm ═══
     rows = await db.execute(text("""
@@ -611,6 +714,7 @@ async def get_ad_stats_by_art(
         campaigns = nm_campaigns.get(nm_id, [])
         sum_price_art = sum(c.get("sum_price", 0) for c in campaigns) if campaigns else 0
         drr_art = round(spent / sum_price_art * 100, 1) if sum_price_art else 0
+        drr_total_art = round(spent / total_revenue_period * 100, 1) if total_revenue_period else 0
         items.append({
             "nm_id": nm_id,
             "spent": spent,
@@ -624,7 +728,9 @@ async def get_ad_stats_by_art(
             "campaigns": campaigns,
             "total_orders": orders,
             "total_revenue": round(sum_price_art, 2),
+            "total_revenue_period": total_revenue_period,
             "drr": drr_art,
+            "drr_total": drr_total_art,
         })
 
     # ═══ Информация о товарах (название, фото, vendor_code) ═══
@@ -699,8 +805,10 @@ async def get_ad_stats_by_art(
         "campaigns_count": sum(i["campaigns_count"] for i in items),
         "total_orders": sum(i["total_orders"] for i in items),
         "total_revenue": round(sum(i["total_revenue"] for i in items), 2),
+        "total_revenue_period": total_revenue_period,
         "sum_price": round(sum(c.get("sum_price", 0) for i in items for c in i.get("campaigns", [])), 2),
         "drr": round(sum(i["spent"] for i in items) / max(sum(c.get("sum_price", 0) for i in items for c in i.get("campaigns", [])), 1) * 100, 1),
+        "drr_total": round(sum(i["spent"] for i in items) / total_revenue_period * 100, 1) if total_revenue_period else 0,
         "statuses": status_list,
     }
 

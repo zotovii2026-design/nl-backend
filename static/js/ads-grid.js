@@ -8,7 +8,7 @@ let _adsAllData = [];  // Полные данные до фильтрации
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ads-grid-v9';
+    const VER = 'ads-grid-v10';
     if (localStorage.getItem('ads-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ads-grid-state-columns');
         localStorage.removeItem('tabulator-ads-grid-state-sort');
@@ -129,11 +129,20 @@ function getAdsColumns() {
                     }
                 },
                 {
-                    title: 'ДРР %', field: 'drr', headerTooltip: 'Доля рекламных расходов', width: 85, headerSort: true, hozAlign: 'right',
+                    title: 'ДРР по РК %', field: 'drr', headerTooltip: 'Расход / сумма рекламных заказов WB', width: 100, headerSort: true, hozAlign: 'right',
                     formatter: function(cell) {
                         const v = parseFloat(cell.getValue()) || 0;
                         if (!v) return '—';
                         const color = v > 50 ? '#e74c3c' : v > 25 ? '#e17055' : '#00b894';
+                        return '<span style="color:' + color + ';font-weight:600">' + v.toFixed(1) + '%</span>';
+                    }
+                },
+                {
+                    title: 'ДРР общий %', field: 'drr_total', headerTooltip: 'Расход / все заказы кабинета за период', width: 105, headerSort: true, hozAlign: 'right',
+                    formatter: function(cell) {
+                        const v = parseFloat(cell.getValue()) || 0;
+                        if (!v) return '—';
+                        const color = v > 20 ? '#e74c3c' : v > 10 ? '#e17055' : '#00b894';
                         return '<span style="color:' + color + ';font-weight:600">' + v.toFixed(1) + '%</span>';
                     }
                 },
@@ -320,6 +329,7 @@ function buildFilteredCampaign(campaign, products) {
     var orders = products.reduce(function(s, p) { return s + (parseInt(p.orders || 0, 10) || 0); }, 0);
     var atbs = products.reduce(function(s, p) { return s + (parseInt(p.atbs || 0, 10) || 0); }, 0);
     var sumPrice = products.reduce(function(s, p) { return s + (parseFloat(p.sum_price) || 0); }, 0);
+    var totalRevenuePeriod = parseFloat(campaign.total_revenue_period) || 0;
     return Object.assign({}, campaign, {
         spent: Math.round(spent * 100) / 100,
         views: views,
@@ -331,6 +341,7 @@ function buildFilteredCampaign(campaign, products) {
         cpc: clicks ? Math.round((spent / clicks) * 100) / 100 : 0,
         cr: clicks ? Math.round((orders / clicks * 100) * 100) / 100 : 0,
         drr: sumPrice ? Math.round((spent / sumPrice * 100) * 10) / 10 : 0,
+        drr_total: totalRevenuePeriod ? Math.round((spent / totalRevenuePeriod * 100) * 10) / 10 : 0,
         nm_count: products.length,
         products: products,
     });
@@ -397,7 +408,8 @@ function showAdsCampaignDetail(campaign) {
     // Метрики
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:16px">';
     html += '<div style="background:#fff4e6;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">Расход</div><div style="font-weight:700;color:#e17055">' + (campaign.spent||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽</div></div>';
-    html += '<div style="background:#e8f8f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">ДРР</div><div style="font-weight:700">' + (campaign.drr||0).toFixed(1) + '%</div></div>';
+    html += '<div style="background:#e8f8f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">ДРР по РК</div><div style="font-weight:700">' + (campaign.drr||0).toFixed(1) + '%</div></div>';
+    html += '<div style="background:#fff4e6;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">ДРР общий</div><div style="font-weight:700">' + (campaign.drr_total||0).toFixed(1) + '%</div></div>';
     html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">Показы</div><div style="font-weight:700">' + (campaign.views||0).toLocaleString('ru-RU') + '</div></div>';
     html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">Клики</div><div style="font-weight:700">' + (campaign.clicks||0).toLocaleString('ru-RU') + '</div></div>';
     html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">CTR</div><div style="font-weight:700">' + (campaign.ctr||0).toFixed(2) + '%</div></div>';

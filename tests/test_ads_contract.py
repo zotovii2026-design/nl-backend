@@ -18,10 +18,12 @@ def test_ads_accepts_archive_status_when_explicit():
     assert _parse_statuses("9,11,7") == ["9", "11", "7"]
 
 
-def test_ads_router_does_not_mix_tech_status_into_ad_conversions():
+def test_ads_router_keeps_ad_conversions_on_ad_stats_nm():
     source = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
-    assert "FROM tech_status" not in source
-    assert "JOIN tech_status" not in source
+    assert "FROM ad_stats_nm sn" in source
+    assert "SUM(sn.orders) as orders" in source
+    assert "COALESCE(SUM(sn.sum_price), 0) as sum_price" in source
+    assert "def _get_total_orders_revenue_by_day" in source
 
 
 def test_ads_manual_refresh_uses_nine_day_window():
@@ -93,7 +95,24 @@ def test_ads_uses_url_org_and_handles_unauthorized_without_breaking_tabs():
     assert "var orgId = (typeof getCurrentOrgId === 'function') ? getCurrentOrgId()" in arts
     assert "encodeURIComponent(orgId)" in arts
     assert "if (typeof getCurrentOrgId === 'function') return getCurrentOrgId();" in grid
-    assert "adsmodel7" in template
+    assert "adsmodel8" in template
+
+
+def test_ads_has_separate_campaign_and_total_drr_columns():
+    backend = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
+    template = Path("templates/nl_v2.html").read_text(encoding="utf-8")
+    grid = Path("static/js/ads-grid.js").read_text(encoding="utf-8")
+    arts = Path("static/js/ads-arts-grid.js").read_text(encoding="utf-8")
+
+    assert '"drr": drr_rk' in backend
+    assert '"drr_total": drr_total' in backend
+    assert '"drr_total": drr_total_art' in backend
+    assert "COALESCE(ts.price_discount, ts.price_spp, ts.price, 0)" in backend
+    assert "COALESCE(ts.orders_count, 0)" in backend
+    assert "ДРР по РК" in template
+    assert "ДРР общий" in template
+    assert "field: 'drr_total'" in grid
+    assert "field: 'drr_total'" in arts
 
 
 def test_ads_org_switch_resets_state_and_ignores_stale_responses():
