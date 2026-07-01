@@ -91,7 +91,7 @@ async def _do_promo_sync(sf):
                 # 1. Get promotions list
                 logger.info(f"[promo_sync] org={org_id[:8]}: fetching promotions")
                 promo_resp = await client.get_calendar_promotions(
-                    start_date=start_date, end_date=end_date, all_promo=False
+                    start_date=start_date, end_date=end_date, all_promo=True
                 )
                 promotions = promo_resp.get("data", {}).get("promotions", [])
                 logger.info(f"[promo_sync] org={org_id[:8]}: got {len(promotions)} promotions")
@@ -200,6 +200,14 @@ async def _do_promo_sync(sf):
                                 plan_discount = nom.get("planDiscount")
 
                                 async with sf() as db:
+                                    # Lookup entity_id from product_entities
+                                    entity_result = await db.execute(
+                                        text("SELECT id FROM product_entities WHERE organization_id = :org_id AND nm_id = :nm_id LIMIT 1"),
+                                        {"org_id": org_id, "nm_id": int(nm_id)}
+                                    )
+                                    entity_row = entity_result.fetchone()
+                                    entity_id = entity_row[0] if entity_row else None
+
                                     ins = pg_insert(WbPromotionProduct)
                                     stmt = ins.values(
                                         organization_id=org_id,
@@ -208,11 +216,13 @@ async def _do_promo_sync(sf):
                                         in_action=in_action_val,
                                         current_price=price,
                                         required_price=plan_price,
+                                        entity_id=entity_id,
                                         synced_at=datetime.now(timezone.utc),
                                     ).on_conflict_do_update(
                                         constraint="wb_promo_products_org_ext_nm_key",
                                         set_={
                                             "in_action": ins.excluded.in_action,
+                                            "entity_id": entity_id,
                                             "current_price": ins.excluded.current_price,
                                             "required_price": ins.excluded.required_price,
                                             "synced_at": ins.excluded.synced_at,
