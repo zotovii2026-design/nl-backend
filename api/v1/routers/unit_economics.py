@@ -37,12 +37,15 @@ async def build_unit_economics(
     db: AsyncSession,
     search: Optional[str] = None,
     limit: Optional[int] = None,
+    refresh: bool = False,
 ):
     """Юнит Экономика — сборка всех данных по SKU"""
     # ── Redis-кэш: отдаём готовый результат если есть ──
     import redis as _redis_lib, json as _json
     _redis = _redis_lib.from_url("redis://redis:6379/0")
     _cache_key = f"ue_cache:{org_id}"
+    if refresh:
+        _redis.delete(_cache_key)
     if not search:
         _cached = _redis.get(_cache_key)
         if _cached:
@@ -313,13 +316,14 @@ async def get_unit_economics(
     org_id: str,
     search: Optional[str] = None,
     limit: Optional[int] = None,
+    refresh: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Юнит Экономика — только для участников организации."""
     org_id = await resolve_org_id(org_id, db)
     await require_organization_role(org_id, Role.VIEWER, current_user, db)
-    return await build_unit_economics(org_id, db, search=search, limit=limit)
+    return await build_unit_economics(org_id, db, search=search, limit=limit, refresh=refresh)
 
 
 class UnitEconSave(BaseModel):

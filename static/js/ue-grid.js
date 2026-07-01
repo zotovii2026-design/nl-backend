@@ -487,10 +487,11 @@ function initUEGrid() {
 /**
  * Загрузка данных из API
  */
-async function loadUEData(loadAll) {
+async function loadUEData(loadAll, refresh) {
     const search = document.getElementById('ue-search')?.value || '';
     let url = '/api/v1/nl/unit-economics?org_id=' + ORG_ID;
     if (search) url += '&search=' + encodeURIComponent(search);
+    if (refresh) url += '&refresh=1';
     // Пагинация: первые 50 быстро, потом по кнопке — все
     if (!loadAll && !search) url += '&limit=50';
 
