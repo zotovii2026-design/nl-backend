@@ -549,7 +549,7 @@ async def get_ad_stats(
     """), params)
 
     all_campaign_rows = list(camp_rows)
-    all_nm_ids = sorted({int(nm) for r in all_campaign_rows for nm in (r[10] or []) if nm})
+    all_nm_ids = sorted({int(nm) for r in all_campaign_rows for nm in (r[12] or []) if nm})
     all_campaign_ids = sorted({int(r[0]) for r in all_campaign_rows if r[0]})
     product_by_nm = {}
     if all_nm_ids:

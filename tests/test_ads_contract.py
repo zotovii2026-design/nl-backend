@@ -62,6 +62,15 @@ def test_ads_frontend_prefers_api_campaign_type_label():
     assert "c.type_label || typeNames" in arts
 
 
+def test_ads_campaign_row_indexes_match_bid_and_payment_columns():
+    backend = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
+
+    assert "c.bid_type,\n               c.payment_type,\n               SUM(sn.views)" in backend
+    assert "for nm in (r[12] or [])" in backend
+    assert '"type_label": _ad_type_label(r[3], r[4], r[5])' in backend
+    assert '"source_side": r[14] or "both"' in backend
+
+
 def test_ads_template_uses_unified_period_and_daily_table():
     source = Path("templates/nl_v2.html").read_text(encoding="utf-8")
     for legacy_id in (
