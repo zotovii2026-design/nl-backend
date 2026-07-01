@@ -883,6 +883,20 @@ async def get_ad_stats_by_art(
     product_orders_by_nm = await _get_total_orders_revenue_by_nm(
         db, org_id, d_from, d_to, all_nm_ids
     )
+    price_by_nm_day = {}
+    if all_nm_ids:
+        price_rows = await db.execute(text("""
+            SELECT ts.nm_id,
+                   ts.target_date,
+                   AVG(COALESCE(NULLIF(ts.price_discount, 0), NULLIF(ts.price_spp, 0), NULLIF(ts.price, 0))) as avg_price
+            FROM tech_status ts
+            WHERE ts.organization_id = :org
+              AND ts.target_date >= :d_from AND ts.target_date <= :d_to
+              AND ts.nm_id = ANY(:nm_ids)
+            GROUP BY ts.nm_id, ts.target_date
+        """), {**params, "nm_ids": all_nm_ids})
+        for r in price_rows:
+            price_by_nm_day[(int(r[0]), str(r[1]))] = round(_sf(r[2]), 2)
 
     # ═══ Для каждого артикула — список РК с данными по этому nm_id ═══
     nm_campaigns = {}
@@ -950,14 +964,16 @@ async def get_ad_stats_by_art(
             camp["orders"] += orders_day
             camp["atbs"] += atbs_day
             camp["sum_price"] = round(camp["sum_price"] + sum_price_day, 2)
+            date_str = str(r[7])
             camp["daily"].append({
-                "date": str(r[7]),
+                "date": date_str,
                 "views": views_day,
                 "clicks": clicks_day,
                 "spent": spent_day,
                 "orders": orders_day,
                 "atbs": atbs_day,
                 "sum_price": sum_price_day,
+                "avg_price": price_by_nm_day.get((nm_id, date_str), 0),
                 "ctr": round(clicks_day / views_day * 100, 2) if views_day else 0,
                 "cpc": round(spent_day / clicks_day, 2) if clicks_day else 0,
                 "cr": round(orders_day / clicks_day * 100, 2) if clicks_day else 0,

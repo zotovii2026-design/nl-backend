@@ -130,8 +130,8 @@ def test_ads_uses_url_org_and_handles_unauthorized_without_breaking_tabs():
     assert "var orgId = (typeof getCurrentOrgId === 'function') ? getCurrentOrgId()" in arts
     assert "encodeURIComponent(orgId)" in arts
     assert "if (typeof getCurrentOrgId === 'function') return getCurrentOrgId();" in grid
-    assert "adsmodel13" in template
-    assert "adsmodel11" in template
+    assert "adsmodel14" in template
+    assert "adsmodel12" in template
 
 
 def test_ads_has_separate_campaign_and_total_drr_columns():
@@ -170,7 +170,7 @@ def test_ads_campaign_rows_use_product_revenue_for_product_drr():
     assert '"drr_product": drr_product' in backend
     assert "totalRevenueProduct = products.reduce" in grid
     assert "ads-grid-v12" in grid
-    assert "adsmodel13" in template
+    assert "adsmodel14" in template
 
 
 def test_ads_top_chart_uses_cabinet_daily_context():
@@ -188,6 +188,9 @@ def test_ads_top_chart_uses_cabinet_daily_context():
     assert "Показы органика" in template
     assert "Средняя цена" in template
     assert "ДРР общий = расход рекламы / все заказы кабинета" in template
+    assert 'style="color:#6c5ce7;cursor:help;font-weight:700">?</span>' in template
+    assert 'list="ads-brand-options"' in template
+    assert "datalist id=\"ads-brand-options\"" in template
 
 
 def test_ads_by_art_expanded_campaigns_have_daily_charts():
@@ -197,10 +200,13 @@ def test_ads_by_art_expanded_campaigns_have_daily_charts():
     assert "sn.stat_date" in backend
     assert '"daily": []' in backend
     assert '"date": str(r[7])' in backend
+    assert '"avg_price": price_by_nm_day.get((nm_id, date_str), 0)' in backend
     assert "renderAdsArtCampaignCharts" in arts
     assert "ads-art-campaign-chart-" in arts
+    assert "grid-template-columns:minmax(320px,38%) minmax(420px,1fr)" in arts
+    assert "label: 'Цена'" in arts
     assert "destroyAdsArtCharts" in arts
-    assert "ads-arts-grid-v8" in arts
+    assert "ads-arts-grid-v9" in arts
 
 
 def test_ads_org_switch_resets_state_and_ignores_stale_responses():

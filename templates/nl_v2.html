@@ -171,8 +171,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260525a"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel13"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260701-adsmodel11"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel14"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260701-adsmodel12"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
 </head>
 <body>
@@ -1130,17 +1130,17 @@ var _sectionHTML = {
 </div>
 <div style="background:#fff;border-radius:8px;border:1px solid #eee;padding:8px 10px;min-width:0">
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:6px;align-items:stretch" id="ads-metrics">
-<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="Сумма расходов WB-рекламы по выбранному магазину, периоду, статусам и товарным фильтрам"><div style="font-size:.66em;color:#999">Расход</div><div style="font-size:.92em;font-weight:700;color:#e17055" id="ad-spent">—</div></div>
-<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="ДРР по РК = расход рекламы / сумма заказов из рекламной статистики WB * 100"><div style="font-size:.66em;color:#999">ДРР по РК</div><div style="font-size:.92em;font-weight:700;color:#e17055" id="ad-drr">—</div></div>
-<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="ДРР общий = расход рекламы / все заказы кабинета за период * 100. Если выбран бренд/класс/поиск, знаменатель считается по этой выборке товаров"><div style="font-size:.66em;color:#999">ДРР общий</div><div style="font-size:.92em;font-weight:700;color:#e17055" id="ad-drr-total">—</div></div>
-<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="Баланс рекламного кабинета из последнего ответа WB"><div style="font-size:.66em;color:#999">Баланс</div><div style="font-size:.92em;font-weight:700;color:#2d3436" id="ad-balance">—</div></div>
-<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="Рекламные показы из ad_stats_nm по выбранной выборке"><div style="font-size:.66em;color:#999">Показы РК</div><div style="font-size:.92em;font-weight:700;color:#6c5ce7" id="ad-views">—</div></div>
-<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="Клики из рекламной статистики WB"><div style="font-size:.66em;color:#999">Клики</div><div style="font-size:.92em;font-weight:700;color:#0984e3" id="ad-clicks">—</div></div>
-<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="CTR = клики / рекламные показы * 100"><div style="font-size:.66em;color:#999">CTR</div><div style="font-size:.92em;font-weight:700;color:#00b894" id="ad-ctr">—</div></div>
-<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="CPC = расход / клики"><div style="font-size:.66em;color:#999">CPC</div><div style="font-size:.92em;font-weight:700;color:#fdcb6e" id="ad-cpc">—</div></div>
-<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="Заказы из рекламной статистики WB"><div style="font-size:.66em;color:#999">Заказы РК</div><div style="font-size:.92em;font-weight:700;color:#00cec9" id="ad-orders">—</div></div>
-<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="CR = рекламные заказы / клики * 100"><div style="font-size:.66em;color:#999">CR</div><div style="font-size:.92em;font-weight:700;color:#e84393" id="ad-cr">—</div></div>
-<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px" title="Добавления в корзину из рекламной статистики WB"><div style="font-size:.66em;color:#999">В корзину</div><div style="font-size:.92em;font-weight:700;color:#636e72" id="ad-atbs">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">Расход <span title="Сумма расходов WB-рекламы по выбранному магазину, периоду, статусам и товарным фильтрам" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#e17055" id="ad-spent">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">ДРР по РК <span title="ДРР по РК = расход рекламы / сумма заказов из рекламной статистики WB * 100" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#e17055" id="ad-drr">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">ДРР общий <span title="ДРР общий = расход рекламы / все заказы кабинета за период * 100. Если выбран бренд/класс/поиск, знаменатель считается по этой выборке товаров" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#e17055" id="ad-drr-total">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">Баланс <span title="Баланс рекламного кабинета из последнего ответа WB" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#2d3436" id="ad-balance">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">Показы РК <span title="Рекламные показы из ad_stats_nm по выбранной выборке" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#6c5ce7" id="ad-views">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">Клики <span title="Клики из рекламной статистики WB" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#0984e3" id="ad-clicks">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">CTR <span title="CTR = клики / рекламные показы * 100" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#00b894" id="ad-ctr">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">CPC <span title="CPC = расход / клики" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#fdcb6e" id="ad-cpc">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">Заказы РК <span title="Заказы из рекламной статистики WB" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#00cec9" id="ad-orders">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">CR <span title="CR = рекламные заказы / клики * 100" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#e84393" id="ad-cr">—</div></div>
+<div style="border:1px solid #eee;border-radius:6px;padding:5px 7px"><div style="font-size:.66em;color:#999">В корзину <span title="Добавления в корзину из рекламной статистики WB" style="color:#6c5ce7;cursor:help;font-weight:700">?</span></div><div style="font-size:.92em;font-weight:700;color:#636e72" id="ad-atbs">—</div></div>
 </div>
 </div>
 </div>
@@ -1167,7 +1167,8 @@ var _sectionHTML = {
 <span style="width:1px;height:20px;background:#ddd;margin:0 4px"></span>
 <select id="ads-flt-status" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется</option></select>
 <select id="ads-flt-class" onchange="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em"><option value="">Класс: все</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select>
-<select id="ads-flt-brand" onchange="applyAdsColumnFilters()" title="Бренд: все доступные значения в списке, при большом количестве используйте прокрутку" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em;min-width:190px;max-width:280px"><option value="">Бренд: все</option></select>
+<input id="ads-flt-brand" list="ads-brand-options" onchange="applyAdsColumnFilters()" placeholder="Бренд: все" title="Начните вводить бренд или выберите из списка" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em;min-width:220px;max-width:320px">
+<datalist id="ads-brand-options"></datalist>
 <input type="text" id="ads-flt-search" placeholder="🔍 Поиск" oninput="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 6px;font-size:.82em;width:140px">
 <button onclick="resetAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:3px 8px;font-size:.82em;background:#fff;cursor:pointer">✕</button>
 <span style="font-size:.8em;color:#999" id="ads-filter-count"></span>

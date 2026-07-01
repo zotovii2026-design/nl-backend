@@ -356,6 +356,22 @@ function fillAdsSelect(id, emptyLabel, values) {
     if (!sel) return;
     var current = sel.value;
     if (current && values.indexOf(current) < 0) values = values.concat([current]).sort();
+    if (sel.tagName === 'INPUT') {
+        var list = document.getElementById(sel.getAttribute('list'));
+        if (!list) return;
+        list.innerHTML = '';
+        values.forEach(function(v) {
+            if (v == null || v === '') return;
+            var opt = document.createElement('option');
+            opt.value = v;
+            opt.label = v;
+            opt.title = v;
+            list.appendChild(opt);
+        });
+        sel.placeholder = emptyLabel;
+        sel.value = values.indexOf(current) >= 0 ? current : '';
+        return;
+    }
     sel.innerHTML = '<option value="">' + emptyLabel + '</option>';
     values.forEach(function(v) {
         if (v == null || v === '') return;
