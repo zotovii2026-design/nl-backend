@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision: str = 'a1b2c3d4e5f6'
-down_revision: Union[str, None] = 't4u5v6w7x8y9'
+revision: str = 'b5c6d7e8f9a0'
+down_revision: Union[str, None] = 'z9a8b7c6d5e4'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
