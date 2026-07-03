@@ -286,6 +286,9 @@ async def _do_promo_snapshot(sf):
     results = {}
 
     for org_id, api_key in all_keys:
+        # Пропускаем тестовые/фейковые ключи
+        if not api_key or len(api_key) < 30 or api_key.startswith('fake') or api_key.startswith('test'):
+            continue
         try:
             # Получить все nm_id для организации
             async with sf() as db:
