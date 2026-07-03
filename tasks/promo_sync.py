@@ -3,6 +3,7 @@
 """
 import asyncio
 import logging
+import httpx
 from datetime import datetime, timedelta, timezone, date as date_type
 from typing import Optional
 
