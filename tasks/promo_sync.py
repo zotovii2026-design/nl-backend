@@ -1,9 +1,9 @@
 """
-Синхронизация акций WB через Calendar API
+Синхронизация акций WB через Calendar API + promo snapshot через card.wb.ru
 """
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date as date_type
 from typing import Optional
 
 from celery import shared_task
@@ -15,7 +15,7 @@ from core.config import settings
 from services.wb_api.keys import get_all_wb_keys as _get_all_keys_imported
 from core.security import decrypt_data
 from models.organization import WbApiKey
-from models.promotion import WbPromotion, WbPromotionProduct
+from models.promotion import WbPromotion, WbPromotionProduct, WbPromotionSnapshot
 from services.wb_api.client import WBApiClient
 
 logger = logging.getLogger(__name__)
@@ -235,6 +235,11 @@ async def _do_promo_sync(sf):
                         except Exception as e:
                             logger.warning(f"[promo_sync] nomenclatures error promo={pid} in_action={in_action_val}: {e}")
 
+                # 4b. Auto акции — пропускаем, заполняются из wb_promotion_snapshots через card.wb.ru
+                auto_promos = [p for p in promotions if (p.get("type") or all_details.get(p["id"], {}).get("type")) == "auto"]
+                if auto_promos:
+                    logger.info(f"[promo_sync] org={org_id[:8]}: skipping {len(auto_promos)} auto promotions (see wb_promotion_snapshots)")
+
                 # 5. Link promotion_id_col (FK to wb_promotions)
                 async with sf() as db:
                     await db.execute(text("""
@@ -256,6 +261,118 @@ async def _do_promo_sync(sf):
 
         except Exception as e:
             logger.error(f"[promo_sync] error org={org_id[:8]}: {e}", exc_info=True)
+            results[org_id[:8]] = {"status": "error", "error": str(e)}
+
+    return results
+
+
+@shared_task(name="wb.sched.promo_snapshot")
+def do_promo_snapshot():
+    """Снимок промо через card.wb.ru для всех товаров — раз в сутки"""
+    return _run(_do_promo_snapshot)
+
+
+async def _do_promo_snapshot(sf):
+    """
+    Получить все nm_id из product_entities, батчами запросить card.wb.ru,
+    сохранить промо и цены в wb_promotion_snapshots.
+    """
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
+        return {"status": "skipped", "reason": "no_keys"}
+
+    today = date_type.today()
+    results = {}
+
+    for org_id, api_key in all_keys:
+        try:
+            # Получить все nm_id для организации
+            async with sf() as db:
+                nm_result = await db.execute(
+                    text("SELECT nm_id, id FROM product_entities WHERE organization_id = :org_id AND nm_id IS NOT NULL"),
+                    {"org_id": org_id}
+                )
+                nm_rows = nm_result.fetchall()
+                nm_to_entity = {row[0]: row[1] for row in nm_rows}
+                all_nm_ids = list(nm_to_entity.keys())
+
+            if not all_nm_ids:
+                results[org_id[:8]] = {"status": "skipped", "reason": "no_products"}
+                continue
+
+            logger.info(f"[promo_snapshot] org={org_id[:8]}: {len(all_nm_ids)} products")
+
+            # Батчи по 50, sleep 1 секунда между батчами
+            batch_size = 50
+            processed = 0
+            with_promotions = 0
+            no_promotions = 0
+
+            for i in range(0, len(all_nm_ids), batch_size):
+                batch = all_nm_ids[i:i + batch_size]
+                try:
+                    # Публичный API не требует авторизации
+                    async with WBApiClient("dummy") as client:
+                        snapshot = await client.get_card_snapshot(batch)
+                        await asyncio.sleep(1.0)
+
+                    # Парсим ответ: card.wb.ru возвращает { "data": { "products": [...] } }
+                    products = snapshot.get("data", {}).get("products", [])
+                    nm_in_batch = {p.get("id"): p for p in products}
+
+                    for nm_id in batch:
+                        product_data = nm_in_batch.get(nm_id, {})
+                        promotions = product_data.get("promotions", [])
+                        sale_conditions = product_data.get("saleConditions")
+                        price_info = product_data.get("price", {})
+                        price_basic = price_info.get("basic")
+                        price_product = price_info.get("product")
+
+                        async with sf() as db:
+                            ins = pg_insert(WbPromotionSnapshot)
+                            stmt = ins.values(
+                                organization_id=org_id,
+                                nm_id=nm_id,
+                                entity_id=nm_to_entity.get(nm_id),
+                                snapshot_date=today,
+                                promotions=promotions if promotions else None,
+                                sale_conditions=sale_conditions,
+                                price_basic=float(price_basic) if price_basic else None,
+                                price_product=float(price_product) if price_product else None,
+                                fetched_at=datetime.now(timezone.utc),
+                            ).on_conflict_do_update(
+                                constraint="wb_promo_snapshots_org_nm_date_key",
+                                set_={
+                                    "promotions": ins.excluded.promotions,
+                                    "sale_conditions": ins.excluded.sale_conditions,
+                                    "price_basic": ins.excluded.price_basic,
+                                    "price_product": ins.excluded.price_product,
+                                    "fetched_at": ins.excluded.fetched_at,
+                                }
+                            )
+                            await db.execute(stmt)
+                            await db.commit()
+
+                        processed += 1
+                        if promotions:
+                            with_promotions += 1
+                        else:
+                            no_promotions += 1
+
+                except Exception as e:
+                    logger.error(f"[promo_snapshot] batch error org={org_id[:8]} batch={i//batch_size}: {e}")
+                    continue
+
+            logger.info(f"[promo_snapshot] org={org_id[:8]}: processed {processed}, with_promo={with_promotions}, no_promo={no_promotions}")
+            results[org_id[:8]] = {
+                "status": "ok",
+                "processed": processed,
+                "with_promotions": with_promotions,
+                "no_promotions": no_promotions,
+            }
+
+        except Exception as e:
+            logger.error(f"[promo_snapshot] error org={org_id[:8]}: {e}", exc_info=True)
             results[org_id[:8]] = {"status": "error", "error": str(e)}
 
     return results

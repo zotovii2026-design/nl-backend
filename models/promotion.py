@@ -1,6 +1,6 @@
 """Модели для акций WB — promotions и товары в акциях"""
 import uuid
-from sqlalchemy import Boolean, Column, String, DateTime, Integer, Numeric, func, ForeignKey, UniqueConstraint
+from sqlalchemy import Boolean, Column, String, DateTime, Integer, Numeric, func, ForeignKey, UniqueConstraint, Date
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from core.database import Base
@@ -81,4 +81,36 @@ class WbPromotionProduct(Base):
 
     __table_args__ = (
         UniqueConstraint("organization_id", "wb_promotion_ext_id", "nm_id", name="wb_promo_products_org_ext_nm_key"),
+    )
+
+
+class WbPromotionSnapshot(Base):
+    """Снимок промо из публичного API card.wb.ru для auto-акций"""
+    __tablename__ = "wb_promotion_snapshots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False, index=True
+    )
+    nm_id = Column(Integer, nullable=False, index=True)
+    entity_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("product_entities.id", ondelete="SET NULL"),
+        nullable=True, index=True
+    )
+    snapshot_date = Column(Date, nullable=False, index=True)
+    promotions = Column(JSONB, nullable=True)          # promotions[] из card.wb.ru
+    sale_conditions = Column(JSONB, nullable=True)     # saleConditions из card.wb.ru
+    price_basic = Column(Numeric(12, 2), nullable=True)    # price.basic (цена до скидки)
+    price_product = Column(Numeric(12, 2), nullable=True)  # price.product (цена покупателя)
+    fetched_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    organization = relationship("Organization")
+    entity = relationship("ProductEntity")
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "nm_id", "snapshot_date", name="wb_promo_snapshots_org_nm_date_key"),
     )

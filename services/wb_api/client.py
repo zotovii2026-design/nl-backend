@@ -549,6 +549,33 @@ class WBApiClient:
         return resp.json()
 
 
+    # ─── Public card.wb.ru API ───────────────────────
+
+    async def get_card_snapshot(self, nm_ids: list[int]) -> dict:
+        """
+        Публичный API card.wb.ru для получения промо и цен.
+        URL: https://card.wb.ru/cards/v4/detail?spp=true&pricemarginPct=1&nm={nm_ids}
+
+        Args:
+            nm_ids: список nm_id (батч до 100 штук)
+
+        Returns:
+            dict с данными карточек (promotions[], saleConditions, price.basic, price.product)
+        """
+        if not nm_ids:
+            return {}
+        params = {
+            "spp": "true",
+            "pricemarginPct": "1",
+            "nm": ",".join(str(x) for x in nm_ids)
+        }
+        resp = await self.client.get(
+            "https://card.wb.ru/cards/v4/detail",
+            params=params
+        )
+        resp.raise_for_status()
+        return resp.json()
+
 
 async def get_wb_client(api_key: str) -> WBApiClient:
     """Фабрика для создания клиента с расшифрованным ключом"""

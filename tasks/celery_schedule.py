@@ -100,6 +100,10 @@ BEAT_SCHEDULE = {
         "task": "wb.sched.promo_sync",
         "schedule": crontab(minute=0, hour="*/2"),
     },
+    "nightly-promo-snapshot": {
+        "task": "wb.sched.promo_snapshot",
+        "schedule": crontab(hour=2, minute=0),
+    },
     "freshness-check-hourly": {
         "task": "wb.sched.freshness",
         "schedule": crontab(minute=45),
