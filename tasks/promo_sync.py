@@ -383,7 +383,7 @@ async def _do_promo_snapshot(sf):
                                 price_product=price_product,
                                 fetched_at=datetime.now(timezone.utc),
                             ).on_conflict_do_update(
-                                constraint="wb_promo_snapshots_org_nm_date_key",
+                                index_elements=["organization_id", "nm_id", "snapshot_date"],
                                 set_={
                                     "promotions": ins.excluded.promotions,
                                     "sale_conditions": ins.excluded.sale_conditions,
