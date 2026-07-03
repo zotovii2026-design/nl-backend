@@ -1,6 +1,6 @@
 """add sellers and seo_keywords tables
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: c7d8e9f0a1b2
 Revises: z9a8b7c6d5e4
 Create Date: 2026-07-01 20:20:00.000000
 """
@@ -8,7 +8,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 
-revision = 'a1b2c3d4e5f6'
+revision = 'c7d8e9f0a1b2'
 down_revision = 'z9a8b7c6d5e4'
 branch_labels = None
 depends_on = None
