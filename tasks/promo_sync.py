@@ -311,9 +311,24 @@ async def _do_promo_snapshot(sf):
             for i in range(0, len(all_nm_ids), batch_size):
                 batch = all_nm_ids[i:i + batch_size]
                 try:
-                    # Публичный API не требует авторизации
-                    async with WBApiClient("dummy") as client:
-                        snapshot = await client.get_card_snapshot(batch)
+                    # Публичный API card.wb.ru требует browser-like заголовки
+                    import httpx
+                    async with httpx.AsyncClient(timeout=30) as hc:
+                        resp = await hc.get(
+                            "https://card.wb.ru/cards/v4/detail",
+                            params={
+                                "spp": "true",
+                                "pricemarginPct": "1",
+                                "nm": ",".join(str(x) for x in batch),
+                            },
+                            headers={
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                                "Accept": "application/json",
+                                "Accept-Language": "ru-RU,ru;q=0.9",
+                            }
+                        )
+                        resp.raise_for_status()
+                        snapshot = resp.json()
                         await asyncio.sleep(1.0)
 
                     # Парсим ответ: card.wb.ru возвращает { "data": { "products": [...] } }
