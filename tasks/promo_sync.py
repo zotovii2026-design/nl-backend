@@ -98,7 +98,7 @@ async def _do_promo_sync(sf):
 
                 if not promotions:
                     results[org_id[:8]] = {"status": "ok", "promotions": 0}
-                    continue
+                continue
 
                 # 2. Get details for each promotion individually
                 all_details = {}
@@ -302,46 +302,69 @@ async def _do_promo_snapshot(sf):
 
             logger.info(f"[promo_snapshot] org={org_id[:8]}: {len(all_nm_ids)} products")
 
-            # Батчи по 50, sleep 1 секунда между батчами
-            batch_size = 50
             processed = 0
             with_promotions = 0
             no_promotions = 0
 
-            for i in range(0, len(all_nm_ids), batch_size):
-                batch = all_nm_ids[i:i + batch_size]
-                try:
-                    # Публичный API card.wb.ru требует browser-like заголовки
-                    import httpx
+            try:
+                    # Кросс-референс через Seller API (официальный)
+                    # /api/v2/list/goods/filter даёт nmID + discount + prices
                     async with httpx.AsyncClient(timeout=30) as hc:
-                        resp = await hc.get(
-                            "https://card.wb.ru/cards/v4/detail",
-                            params={
-                                "spp": "true",
-                                "pricemarginPct": "1",
-                                "nm": ",".join(str(x) for x in batch),
-                            },
-                            headers={
-                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                                "Accept": "application/json",
-                                "Accept-Language": "ru-RU,ru;q=0.9",
-                            }
-                        )
-                        resp.raise_for_status()
-                        snapshot = resp.json()
+                        all_goods = []
+                        offset = 0
+                        while True:
+                            gr = await hc.get(
+                                "https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter",
+                                params={"limit": 1000, "offset": offset},
+                                headers={"Authorization": api_key}
+                            )
+                            gr.raise_for_status()
+                            gdata = gr.json().get("data", {})
+                            goods = gdata.get("listGoods", [])
+                            all_goods.extend(goods)
+                            if len(goods) < 1000:
+                                break
+                            offset += 1000
                         await asyncio.sleep(1.0)
 
-                    # Парсим ответ: card.wb.ru возвращает { "data": { "products": [...] } }
-                    products = snapshot.get("data", {}).get("products", [])
-                    nm_in_batch = {p.get("id"): p for p in products}
+                    # Получить auto-акции с conditions из уже загруженных wb_promotions
+                    async with sf() as db:
+                        auto_result = await db.execute(
+                            text("SELECT promotion_id, title, min_discount, boost_value, raw_data FROM wb_promotions WHERE organization_id = :org_id AND promo_type = 'auto' AND is_active = true"),
+                            {"org_id": org_id}
+                        )
+                        auto_promos = auto_result.fetchall()
 
-                    for nm_id in batch:
-                        product_data = nm_in_batch.get(nm_id, {})
-                        promotions = product_data.get("promotions", [])
-                        sale_conditions = product_data.get("saleConditions")
-                        price_info = product_data.get("price", {})
-                        price_basic = price_info.get("basic")
-                        price_product = price_info.get("product")
+                    # Для каждого товара: если есть discount, записываем snapshot
+                    for g in all_goods:
+                        nm_id = g.get("nmID")
+                        if not nm_id:
+                            continue
+                        discount = g.get("discount", 0)
+                        sizes = g.get("sizes", [])
+                        s = sizes[0] if sizes else {}
+                        price_basic = s.get("price")
+                        price_product = s.get("discountedPrice")
+                        if price_basic:
+                            price_basic = float(price_basic) / 100.0
+                        if price_product:
+                            price_product = float(price_product) / 100.0
+
+                        # Найти matching auto-акции по discount
+                        matching = []
+                        for ap in auto_promos:
+                            raw = ap[4] or {}
+                            detail = raw.get("details", raw)
+                            min_disc = detail.get("minDiscount") or ap[2]
+                            if min_disc and discount >= min_disc:
+                                matching.append({
+                                    "promotion_id": ap[0],
+                                    "title": ap[1],
+                                    "discount": discount,
+                                    "boost": float(ap[3]) if ap[3] else None
+                                })
+                        # Также записываем все активные акции из details
+                        promo_names = [m["title"] for m in matching]
 
                         async with sf() as db:
                             ins = pg_insert(WbPromotionSnapshot)
@@ -350,10 +373,10 @@ async def _do_promo_snapshot(sf):
                                 nm_id=nm_id,
                                 entity_id=nm_to_entity.get(nm_id),
                                 snapshot_date=today,
-                                promotions=promotions if promotions else None,
-                                sale_conditions=sale_conditions,
-                                price_basic=float(price_basic) if price_basic else None,
-                                price_product=float(price_product) if price_product else None,
+                                promotions=matching if matching else None,
+                                sale_conditions={"discount": discount},
+                                price_basic=price_basic,
+                                price_product=price_product,
                                 fetched_at=datetime.now(timezone.utc),
                             ).on_conflict_do_update(
                                 constraint="wb_promo_snapshots_org_nm_date_key",
@@ -363,20 +386,21 @@ async def _do_promo_snapshot(sf):
                                     "price_basic": ins.excluded.price_basic,
                                     "price_product": ins.excluded.price_product,
                                     "fetched_at": ins.excluded.fetched_at,
+                                    "entity_id": nm_to_entity.get(nm_id),
                                 }
                             )
                             await db.execute(stmt)
                             await db.commit()
 
                         processed += 1
-                        if promotions:
+                        if matching:
                             with_promotions += 1
                         else:
                             no_promotions += 1
 
-                except Exception as e:
-                    logger.error(f"[promo_snapshot] batch error org={org_id[:8]} batch={i//batch_size}: {e}")
-                    continue
+            except Exception as e:
+                logger.error(f"[promo_snapshot] goods error org={org_id[:8]}: {e}")
+                continue
 
             logger.info(f"[promo_snapshot] org={org_id[:8]}: processed {processed}, with_promo={with_promotions}, no_promo={no_promotions}")
             results[org_id[:8]] = {
