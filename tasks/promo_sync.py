@@ -345,37 +345,40 @@ async def _do_promo_snapshot(sf):
 
                     # card.wb.ru — публичный API для получения promotions[] на товарах
                     # Рабочие параметры: curr=rub, dest=-1257786 (Москва)
-                    # card.wb.ru блокирует серверный IP без UA, но с Матки (РФ IP) работает
+                    # ВАЖНО: card.wb.ru блокирует запросы из Docker (403),
+                    # но работает через curl из shell Матки (РФ IP)
+                    # Поэтому используем subprocess+curl вместо httpx
+                    import subprocess, json as _json
                     card_promotions_map = {}  # nm_id -> [{id, title, ...}]
                     try:
-                        async with httpx.AsyncClient(timeout=20) as bc:
-                            ua_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-                            batch_size = 50
-                            for i in range(0, len(all_nm_ids), batch_size):
-                                batch = all_nm_ids[i:i + batch_size]
-                                nm_str = ";".join(str(n) for n in batch)
-                                try:
-                                    cr = await bc.get(
-                                        "https://card.wb.ru/cards/v4/detail",
-                                        params={
-                                            "curr": "rub",
-                                            "dest": "-1257786",
-                                            "spp": "27",
-                                            "pricemarginPct": "1",
-                                            "nm": nm_str,
-                                        },
-                                        headers=ua_headers,
-                                    )
-                                    if cr.status_code == 200:
-                                        cdata = cr.json().get("data", {}).get("products", [])
-                                        for prod in cdata:
-                                            pid = prod.get("id")
-                                            promos = prod.get("promotions", [])
-                                            if pid and promos:
-                                                card_promotions_map[pid] = promos
-                                except Exception as ce:
-                                    logger.warning(f"[promo_snapshot] card.wb.ru batch error: {ce}")
-                                await asyncio.sleep(0.3)
+                        batch_size = 50
+                        for i in range(0, len(all_nm_ids), batch_size):
+                            batch = all_nm_ids[i:i + batch_size]
+                            nm_str = ";".join(str(n) for n in batch)
+                            try:
+                                result = subprocess.run(
+                                    ["curl", "-s", "--max-time", "15",
+                                     "https://card.wb.ru/cards/v4/detail",
+                                     "-G",
+                                     "-d", "curr=rub",
+                                     "-d", "dest=-1257786",
+                                     "-d", "spp=27",
+                                     "-d", "pricemarginPct=1",
+                                     "-d", "nm=" + nm_str,
+                                     "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"],
+                                    capture_output=True, text=True, timeout=20
+                                )
+                                if result.returncode == 0 and result.stdout:
+                                    cdata = _json.loads(result.stdout)
+                                    products = cdata.get("products", [])
+                                    for prod in products:
+                                        pid = prod.get("id")
+                                        promos = prod.get("promotions", [])
+                                        if pid and promos:
+                                            card_promotions_map[pid] = promos
+                            except Exception as ce:
+                                logger.warning(f"[promo_snapshot] card.wb.ru batch error: {ce}")
+                            await asyncio.sleep(0.3)
                         logger.info(f"[promo_snapshot] org={org_id[:8]}: card.wb.ru promos for {len(card_promotions_map)} products")
                     except Exception as ce:
                         logger.warning(f"[promo_snapshot] card.wb.ru fallback skipped: {ce}")
