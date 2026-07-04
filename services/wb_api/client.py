@@ -499,7 +499,7 @@ class WBApiClient:
 
     CALENDAR_URL = "https://dp-calendar-api.wildberries.ru"
 
-    async def get_calendar_promotions(self, start_date=None, end_date=None, all_promo=False, limit=100, offset=0):
+    async def get_calendar_promotions(self, start_date=None, end_date=None, all_promo=False, limit=None, offset=None):
         """Получить список акций из календаря WB"""
         from datetime import datetime, timedelta, timezone
         if not start_date:
@@ -510,9 +510,8 @@ class WBApiClient:
             "startDateTime": start_date,
             "endDateTime": end_date,
             "allPromo": str(all_promo).lower(),
-            "limit": limit,
-            "offset": offset,
         }
+        # WB API: limit/offset вызывают 400 "Invalid query params" — не передаём
         resp = await self.client.get(
             f"{self.CALENDAR_URL}/api/v1/calendar/promotions",
             params=params
@@ -533,13 +532,11 @@ class WBApiClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def get_promotion_nomenclatures(self, promotion_id, in_action=False, limit=1000, offset=0):
+    async def get_promotion_nomenclatures(self, promotion_id, in_action=False):
         """Получить товары для участия в акции (НЕ для автоакций)"""
         params = {
             "promotionID": promotion_id,
             "inAction": str(in_action).lower(),
-            "limit": limit,
-            "offset": offset,
         }
         resp = await self.client.get(
             f"{self.CALENDAR_URL}/api/v1/calendar/promotions/nomenclatures",

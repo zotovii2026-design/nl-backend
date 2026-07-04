@@ -85,8 +85,20 @@ async def _do_promo_sync(sf):
     start_date = (now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     end_date = (now + timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    results = {}
+    # Группируем ключи по org, оставляем только один валидный JWT-ключ на org
+    seen_orgs = set()
+    deduped_keys = []
     for org_id, api_key in all_keys:
+        if org_id in seen_orgs:
+            continue
+        # Пропускаем тестовые/фейские ключи
+        if not api_key or len(api_key) < 50 or api_key.startswith(('fake', 'test', 'unused')):
+            continue
+        deduped_keys.append((org_id, api_key))
+        seen_orgs.add(org_id)
+
+    results = {}
+    for org_id, api_key in deduped_keys:
         try:
             async with WBApiClient(api_key) as client:
                 # 1. Get promotions list
