@@ -111,7 +111,7 @@ async def _do_promo_sync(sf):
 
                 if not promotions:
                     results[org_id[:8]] = {"status": "ok", "promotions": 0}
-                continue
+                    continue
 
                 # 2. Get details for each promotion individually
                 all_details = {}
