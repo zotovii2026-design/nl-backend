@@ -229,6 +229,7 @@ async function loadPromoData() {
         populatePromoFilterOptions();
 
         console.log('[Promo Grid] Loaded', data.length, 'rows');
+        loadPromoSummary();
     } catch (e) {
         console.error('[Promo Grid] Load error:', e);
     }
@@ -335,9 +336,10 @@ async function savePromoData() {
 }
 
 function exportPromoExcel() {
-    if (!promoTabulator) return;
-    promoTabulator.download('xlsx', 'promotions.xlsx', { sheetName: 'Акции' });
+    downloadPromoExcel();
 }
+
+function uploadPromoTemplate(input) { uploadPromoExcel(); input.value = ''; }
 
 async function uploadPromoExcel() {
     const input = document.createElement('input');
@@ -368,6 +370,95 @@ async function uploadPromoExcel() {
     input.click();
 }
 
+// === Блок 1: Сводка по акциям ===
+
+async function loadPromoSummary() {
+    const container = document.getElementById('promo-summary-cards');
+    if (!container) return;
+
+    try {
+        const res = await fetch('/api/v1/nl/promotions/summary?org_id=' + ORG_ID, {
+            headers: {'Authorization': 'Bearer ' + TOKEN}
+        });
+        const data = await res.json();
+
+        // Основная статистика
+        const totalEl = document.getElementById('promo-total-products');
+        const inPromoEl = document.getElementById('promo-in-promo');
+        const pctEl = document.getElementById('promo-in-promo-pct');
+
+        if (totalEl) totalEl.textContent = data.total_products || 0;
+        if (inPromoEl) inPromoEl.textContent = data.in_promotion || 0;
+        if (pctEl) {
+            const pct = data.in_promotion_pct || 0;
+            pctEl.textContent = pct + '%';
+            pctEl.style.color = pct > 50 ? '#27ae60' : pct > 20 ? '#f39c12' : '#e74c3c';
+        }
+
+        // Карточки акций
+        const promos = data.by_promotion || [];
+        const showCount = Math.min(promos.length, 8);
+        let html = '';
+
+        for (let i = 0; i < showCount; i++) {
+            const p = promos[i];
+            const pctColor = p.pct > 50 ? '#27ae60' : p.pct > 20 ? '#f39c12' : '#95a5a6';
+            html += '<div class="promo-card" style="'
+                + 'background:#fff;border:1px solid #e0e0e0;border-radius:8px;'
+                + 'padding:10px 14px;min-width:160px;flex:1;cursor:pointer"'
+                + ' onclick="filterByPromo(\'' + (p.promotion_id || '') + '\')">'
+                + '<div style="font-size:.75em;color:#888;margin-bottom:4px">' 
+                + (p.title || 'Акция ' + p.promotion_id).substring(0, 28)
+                + '</div>'
+                + '<div style="display:flex;align-items:baseline;gap:6px">'
+                + '<span style="font-size:1.3em;font-weight:700;color:' + pctColor + '">' + p.pct + '%</span>'
+                + '<span style="font-size:.75em;color:#999">' + p.count + ' тов.</span>'
+                + '</div>'
+                + '</div>';
+        }
+
+        if (promos.length > 8) {
+            html += '<div class="promo-card" style="'
+                + 'background:#f8f9fa;border:1px dashed #ccc;border-radius:8px;'
+                + 'padding:10px 14px;min-width:120px;display:flex;align-items:center;justify-content:center;color:#666;font-size:.85em">'
+                + '+' + (promos.length - 8) + ' ещё</div>';
+        }
+
+        container.innerHTML = html || '<div style="color:#999;font-size:.85em;padding:12px">Нет активных акций</div>';
+    } catch (e) {
+        console.error('[Promo] Summary load error:', e);
+        container.innerHTML = '<div style="color:#e74c3c;font-size:.85em;padding:8px">Ошибка загрузки сводки</div>';
+    }
+}
+
+function filterByPromo(promotionId) {
+    const sel = document.getElementById('promo-flt-action');
+    if (sel && promotionId) {
+        sel.value = promotionId;
+        applyPromoFilters();
+    }
+}
+
+async function downloadPromoExcel() {
+    const promotionId = document.getElementById('promo-flt-action')?.value || '';
+    let url = '/api/v1/nl/promotions/download-excel?org_id=' + ORG_ID;
+    if (promotionId) url += '&promotion_id=' + encodeURIComponent(promotionId);
+    try {
+        const res = await fetch(url, {headers: {'Authorization': 'Bearer ' + TOKEN}});
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'promotions_export.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+    } catch (e) {
+        alert('Ошибка экспорта: ' + e.message);
+    }
+}
+
 async function switchPromoStore() {
     const sel = document.getElementById("promo-store");
     const newOrgId = sel.value;
@@ -381,4 +472,5 @@ async function switchPromoStore() {
     history.replaceState(null, "", "/nl/v2?org=" + ORG_ID);
     loadPromoData();
     loadPromoActions();
+    loadPromoSummary();
 }

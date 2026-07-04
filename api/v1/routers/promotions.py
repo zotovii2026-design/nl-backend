@@ -3,6 +3,7 @@ from typing import Optional
 
 import openpyxl
 from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -619,3 +620,161 @@ async def sync_promo_api(
 
     result = do_promo_sync.delay()
     return {"status": "started", "task_id": result.id}
+
+
+@router.get("/api/v1/nl/promotions/download-excel")
+async def download_promo_excel(
+    org_id: str,
+    promotion_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Сборный xlsx для выбранных товаров из раздела Акции (заглушка).
+    Формат: шаблон WB — nm_id, бренд, предмет, текущая цена, цена участия,
+    скидка, статус. Валидация: цена участия < минимальной цены справочника → ошибка.
+    """
+    # Получаем товары с plan=true (отмечены для участия)
+    params = {"org": org_id}
+    promo_filter = ""
+    if promotion_id:
+        promo_filter = " AND pp.wb_promotion_ext_id = :promo_id"
+        params["promo_id"] = int(promotion_id)
+
+    query = text(
+        """
+        SELECT
+            pp.nm_id,
+            pp.in_action,
+            pp.current_price,
+            pp.price_in_promo,
+            pp.plan,
+            pp.status_text,
+            pe.vendor_code,
+            pe.product_name,
+            pe.brand,
+            pe.subject_name,
+            COALESCE(ts.price, pp.current_price) as price_before_spp,
+            ts.stock_qty,
+            rb.cost_price,
+            rb.min_price
+        FROM wb_promotion_products pp
+        LEFT JOIN product_entities pe ON pe.id = pp.entity_id
+        LEFT JOIN LATERAL (
+            SELECT price, stock_qty
+            FROM tech_status ts2
+            WHERE ts2.organization_id = :org AND ts2.nm_id = pp.nm_id
+            ORDER BY target_date DESC LIMIT 1
+        ) ts ON true
+        LEFT JOIN LATERAL (
+            SELECT cost_price, min_price FROM reference_book rb2
+            WHERE rb2.organization_id = :org AND rb2.entity_id = pp.entity_id
+            ORDER BY valid_from DESC LIMIT 1
+        ) rb ON true
+        WHERE pp.organization_id = :org
+        """
+        + promo_filter
+        + """
+        ORDER BY pp.nm_id
+        """
+    )
+    result = await db.execute(query, params)
+    rows = result.all()
+
+    # Создаём xlsx
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Акции"
+
+    # Заголовки (шаблон WB)
+    headers = [
+        "Артикул WB",
+        "Бренд",
+        "Предмет",
+        "Наименование",
+        "Артикул продавца",
+        "Текущая цена",
+        "Цена участия",
+        "Скидка %",
+        "Остаток",
+        "Себестоимость",
+        "Мин. цена справочника",
+        "Статус",
+    ]
+    ws.append(headers)
+
+    # Стилизация заголовков
+    from openpyxl.styles import Font, PatternFill, Alignment
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="6c5ce7", end_color="6c5ce7", fill_type="solid")
+    for col_idx in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    # Ширины колонок
+    col_widths = [12, 16, 18, 30, 14, 12, 12, 10, 10, 12, 16, 12]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
+
+    warnings = []
+
+    for row in rows:
+        current_price = float(row.current_price) if row.current_price else None
+        price_in_promo = float(row.price_in_promo) if row.price_in_promo else None
+        min_price = float(row.min_price) if row.min_price else None
+        cost_price = float(row.cost_price) if row.cost_price else None
+
+        # Скидка %
+        discount_pct = None
+        if current_price and price_in_promo and current_price > 0:
+            discount_pct = round((current_price - price_in_promo) / current_price * 100, 1)
+
+        # Валидация: цена участия < мин. цены справочника
+        status_val = row.status_text or ""
+        if price_in_promo and min_price and price_in_promo < min_price:
+            status_val = f"⚠ Цена участия {price_in_promo}₽ < мин. цены {min_price}₽"
+            warnings.append(
+                f"Артикул {row.nm_id}: цена участия {price_in_promo}₽ "
+                f"ниже минимальной цены справочника {min_price}₽"
+            )
+
+        ws.append([
+            row.nm_id,
+            row.brand or "",
+            row.subject_name or "",
+            row.product_name or "",
+            row.vendor_code or "",
+            current_price,
+            price_in_promo,
+            discount_pct,
+            row.stock_qty or 0,
+            cost_price,
+            min_price,
+            status_val,
+        ])
+
+    # Лист с предупреждениями
+    if warnings:
+        ws_warn = wb.create_sheet("Предупреждения")
+        ws_warn.append(["Внимание", "Детали"])
+        for col_idx in range(1, 3):
+            cell = ws_warn.cell(row=1, column=col_idx)
+            cell.font = header_font
+            cell.fill = header_fill
+        ws_warn.column_dimensions["A"].width = 20
+        ws_warn.column_dimensions["B"].width = 80
+        for w in warnings:
+            ws_warn.append(["Валидация", w])
+
+    # Экспорт в память
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"promotions_export_{org_id[:8]}.xlsx"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
