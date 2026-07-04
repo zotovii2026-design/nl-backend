@@ -375,7 +375,16 @@ async def _do_promo_snapshot(sf):
                                         pid = prod.get("id")
                                         promos = prod.get("promotions", [])
                                         if pid and promos:
-                                            card_promotions_map[pid] = promos
+                                            # card.wb.ru отдаёт promotions как [int, int, ...]
+                                            # сохраняем как [{id: ..., title: ""}, ...]
+                                            normalised = []
+                                            for p in promos:
+                                                if isinstance(p, int):
+                                                    normalised.append({"id": p})
+                                                elif isinstance(p, dict):
+                                                    normalised.append(p)
+                                            if normalised:
+                                                card_promotions_map[pid] = normalised
                             except Exception as ce:
                                 logger.warning(f"[promo_snapshot] card.wb.ru batch error: {ce}")
                             await asyncio.sleep(0.3)
