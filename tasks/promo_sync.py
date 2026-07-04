@@ -343,15 +343,44 @@ async def _do_promo_snapshot(sf):
                             offset += 1000
                         await asyncio.sleep(1.0)
 
-                    # Получить auto-акции с conditions из уже загруженных wb_promotions
-                    async with sf() as db:
-                        auto_result = await db.execute(
-                            text("SELECT promotion_id, title, min_discount, boost_value, raw_data FROM wb_promotions WHERE organization_id = :org_id AND promo_type = 'auto' AND is_active = true"),
-                            {"org_id": org_id}
-                        )
-                        auto_promos = auto_result.fetchall()
+                    # card.wb.ru — публичный API для получения promotions[] на товарах
+                    # Рабочие параметры: curr=rub, dest=-1257786 (Москва)
+                    # card.wb.ru блокирует серверный IP без UA, но с Матки (РФ IP) работает
+                    card_promotions_map = {}  # nm_id -> [{id, title, ...}]
+                    try:
+                        async with httpx.AsyncClient(timeout=20) as bc:
+                            ua_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                            batch_size = 50
+                            for i in range(0, len(all_nm_ids), batch_size):
+                                batch = all_nm_ids[i:i + batch_size]
+                                nm_str = ";".join(str(n) for n in batch)
+                                try:
+                                    cr = await bc.get(
+                                        "https://card.wb.ru/cards/v4/detail",
+                                        params={
+                                            "curr": "rub",
+                                            "dest": "-1257786",
+                                            "spp": "27",
+                                            "pricemarginPct": "1",
+                                            "nm": nm_str,
+                                        },
+                                        headers=ua_headers,
+                                    )
+                                    if cr.status_code == 200:
+                                        cdata = cr.json().get("data", {}).get("products", [])
+                                        for prod in cdata:
+                                            pid = prod.get("id")
+                                            promos = prod.get("promotions", [])
+                                            if pid and promos:
+                                                card_promotions_map[pid] = promos
+                                except Exception as ce:
+                                    logger.warning(f"[promo_snapshot] card.wb.ru batch error: {ce}")
+                                await asyncio.sleep(0.3)
+                        logger.info(f"[promo_snapshot] org={org_id[:8]}: card.wb.ru promos for {len(card_promotions_map)} products")
+                    except Exception as ce:
+                        logger.warning(f"[promo_snapshot] card.wb.ru fallback skipped: {ce}")
 
-                    # Для каждого товара: если есть discount, записываем snapshot
+                    # Для каждого товара: записываем snapshot с данными из обоих источников
                     for g in all_goods:
                         nm_id = g.get("nmID")
                         if not nm_id:
@@ -366,21 +395,19 @@ async def _do_promo_snapshot(sf):
                         if price_product:
                             price_product = float(price_product) / 100.0
 
-                        # Найти matching auto-акции по discount
-                        matching = []
-                        for ap in auto_promos:
-                            raw = ap[4] or {}
-                            detail = raw.get("details", raw)
-                            min_disc = detail.get("minDiscount") or ap[2]
-                            if min_disc and discount >= min_disc:
-                                matching.append({
-                                    "promotion_id": ap[0],
-                                    "title": ap[1],
-                                    "discount": discount,
-                                    "boost": float(ap[3]) if ap[3] else None
+                        # promotions из card.wb.ru — публичные акции/плашки на товаре
+                        card_promos = card_promotions_map.get(nm_id, [])
+                        final_promotions = None
+                        if card_promos:
+                            final_promotions = []
+                            for cp in card_promos:
+                                final_promotions.append({
+                                    "id": cp.get("id"),
+                                    "title": cp.get("title", ""),
+                                    "active": cp.get("active", True),
+                                    "start_date": cp.get("startDateTime", ""),
+                                    "end_date": cp.get("endDateTime", ""),
                                 })
-                        # Также записываем все активные акции из details
-                        promo_names = [m["title"] for m in matching]
 
                         async with sf() as db:
                             ins = pg_insert(WbPromotionSnapshot)
@@ -389,7 +416,7 @@ async def _do_promo_snapshot(sf):
                                 nm_id=nm_id,
                                 entity_id=nm_to_entity.get(nm_id),
                                 snapshot_date=today,
-                                promotions=matching if matching else None,
+                                promotions=final_promotions,
                                 sale_conditions={"discount": discount},
                                 price_basic=price_basic,
                                 price_product=price_product,
@@ -409,7 +436,7 @@ async def _do_promo_snapshot(sf):
                             await db.commit()
 
                         processed += 1
-                        if matching:
+                        if final_promotions:
                             with_promotions += 1
                         else:
                             no_promotions += 1
