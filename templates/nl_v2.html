@@ -3759,7 +3759,7 @@ async function switchOrg() {
         else if (tabName === 'promo') { if (typeof promoTabulator === 'undefined' || !promoTabulator) initPromoGrid(); loadPromoData(); }
         else if (tabName === 'salesplan') loadSalesPlans();
         else if (tabName === 'fboneeds') loadFboNeeds();
-        else if (tabName === 'ads') { if (!adsTabulator) initAdsGrid(); loadAds(); if (typeof loadAdsArts === 'function') loadAdsArts(); }
+        else if (tabName === 'ads') { if (!adsTabulator) initAdsGrid(); loadAds(); if (typeof loadAdsArts === 'function') loadAdsArts(); if (typeof refreshAdsStatusButtons === 'function') refreshAdsStatusButtons(); }
         else if (tabName === 'extads') loadExtAds();
         else if (tabName === 'analytics') loadAnalytics();
         else if (tabName === 'marketer') loadMarketer();
