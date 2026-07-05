@@ -8,7 +8,7 @@ let _adsAllData = [];  // Полные данные до фильтрации
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ads-grid-v13';
+    const VER = 'ads-grid-v14';
     if (localStorage.getItem('ads-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ads-grid-state-columns');
         localStorage.removeItem('tabulator-ads-grid-state-sort');
@@ -100,8 +100,9 @@ function getAdsColumns() {
                 {
                     title: 'Кампания', field: 'name', headerTooltip: 'Название кампании', width: 180, headerSort: true, tooltip: true, cssClass: 'truncate-cell',
                     formatter: function(cell) {
-                        const rawName = cell.getValue() || ''; const name = rawName || ('РК #' + data.campaign_id);
                         const data = cell.getRow().getData();
+                        const rawName = cell.getValue() || '';
+                        const name = rawName || ('РК #' + data.campaign_id);
                         return '<div style="font-weight:600">' + name + '</div>' +
                                '<div style="color:#999;font-size:.75em">ID: ' + data.campaign_id + '</div>';
                     }

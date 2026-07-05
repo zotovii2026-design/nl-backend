@@ -10,12 +10,16 @@ var _adsArtCharts = [];
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    var VER = 'ads-arts-grid-v10';
+    var VER = 'ads-arts-grid-v11';
     if (localStorage.getItem('ads-arts-grid-ver') !== VER) {
         localStorage.removeItem('ads-arts-grid-state-columns');
         localStorage.removeItem('ads-arts-grid-state-sort');
         localStorage.setItem('ads-arts-grid-ver', VER);
     }
+    // Инициализация кнопок статусов при загрузке
+    setTimeout(function() {
+        if (typeof refreshAdsStatusButtons === 'function') refreshAdsStatusButtons();
+    }, 100);
 })();
 
 function switchAdsView(view) {
@@ -48,24 +52,51 @@ function switchAdsView(view) {
 
 // ===== STATUS FILTER TOGGLE =====
 var _statusColors = {
-    '9':  { on: '#00b894', off: '#fff', offText: '#636e72' },
-    '11': { on: '#fdcb6e', off: '#fff', offText: '#636e72' },
-    '7':  { on: '#dfe6e9', off: '#fff', offText: '#636e72' }
+    '9':  { on: '#00b894', onBorder: '#00b894' },
+    '11': { on: '#fdcb6e', onBorder: '#fdcb6e' },
+    '7':  { on: '#dfe6e9', onBorder: '#b2bec3' }
 };
+
+function setAdsStatusBtnActive(btn, status) {
+    var sc = _statusColors[status] || { on: '#b2bec3', onBorder: '#b2bec3' };
+    btn.style.background = sc.on;
+    btn.style.color = status === '7' ? '#636e72' : '#fff';
+    btn.style.borderColor = sc.onBorder;
+    btn.style.opacity = '1';
+}
+
+function setAdsStatusBtnInactive(btn) {
+    btn.style.background = '#fff';
+    btn.style.color = '#b2bec3';
+    btn.style.borderColor = '#e0e0e0';
+    btn.style.opacity = '.55';
+}
+
+function refreshAdsStatusButtons() {
+    document.querySelectorAll('.ads-status-btn').forEach(function(btn) {
+        var status = btn.dataset.status;
+        if (_adsStatusFilters.indexOf(status) >= 0) {
+            setAdsStatusBtnActive(btn, status);
+        } else {
+            setAdsStatusBtnInactive(btn);
+        }
+    });
+}
 
 function toggleAdsStatusFilter(btn) {
     var status = btn.dataset.status;
     var idx = _adsStatusFilters.indexOf(status);
     if (idx >= 0) {
+        // Запрет снять последний активный фильтр
+        if (_adsStatusFilters.length <= 1) {
+            btn.animate([{transform:'scale(1)'},{transform:'scale(1.1)'},{transform:'scale(1)'}], {duration:300});
+            return;
+        }
         _adsStatusFilters.splice(idx, 1);
-        var sc = _statusColors[status] || { off: '#fff', offText: '#636e72' };
-        btn.style.background = sc.off;
-        btn.style.color = sc.offText;
+        setAdsStatusBtnInactive(btn);
     } else {
         _adsStatusFilters.push(status);
-        var sc = _statusColors[status] || { on: '#b2bec3' };
-        btn.style.background = sc.on;
-        btn.style.color = '#fff';
+        setAdsStatusBtnActive(btn, status);
     }
     loadAds();
     if (_adsCurrentView === 'art') {
