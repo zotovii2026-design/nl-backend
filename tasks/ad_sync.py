@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 from typing import Optional, List, Tuple
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -69,7 +70,7 @@ def _parse_change_time(raw: str) -> Optional[datetime]:
         return None
 
 
-@shared_task(name="wb.sched.ad_stats")
+@shared_task(name="wb.sched.ad_stats", soft_time_limit=7200, time_limit=7500)
 def sched_ad_stats(days_back: int = 1, org_id: Optional[str] = None):
     async def _main():
         engine, sf = _make_session()
@@ -96,6 +97,11 @@ async def _do_ad_stats(sf, days_back=1, only_org_id: Optional[str] = None):
             total_result["orgs"][org_id] = org_result
             total_result["total_stats"] += org_result.get("stats_saved", 0)
             total_result["total_campaigns"] += org_result.get("campaigns", 0)
+        except SoftTimeLimitExceeded:
+            logger.warning("[ad_stats] Soft time limit hit during org %s. Partial data saved.", org_id)
+            total_result["orgs"][org_id] = {"status": "partial", "reason": "soft_time_limit"}
+            total_result["status"] = "partial"
+            break
         except Exception as e:
             logger.error("[ad_stats] Org %s failed: %s", org_id, e)
             total_result["orgs"][org_id] = {"status": "error", "error": str(e)}
@@ -297,7 +303,7 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
                         )
                         if resp3.status_code == 429:
                             logger.info("[ad_stats] Org %s rate limited, wait 65s", org_id)
-                            await asyncio.sleep(65)
+                            await asyncio.sleep(40)
                             retries += 1
                             continue
                         if resp3.status_code == 500:
@@ -397,10 +403,10 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
 
                 if batch_start + 50 < len(stat_ids):
                     logger.info("[ad_stats] Org %s: wait 65s for next batch", org_id)
-                    await asyncio.sleep(65)
+                    await asyncio.sleep(40)
 
             if day_offset < days_back - 1:
-                await asyncio.sleep(65)
+                await asyncio.sleep(40)
 
         # ═══ ШАГ 4b: Обновить nm_ids в ad_campaigns из ad_stats_nm ═══
         # nm_id для каждой кампании берём из ad_stats_nm (источник: /adv/v3/fullstats)
