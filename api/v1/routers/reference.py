@@ -109,7 +109,7 @@ async def get_fbs_warehouses(org_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(WbApiKey).where(WbApiKey.organization_id == org_id)
     )
-    key_rec = result.scalar_one_or_none()
+    key_rec = result.scalars().first()
     if not key_rec or not key_rec.personal_token:
         return []
     token = decrypt_data(key_rec.personal_token)
