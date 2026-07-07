@@ -251,7 +251,7 @@ async def get_promotion_products(
             wp.start_date as promo_start,
             wp.end_date as promo_end,
             wp.importance as promo_importance,
-            COALESCE(ts.price, pp.current_price) as price_before_spp,
+            COALESCE(snp.price_basic, ts.price, pp.current_price) as price_before_spp,
             ts.stock_qty,
             rb.cost_price,
             snp.snapshot_date,
@@ -756,7 +756,7 @@ async def download_promo_excel(
             pe.product_name,
             pe.brand,
             pe.subject_name,
-            COALESCE(ts.price, pp.current_price) as price_before_spp,
+            COALESCE(snp.price_basic, ts.price, pp.current_price) as price_before_spp,
             ts.stock_qty,
             rb.cost_price,
             rb.min_price
@@ -768,6 +768,12 @@ async def download_promo_excel(
             WHERE ts2.organization_id = :org AND ts2.nm_id = pp.nm_id
             ORDER BY target_date DESC LIMIT 1
         ) ts ON true
+        LEFT JOIN LATERAL (
+            SELECT price_basic
+            FROM wb_promotion_snapshots snp2
+            WHERE snp2.organization_id = :org AND snp2.nm_id = pp.nm_id
+            ORDER BY snp2.snapshot_date DESC LIMIT 1
+        ) snp ON true
         LEFT JOIN LATERAL (
             SELECT cost_price, min_price FROM reference_book rb2
             WHERE rb2.organization_id = :org AND rb2.entity_id = pp.entity_id

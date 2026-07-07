@@ -1,3 +1,4 @@
+import inspect
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -7,7 +8,9 @@ import pytest
 
 from api.v1.routers.promotions import (
     PromoProductSave,
+    download_promo_excel,
     get_promotions,
+    get_promotion_products,
     save_promotion_products,
 )
 from main import app
@@ -32,6 +35,16 @@ def test_promotions_routes_keep_legacy_paths_without_duplicates():
 
     assert set(registered) == PROMOTION_ROUTES
     assert len(registered) == len(PROMOTION_ROUTES)
+
+
+def test_promotion_price_before_spp_prefers_factual_snapshot_price():
+    for endpoint in (get_promotion_products, download_promo_excel):
+        source = inspect.getsource(endpoint)
+
+        assert (
+            "COALESCE(snp.price_basic, ts.price, pp.current_price) as price_before_spp"
+            in source
+        )
 
 
 @pytest.mark.asyncio
