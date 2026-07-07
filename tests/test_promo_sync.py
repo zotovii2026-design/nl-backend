@@ -48,7 +48,7 @@ def test_details_override_list_type_and_end_date():
 
 def test_snapshot_payload_marks_public_promotions_and_prices():
     payload = _build_snapshot_payload(
-        {"discount": 15, "sizes": [{"price": 100000, "discountedPrice": 85000}]},
+        {"discount": 15, "sizes": [{"price": 1000, "discountedPrice": 850}]},
         {
             "totalQuantity": 12,
             "promotions": [1006815],

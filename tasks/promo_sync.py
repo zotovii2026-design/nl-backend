@@ -603,7 +603,7 @@ def _price_from_goods(goods_item, key):
     if not sizes:
         return None
     price = sizes[0].get(key)
-    return float(price) / 100.0 if price else None
+    return float(price) if price else None
 
 
 def _build_snapshot_payload(goods_item, card_item, regular_promotions=None):
