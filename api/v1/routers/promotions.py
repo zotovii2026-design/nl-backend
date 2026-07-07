@@ -58,13 +58,21 @@ async def get_promotions_summary(
     total_result = await db.execute(total_query, {"org": org_id})
     total_products = total_result.scalar() or 0
     
-    # in_promotion — товары где snapshot.promotions непустой
+    # in_promotion — товары с активным остатком, где snapshot.promotions непустой
     in_promo_query = text(
         """
         SELECT COUNT(DISTINCT snp.nm_id) as count
         FROM wb_promotion_snapshots snp
+        JOIN LATERAL (
+            SELECT stock_qty
+            FROM tech_status ts2
+            WHERE ts2.organization_id = :org
+              AND ts2.nm_id = snp.nm_id
+            ORDER BY target_date DESC LIMIT 1
+        ) ts ON true
         WHERE snp.organization_id = :org
           AND snp.snapshot_date = :date
+          AND ts.stock_qty > 0
           AND snp.promotions IS NOT NULL
           AND snp.promotions::text != '[]'
           AND snp.promotions::text != 'null'
@@ -202,10 +210,12 @@ async def get_promotion_products(
     db: AsyncSession = Depends(get_db),
 ):
     """Build promotion product rows for the Tabulator frontend."""
-    params = {"org": org_id, "promo_id": None}
+    params = {"org": org_id}
     promo_product_filter = ""
+    promo_where = ""
     if promotion_id:
         promo_product_filter = " AND pp2.wb_promotion_ext_id = :promo_id"
+        promo_where = " AND pp.id IS NOT NULL"
         params["promo_id"] = int(promotion_id)
 
     query = text(
@@ -283,7 +293,9 @@ async def get_promotion_products(
         ) snp ON true
         WHERE pe.organization_id = :org
           AND pe.nm_id IS NOT NULL
-          AND (:promo_id IS NULL OR pp.id IS NOT NULL)
+        """
+        + promo_where
+        + """
         ORDER BY pe.nm_id, pe.size_name
         """
     )
