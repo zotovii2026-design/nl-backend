@@ -381,33 +381,35 @@ function togglePromoProductActions(row) {
     td.colSpan = 20;
     td.style.cssText = 'padding:6px 10px;background:#f8f9fa;border-bottom:2px solid #6c5ce7';
 
-    const tableCss = 'width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;font-size:11px;table-layout:fixed';
+    const priceBlockOffset = 686;
+    const detailCss = 'margin-left:' + priceBlockOffset + 'px;max-width:calc(100% - ' + priceBlockOffset + 'px);overflow-x:auto';
+    const tableCss = 'width:902px;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;font-size:11px;table-layout:fixed';
     const thCss = 'padding:4px 6px;text-align:left;color:#777;background:#f3f4f6;border-bottom:1px solid #e5e7eb;font-weight:600;white-space:nowrap';
     const tdCss = 'padding:4px 6px;border-bottom:1px solid #eef0f3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
 
-    let html = '<table style="' + tableCss + '">';
+    let html = '<div style="' + detailCss + '"><table style="' + tableCss + '">';
     html += '<thead><tr>';
-    html += '<th style="' + thCss + ';width:72px">Тип</th>';
-    html += '<th style="' + thCss + '">Акция</th>';
-    html += '<th style="' + thCss + ';width:116px">Даты</th>';
-    html += '<th style="' + thCss + ';width:90px">Статус</th>';
     html += '<th style="' + thCss + ';width:82px">Текущая</th>';
     html += '<th style="' + thCss + ';width:82px">Нужная</th>';
     html += '<th style="' + thCss + ';width:82px">В акции</th>';
     html += '<th style="' + thCss + ';width:82px">Прибыль</th>';
     html += '<th style="' + thCss + ';width:76px">Δ маржи</th>';
+    html += '<th style="' + thCss + ';width:72px">Тип</th>';
+    html += '<th style="' + thCss + ';width:220px">Акция</th>';
+    html += '<th style="' + thCss + ';width:116px">Даты</th>';
+    html += '<th style="' + thCss + ';width:90px">Статус</th>';
     html += '</tr></thead><tbody>';
 
     html += '<tr>';
-    html += '<td style="' + tdCss + '">auto</td>';
-    html += '<td style="' + tdCss + ';font-weight:600" title="Автоакция WB">Автоакция WB</td>';
-    html += '<td style="' + tdCss + '">сейчас</td>';
-    html += '<td style="' + tdCss + '">' + (data.auto_in_promo ? '<span style="color:#1e7e34;font-weight:700">✓</span>' : '—') + '</td>';
     html += '<td style="' + tdCss + '">' + promoMoney(data.price_before_spp || data.price_basic) + '</td>';
     html += '<td style="' + tdCss + '">—</td>';
     html += '<td style="' + tdCss + '">' + promoMoney(data.price_product) + '</td>';
     html += '<td style="' + tdCss + '">—</td>';
     html += '<td style="' + tdCss + '">—</td>';
+    html += '<td style="' + tdCss + '">auto</td>';
+    html += '<td style="' + tdCss + ';font-weight:600" title="Автоакция WB">Автоакция WB</td>';
+    html += '<td style="' + tdCss + '">сейчас</td>';
+    html += '<td style="' + tdCss + '">' + (data.auto_in_promo ? '<span style="color:#1e7e34;font-weight:700">✓</span>' : '—') + '</td>';
     html += '</tr>';
 
     if (!actions.length) {
@@ -417,19 +419,19 @@ function togglePromoProductActions(row) {
             const title = a.title || ('Акция ' + (a.promotion_id || ''));
             const status = a.in_action ? '<span style="color:#1e7e34;font-weight:700">✓ участвует</span>' : 'доступна';
             html += '<tr>';
-            html += '<td style="' + tdCss + '">' + promoEscape(a.promo_type || 'regular') + '</td>';
-            html += '<td style="' + tdCss + ';font-weight:600" title="' + promoEscape(title) + '">' + promoEscape(title) + '</td>';
-            html += '<td style="' + tdCss + '">' + promoDateRange(a.start_date, a.end_date) + '</td>';
-            html += '<td style="' + tdCss + '">' + status + '</td>';
             html += '<td style="' + tdCss + '">' + promoMoney(data.price_before_spp || a.current_price) + '</td>';
             html += '<td style="' + tdCss + '">' + promoMoney(a.required_price) + '</td>';
             html += '<td style="' + tdCss + '">' + promoMoney(a.price_in_promo) + '</td>';
             html += '<td style="' + tdCss + '">' + promoDelta(a.profit_in_promo, ' ₽') + '</td>';
             html += '<td style="' + tdCss + '">' + promoDelta(a.margin_delta, ' ₽') + '</td>';
+            html += '<td style="' + tdCss + '">' + promoEscape(a.promo_type || 'regular') + '</td>';
+            html += '<td style="' + tdCss + ';font-weight:600" title="' + promoEscape(title) + '">' + promoEscape(title) + '</td>';
+            html += '<td style="' + tdCss + '">' + promoDateRange(a.start_date, a.end_date) + '</td>';
+            html += '<td style="' + tdCss + '">' + status + '</td>';
             html += '</tr>';
         });
     }
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
 
     td.innerHTML = html;
     tr.appendChild(td);
