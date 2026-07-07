@@ -47,37 +47,67 @@ async def get_promotions_summary(
     
     params["date"] = snapshot_date
     
-    # total_products — товары с активным остатком (stock_qty > 0)
+    # total_products — товары с активным остатком в latest-срезе.
+    # Если latest stocks пустые/нулевые, используем размер snapshot как fallback.
     total_query = text(
         """
-        SELECT COUNT(DISTINCT ts.nm_id) as total
-        FROM tech_status ts
-        WHERE ts.organization_id = :org AND ts.stock_qty > 0
+        WITH latest_ts AS (
+            SELECT DISTINCT ON (nm_id) nm_id, stock_qty
+            FROM tech_status
+            WHERE organization_id = :org
+            ORDER BY nm_id, target_date DESC
+        )
+        SELECT COUNT(*) FILTER (WHERE stock_qty > 0) as total
+        FROM latest_ts
         """
     )
     total_result = await db.execute(total_query, {"org": org_id})
-    total_products = total_result.scalar() or 0
-    
-    # in_promotion — товары с активным остатком, где snapshot.promotions непустой
-    in_promo_query = text(
+    active_products = total_result.scalar() or 0
+
+    snapshot_total_query = text(
         """
-        SELECT COUNT(DISTINCT snp.nm_id) as count
-        FROM wb_promotion_snapshots snp
-        JOIN LATERAL (
-            SELECT stock_qty
-            FROM tech_status ts2
-            WHERE ts2.organization_id = :org
-              AND ts2.nm_id = snp.nm_id
-            ORDER BY target_date DESC LIMIT 1
-        ) ts ON true
-        WHERE snp.organization_id = :org
-          AND snp.snapshot_date = :date
-          AND ts.stock_qty > 0
-          AND snp.promotions IS NOT NULL
-          AND snp.promotions::text != '[]'
-          AND snp.promotions::text != 'null'
+        SELECT COUNT(DISTINCT nm_id)
+        FROM wb_promotion_snapshots
+        WHERE organization_id = :org AND snapshot_date = :date
         """
     )
+    snapshot_total_result = await db.execute(snapshot_total_query, params)
+    snapshot_total = snapshot_total_result.scalar() or 0
+    total_products = active_products or snapshot_total
+
+    if active_products:
+        # in_promotion — товары с активным остатком, где snapshot.promotions непустой
+        in_promo_query = text(
+            """
+            SELECT COUNT(DISTINCT snp.nm_id) as count
+            FROM wb_promotion_snapshots snp
+            JOIN LATERAL (
+                SELECT stock_qty
+                FROM tech_status ts2
+                WHERE ts2.organization_id = :org
+                  AND ts2.nm_id = snp.nm_id
+                ORDER BY target_date DESC LIMIT 1
+            ) ts ON true
+            WHERE snp.organization_id = :org
+              AND snp.snapshot_date = :date
+              AND ts.stock_qty > 0
+              AND snp.promotions IS NOT NULL
+              AND snp.promotions::text != '[]'
+              AND snp.promotions::text != 'null'
+            """
+        )
+    else:
+        in_promo_query = text(
+            """
+            SELECT COUNT(DISTINCT snp.nm_id) as count
+            FROM wb_promotion_snapshots snp
+            WHERE snp.organization_id = :org
+              AND snp.snapshot_date = :date
+              AND snp.promotions IS NOT NULL
+              AND snp.promotions::text != '[]'
+              AND snp.promotions::text != 'null'
+            """
+        )
     in_promo_result = await db.execute(in_promo_query, params)
     in_promotion = in_promo_result.scalar() or 0
     
