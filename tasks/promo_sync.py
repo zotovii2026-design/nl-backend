@@ -514,7 +514,11 @@ def _build_snapshot_payload(goods_item, card_item):
     card_item = card_item or {}
     card_sale_conditions = []
     for size in card_item.get("sizes") or []:
-        card_sale_conditions.extend(size.get("saleConditions") or [])
+        conditions = size.get("saleConditions")
+        if isinstance(conditions, list):
+            card_sale_conditions.extend(conditions)
+        elif conditions:
+            card_sale_conditions.append(conditions)
 
     sale_conditions = {
         "seller_discount": goods_item.get("discount", 0),
