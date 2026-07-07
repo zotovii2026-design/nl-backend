@@ -85,6 +85,10 @@ async def get_promotions_summary(
             wp.id,
             wp.promotion_id,
             wp.title,
+            wp.promo_type,
+            wp.start_date,
+            wp.end_date,
+            wp.is_active,
             COUNT(DISTINCT snp.nm_id) as count
         FROM wb_promotions wp
         LEFT JOIN LATERAL (
@@ -92,17 +96,18 @@ async def get_promotions_summary(
             FROM wb_promotion_snapshots snp2
             WHERE snp2.organization_id = :org
               AND snp2.snapshot_date = :date
-              AND snp2.promotions IS NOT NULL
-              AND snp2.promotions::text != '[]'
-              AND snp2.promotions::text != 'null'
+              AND snp2.available_to_buy = true
+              AND snp2.regular_promotion_ids IS NOT NULL
+              AND snp2.regular_promotion_ids::text != '[]'
+              AND snp2.regular_promotion_ids::text != 'null'
               AND EXISTS (
-                  SELECT 1 FROM jsonb_array_elements(snp2.promotions) p
+                  SELECT 1 FROM jsonb_array_elements(snp2.regular_promotion_ids) p
                   WHERE (p->>'id')::text = wp.promotion_id::text
               )
         ) snp ON true
         WHERE wp.organization_id = :org
-        GROUP BY wp.id, wp.promotion_id, wp.title
-        ORDER BY count DESC
+        GROUP BY wp.id, wp.promotion_id, wp.title, wp.promo_type, wp.start_date, wp.end_date, wp.is_active
+        ORDER BY wp.start_date NULLS LAST, count DESC
         """
     )
     by_promo_result = await db.execute(by_promo_query, params)
@@ -114,6 +119,10 @@ async def get_promotions_summary(
         by_promotion.append({
             "promotion_id": row.promotion_id,
             "title": row.title,
+            "promo_type": row.promo_type,
+            "start_date": row.start_date.isoformat() if row.start_date else None,
+            "end_date": row.end_date.isoformat() if row.end_date else None,
+            "is_active": row.is_active,
             "count": count,
             "pct": pct,
         })
@@ -256,7 +265,8 @@ async def get_promotion_products(
             snp.regular_promotion_ids,
             snp.auto_promotion_ids,
             snp.price_basic,
-            snp.price_product
+            snp.price_product,
+            promo_opts.options as promotion_options_raw
         FROM product_entities pe
         LEFT JOIN LATERAL (
             SELECT pp2.*
@@ -270,6 +280,31 @@ async def get_promotion_products(
             LIMIT 1
         ) pp ON true
         LEFT JOIN wb_promotions wp ON wp.id = pp.promotion_id_col
+        LEFT JOIN LATERAL (
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'id', pp3.id,
+                    'promotion_id', pp3.wb_promotion_ext_id,
+                    'title', COALESCE(wp3.title, 'Акция ' || pp3.wb_promotion_ext_id::text),
+                    'promo_type', wp3.promo_type,
+                    'start_date', CASE WHEN wp3.start_date IS NOT NULL THEN to_char(wp3.start_date, 'DD.MM.YYYY') ELSE NULL END,
+                    'end_date', CASE WHEN wp3.end_date IS NOT NULL THEN to_char(wp3.end_date, 'DD.MM.YYYY') ELSE NULL END,
+                    'in_action', COALESCE(pp3.in_action, false),
+                    'current_price', pp3.current_price,
+                    'required_price', pp3.required_price,
+                    'price_in_promo', pp3.price_in_promo,
+                    'profit_in_promo', pp3.profit_in_promo,
+                    'margin_delta', pp3.margin_delta,
+                    'plan', COALESCE(pp3.plan, false),
+                    'status_text', pp3.status_text
+                )
+                ORDER BY COALESCE(pp3.in_action, false) DESC, wp3.start_date NULLS LAST, pp3.synced_at DESC NULLS LAST
+            ) as options
+            FROM wb_promotion_products pp3
+            LEFT JOIN wb_promotions wp3 ON wp3.id = pp3.promotion_id_col
+            WHERE pp3.organization_id = :org
+              AND pp3.nm_id = pe.nm_id
+        ) promo_opts ON true
         LEFT JOIN LATERAL (
             SELECT price, stock_qty
             FROM tech_status ts2
@@ -406,6 +441,7 @@ async def get_promotion_products(
                 ", ".join([p["title"] for p in available_promotions[:2] if p.get("title")])
                 or (", ".join(snapshot_promotions[:2]) if snapshot_promotions else None)
             )
+        promotion_options = row.promotion_options_raw or []
         
         items.append(
             {
@@ -465,6 +501,7 @@ async def get_promotion_products(
                 "price_product": float(row.price_product) if row.price_product else None,
                 # Доступные акции для товара
                 "available_promotions": available_promotions,
+                "promotion_options": promotion_options,
                 "current_action_id": current_action_id,
             }
         )

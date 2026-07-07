@@ -5,16 +5,70 @@
 
 let promoTabulator = null;
 let _promoAllData = [];
+let _promoExpandedRow = null;
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'promo-grid-v1';
+    const VER = 'promo-grid-v2';
     if (localStorage.getItem('promo-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-promo-grid-state-columns');
         localStorage.removeItem('tabulator-promo-grid-state-sort');
         localStorage.setItem('promo-grid-ver', VER);
     }
 })();
+
+function promoEscape(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function promoMoney(value) {
+    if (value == null || value === '') return '—';
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '—';
+    return n.toLocaleString('ru-RU', {maximumFractionDigits: 0}) + ' ₽';
+}
+
+function promoDelta(value, suffix) {
+    if (value == null || value === '') return '—';
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '—';
+    const color = n >= 0 ? '#27ae60' : '#e74c3c';
+    return '<span style="color:' + color + ';font-weight:600">' + n.toLocaleString('ru-RU', {maximumFractionDigits: 1}) + (suffix || '') + '</span>';
+}
+
+function promoDateRange(start, end) {
+    if (!start && !end) return 'Даты не указаны';
+    if (start && end) return promoEscape(start) + ' → ' + promoEscape(end);
+    return promoEscape(start || end);
+}
+
+function promoParseDate(value) {
+    if (!value) return null;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    d.setHours(0, 0, 0, 0);
+    return d;
+}
+
+function promoFormatShortDate(value) {
+    const d = value instanceof Date ? value : promoParseDate(value);
+    if (!d) return '—';
+    return d.toLocaleDateString('ru-RU', {day: '2-digit', month: '2-digit'});
+}
+
+function promoOverlapsWindow(p, start, end) {
+    const pStart = promoParseDate(p.start_date);
+    const pEnd = promoParseDate(p.end_date);
+    if (!pStart && !pEnd) return false;
+    const from = pStart || pEnd;
+    const to = pEnd || pStart;
+    return from <= end && to >= start;
+}
 
 function getPromoColumns() {
     return [
@@ -32,9 +86,13 @@ function getPromoColumns() {
                     }
                 },
                 { title: 'Теги', field: 'tags', headerTooltip: 'Теги', width: 70, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
-                { title: 'SKU', field: 'nm_id',
-                    headerTooltip: 'Артикул WB', width: 80, headerSort: true,
-                    formatter: function(cell) { return '<b>' + cell.getValue() + '</b>'; }
+                { title: 'Арт WB', field: 'nm_id',
+                    headerTooltip: 'Артикул WB', width: 90, headerSort: true,
+                    formatter: function(cell) {
+                        const nmId = cell.getValue();
+                        if (!nmId) return '—';
+                        return '<a href="https://www.wildberries.ru/catalog/' + encodeURIComponent(nmId) + '/detail.aspx" target="_blank" rel="noopener" style="font-weight:700;color:#6c5ce7;text-decoration:none">' + promoEscape(nmId) + '</a>';
+                    }
                 },
                 { title: 'Предмет', field: 'subject_name',
                     headerTooltip: 'Предмет/категория', width: 120, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
@@ -203,6 +261,11 @@ function initPromoGrid() {
         },
     });
 
+    promoTabulator.on('rowClick', function(e, row) {
+        if (e.target.closest('a') || e.target.closest('.promo-actions-row')) return;
+        togglePromoProductActions(row);
+    });
+
     console.log('[Promo Grid] Tabulator initialized');
 }
 
@@ -265,17 +328,102 @@ function applyPromoFilters() {
     if (fltStatus === 'in_action') filtered = filtered.filter(p => p.in_any_promo);
     if (fltStatus === 'plan') filtered = filtered.filter(p => p.plan);
     if (fltStatus === 'not_in') filtered = filtered.filter(p => !p.in_any_promo && !p.plan);
+    if (fltAction) {
+        filtered = filtered.filter(p => {
+            if (String(p.wb_promotion_ext_id || '') === String(fltAction)) return true;
+            return (p.promotion_options || []).some(opt => String(opt.promotion_id || '') === String(fltAction));
+        });
+    }
 
+    closePromoProductActions();
     if (promoTabulator) promoTabulator.replaceData(filtered);
     const countEl = document.getElementById('promo-count');
     if (countEl) countEl.textContent = filtered.length + ' товаров';
 }
 
 function resetPromoFilters() {
+    document.getElementById('promo-flt-action').value = '';
     document.getElementById('promo-flt-brand').value = '';
     document.getElementById('promo-flt-status').value = '';
     document.getElementById('promo-flt-search').value = '';
     applyPromoFilters();
+}
+
+function closePromoProductActions() {
+    if (_promoExpandedRow) {
+        const el = _promoExpandedRow.getElement();
+        const next = el.nextElementSibling;
+        if (next && next.classList.contains('promo-actions-row')) {
+            next.remove();
+        }
+        _promoExpandedRow = null;
+    }
+}
+
+function togglePromoProductActions(row) {
+    const el = row.getElement();
+
+    if (_promoExpandedRow === row) {
+        closePromoProductActions();
+        return;
+    }
+
+    closePromoProductActions();
+    _promoExpandedRow = row;
+
+    const data = row.getData();
+    const actions = data.promotion_options || [];
+    const nmId = data.nm_id;
+
+    const tr = document.createElement('tr');
+    tr.className = 'promo-actions-row';
+    const td = document.createElement('td');
+    td.colSpan = 20;
+    td.style.cssText = 'padding:12px 16px;background:#f8f9fa;border-bottom:2px solid #6c5ce7';
+
+    let html = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
+    html += '<span style="font-weight:700;color:#1a1a2e;font-size:.9em">Акции для ' + promoEscape(nmId) + '</span>';
+    html += '<span style="font-size:.75em;color:#777;background:#fff;border:1px solid #e5e7eb;padding:2px 6px;border-radius:3px">Остаток WB: ' + promoEscape(data.available_qty != null ? data.available_qty : '—') + '</span>';
+    html += data.auto_in_promo
+        ? '<span style="font-size:.75em;color:#7a4b00;background:#fff3cd;padding:2px 6px;border-radius:3px">✓ Автоакция сейчас</span>'
+        : '<span style="font-size:.75em;color:#999;background:#fff;padding:2px 6px;border-radius:3px;border:1px solid #e5e7eb">Автоакции нет</span>';
+    html += '</div>';
+
+    if (!actions.length) {
+        html += '<div style="padding:10px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;color:#777;font-size:.85em">Нет доступных regular-акций по WB Calendar API.</div>';
+    } else {
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px">';
+        actions.forEach(function(a) {
+            const title = a.title || ('Акция ' + (a.promotion_id || ''));
+            const isIn = !!a.in_action;
+            const isPlan = !!a.plan;
+            html += '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px;min-width:0">';
+            html += '<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between;margin-bottom:8px">';
+            html += '<div style="font-weight:700;font-size:.84em;color:#1a1a2e;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + promoEscape(title) + '">' + promoEscape(title) + '</div>';
+            html += isIn
+                ? '<span style="font-size:.72em;background:#d4edda;color:#1e7e34;padding:2px 6px;border-radius:3px;white-space:nowrap">✓ участвует</span>'
+                : '<span style="font-size:.72em;background:#f8f9fa;color:#777;padding:2px 6px;border-radius:3px;white-space:nowrap">доступна</span>';
+            html += '</div>';
+            html += '<div style="font-size:.76em;color:#777;margin-bottom:8px">' + promoDateRange(a.start_date, a.end_date) + ' · ' + promoEscape(a.promo_type || 'regular') + '</div>';
+            html += '<div style="display:grid;grid-template-columns:repeat(2,minmax(92px,1fr));gap:7px;font-size:.78em">';
+            html += '<div><span style="color:#999">Текущая</span><br><b>' + promoMoney(a.current_price || data.price_before_spp) + '</b></div>';
+            html += '<div><span style="color:#999">Нужная цена</span><br><b>' + promoMoney(a.required_price) + '</b></div>';
+            html += '<div><span style="color:#999">Цена в акции</span><br><b>' + promoMoney(a.price_in_promo) + '</b></div>';
+            html += '<div><span style="color:#999">Прибыль</span><br>' + promoDelta(a.profit_in_promo, ' ₽') + '</div>';
+            html += '<div><span style="color:#999">Δ маржи</span><br>' + promoDelta(a.margin_delta, ' ₽') + '</div>';
+            html += '<div><span style="color:#999">План</span><br><b>' + (isPlan ? '✓' : '—') + '</b></div>';
+            html += '</div>';
+            if (a.status_text) {
+                html += '<div style="margin-top:8px;font-size:.76em;color:#666;background:#f8f9fa;padding:6px;border-radius:4px">' + promoEscape(a.status_text) + '</div>';
+            }
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+
+    td.innerHTML = html;
+    tr.appendChild(td);
+    el.parentNode.insertBefore(tr, el.nextSibling);
 }
 
 function populatePromoFilterOptions() {
@@ -404,20 +552,39 @@ async function loadPromoSummary() {
             pctEl.style.color = pct > 50 ? '#27ae60' : pct > 20 ? '#f39c12' : '#e74c3c';
         }
 
-        // Карточки акций
+        // Календарь акций: по умолчанию окно сегодня ± 3 дня
         const promos = data.by_promotion || [];
-        const showCount = Math.min(promos.length, 8);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const rangeStart = new Date(today);
+        rangeStart.setDate(today.getDate() - 3);
+        const rangeEnd = new Date(today);
+        rangeEnd.setDate(today.getDate() + 3);
+        const windowPromos = promos
+            .filter(p => promoOverlapsWindow(p, rangeStart, rangeEnd))
+            .sort((a, b) => (promoParseDate(a.start_date)?.getTime() || 0) - (promoParseDate(b.start_date)?.getTime() || 0));
+        const showCount = Math.min(windowPromos.length, 10);
         let html = '';
 
+        html += '<div style="flex:0 0 100%;font-size:.82em;color:#666;margin-bottom:2px">'
+            + '<b>Календарь акций</b> · '
+            + promoFormatShortDate(rangeStart) + ' — ' + promoFormatShortDate(rangeEnd)
+            + ' · сегодня ± 3 дня'
+            + '</div>';
+
         for (let i = 0; i < showCount; i++) {
-            const p = promos[i];
+            const p = windowPromos[i];
             const pctColor = p.pct > 50 ? '#27ae60' : p.pct > 20 ? '#f39c12' : '#95a5a6';
             html += '<div class="promo-card" style="'
                 + 'background:#fff;border:1px solid #e0e0e0;border-radius:8px;'
-                + 'padding:10px 14px;min-width:160px;flex:1;cursor:pointer"'
+                + 'padding:10px 14px;min-width:190px;flex:1;cursor:pointer"'
                 + ' onclick="filterByPromo(\'' + (p.promotion_id || '') + '\')">'
                 + '<div style="font-size:.75em;color:#888;margin-bottom:4px">' 
                 + (p.title || 'Акция ' + p.promotion_id).substring(0, 28)
+                + '</div>'
+                + '<div style="font-size:.72em;color:#666;margin-bottom:6px">'
+                + promoFormatShortDate(p.start_date) + ' → ' + promoFormatShortDate(p.end_date)
+                + ' · ' + promoEscape(p.promo_type || 'regular')
                 + '</div>'
                 + '<div style="display:flex;align-items:baseline;gap:6px">'
                 + '<span style="font-size:1.3em;font-weight:700;color:' + pctColor + '">' + p.pct + '%</span>'
@@ -426,14 +593,17 @@ async function loadPromoSummary() {
                 + '</div>';
         }
 
-        if (promos.length > 8) {
+        if (windowPromos.length > 10) {
             html += '<div class="promo-card" style="'
                 + 'background:#f8f9fa;border:1px dashed #ccc;border-radius:8px;'
                 + 'padding:10px 14px;min-width:120px;display:flex;align-items:center;justify-content:center;color:#666;font-size:.85em">'
-                + '+' + (promos.length - 8) + ' ещё</div>';
+                + '+' + (windowPromos.length - 10) + ' ещё</div>';
         }
 
-        container.innerHTML = html || '<div style="color:#999;font-size:.85em;padding:12px">Нет активных акций</div>';
+        if (!windowPromos.length) {
+            html += '<div style="color:#999;font-size:.85em;padding:12px;background:#fff;border:1px solid #e5e7eb;border-radius:8px">В окне сегодня ± 3 дня акций нет</div>';
+        }
+        container.innerHTML = html;
     } catch (e) {
         console.error('[Promo] Summary load error:', e);
         container.innerHTML = '<div style="color:#e74c3c;font-size:.85em;padding:8px">Ошибка загрузки сводки</div>';
@@ -470,6 +640,7 @@ async function downloadPromoExcel() {
 
 async function switchPromoStore() {
     const sel = document.getElementById("promo-store");
+    if (!sel) return;
     const newOrgId = sel.value;
     if (newOrgId === ORG_ID) return;
     ORG_ID = newOrgId;
