@@ -421,7 +421,7 @@ function togglePromoProductActions(row) {
             html += '<td style="' + tdCss + ';font-weight:600" title="' + promoEscape(title) + '">' + promoEscape(title) + '</td>';
             html += '<td style="' + tdCss + '">' + promoDateRange(a.start_date, a.end_date) + '</td>';
             html += '<td style="' + tdCss + '">' + status + '</td>';
-            html += '<td style="' + tdCss + '">' + promoMoney(a.current_price || data.price_before_spp) + '</td>';
+            html += '<td style="' + tdCss + '">' + promoMoney(data.price_before_spp || a.current_price) + '</td>';
             html += '<td style="' + tdCss + '">' + promoMoney(a.required_price) + '</td>';
             html += '<td style="' + tdCss + '">' + promoMoney(a.price_in_promo) + '</td>';
             html += '<td style="' + tdCss + '">' + promoDelta(a.profit_in_promo, ' ₽') + '</td>';
