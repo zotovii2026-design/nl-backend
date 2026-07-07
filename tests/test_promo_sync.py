@@ -50,7 +50,8 @@ def test_snapshot_payload_marks_public_promotions_and_prices():
     payload = _build_snapshot_payload(
         {"discount": 15, "sizes": [{"price": 100000, "discountedPrice": 85000}]},
         {
-            "promotions": [1003955],
+            "totalQuantity": 12,
+            "promotions": [1006815],
             "sizes": [
                 {
                     "saleConditions": [{"id": 1, "name": "auto"}],
@@ -60,7 +61,13 @@ def test_snapshot_payload_marks_public_promotions_and_prices():
         },
     )
 
-    assert payload["promotions"] == [{"id": 1003955, "source": "card"}]
+    assert payload["promotions"] == [{"id": 1006815, "source": "card"}]
+    assert payload["auto_promotion_ids"] == [{"id": 1006815, "source": "card_auto_marker"}]
+    assert payload["available_qty"] == 12
+    assert payload["available_to_buy"] is True
+    assert payload["regular_in_promo"] is False
+    assert payload["auto_in_promo"] is True
+    assert payload["in_any_promo"] is True
     assert payload["sale_conditions"]["seller_discount"] == 15
     assert payload["sale_conditions"]["card_returned"] is True
     assert payload["price_basic"] == 1000.0
@@ -71,4 +78,23 @@ def test_snapshot_payload_keeps_no_promo_as_empty_fact():
     payload = _build_snapshot_payload({}, {"id": 123, "promotions": []})
 
     assert payload["promotions"] is None
+    assert payload["available_qty"] == 0
+    assert payload["available_to_buy"] is False
+    assert payload["in_any_promo"] is False
     assert payload["sale_conditions"]["card_returned"] is True
+
+
+def test_snapshot_payload_uses_regular_promotions():
+    payload = _build_snapshot_payload(
+        {},
+        {"id": 123, "totalQuantity": 3, "promotions": [1002605]},
+        [{"id": 2642, "title": "Экспресс-скидки", "source": "calendar"}],
+    )
+
+    assert payload["available_to_buy"] is True
+    assert payload["regular_in_promo"] is True
+    assert payload["auto_in_promo"] is False
+    assert payload["in_any_promo"] is True
+    assert payload["regular_promotion_ids"] == [
+        {"id": 2642, "title": "Экспресс-скидки", "source": "calendar"}
+    ]

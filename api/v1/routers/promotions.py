@@ -47,67 +47,28 @@ async def get_promotions_summary(
     
     params["date"] = snapshot_date
     
-    # total_products — товары с активным остатком в latest-срезе.
-    # Если latest stocks пустые/нулевые, используем размер snapshot как fallback.
+    # total_products — только товары, доступные к покупке на витрине WB.
     total_query = text(
         """
-        WITH latest_ts AS (
-            SELECT DISTINCT ON (nm_id) nm_id, stock_qty
-            FROM tech_status
-            WHERE organization_id = :org
-            ORDER BY nm_id, target_date DESC
-        )
-        SELECT COUNT(*) FILTER (WHERE stock_qty > 0) as total
-        FROM latest_ts
-        """
-    )
-    total_result = await db.execute(total_query, {"org": org_id})
-    active_products = total_result.scalar() or 0
-
-    snapshot_total_query = text(
-        """
-        SELECT COUNT(DISTINCT nm_id)
+        SELECT COUNT(DISTINCT nm_id) as total
         FROM wb_promotion_snapshots
         WHERE organization_id = :org AND snapshot_date = :date
+          AND available_to_buy = true
         """
     )
-    snapshot_total_result = await db.execute(snapshot_total_query, params)
-    snapshot_total = snapshot_total_result.scalar() or 0
-    total_products = active_products or snapshot_total
+    total_result = await db.execute(total_query, params)
+    total_products = total_result.scalar() or 0
 
-    if active_products:
-        # in_promotion — товары с активным остатком, где snapshot.promotions непустой
-        in_promo_query = text(
-            """
-            SELECT COUNT(DISTINCT snp.nm_id) as count
-            FROM wb_promotion_snapshots snp
-            JOIN LATERAL (
-                SELECT stock_qty
-                FROM tech_status ts2
-                WHERE ts2.organization_id = :org
-                  AND ts2.nm_id = snp.nm_id
-                ORDER BY target_date DESC LIMIT 1
-            ) ts ON true
-            WHERE snp.organization_id = :org
-              AND snp.snapshot_date = :date
-              AND ts.stock_qty > 0
-              AND snp.promotions IS NOT NULL
-              AND snp.promotions::text != '[]'
-              AND snp.promotions::text != 'null'
-            """
-        )
-    else:
-        in_promo_query = text(
-            """
-            SELECT COUNT(DISTINCT snp.nm_id) as count
-            FROM wb_promotion_snapshots snp
-            WHERE snp.organization_id = :org
-              AND snp.snapshot_date = :date
-              AND snp.promotions IS NOT NULL
-              AND snp.promotions::text != '[]'
-              AND snp.promotions::text != 'null'
-            """
-        )
+    in_promo_query = text(
+        """
+        SELECT COUNT(DISTINCT nm_id) as count
+        FROM wb_promotion_snapshots
+        WHERE organization_id = :org
+          AND snapshot_date = :date
+          AND available_to_buy = true
+          AND in_any_promo = true
+        """
+    )
     in_promo_result = await db.execute(in_promo_query, params)
     in_promotion = in_promo_result.scalar() or 0
     
@@ -287,6 +248,13 @@ async def get_promotion_products(
             snp.snapshot_date,
             snp.promotions as snapshot_promotions_raw,
             snp.sale_conditions as sale_conditions_raw,
+            snp.available_qty,
+            snp.available_to_buy,
+            snp.regular_in_promo,
+            snp.auto_in_promo,
+            snp.in_any_promo,
+            snp.regular_promotion_ids,
+            snp.auto_promotion_ids,
             snp.price_basic,
             snp.price_product
         FROM product_entities pe
@@ -314,7 +282,19 @@ async def get_promotion_products(
             ORDER BY valid_from DESC LIMIT 1
         ) rb ON true
         LEFT JOIN LATERAL (
-            SELECT snapshot_date, promotions, sale_conditions, price_basic, price_product
+            SELECT
+                snapshot_date,
+                promotions,
+                sale_conditions,
+                available_qty,
+                available_to_buy,
+                regular_in_promo,
+                auto_in_promo,
+                in_any_promo,
+                regular_promotion_ids,
+                auto_promotion_ids,
+                price_basic,
+                price_product
             FROM wb_promotion_snapshots snp2
             WHERE snp2.organization_id = :org
               AND snp2.nm_id = pe.nm_id
@@ -323,6 +303,7 @@ async def get_promotion_products(
         ) snp ON true
         WHERE pe.organization_id = :org
           AND pe.nm_id IS NOT NULL
+          AND COALESCE(snp.available_to_buy, false) = true
         """
         + promo_where
         + """
@@ -357,13 +338,17 @@ async def get_promotion_products(
                             snapshot_promotions.append(str(promo))
             except AttributeError:
                 pass
-        snapshot_in_promo = bool(snapshot_promotions)
+        regular_in_promo = bool(row.regular_in_promo)
+        auto_in_promo = bool(row.auto_in_promo)
+        in_any_promo = bool(row.in_any_promo)
+        snapshot_in_promo = auto_in_promo
         
         # Обработка available_promotions — enrich из wb_promotions
         available_promotions = []
-        if row.snapshot_promotions_raw:
+        promo_sources = row.regular_promotion_ids or row.auto_promotion_ids or row.snapshot_promotions_raw
+        if promo_sources:
             try:
-                promo_list = row.snapshot_promotions_raw
+                promo_list = promo_sources
                 if isinstance(promo_list, list):
                     # Для каждой акции из snapshot ищем детали в wb_promotions
                     for p in promo_list:
@@ -420,9 +405,13 @@ async def get_promotion_products(
                 "wb_promotion_ext_id": row.wb_promotion_ext_id,
                 "nm_id": row.nm_id,
                 "in_action": row.in_action or False,
-                "in_any_promo": bool(row.in_action) or snapshot_in_promo,
+                "regular_in_promo": regular_in_promo,
+                "auto_in_promo": auto_in_promo,
+                "in_any_promo": in_any_promo,
                 "snapshot_in_promo": snapshot_in_promo,
                 "snapshot_date": row.snapshot_date.isoformat() if row.snapshot_date else None,
+                "available_qty": row.available_qty,
+                "available_to_buy": bool(row.available_to_buy),
                 "auto_matched": row.auto_matched or False,
                 "current_price": (
                     float(row.current_price) if row.current_price else None
@@ -449,9 +438,10 @@ async def get_promotion_products(
                 "brand": row.brand,
                 "subject_name": row.subject_name,
                 "promo_title": row.promo_title or (
-                    ", ".join(snapshot_promotions[:2]) if snapshot_promotions else None
+                    ", ".join([p["title"] for p in available_promotions[:2] if p.get("title")])
+                    or (", ".join(snapshot_promotions[:2]) if snapshot_promotions else None)
                 ),
-                "promo_type": row.promo_type or ("auto/public" if snapshot_in_promo else None),
+                "promo_type": row.promo_type or ("auto" if auto_in_promo else None),
                 "promo_start": (
                     row.promo_start.strftime("%d.%m.%Y")
                     if row.promo_start
@@ -462,7 +452,7 @@ async def get_promotion_products(
                 ),
                 "promo_importance": row.promo_importance,
                 "price_before_spp": price_before,
-                "stock_qty": row.stock_qty,
+                "stock_qty": row.available_qty if row.available_qty is not None else row.stock_qty,
                 "margin_pct": margin_pct,
                 # Новые поля из snapshot
                 "snapshot_promotions": snapshot_promotions,

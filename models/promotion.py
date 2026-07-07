@@ -103,6 +103,13 @@ class WbPromotionSnapshot(Base):
     snapshot_date = Column(Date, nullable=False, index=True)
     promotions = Column(JSONB, nullable=True)          # promotions[] из card.wb.ru
     sale_conditions = Column(JSONB, nullable=True)     # saleConditions из card.wb.ru
+    available_qty = Column(Integer, nullable=True)      # totalQuantity / сумма stocks.qty из card.wb.ru
+    available_to_buy = Column(Boolean, default=False)   # Доступен к покупке на витрине WB
+    regular_in_promo = Column(Boolean, default=False)   # В regular-акции по WB Calendar nomenclatures
+    auto_in_promo = Column(Boolean, default=False)      # В auto-акции по откалиброванному public marker
+    in_any_promo = Column(Boolean, default=False)       # regular_in_promo OR auto_in_promo
+    regular_promotion_ids = Column(JSONB, nullable=True)
+    auto_promotion_ids = Column(JSONB, nullable=True)
     price_basic = Column(Numeric(12, 2), nullable=True)    # price.basic (цена до скидки)
     price_product = Column(Numeric(12, 2), nullable=True)  # price.product (цена покупателя)
     fetched_at = Column(DateTime(timezone=True), nullable=True)

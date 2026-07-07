@@ -104,8 +104,8 @@ function getPromoColumns() {
                     headerTooltip: 'Источник факта участия', width: 74, headerSort: true,
                     formatter: function(cell) {
                         const row = cell.getRow().getData();
-                        if (row.in_action) return '<span style="background:#e8f4ff;padding:2px 6px;border-radius:3px">WB</span>';
-                        if (cell.getValue()) return '<span style="background:#fff3cd;padding:2px 6px;border-radius:3px">auto</span>';
+                        if (row.regular_in_promo) return '<span style="background:#e8f4ff;padding:2px 6px;border-radius:3px">WB</span>';
+                        if (row.auto_in_promo) return '<span style="background:#fff3cd;padding:2px 6px;border-radius:3px">auto</span>';
                         return '—';
                     }
                 },

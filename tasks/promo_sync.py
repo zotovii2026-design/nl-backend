@@ -21,6 +21,19 @@ from services.wb_api.client import WBApiClient
 
 logger = logging.getLogger(__name__)
 
+# Calibrated on 2026-07-07 against control nmIDs from the seller:
+# 203239954=false, 574654384=false, 612512650=true. Public card.wb.ru
+# promotions[] contains many broad WB markers, so only these marker IDs are
+# currently treated as auto-action evidence.
+AUTO_PROMO_MARKER_IDS = {
+    1006815,
+    1007212,
+    1022576,
+    1029288,
+    1041106,
+    1041324,
+}
+
 
 def _is_usable_wb_key(api_key: str | None) -> bool:
     return bool(
@@ -342,10 +355,15 @@ async def _do_promo_snapshot(sf):
                         raise RuntimeError("card.wb.ru returned no products; skip snapshot to avoid false negatives")
 
                     async with sf() as db:
+                        regular_promotions_by_nm = await _fetch_regular_promotions_map(db, org_id)
                         for nm_id in all_nm_ids:
                             goods_item = goods_by_nm.get(nm_id, {})
                             card_item = card_products.get(nm_id, {})
-                            snapshot_payload = _build_snapshot_payload(goods_item, card_item)
+                            snapshot_payload = _build_snapshot_payload(
+                                goods_item,
+                                card_item,
+                                regular_promotions_by_nm.get(nm_id, []),
+                            )
 
                             ins = pg_insert(WbPromotionSnapshot)
                             stmt = ins.values(
@@ -355,6 +373,13 @@ async def _do_promo_snapshot(sf):
                                 snapshot_date=today,
                                 promotions=snapshot_payload["promotions"],
                                 sale_conditions=snapshot_payload["sale_conditions"],
+                                available_qty=snapshot_payload["available_qty"],
+                                available_to_buy=snapshot_payload["available_to_buy"],
+                                regular_in_promo=snapshot_payload["regular_in_promo"],
+                                auto_in_promo=snapshot_payload["auto_in_promo"],
+                                in_any_promo=snapshot_payload["in_any_promo"],
+                                regular_promotion_ids=snapshot_payload["regular_promotion_ids"],
+                                auto_promotion_ids=snapshot_payload["auto_promotion_ids"],
                                 price_basic=snapshot_payload["price_basic"],
                                 price_product=snapshot_payload["price_product"],
                                 fetched_at=datetime.now(timezone.utc),
@@ -363,6 +388,13 @@ async def _do_promo_snapshot(sf):
                                 set_={
                                     "promotions": ins.excluded.promotions,
                                     "sale_conditions": ins.excluded.sale_conditions,
+                                    "available_qty": ins.excluded.available_qty,
+                                    "available_to_buy": ins.excluded.available_to_buy,
+                                    "regular_in_promo": ins.excluded.regular_in_promo,
+                                    "auto_in_promo": ins.excluded.auto_in_promo,
+                                    "in_any_promo": ins.excluded.in_any_promo,
+                                    "regular_promotion_ids": ins.excluded.regular_promotion_ids,
+                                    "auto_promotion_ids": ins.excluded.auto_promotion_ids,
                                     "price_basic": ins.excluded.price_basic,
                                     "price_product": ins.excluded.price_product,
                                     "fetched_at": ins.excluded.fetched_at,
@@ -372,7 +404,7 @@ async def _do_promo_snapshot(sf):
                             await db.execute(stmt)
 
                             processed += 1
-                            if snapshot_payload["promotions"]:
+                            if snapshot_payload["in_any_promo"]:
                                 with_promotions += 1
                             else:
                                 no_promotions += 1
@@ -474,6 +506,42 @@ async def _fetch_card_products(nm_ids):
     return products_by_nm
 
 
+async def _fetch_regular_promotions_map(db, org_id):
+    result = await db.execute(
+        text(
+            """
+            SELECT
+                pp.nm_id,
+                pp.wb_promotion_ext_id,
+                wp.title,
+                wp.promo_type,
+                wp.start_date,
+                wp.end_date
+            FROM wb_promotion_products pp
+            LEFT JOIN wb_promotions wp
+              ON wp.organization_id = pp.organization_id
+             AND wp.promotion_id = pp.wb_promotion_ext_id
+            WHERE pp.organization_id = :org_id
+              AND pp.in_action = true
+            """
+        ),
+        {"org_id": org_id},
+    )
+    regular_by_nm = {}
+    for row in result.all():
+        regular_by_nm.setdefault(int(row.nm_id), []).append(
+            {
+                "id": row.wb_promotion_ext_id,
+                "title": row.title or f"Акция {row.wb_promotion_ext_id}",
+                "type": row.promo_type or "regular",
+                "start_date": row.start_date.isoformat() if row.start_date else None,
+                "end_date": row.end_date.isoformat() if row.end_date else None,
+                "source": "calendar",
+            }
+        )
+    return regular_by_nm
+
+
 def _normalise_promotions(promotions):
     normalised = []
     for promo in promotions or []:
@@ -493,6 +561,35 @@ def _normalise_promotions(promotions):
     return normalised or None
 
 
+def _filter_auto_promotions(promotions):
+    result = []
+    for promo in promotions or []:
+        promo_id = promo.get("id") if isinstance(promo, dict) else promo
+        try:
+            promo_id = int(promo_id)
+        except (TypeError, ValueError):
+            continue
+        if promo_id in AUTO_PROMO_MARKER_IDS:
+            item = dict(promo) if isinstance(promo, dict) else {"id": promo_id}
+            item["source"] = "card_auto_marker"
+            result.append(item)
+    return result or None
+
+
+def _available_qty_from_card(card_item):
+    total = card_item.get("totalQuantity")
+    if isinstance(total, int):
+        return total
+    qty = 0
+    for size in card_item.get("sizes") or []:
+        for stock in size.get("stocks") or []:
+            try:
+                qty += int(stock.get("qty") or 0)
+            except (TypeError, ValueError):
+                continue
+    return qty
+
+
 def _price_from_card(card_item, key):
     sizes = card_item.get("sizes") or []
     if not sizes:
@@ -509,9 +606,10 @@ def _price_from_goods(goods_item, key):
     return float(price) / 100.0 if price else None
 
 
-def _build_snapshot_payload(goods_item, card_item):
+def _build_snapshot_payload(goods_item, card_item, regular_promotions=None):
     goods_item = goods_item or {}
     card_item = card_item or {}
+    regular_promotions = regular_promotions or []
     card_sale_conditions = []
     for size in card_item.get("sizes") or []:
         conditions = size.get("saleConditions")
@@ -526,9 +624,22 @@ def _build_snapshot_payload(goods_item, card_item):
         "card_returned": bool(card_item),
     }
 
+    raw_promotions = _normalise_promotions(card_item.get("promotions"))
+    auto_promotions = _filter_auto_promotions(raw_promotions)
+    available_qty = _available_qty_from_card(card_item) if card_item else 0
+    regular_in_promo = bool(regular_promotions)
+    auto_in_promo = bool(auto_promotions)
+
     return {
-        "promotions": _normalise_promotions(card_item.get("promotions")),
+        "promotions": raw_promotions,
         "sale_conditions": sale_conditions,
+        "available_qty": available_qty,
+        "available_to_buy": available_qty > 0,
+        "regular_in_promo": regular_in_promo,
+        "auto_in_promo": auto_in_promo,
+        "in_any_promo": regular_in_promo or auto_in_promo,
+        "regular_promotion_ids": regular_promotions or None,
+        "auto_promotion_ids": auto_promotions,
         "price_basic": _price_from_goods(goods_item, "price") or _price_from_card(card_item, "basic"),
         "price_product": (
             _price_from_goods(goods_item, "discountedPrice")
