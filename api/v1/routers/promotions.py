@@ -345,7 +345,7 @@ async def get_promotion_products(
         
         # Обработка available_promotions — enrich из wb_promotions
         available_promotions = []
-        promo_sources = row.regular_promotion_ids or row.auto_promotion_ids or row.snapshot_promotions_raw
+        promo_sources = row.regular_promotion_ids or row.auto_promotion_ids
         if promo_sources:
             try:
                 promo_list = promo_sources
@@ -398,6 +398,14 @@ async def get_promotion_products(
         current_action_id = None
         if row.in_action and row.promotion_id_col:
             current_action_id = str(row.promotion_id_col)
+        promo_title = None
+        if regular_in_promo:
+            promo_title = row.promo_title
+        if not promo_title and in_any_promo:
+            promo_title = (
+                ", ".join([p["title"] for p in available_promotions[:2] if p.get("title")])
+                or (", ".join(snapshot_promotions[:2]) if snapshot_promotions else None)
+            )
         
         items.append(
             {
@@ -437,11 +445,8 @@ async def get_promotion_products(
                 "size_name": row.size_name,
                 "brand": row.brand,
                 "subject_name": row.subject_name,
-                "promo_title": row.promo_title or (
-                    ", ".join([p["title"] for p in available_promotions[:2] if p.get("title")])
-                    or (", ".join(snapshot_promotions[:2]) if snapshot_promotions else None)
-                ),
-                "promo_type": row.promo_type or ("auto" if auto_in_promo else None),
+                "promo_title": promo_title,
+                "promo_type": (row.promo_type if regular_in_promo else None) or ("auto" if auto_in_promo else None),
                 "promo_start": (
                     row.promo_start.strftime("%d.%m.%Y")
                     if row.promo_start
