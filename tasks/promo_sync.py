@@ -22,6 +22,14 @@ from services.wb_api.client import WBApiClient
 logger = logging.getLogger(__name__)
 
 
+def _is_usable_wb_key(api_key: str | None) -> bool:
+    return bool(
+        api_key
+        and len(api_key) >= 50
+        and not api_key.startswith(("fake", "test", "unused"))
+    )
+
+
 def _make_session():
     engine = create_async_engine(settings.DATABASE_URL, echo=False, future=True, pool_pre_ping=True, pool_recycle=300)
     return engine, async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -92,7 +100,7 @@ async def _do_promo_sync(sf):
         if org_id in seen_orgs:
             continue
         # Пропускаем тестовые/фейские ключи
-        if not api_key or len(api_key) < 50 or api_key.startswith(('fake', 'test', 'unused')):
+        if not _is_usable_wb_key(api_key):
             continue
         deduped_keys.append((org_id, api_key))
         seen_orgs.add(org_id)
@@ -297,10 +305,15 @@ async def _do_promo_snapshot(sf):
     today = date_type.today()
     results = {}
 
+    seen_orgs = set()
+    deduped_keys = []
     for org_id, api_key in all_keys:
-        # Пропускаем тестовые/фейковые ключи
-        if not api_key or len(api_key) < 30 or api_key.startswith('fake') or api_key.startswith('test'):
+        if org_id in seen_orgs or not _is_usable_wb_key(api_key):
             continue
+        deduped_keys.append((org_id, api_key))
+        seen_orgs.add(org_id)
+
+    for org_id, api_key in deduped_keys:
         try:
             # Получить все nm_id для организации
             async with sf() as db:
@@ -323,115 +336,27 @@ async def _do_promo_snapshot(sf):
             no_promotions = 0
 
             try:
-                    # Кросс-референс через Seller API (официальный)
-                    # /api/v2/list/goods/filter даёт nmID + discount + prices
-                    async with httpx.AsyncClient(timeout=30) as hc:
-                        all_goods = []
-                        offset = 0
-                        while True:
-                            gr = await hc.get(
-                                "https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter",
-                                params={"limit": 1000, "offset": offset},
-                                headers={"Authorization": api_key}
-                            )
-                            gr.raise_for_status()
-                            gdata = gr.json().get("data", {})
-                            goods = gdata.get("listGoods", [])
-                            all_goods.extend(goods)
-                            if len(goods) < 1000:
-                                break
-                            offset += 1000
-                        await asyncio.sleep(1.0)
+                    goods_by_nm = await _fetch_goods_price_map(api_key)
+                    card_products = await _fetch_card_products(all_nm_ids)
+                    if not card_products:
+                        raise RuntimeError("card.wb.ru returned no products; skip snapshot to avoid false negatives")
 
-                    # card.wb.ru — публичный API для получения promotions[] на товарах
-                    # Рабочие параметры: curr=rub, dest=-1257786 (Москва)
-                    # ВАЖНО: card.wb.ru блокирует запросы из Docker (403),
-                    # но работает через curl из shell Матки (РФ IP)
-                    # Поэтому используем subprocess+curl вместо httpx
-                    import subprocess, json as _json
-                    card_promotions_map = {}  # nm_id -> [{id, title, ...}]
-                    try:
-                        batch_size = 50
-                        for i in range(0, len(all_nm_ids), batch_size):
-                            batch = all_nm_ids[i:i + batch_size]
-                            nm_str = ";".join(str(n) for n in batch)
-                            try:
-                                result = subprocess.run(
-                                    ["curl", "-s", "--max-time", "15",
-                                     "https://card.wb.ru/cards/v4/detail",
-                                     "-G",
-                                     "-d", "curr=rub",
-                                     "-d", "dest=-1257786",
-                                     "-d", "spp=27",
-                                     "-d", "pricemarginPct=1",
-                                     "-d", "nm=" + nm_str,
-                                     "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"],
-                                    capture_output=True, text=True, timeout=20
-                                )
-                                if result.returncode == 0 and result.stdout:
-                                    cdata = _json.loads(result.stdout)
-                                    products = cdata.get("products", [])
-                                    for prod in products:
-                                        pid = prod.get("id")
-                                        promos = prod.get("promotions", [])
-                                        if pid and promos:
-                                            # card.wb.ru отдаёт promotions как [int, int, ...]
-                                            # сохраняем как [{id: ..., title: ""}, ...]
-                                            normalised = []
-                                            for p in promos:
-                                                if isinstance(p, int):
-                                                    normalised.append({"id": p})
-                                                elif isinstance(p, dict):
-                                                    normalised.append(p)
-                                            if normalised:
-                                                card_promotions_map[pid] = normalised
-                            except Exception as ce:
-                                logger.warning(f"[promo_snapshot] card.wb.ru batch error: {ce}")
-                            await asyncio.sleep(0.3)
-                        logger.info(f"[promo_snapshot] org={org_id[:8]}: card.wb.ru promos for {len(card_promotions_map)} products")
-                    except Exception as ce:
-                        logger.warning(f"[promo_snapshot] card.wb.ru fallback skipped: {ce}")
+                    async with sf() as db:
+                        for nm_id in all_nm_ids:
+                            goods_item = goods_by_nm.get(nm_id, {})
+                            card_item = card_products.get(nm_id, {})
+                            snapshot_payload = _build_snapshot_payload(goods_item, card_item)
 
-                    # Для каждого товара: записываем snapshot с данными из обоих источников
-                    for g in all_goods:
-                        nm_id = g.get("nmID")
-                        if not nm_id:
-                            continue
-                        discount = g.get("discount", 0)
-                        sizes = g.get("sizes", [])
-                        s = sizes[0] if sizes else {}
-                        price_basic = s.get("price")
-                        price_product = s.get("discountedPrice")
-                        if price_basic:
-                            price_basic = float(price_basic) / 100.0
-                        if price_product:
-                            price_product = float(price_product) / 100.0
-
-                        # promotions из card.wb.ru — публичные акции/плашки на товаре
-                        card_promos = card_promotions_map.get(nm_id, [])
-                        final_promotions = None
-                        if card_promos:
-                            final_promotions = []
-                            for cp in card_promos:
-                                final_promotions.append({
-                                    "id": cp.get("id"),
-                                    "title": cp.get("title", ""),
-                                    "active": cp.get("active", True),
-                                    "start_date": cp.get("startDateTime", ""),
-                                    "end_date": cp.get("endDateTime", ""),
-                                })
-
-                        async with sf() as db:
                             ins = pg_insert(WbPromotionSnapshot)
                             stmt = ins.values(
                                 organization_id=org_id,
                                 nm_id=nm_id,
                                 entity_id=nm_to_entity.get(nm_id),
                                 snapshot_date=today,
-                                promotions=final_promotions,
-                                sale_conditions={"discount": discount},
-                                price_basic=price_basic,
-                                price_product=price_product,
+                                promotions=snapshot_payload["promotions"],
+                                sale_conditions=snapshot_payload["sale_conditions"],
+                                price_basic=snapshot_payload["price_basic"],
+                                price_product=snapshot_payload["price_product"],
                                 fetched_at=datetime.now(timezone.utc),
                             ).on_conflict_do_update(
                                 index_elements=["organization_id", "nm_id", "snapshot_date"],
@@ -445,13 +370,13 @@ async def _do_promo_snapshot(sf):
                                 }
                             )
                             await db.execute(stmt)
-                            await db.commit()
 
-                        processed += 1
-                        if final_promotions:
-                            with_promotions += 1
-                        else:
-                            no_promotions += 1
+                            processed += 1
+                            if snapshot_payload["promotions"]:
+                                with_promotions += 1
+                            else:
+                                no_promotions += 1
+                        await db.commit()
 
             except Exception as e:
                 logger.error(f"[promo_snapshot] goods error org={org_id[:8]}: {e}")
@@ -470,3 +395,139 @@ async def _do_promo_snapshot(sf):
             results[org_id[:8]] = {"status": "error", "error": str(e)}
 
     return results
+
+
+async def _fetch_goods_price_map(api_key):
+    """Official prices API: nmID -> seller price/discount data."""
+    goods_by_nm = {}
+    try:
+        async with httpx.AsyncClient(timeout=30) as hc:
+            offset = 0
+            while True:
+                response = await hc.get(
+                    "https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter",
+                    params={"limit": 1000, "offset": offset},
+                    headers={"Authorization": api_key},
+                )
+                response.raise_for_status()
+                data = response.json().get("data", {})
+                goods = data.get("listGoods", [])
+                for item in goods:
+                    nm_id = item.get("nmID")
+                    if nm_id:
+                        goods_by_nm[int(nm_id)] = item
+                if len(goods) < 1000:
+                    break
+                offset += 1000
+                await asyncio.sleep(1.0)
+    except Exception as exc:
+        logger.warning(f"[promo_snapshot] prices API skipped: {exc}")
+    return goods_by_nm
+
+
+async def _fetch_card_products(nm_ids):
+    """
+    Public card.wb.ru snapshot: nmID -> raw product card.
+
+    card.wb.ru has been more reliable from the Russian host through curl than
+    through httpx inside Docker, so keep the existing subprocess curl path.
+    """
+    import json as _json
+    import subprocess
+
+    products_by_nm = {}
+    batch_size = 50
+    for i in range(0, len(nm_ids), batch_size):
+        batch = nm_ids[i:i + batch_size]
+        nm_str = ";".join(str(n) for n in batch)
+        try:
+            result = subprocess.run(
+                [
+                    "curl", "-s", "--max-time", "15",
+                    "https://card.wb.ru/cards/v4/detail",
+                    "-G",
+                    "-d", "curr=rub",
+                    "-d", "dest=-1257786",
+                    "-d", "spp=27",
+                    "-d", "pricemarginPct=1",
+                    "-d", "nm=" + nm_str,
+                    "-H", (
+                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36"
+                    ),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            if result.returncode == 0 and result.stdout:
+                data = _json.loads(result.stdout)
+                for product in data.get("products", []):
+                    nm_id = product.get("id")
+                    if nm_id:
+                        products_by_nm[int(nm_id)] = product
+        except Exception as exc:
+            logger.warning(f"[promo_snapshot] card.wb.ru batch error: {exc}")
+        await asyncio.sleep(0.3)
+
+    logger.info(f"[promo_snapshot] card.wb.ru returned {len(products_by_nm)} products")
+    return products_by_nm
+
+
+def _normalise_promotions(promotions):
+    normalised = []
+    for promo in promotions or []:
+        if isinstance(promo, int):
+            normalised.append({"id": promo, "source": "card"})
+        elif isinstance(promo, dict):
+            normalised.append(
+                {
+                    "id": promo.get("id"),
+                    "title": promo.get("title", ""),
+                    "active": promo.get("active", True),
+                    "start_date": promo.get("startDateTime") or promo.get("start_date", ""),
+                    "end_date": promo.get("endDateTime") or promo.get("end_date", ""),
+                    "source": promo.get("source", "card"),
+                }
+            )
+    return normalised or None
+
+
+def _price_from_card(card_item, key):
+    sizes = card_item.get("sizes") or []
+    if not sizes:
+        return None
+    price = (sizes[0].get("price") or {}).get(key)
+    return float(price) if price else None
+
+
+def _price_from_goods(goods_item, key):
+    sizes = goods_item.get("sizes") or []
+    if not sizes:
+        return None
+    price = sizes[0].get(key)
+    return float(price) / 100.0 if price else None
+
+
+def _build_snapshot_payload(goods_item, card_item):
+    goods_item = goods_item or {}
+    card_item = card_item or {}
+    card_sale_conditions = []
+    for size in card_item.get("sizes") or []:
+        card_sale_conditions.extend(size.get("saleConditions") or [])
+
+    sale_conditions = {
+        "seller_discount": goods_item.get("discount", 0),
+        "card_sale_conditions": card_sale_conditions,
+        "card_returned": bool(card_item),
+    }
+
+    return {
+        "promotions": _normalise_promotions(card_item.get("promotions")),
+        "sale_conditions": sale_conditions,
+        "price_basic": _price_from_goods(goods_item, "price") or _price_from_card(card_item, "basic"),
+        "price_product": (
+            _price_from_goods(goods_item, "discountedPrice")
+            or _price_from_card(card_item, "product")
+        ),
+    }

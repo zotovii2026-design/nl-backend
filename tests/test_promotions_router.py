@@ -53,12 +53,10 @@ async def test_get_promotions_keeps_response_contract():
         is_active=True,
         importance="high",
         source="api",
+        participating_count=7,
     )
-    scalar_result = SimpleNamespace(all=lambda: [promotion])
     db = AsyncMock()
-    db.execute.return_value = SimpleNamespace(
-        scalars=lambda: scalar_result,
-    )
+    db.execute.return_value = SimpleNamespace(all=lambda: [promotion])
 
     result = await get_promotions(
         "00000000-0000-0000-0000-000000000001",
@@ -81,6 +79,7 @@ async def test_get_promotions_keeps_response_contract():
             "is_active": True,
             "importance": "high",
             "source": "api",
+            "participating_count": 7,
         }
     ]
 

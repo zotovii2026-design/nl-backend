@@ -93,11 +93,20 @@ function getPromoColumns() {
                         return '<span style="' + (colors[v]||'') + ';padding:2px 6px;border-radius:3px;font-size:.85em">' + v + '</span>';
                     }
                 },
-                { title: 'Факт', field: 'in_action',
-                    headerTooltip: 'Уже в акции', width: 60, headerSort: true,
+                { title: 'Факт', field: 'in_any_promo',
+                    headerTooltip: 'Сейчас в любой акции: regular из WB API или auto/public snapshot', width: 60, headerSort: true,
                     formatter: function(cell) {
                         const v = cell.getValue();
                         return v ? '<span style="background:#d4edda;padding:2px 6px;border-radius:3px">✓</span>' : '—';
+                    }
+                },
+                { title: 'Источник', field: 'snapshot_in_promo',
+                    headerTooltip: 'Источник факта участия', width: 74, headerSort: true,
+                    formatter: function(cell) {
+                        const row = cell.getRow().getData();
+                        if (row.in_action) return '<span style="background:#e8f4ff;padding:2px 6px;border-radius:3px">WB</span>';
+                        if (cell.getValue()) return '<span style="background:#fff3cd;padding:2px 6px;border-radius:3px">auto</span>';
+                        return '—';
                     }
                 },
                 { title: 'План', field: 'plan',
@@ -253,9 +262,9 @@ function applyPromoFilters() {
         );
     }
     if (fltBrand) filtered = filtered.filter(p => (p.brand || '') === fltBrand);
-    if (fltStatus === 'in_action') filtered = filtered.filter(p => p.in_action);
+    if (fltStatus === 'in_action') filtered = filtered.filter(p => p.in_any_promo);
     if (fltStatus === 'plan') filtered = filtered.filter(p => p.plan);
-    if (fltStatus === 'not_in') filtered = filtered.filter(p => !p.in_action && !p.plan);
+    if (fltStatus === 'not_in') filtered = filtered.filter(p => !p.in_any_promo && !p.plan);
 
     if (promoTabulator) promoTabulator.replaceData(filtered);
     const countEl = document.getElementById('promo-count');

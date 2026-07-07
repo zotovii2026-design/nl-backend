@@ -202,18 +202,23 @@ async def get_promotion_products(
     db: AsyncSession = Depends(get_db),
 ):
     """Build promotion product rows for the Tabulator frontend."""
-    params = {"org": org_id}
-    promo_filter = ""
+    params = {"org": org_id, "promo_id": None}
+    promo_product_filter = ""
     if promotion_id:
-        promo_filter = " AND wp.promotion_id = :promo_id"
+        promo_product_filter = " AND pp2.wb_promotion_ext_id = :promo_id"
         params["promo_id"] = int(promotion_id)
 
     query = text(
         """
+        WITH latest_snapshot AS (
+            SELECT MAX(snapshot_date) AS snapshot_date
+            FROM wb_promotion_snapshots
+            WHERE organization_id = :org
+        )
         SELECT
             pp.id,
             pp.wb_promotion_ext_id,
-            pp.nm_id,
+            pe.nm_id,
             pp.in_action,
             pp.auto_matched,
             pp.current_price,
@@ -223,7 +228,7 @@ async def get_promotion_products(
             pp.margin_delta,
             pp.plan,
             pp.status_text,
-            pp.entity_id,
+            pe.id as entity_id,
             pp.promotion_id_col,
             pe.vendor_code,
             pe.product_name,
@@ -239,35 +244,47 @@ async def get_promotion_products(
             COALESCE(ts.price, pp.current_price) as price_before_spp,
             ts.stock_qty,
             rb.cost_price,
+            snp.snapshot_date,
             snp.promotions as snapshot_promotions_raw,
             snp.sale_conditions as sale_conditions_raw,
             snp.price_basic,
             snp.price_product
-        FROM wb_promotion_products pp
-        LEFT JOIN product_entities pe ON pe.id = pp.entity_id
+        FROM product_entities pe
+        LEFT JOIN LATERAL (
+            SELECT pp2.*
+            FROM wb_promotion_products pp2
+            WHERE pp2.organization_id = :org
+              AND pp2.nm_id = pe.nm_id
+        """
+        + promo_product_filter
+        + """
+            ORDER BY pp2.in_action DESC, pp2.synced_at DESC NULLS LAST, pp2.updated_at DESC NULLS LAST
+            LIMIT 1
+        ) pp ON true
         LEFT JOIN wb_promotions wp ON wp.id = pp.promotion_id_col
         LEFT JOIN LATERAL (
             SELECT price, stock_qty
             FROM tech_status ts2
-            WHERE ts2.organization_id = :org AND ts2.nm_id = pp.nm_id
+            WHERE ts2.organization_id = :org AND ts2.nm_id = pe.nm_id
             ORDER BY target_date DESC LIMIT 1
         ) ts ON true
         LEFT JOIN LATERAL (
             SELECT cost_price FROM reference_book rb2
-            WHERE rb2.organization_id = :org AND rb2.entity_id = pp.entity_id
+            WHERE rb2.organization_id = :org AND rb2.entity_id = pe.id
             ORDER BY valid_from DESC LIMIT 1
         ) rb ON true
         LEFT JOIN LATERAL (
-            SELECT promotions, sale_conditions, price_basic, price_product
+            SELECT snapshot_date, promotions, sale_conditions, price_basic, price_product
             FROM wb_promotion_snapshots snp2
-            WHERE snp2.organization_id = :org AND snp2.nm_id = pp.nm_id
+            WHERE snp2.organization_id = :org
+              AND snp2.nm_id = pe.nm_id
+              AND snp2.snapshot_date = (SELECT snapshot_date FROM latest_snapshot)
             ORDER BY snp2.snapshot_date DESC LIMIT 1
         ) snp ON true
-        WHERE pp.organization_id = :org
-        """
-        + promo_filter
-        + """
-        ORDER BY pp.nm_id, pe.size_name
+        WHERE pe.organization_id = :org
+          AND pe.nm_id IS NOT NULL
+          AND (:promo_id IS NULL OR pp.id IS NOT NULL)
+        ORDER BY pe.nm_id, pe.size_name
         """
     )
     result = await db.execute(query, params)
@@ -285,18 +302,24 @@ async def get_promotion_products(
         # Обработка snapshot_promotions (JSONB массив)
         snapshot_promotions = []
         if row.snapshot_promotions_raw:
-            import json
             try:
                 promo_list = row.snapshot_promotions_raw
                 if isinstance(promo_list, list):
-                    snapshot_promotions = [p.get("title", "") if isinstance(p, dict) else str(p) for p in promo_list if p]
-            except (json.JSONDecodeError, AttributeError):
+                    for promo in promo_list:
+                        if not promo:
+                            continue
+                        if isinstance(promo, dict):
+                            title = promo.get("title") or f"Акция {promo.get('id')}"
+                            snapshot_promotions.append(title)
+                        else:
+                            snapshot_promotions.append(str(promo))
+            except AttributeError:
                 pass
+        snapshot_in_promo = bool(snapshot_promotions)
         
         # Обработка available_promotions — enrich из wb_promotions
         available_promotions = []
         if row.snapshot_promotions_raw:
-            import json
             try:
                 promo_list = row.snapshot_promotions_raw
                 if isinstance(promo_list, list):
@@ -308,8 +331,8 @@ async def get_promotion_products(
                             promo_id = p.get("id")
                             title = p.get("title", "")
                             active = p.get("active", False)
-                            start_dt = p.get("startDateTime")
-                            end_dt = p.get("endDateTime")
+                            start_dt = p.get("startDateTime") or p.get("start_date")
+                            end_dt = p.get("endDateTime") or p.get("end_date")
                         else:
                             # Фолбэк если структура другая
                             promo_id = None
@@ -335,12 +358,13 @@ async def get_promotion_products(
                                 pass
                         
                         available_promotions.append({
-                            "title": title,
+                            "id": promo_id,
+                            "title": title or (f"Акция {promo_id}" if promo_id else ""),
                             "active": active,
                             "start_date": start_date,
                             "end_date": end_date,
                         })
-            except (json.JSONDecodeError, AttributeError):
+            except AttributeError:
                 pass
         
         # current_action_id — если товар в wb_promotion_products и in_action
@@ -350,10 +374,13 @@ async def get_promotion_products(
         
         items.append(
             {
-                "id": str(row.id),
+                "id": str(row.id) if row.id else None,
                 "wb_promotion_ext_id": row.wb_promotion_ext_id,
                 "nm_id": row.nm_id,
                 "in_action": row.in_action or False,
+                "in_any_promo": bool(row.in_action) or snapshot_in_promo,
+                "snapshot_in_promo": snapshot_in_promo,
+                "snapshot_date": row.snapshot_date.isoformat() if row.snapshot_date else None,
                 "auto_matched": row.auto_matched or False,
                 "current_price": (
                     float(row.current_price) if row.current_price else None
@@ -379,8 +406,10 @@ async def get_promotion_products(
                 "size_name": row.size_name,
                 "brand": row.brand,
                 "subject_name": row.subject_name,
-                "promo_title": row.promo_title,
-                "promo_type": row.promo_type,
+                "promo_title": row.promo_title or (
+                    ", ".join(snapshot_promotions[:2]) if snapshot_promotions else None
+                ),
+                "promo_type": row.promo_type or ("auto/public" if snapshot_in_promo else None),
                 "promo_start": (
                     row.promo_start.strftime("%d.%m.%Y")
                     if row.promo_start
