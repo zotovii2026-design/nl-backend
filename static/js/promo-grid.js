@@ -379,47 +379,57 @@ function togglePromoProductActions(row) {
     tr.className = 'promo-actions-row';
     const td = document.createElement('td');
     td.colSpan = 20;
-    td.style.cssText = 'padding:12px 16px;background:#f8f9fa;border-bottom:2px solid #6c5ce7';
+    td.style.cssText = 'padding:6px 10px;background:#f8f9fa;border-bottom:2px solid #6c5ce7';
 
-    let html = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
-    html += '<span style="font-weight:700;color:#1a1a2e;font-size:.9em">Акции для ' + promoEscape(nmId) + '</span>';
-    html += '<span style="font-size:.75em;color:#777;background:#fff;border:1px solid #e5e7eb;padding:2px 6px;border-radius:3px">Остаток WB: ' + promoEscape(data.available_qty != null ? data.available_qty : '—') + '</span>';
-    html += data.auto_in_promo
-        ? '<span style="font-size:.75em;color:#7a4b00;background:#fff3cd;padding:2px 6px;border-radius:3px">✓ Автоакция сейчас</span>'
-        : '<span style="font-size:.75em;color:#999;background:#fff;padding:2px 6px;border-radius:3px;border:1px solid #e5e7eb">Автоакции нет</span>';
-    html += '</div>';
+    const tableCss = 'width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;font-size:11px;table-layout:fixed';
+    const thCss = 'padding:4px 6px;text-align:left;color:#777;background:#f3f4f6;border-bottom:1px solid #e5e7eb;font-weight:600;white-space:nowrap';
+    const tdCss = 'padding:4px 6px;border-bottom:1px solid #eef0f3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+
+    let html = '<table style="' + tableCss + '">';
+    html += '<thead><tr>';
+    html += '<th style="' + thCss + ';width:72px">Тип</th>';
+    html += '<th style="' + thCss + '">Акция</th>';
+    html += '<th style="' + thCss + ';width:116px">Даты</th>';
+    html += '<th style="' + thCss + ';width:90px">Статус</th>';
+    html += '<th style="' + thCss + ';width:82px">Текущая</th>';
+    html += '<th style="' + thCss + ';width:82px">Нужная</th>';
+    html += '<th style="' + thCss + ';width:82px">В акции</th>';
+    html += '<th style="' + thCss + ';width:82px">Прибыль</th>';
+    html += '<th style="' + thCss + ';width:76px">Δ маржи</th>';
+    html += '</tr></thead><tbody>';
+
+    html += '<tr>';
+    html += '<td style="' + tdCss + '">auto</td>';
+    html += '<td style="' + tdCss + ';font-weight:600" title="Автоакция WB">Автоакция WB</td>';
+    html += '<td style="' + tdCss + '">сейчас</td>';
+    html += '<td style="' + tdCss + '">' + (data.auto_in_promo ? '<span style="color:#1e7e34;font-weight:700">✓</span>' : '—') + '</td>';
+    html += '<td style="' + tdCss + '">' + promoMoney(data.price_before_spp || data.price_basic) + '</td>';
+    html += '<td style="' + tdCss + '">—</td>';
+    html += '<td style="' + tdCss + '">' + promoMoney(data.price_product) + '</td>';
+    html += '<td style="' + tdCss + '">—</td>';
+    html += '<td style="' + tdCss + '">—</td>';
+    html += '</tr>';
 
     if (!actions.length) {
-        html += '<div style="padding:10px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;color:#777;font-size:.85em">Нет доступных regular-акций по WB Calendar API.</div>';
+        html += '<tr><td style="' + tdCss + '" colspan="9">Нет доступных regular-акций по WB Calendar API</td></tr>';
     } else {
-        html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px">';
         actions.forEach(function(a) {
             const title = a.title || ('Акция ' + (a.promotion_id || ''));
-            const isIn = !!a.in_action;
-            const isPlan = !!a.plan;
-            html += '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px;min-width:0">';
-            html += '<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between;margin-bottom:8px">';
-            html += '<div style="font-weight:700;font-size:.84em;color:#1a1a2e;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + promoEscape(title) + '">' + promoEscape(title) + '</div>';
-            html += isIn
-                ? '<span style="font-size:.72em;background:#d4edda;color:#1e7e34;padding:2px 6px;border-radius:3px;white-space:nowrap">✓ участвует</span>'
-                : '<span style="font-size:.72em;background:#f8f9fa;color:#777;padding:2px 6px;border-radius:3px;white-space:nowrap">доступна</span>';
-            html += '</div>';
-            html += '<div style="font-size:.76em;color:#777;margin-bottom:8px">' + promoDateRange(a.start_date, a.end_date) + ' · ' + promoEscape(a.promo_type || 'regular') + '</div>';
-            html += '<div style="display:grid;grid-template-columns:repeat(2,minmax(92px,1fr));gap:7px;font-size:.78em">';
-            html += '<div><span style="color:#999">Текущая</span><br><b>' + promoMoney(a.current_price || data.price_before_spp) + '</b></div>';
-            html += '<div><span style="color:#999">Нужная цена</span><br><b>' + promoMoney(a.required_price) + '</b></div>';
-            html += '<div><span style="color:#999">Цена в акции</span><br><b>' + promoMoney(a.price_in_promo) + '</b></div>';
-            html += '<div><span style="color:#999">Прибыль</span><br>' + promoDelta(a.profit_in_promo, ' ₽') + '</div>';
-            html += '<div><span style="color:#999">Δ маржи</span><br>' + promoDelta(a.margin_delta, ' ₽') + '</div>';
-            html += '<div><span style="color:#999">План</span><br><b>' + (isPlan ? '✓' : '—') + '</b></div>';
-            html += '</div>';
-            if (a.status_text) {
-                html += '<div style="margin-top:8px;font-size:.76em;color:#666;background:#f8f9fa;padding:6px;border-radius:4px">' + promoEscape(a.status_text) + '</div>';
-            }
-            html += '</div>';
+            const status = a.in_action ? '<span style="color:#1e7e34;font-weight:700">✓ участвует</span>' : 'доступна';
+            html += '<tr>';
+            html += '<td style="' + tdCss + '">' + promoEscape(a.promo_type || 'regular') + '</td>';
+            html += '<td style="' + tdCss + ';font-weight:600" title="' + promoEscape(title) + '">' + promoEscape(title) + '</td>';
+            html += '<td style="' + tdCss + '">' + promoDateRange(a.start_date, a.end_date) + '</td>';
+            html += '<td style="' + tdCss + '">' + status + '</td>';
+            html += '<td style="' + tdCss + '">' + promoMoney(a.current_price || data.price_before_spp) + '</td>';
+            html += '<td style="' + tdCss + '">' + promoMoney(a.required_price) + '</td>';
+            html += '<td style="' + tdCss + '">' + promoMoney(a.price_in_promo) + '</td>';
+            html += '<td style="' + tdCss + '">' + promoDelta(a.profit_in_promo, ' ₽') + '</td>';
+            html += '<td style="' + tdCss + '">' + promoDelta(a.margin_delta, ' ₽') + '</td>';
+            html += '</tr>';
         });
-        html += '</div>';
     }
+    html += '</tbody></table>';
 
     td.innerHTML = html;
     tr.appendChild(td);
