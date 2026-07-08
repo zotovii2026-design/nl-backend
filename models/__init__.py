@@ -75,3 +75,5 @@ from models.promotion import WbPromotion, WbPromotionProduct
 __all__.extend(["WbPromotion", "WbPromotionProduct"])
 from models.wb_box_tariff import WbBoxTariff
 __all__.append("WbBoxTariff")
+from models.strategy import StrategyDefinition, StrategyMilestone
+__all__.extend(["StrategyDefinition", "StrategyMilestone"])

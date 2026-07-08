@@ -173,6 +173,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
 <script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260701-adsmodel13"></script>
+<script type="text/javascript" src="/static/js/strategy-milestones.js?v=20260708a"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
 </head>
 <body>
@@ -220,6 +221,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <a class="nav-item" onclick="navTo('opexpenses',this)"><span class="icon">📝</span>Опер. расходы</a>
 <a class="nav-item" onclick="navTo('ads',this)"><span class="icon">📢</span>Реклама</a>
 <a class="nav-item" onclick="navTo('marketer',this)"><span class="icon">📊</span>Стол маркетолога</a>
+<a class="nav-item" onclick="navTo('strategies',this)"><span class="icon">🧭</span>Стратегии и вехи</a>
 <a class="nav-item" onclick="navTo('extads',this)"><span class="icon">🎯</span>Внешняя реклама</a>
 <a class="nav-item" onclick="navTo('fboneeds',this)"><span class="icon">🚚</span>Потребность FBO</a>
 <a class="nav-item" onclick="navTo('unitecon',this)"><span class="icon">🧮</span>Юнит Экономика</a>
@@ -290,6 +292,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div id="page-opexpenses" class="page-section"></div>
 
 <div id="page-ads" class="page-section"></div><div id="page-marketer" class="page-section"></div>
+<div id="page-strategies" class="page-section"></div>
 <div id="page-extads" class="page-section"></div>
 <div id="page-fboneeds" class="page-section"></div>
 <div id="page-unitecon" class="page-section"></div>
@@ -457,6 +460,7 @@ function onTopPeriodChange() {
     else if (_currentSection === 'analytics') { if(typeof loadAnalytics === 'function') loadAnalytics(); }
     else if (_currentSection === 'warehouses') { if(typeof loadWarehouses === 'function') loadWarehouses(); }
     else if (_currentSection === 'marketer') loadMarketer();
+    else if (_currentSection === 'strategies') loadStrategyMilestones();
     else if (_currentSection === 'extads') { if(typeof loadExtAds === 'function') loadExtAds(); }
     else if (_currentSection === 'fboneeds') loadFboNeeds();
 }
@@ -553,6 +557,7 @@ var _sectionRegistry = {
     opexpenses: { title:'Опер. расходы' },
     ads:        { title:'Реклама', topFilters:true },
     marketer:   { title:'Стол маркетолога' },
+    strategies: { title:'Стратегии и вехи', topFilters:true },
     extads:     { title:'Внешняя реклама' },
     fboneeds:   { title:'Потребность FBO' },
     unitecon:   { title:'Юнит Экономика' },
@@ -694,6 +699,78 @@ var _sectionHTML = {
 </div>
 
 <div style="margin-top:12px;display:flex;gap:16px;font-size:.85em" id="cost-summary"></div>
+`,
+    'strategies': `
+<div style="display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:12px;margin-bottom:14px;align-items:stretch">
+<div style="background:#fff;border:1px solid #e6e8ec;border-radius:8px;padding:10px 12px;min-width:0">
+<div style="display:flex;align-items:center;gap:8px;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap">
+<div>
+<div style="font-weight:800;color:#333">Библиотека стратегий</div>
+<div style="font-size:.78em;color:#888">Направление: <span id="strategy-active-title">Цена</span></div>
+</div>
+<div id="strategy-category-tabs" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+</div>
+<div style="display:grid;grid-template-columns:70px minmax(160px,1fr) 130px 110px 130px;gap:7px;margin-bottom:8px">
+<input type="hidden" id="strategy-id">
+<input id="strategy-code" placeholder="№ 2.1" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">
+<input id="strategy-title" placeholder="Название стратегии" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">
+<input id="strategy-executor" placeholder="Исполнитель" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">
+<input id="strategy-role" placeholder="Роль" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">
+<button onclick="saveStrategyDefinition()" class="btn" style="padding:6px 10px;font-size:.84em;background:#00b894;color:#fff">Сохранить</button>
+</div>
+<textarea id="strategy-description" placeholder="Описание стратегии: когда применять, логика, риски, ожидаемый эффект" rows="2" style="width:100%;border:1px solid #ddd;border-radius:6px;padding:7px 8px;font-size:.86em;resize:vertical;margin-bottom:8px"></textarea>
+<div id="strategy-list" style="border:1px solid #edf0f3;border-radius:8px;min-height:112px;max-height:190px;overflow:auto"></div>
+</div>
+<div style="background:#fff;border:1px solid #e6e8ec;border-radius:8px;padding:12px;min-width:0">
+<div style="font-weight:800;color:#333;margin-bottom:8px">Описание стратегии</div>
+<div id="strategy-detail"></div>
+</div>
+</div>
+
+<div style="background:#fff;border:1px solid #e6e8ec;border-radius:8px;padding:12px">
+<div style="display:flex;align-items:center;gap:10px;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap">
+<div>
+<div style="font-weight:800;color:#333;font-size:1.05em">Вехи по артикулам</div>
+<div style="font-size:.8em;color:#888">История применения стратегий по товарам за выбранный период</div>
+</div>
+<span id="strategy-ms-count" style="font-size:.86em;color:#888"></span>
+</div>
+<div id="strategy-milestone-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
+<label style="color:#666;font-weight:600">Фильтры:</label>
+<select id="strategy-flt-category" onchange="loadStrategyMilestones()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em">
+<option value="">Направление: все</option>
+<option value="price">Цена</option><option value="ads">Реклама</option><option value="seo">SEO</option><option value="infographic">Инфографика</option><option value="main_photo">Главная картинка</option><option value="slides">Доп. слайды</option><option value="content">Наполнение</option>
+</select>
+<select id="strategy-flt-brand" onchange="loadStrategyMilestones()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
+<select id="strategy-flt-subject" onchange="loadStrategyMilestones()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Категория: все</option></select>
+<select id="strategy-flt-status" onchange="loadStrategyMilestones()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option></select>
+<select id="strategy-flt-class" onchange="loadStrategyMilestones()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option></select>
+<select id="strategy-flt-executor" onchange="loadStrategyMilestones()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Исполнитель: все</option></select>
+<select id="strategy-flt-role" onchange="loadStrategyMilestones()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Роль: все</option></select>
+<input id="strategy-flt-search" oninput="loadStrategyMilestones()" placeholder="Поиск по артикулу / товару / комментарию" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:230px">
+<button onclick="resetStrategyMilestoneFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 10px;font-size:.9em;background:#fff;cursor:pointer">✕ Сбросить</button>
+</div>
+
+<div style="display:grid;grid-template-columns:90px 120px 170px 130px 110px minmax(180px,1fr) 130px;gap:7px;margin-bottom:10px;align-items:start">
+<input type="hidden" id="strategy-ms-id">
+<input id="strategy-ms-date" type="date" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">
+<input id="strategy-ms-nm" type="number" placeholder="Арт WB" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">
+<select id="strategy-ms-category" onchange="selectStrategyCategory(this.value)" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">
+<option value="price">Цена</option><option value="ads">Реклама</option><option value="seo">SEO</option><option value="infographic">Инфографика</option><option value="main_photo">Главная картинка</option><option value="slides">Доп. слайды</option><option value="content">Наполнение</option>
+</select>
+<select id="strategy-ms-strategy" onchange="onMilestoneStrategyChange()" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em"><option value="">Стратегия</option></select>
+<input id="strategy-ms-executor" placeholder="Исполнитель" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">
+<input id="strategy-ms-role" placeholder="Роль" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">
+<button onclick="saveStrategyMilestone()" class="btn" style="padding:6px 10px;font-size:.84em;background:#00b894;color:#fff">Добавить веху</button>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+<textarea id="strategy-ms-links" placeholder="Источники, ссылки — каждая с новой строки" rows="2" style="border:1px solid #ddd;border-radius:6px;padding:7px 8px;font-size:.86em;resize:vertical"></textarea>
+<textarea id="strategy-ms-comment" placeholder="Комментарий: что поменяли" rows="2" style="border:1px solid #ddd;border-radius:6px;padding:7px 8px;font-size:.86em;resize:vertical"></textarea>
+<textarea id="strategy-ms-result" placeholder="Результат / наблюдение после изменения" rows="2" style="border:1px solid #ddd;border-radius:6px;padding:7px 8px;font-size:.86em;resize:vertical"></textarea>
+</div>
+<div id="strategy-ms-detail" style="margin-bottom:10px;padding:9px 11px;background:#fbfcfe;border:1px solid #edf0f3;border-radius:8px;font-size:.88em;color:#555">Кликните по вехе в таблице, чтобы увидеть детали.</div>
+<div id="strategy-milestones-tabulator" style="min-height:560px;width:100%"></div>
+</div>
 `,
     'salesplan': `
 <!-- Фильтры -->
@@ -1299,6 +1376,9 @@ async function _sectionEnter(name) {
         case 'marketer':
             if (!_marketerInited) { _lazyInit('marketer'); loadOrgs(); _marketerInited = true; }
             loadMarketer(); break;
+        case 'strategies':
+            if (!_strategiesInited) { _lazyInit('strategies'); loadOrgs(); _strategiesInited = true; }
+            initStrategyMilestonesPage(); break;
         case 'extads':
             if (!_extadsInited) { _lazyInit('extads'); loadOrgs(); _extadsInited = true; }
             loadExtAds(); break;
@@ -1354,6 +1434,9 @@ async function _sectionLeave(name) {
             if (typeof adsArtsTabulator !== 'undefined' && adsArtsTabulator) { adsArtsTabulator.destroy(); adsArtsTabulator = null; }
             _clearSection('page-ads'); _adsInited = false; break;
         case 'marketer': _clearSection('page-marketer'); _marketerInited = false; break;
+        case 'strategies':
+            if (typeof strategyMilestonesTabulator !== 'undefined' && strategyMilestonesTabulator) { strategyMilestonesTabulator.destroy(); strategyMilestonesTabulator = null; }
+            _clearSection('page-strategies'); _strategiesInited = false; break;
         case 'extads': _clearSection('page-extads'); _extadsInited = false; break;
         case 'fboneeds': _clearSection('page-fboneeds'); _fboneedsInited = false; break;
         case 'unitecon':
@@ -1371,7 +1454,7 @@ async function _sectionLeave(name) {
 
 var _rnpState = null, _rnpInited = false, _adsInited = false, _analyticsInited = false;
 var _opiuInited = false, _costpriceInited = false, _salesplanInited = false, _warehousesInited = false;
-var _opexpensesInited = false, _marketerInited = false, _extadsInited = false, _fboneedsInited = false;
+var _opexpensesInited = false, _marketerInited = false, _strategiesInited = false, _extadsInited = false, _fboneedsInited = false;
 var _uniteconInited = false, _promoInited = false, _connectorsInited = false, _subscriptionInited = false;
 var _settingsInited = false, _helpInited = false;
 var _currentSection = 'stats';
@@ -3768,6 +3851,7 @@ async function switchOrg() {
         else if (tabName === 'extads') loadExtAds();
         else if (tabName === 'analytics') loadAnalytics();
         else if (tabName === 'marketer') loadMarketer();
+        else if (tabName === 'strategies') initStrategyMilestonesPage();
     }
 }
 
@@ -3835,6 +3919,7 @@ async function switchTopStore() {
         else if (tabName === 'costprice') { loadTaxSettings(); loadCostPrices(); }
         else if (tabName === 'ads') { loadAds(); if (typeof loadAdsArts === 'function') loadAdsArts(); }
         else if (tabName === 'marketer') loadMarketer();
+        else if (tabName === 'strategies') initStrategyMilestonesPage();
         else if (tabName === 'extads') loadExtAds();
     }
 }
