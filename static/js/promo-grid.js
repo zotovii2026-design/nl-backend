@@ -76,9 +76,9 @@ function promoHasDecision(row, decision) {
 function promoSelectedDecisionCount() {
     let count = 0;
     _promoAllData.forEach(function(row) {
-        if (row.decision || row.plan) count += 1;
+        if (row.decision) count += 1;
         (row.promotion_options || []).forEach(function(action) {
-            if (action.decision || action.plan) count += 1;
+            if (action.decision) count += 1;
         });
     });
     return count;

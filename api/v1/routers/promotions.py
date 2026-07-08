@@ -987,7 +987,7 @@ async def download_promo_wb_template(
             ORDER BY snp2.snapshot_date DESC LIMIT 1
         ) snp ON true
         WHERE pp.organization_id = :org
-          AND (pp.decision IN ('enter', 'exit') OR COALESCE(pp.plan, false) = true)
+          AND pp.decision IN ('enter', 'exit')
         """
         + promo_filter
         + """
@@ -1016,7 +1016,7 @@ async def download_promo_wb_template(
     worksheet.column_dimensions["B"].width = 12
 
     for row in rows:
-        decision = row.decision or ("enter" if row.plan else "")
+        decision = row.decision
         price_before_spp = float(row.price_before_spp) if row.price_before_spp else None
         price_in_promo = float(row.price_in_promo) if row.price_in_promo else None
         required_price = float(row.required_price) if row.required_price else None
