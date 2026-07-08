@@ -38,13 +38,19 @@ class WbKeywordSeasonality(Base):
     freq_history_monthly = Column(JSONB, nullable=True)
     freq_history_weekly = Column(JSONB, nullable=True)
     
-    source = Column(String(50), default='evirma')
+    seasonality_coefficients = Column(
+        JSONB,
+        nullable=True,
+        comment="Coefficients: month_number -> percentage (1-12)"
+    )
+    
+    source = Column(String(50), default="evirma")
     collected_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     
     __table_args__ = (
         Index(
-            'uq_wb_keyword_seasonality_keyword_source_collected',
-            'keyword', 'source', 'collected_at',
+            "uq_wb_keyword_seasonality_keyword_source_collected",
+            "keyword", "source", "collected_at",
             unique=True
         ),
     )

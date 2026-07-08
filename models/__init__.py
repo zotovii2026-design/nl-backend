@@ -78,4 +78,6 @@ __all__.append(WbBoxTariff)
 from models.strategy import StrategyDefinition, StrategyMilestone
 __all__.extend([StrategyDefinition, StrategyMilestone])
 from models.keyword_seasonality import WbKeywordSeasonality
+from models.product_seasonality import WbProductSeasonality
+__all__.append(WbProductSeasonality)
 __all__.append(WbKeywordSeasonality)
