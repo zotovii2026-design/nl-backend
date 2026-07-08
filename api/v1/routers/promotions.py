@@ -1,8 +1,13 @@
 import io
+import json
+import re
+import zlib
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 import openpyxl
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select, text
@@ -18,6 +23,115 @@ router = APIRouter(
     tags=["nl"],
     dependencies=[Depends(require_query_organization_access)],
 )
+
+
+def _normalize_promo_title(title: str) -> str:
+    return re.sub(r"\s+", " ", (title or "").strip()).lower()
+
+
+def _manual_auto_promotion_id(title: str) -> int:
+    normalized = _normalize_promo_title(title)
+    return 1_000_000_000 + (zlib.crc32(normalized.encode("utf-8")) % 900_000_000)
+
+
+def _parse_optional_datetime(value: Optional[str]):
+    if not value:
+        return None
+    text_value = str(value).strip()
+    for fmt in ("%d.%m.%Y %H:%M", "%d.%m.%Y", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text_value, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _decimal_or_none(value):
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value).replace(",", ".").strip())
+    except (InvalidOperation, AttributeError):
+        return None
+
+
+def _int_or_none(value):
+    if value is None or value == "":
+        return None
+    try:
+        return int(float(str(value).replace(",", ".").strip()))
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_auto_promo_excel(content: bytes) -> list[dict]:
+    workbook = openpyxl.load_workbook(io.BytesIO(content), data_only=True, read_only=True)
+    worksheet = workbook.active
+    if hasattr(worksheet, "reset_dimensions"):
+        worksheet.reset_dimensions()
+    rows = list(worksheet.iter_rows(values_only=True))
+    if not rows:
+        return []
+
+    headers = [str(value).strip() if value is not None else "" for value in rows[0]]
+    header_index = {header.lower(): idx for idx, header in enumerate(headers) if header}
+
+    def col(*names):
+        for name in names:
+            idx = header_index.get(name.lower())
+            if idx is not None:
+                return idx
+        return None
+
+    nm_col = col("Артикул WB")
+    if nm_col is None:
+        raise ValueError("В файле не найдена колонка 'Артикул WB'")
+
+    in_action_col = col("Товар уже участвует в акции")
+    brand_col = col("Бренд")
+    subject_col = col("Предмет")
+    name_col = col("Наименование")
+    vendor_col = col("Артикул поставщика")
+    barcode_col = col("Последний баркод")
+    stock_wb_col = col("Остаток товара на складах Wb (шт.)", "Остаток товара на складах WB (шт.)")
+    stock_seller_col = col("Остаток товара на складе продавца Wb (шт.)", "Остаток товара на складе продавца WB (шт.)")
+    required_col = col("Плановая цена для акции")
+    current_col = col("Текущая розничная цена")
+    discount_col = col("Текущая скидка на сайте, %")
+    upload_discount_col = col("Загружаемая скидка для участия в акции")
+    status_col = col("Статус")
+
+    parsed = []
+    for row in rows[1:]:
+        if not any(value is not None for value in row):
+            continue
+        nm_id = _int_or_none(row[nm_col] if len(row) > nm_col else None)
+        if not nm_id:
+            continue
+
+        def value_at(idx):
+            return row[idx] if idx is not None and len(row) > idx else None
+
+        in_action_text = str(value_at(in_action_col) or "").strip().lower()
+        parsed.append(
+            {
+                "nm_id": nm_id,
+                "in_action": in_action_text in ("да", "yes", "true", "1", "+"),
+                "brand": value_at(brand_col),
+                "subject_name": value_at(subject_col),
+                "product_name": value_at(name_col),
+                "vendor_code": value_at(vendor_col),
+                "barcode": str(value_at(barcode_col) or "").strip() or None,
+                "stock_wb": _int_or_none(value_at(stock_wb_col)),
+                "stock_seller": _int_or_none(value_at(stock_seller_col)),
+                "required_price": _decimal_or_none(value_at(required_col)),
+                "current_price": _decimal_or_none(value_at(current_col)),
+                "current_discount": _int_or_none(value_at(discount_col)),
+                "upload_discount": _int_or_none(value_at(upload_discount_col)),
+                "status_text": str(value_at(status_col) or "")[:200],
+            }
+        )
+    return parsed
 
 
 @router.get("/api/v1/nl/promotions/summary")
@@ -90,7 +204,10 @@ async def get_promotions_summary(
             wp.start_date,
             wp.end_date,
             wp.is_active,
-            COUNT(DISTINCT snp.nm_id) as count
+            CASE
+                WHEN wp.source = 'auto_manual' THEN COALESCE(manual_count.count, 0)
+                ELSE COUNT(DISTINCT snp.nm_id)
+            END as count
         FROM wb_promotions wp
         LEFT JOIN LATERAL (
             SELECT snp2.nm_id
@@ -106,9 +223,15 @@ async def get_promotions_summary(
                   WHERE (p->>'id')::text = wp.promotion_id::text
               )
         ) snp ON true
+        LEFT JOIN LATERAL (
+            SELECT COUNT(DISTINCT pp.nm_id) as count
+            FROM wb_promotion_products pp
+            WHERE pp.organization_id = :org
+              AND pp.promotion_id_col = wp.id
+        ) manual_count ON true
         WHERE wp.organization_id = :org
           AND (wp.end_date IS NULL OR wp.end_date::date >= CURRENT_DATE - INTERVAL '1 day')
-        GROUP BY wp.id, wp.promotion_id, wp.title, wp.promo_type, wp.start_date, wp.end_date, wp.is_active
+        GROUP BY wp.id, wp.promotion_id, wp.title, wp.promo_type, wp.start_date, wp.end_date, wp.is_active, manual_count.count
         ORDER BY wp.start_date NULLS LAST, count DESC
         """
     )
@@ -743,6 +866,134 @@ async def upload_promo_excel(
         "ok": True,
         "count": count,
         "promotion_id": new_promotion.promotion_id,
+    }
+
+
+@router.post("/api/v1/nl/promotions/upload-auto-excel")
+async def upload_auto_promo_excel(
+    org_id: str,
+    title: str = Form(...),
+    start_date: Optional[str] = Form(None),
+    end_date: Optional[str] = Form(None),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload WB auto-promotion Excel exported from seller cabinet."""
+    content = await file.read()
+    rows = _parse_auto_promo_excel(content)
+    if not rows:
+        return {"ok": False, "error": "В файле не найдены товары"}
+
+    normalized_title = _normalize_promo_title(title)
+    promotion_id = _manual_auto_promotion_id(normalized_title)
+    start_dt = _parse_optional_datetime(start_date)
+    end_dt = _parse_optional_datetime(end_date)
+    in_action_count = sum(1 for row in rows if row["in_action"])
+
+    existing = await db.execute(
+        text(
+            "SELECT id FROM wb_promotions "
+            "WHERE organization_id = :org AND source = 'auto_manual' "
+            "AND normalized_title = :normalized_title"
+        ),
+        {"org": org_id, "normalized_title": normalized_title},
+    )
+    existing_row = existing.first()
+    raw_data = {
+        "manual_auto": True,
+        "normalized_title": normalized_title,
+        "filename": file.filename,
+        "total_rows": len(rows),
+        "in_action_count": in_action_count,
+    }
+    raw_data_json = json.dumps(raw_data, ensure_ascii=False)
+
+    if existing_row:
+        promotion_uuid = existing_row[0]
+        await db.execute(
+            text(
+                "UPDATE wb_promotions SET "
+                "title = :title, promo_type = 'auto_manual', start_date = :start_date, "
+                "end_date = :end_date, is_active = true, source = 'auto_manual', "
+                "normalized_title = :normalized_title, raw_data = CAST(:raw_data AS jsonb), updated_at = now() "
+                "WHERE id = :id"
+            ),
+            {
+                "id": promotion_uuid,
+                "title": title.strip(),
+                "normalized_title": normalized_title,
+                "start_date": start_dt,
+                "end_date": end_dt,
+                "raw_data": raw_data_json,
+            },
+        )
+        mode = "updated"
+    else:
+        insert_result = await db.execute(
+            text(
+                "INSERT INTO wb_promotions "
+                "(id, organization_id, promotion_id, title, normalized_title, promo_type, start_date, "
+                "end_date, is_active, source, raw_data, created_at, updated_at) "
+                "VALUES (gen_random_uuid(), :org, :promotion_id, :title, :normalized_title, 'auto_manual', "
+                ":start_date, :end_date, true, 'auto_manual', CAST(:raw_data AS jsonb), now(), now()) "
+                "RETURNING id"
+            ),
+            {
+                "org": org_id,
+                "promotion_id": promotion_id,
+                "title": title.strip(),
+                "normalized_title": normalized_title,
+                "start_date": start_dt,
+                "end_date": end_dt,
+                "raw_data": raw_data_json,
+            },
+        )
+        promotion_uuid = insert_result.scalar_one()
+        mode = "created"
+
+    await db.execute(
+        text(
+            "DELETE FROM wb_promotion_products "
+            "WHERE organization_id = :org AND wb_promotion_ext_id = :promotion_id"
+        ),
+        {"org": org_id, "promotion_id": promotion_id},
+    )
+
+    for row in rows:
+        await db.execute(
+            text(
+                "INSERT INTO wb_promotion_products "
+                "(id, organization_id, promotion_id_col, wb_promotion_ext_id, nm_id, "
+                "entity_id, in_action, auto_matched, current_price, required_price, "
+                "price_in_promo, status_text, created_at, updated_at, synced_at) "
+                "VALUES (gen_random_uuid(), :org, :promotion_uuid, :promotion_id, :nm_id, "
+                "(SELECT id FROM product_entities WHERE organization_id = :org AND nm_id = :nm_id LIMIT 1), "
+                ":in_action, true, :current_price, :required_price, :price_in_promo, "
+                ":status_text, now(), now(), now())"
+            ),
+            {
+                "org": org_id,
+                "promotion_uuid": promotion_uuid,
+                "promotion_id": promotion_id,
+                "nm_id": row["nm_id"],
+                "in_action": row["in_action"],
+                "current_price": row["current_price"],
+                "required_price": row["required_price"],
+                "price_in_promo": row["required_price"],
+                "status_text": row["status_text"],
+            },
+        )
+
+    await db.commit()
+    return {
+        "ok": True,
+        "mode": mode,
+        "promotion_id": promotion_id,
+        "title": title.strip(),
+        "start_date": start_dt.isoformat() if start_dt else None,
+        "end_date": end_dt.isoformat() if end_dt else None,
+        "count": len(rows),
+        "in_action_count": in_action_count,
     }
 
 

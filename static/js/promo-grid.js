@@ -12,7 +12,7 @@ let _promoDirty = false;
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'promo-grid-v6';
+    const VER = 'promo-grid-v7';
     if (localStorage.getItem('promo-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-promo-grid-state-columns');
         localStorage.removeItem('tabulator-promo-grid-state-sort');
@@ -97,6 +97,25 @@ function updatePromoUploadTemplatePanel() {
     if (countEl) {
         countEl.textContent = count + ' ' + (count === 1 ? 'арт' : count < 5 ? 'арта' : 'артов');
     }
+}
+
+function showPromoAutoUploadStatus(data) {
+    const panel = document.getElementById('promo-auto-upload-status');
+    if (!panel) return;
+    if (!data) {
+        const saved = localStorage.getItem('promo-auto-upload-status');
+        if (!saved) return;
+        try { data = JSON.parse(saved); } catch (e) { return; }
+    } else {
+        localStorage.setItem('promo-auto-upload-status', JSON.stringify(data));
+    }
+    panel.style.display = 'block';
+    const modeText = data.mode === 'updated' ? 'обновлена' : 'загружена';
+    panel.innerHTML = '<b>Автоакция ' + modeText + ':</b> '
+        + promoEscape(data.title || ('Акция ' + (data.promotion_id || '')))
+        + (data.promotion_id ? ' · ID ' + promoEscape(data.promotion_id) : '')
+        + ' · ' + promoEscape(data.count || 0) + ' товаров'
+        + ' · участвует: ' + promoEscape(data.in_action_count || 0);
 }
 
 function updatePromoDirtyState() {
@@ -504,6 +523,7 @@ async function loadPromoData() {
         _promoAllData = data;
         populatePromoFilterOptions();
         updatePromoUploadTemplatePanel();
+        showPromoAutoUploadStatus();
 
         console.log('[Promo Grid] Loaded', data.length, 'rows');
         loadPromoSummary();
@@ -753,6 +773,45 @@ function exportPromoExcel() {
 }
 
 function uploadPromoTemplate(input) { uploadPromoExcel(); input.value = ''; }
+
+async function uploadAutoPromoTemplate(input) {
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    const defaultTitle = file.name
+        .replace(/---.*$/, '')
+        .replace(/\\.xlsx?$/i, '')
+        .replace(/^Все_товары_подходящие_для_акции_/i, '')
+        .replace(/_/g, ' ')
+        .trim();
+    const title = prompt('Название автоакции', defaultTitle || 'Автоакция WB');
+    if (!title) return;
+    const startDate = prompt('Дата начала акции (например 07.07.2026 02:00)', '');
+    const endDate = prompt('Дата окончания акции (например 10.07.2026 01:59)', '');
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('title', title);
+    if (startDate) formData.append('start_date', startDate);
+    if (endDate) formData.append('end_date', endDate);
+    try {
+        const res = await fetch('/api/v1/nl/promotions/upload-auto-excel?org_id=' + ORG_ID, {
+            headers: {'Authorization': 'Bearer ' + TOKEN},
+            method: 'POST',
+            body: formData,
+        });
+        const result = await res.json();
+        if (!res.ok || !result.ok) {
+            throw new Error(result.error || result.detail || ('HTTP ' + res.status));
+        }
+        showPromoAutoUploadStatus(result);
+        alert('Автоакция загружена: ' + result.title + ', товаров: ' + result.count);
+        loadPromoActions();
+        loadPromoSummary();
+        loadPromoData();
+    } catch (e) {
+        alert('Ошибка загрузки автоакции: ' + e.message);
+    }
+}
 
 async function uploadPromoExcel() {
     const input = document.createElement('input');

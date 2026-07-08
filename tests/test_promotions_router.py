@@ -8,11 +8,14 @@ import pytest
 
 from api.v1.routers.promotions import (
     PromoProductSave,
+    _parse_auto_promo_excel,
     download_promo_excel,
     download_promo_wb_template,
     get_promotions,
+    get_promotions_summary,
     get_promotion_products,
     save_promotion_products,
+    upload_auto_promo_excel,
 )
 from main import app
 from services.product_pricing import price_before_spp_sql
@@ -23,6 +26,7 @@ PROMOTION_ROUTES = {
     ("GET", "/api/v1/nl/promotions/products"),
     ("POST", "/api/v1/nl/promotions/products/save"),
     ("POST", "/api/v1/nl/promotions/upload-excel"),
+    ("POST", "/api/v1/nl/promotions/upload-auto-excel"),
     ("GET", "/api/v1/nl/promotions/download-wb-template"),
     ("POST", "/api/v1/nl/promotions/sync-api"),
 }
@@ -85,6 +89,19 @@ def test_promotions_hide_actions_older_than_yesterday_contract():
     assert "CURRENT_DATE - INTERVAL '1 day'" in promotions_source
     assert "CURRENT_DATE - INTERVAL '1 day'" in products_source
     assert "CURRENT_DATE - INTERVAL '1 day'" in wb_template_source
+
+
+def test_auto_promo_upload_contract():
+    parser_source = inspect.getsource(_parse_auto_promo_excel)
+    upload_source = inspect.getsource(upload_auto_promo_excel)
+    summary_source = inspect.getsource(get_promotions_summary)
+
+    assert "reset_dimensions" in parser_source
+    assert "Артикул WB" in parser_source
+    assert "source = 'auto_manual'" in upload_source
+    assert "normalized_title" in upload_source
+    assert "DELETE FROM wb_promotion_products" in upload_source
+    assert "manual_count.count" in summary_source
 
 
 def test_promo_wb_template_is_selected_two_column_file_contract():

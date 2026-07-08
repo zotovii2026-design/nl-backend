@@ -18,6 +18,7 @@ class WbPromotion(Base):
     )
     promotion_id = Column(Integer, nullable=False, index=True)          # ID акции из WB API
     title = Column(String(500), nullable=True)                          # Название акции
+    normalized_title = Column(String(500), nullable=True)                # Нормализованное название для ручных импортов
     promo_type = Column(String(50), nullable=True)                      # Тип: auto / manual / beta
     start_date = Column(DateTime(timezone=True), nullable=True)         # Начало акции
     end_date = Column(DateTime(timezone=True), nullable=True)           # Конец акции
