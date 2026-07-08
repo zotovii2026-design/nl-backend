@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
 from core.tenant_auth import require_query_organization_access
 from models.promotion import WbPromotion, WbPromotionProduct, WbPromotionSnapshot
+from services.product_pricing import price_before_spp_sql
 
 
 router = APIRouter(
@@ -218,8 +219,9 @@ async def get_promotion_products(
         promo_where = " AND pp.id IS NOT NULL"
         params["promo_id"] = int(promotion_id)
 
+    price_before_spp_expr = price_before_spp_sql(fallback_sql="pp.current_price")
     query = text(
-        """
+        f"""
         WITH latest_snapshot AS (
             SELECT MAX(snapshot_date) AS snapshot_date
             FROM wb_promotion_snapshots
@@ -252,7 +254,7 @@ async def get_promotion_products(
             wp.start_date as promo_start,
             wp.end_date as promo_end,
             wp.importance as promo_importance,
-            COALESCE(snp.price_basic, ts.price, pp.current_price) as price_before_spp,
+            {price_before_spp_expr} as price_before_spp,
             ts.stock_qty,
             rb.cost_price,
             rb.rrc_price,
@@ -309,7 +311,7 @@ async def get_promotion_products(
               AND pp3.nm_id = pe.nm_id
         ) promo_opts ON true
         LEFT JOIN LATERAL (
-            SELECT price, stock_qty
+            SELECT price, price_discount, stock_qty
             FROM tech_status ts2
             WHERE ts2.organization_id = :org AND ts2.nm_id = pe.nm_id
             ORDER BY target_date DESC LIMIT 1
@@ -794,7 +796,7 @@ async def download_promo_excel(
             pe.subject_name,
             wp.title as promo_title,
             wp.promo_type,
-            COALESCE(snp.price_basic, ts.price, pp.current_price) as price_before_spp,
+            {price_before_spp_expr} as price_before_spp,
             ts.stock_qty,
             rb.cost_price,
             rb.min_price,
@@ -803,13 +805,13 @@ async def download_promo_excel(
         LEFT JOIN product_entities pe ON pe.id = pp.entity_id
         LEFT JOIN wb_promotions wp ON wp.id = pp.promotion_id_col
         LEFT JOIN LATERAL (
-            SELECT price, stock_qty
+            SELECT price, price_discount, stock_qty
             FROM tech_status ts2
             WHERE ts2.organization_id = :org AND ts2.nm_id = pp.nm_id
             ORDER BY target_date DESC LIMIT 1
         ) ts ON true
         LEFT JOIN LATERAL (
-            SELECT price_basic
+            SELECT price_basic, price_product
             FROM wb_promotion_snapshots snp2
             WHERE snp2.organization_id = :org AND snp2.nm_id = pp.nm_id
             ORDER BY snp2.snapshot_date DESC LIMIT 1

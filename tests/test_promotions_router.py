@@ -14,6 +14,7 @@ from api.v1.routers.promotions import (
     save_promotion_products,
 )
 from main import app
+from services.product_pricing import price_before_spp_sql
 
 
 PROMOTION_ROUTES = {
@@ -37,14 +38,22 @@ def test_promotions_routes_keep_legacy_paths_without_duplicates():
     assert len(registered) == len(PROMOTION_ROUTES)
 
 
-def test_promotion_price_before_spp_prefers_factual_snapshot_price():
+def test_promotion_price_before_spp_prefers_effective_seller_price():
+    expected_expr = (
+        "COALESCE(NULLIF(snp.price_product, 0), "
+        "NULLIF(ts.price_discount, 0), "
+        "NULLIF(snp.price_basic, 0), "
+        "NULLIF(ts.price, 0), "
+        "NULLIF(pp.current_price, 0))"
+    )
+    assert price_before_spp_sql(fallback_sql="pp.current_price") == expected_expr
+
     for endpoint in (get_promotion_products, download_promo_excel):
         source = inspect.getsource(endpoint)
 
-        assert (
-            "COALESCE(snp.price_basic, ts.price, pp.current_price) as price_before_spp"
-            in source
-        )
+        assert "price_before_spp_sql" in source
+        assert "price_discount" in source
+        assert "price_product" in source
 
 
 def test_promotion_products_exposes_rrc_from_reference_book():
