@@ -9,7 +9,7 @@ let _promoExpandedRow = null;
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'promo-grid-v4';
+    const VER = 'promo-grid-v5';
     if (localStorage.getItem('promo-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-promo-grid-state-columns');
         localStorage.removeItem('tabulator-promo-grid-state-sort');
@@ -71,6 +71,28 @@ function promoHasDecision(row, decision) {
             ? a.decision === decision || (decision === 'enter' && a.plan)
             : a.decision || a.plan;
     });
+}
+
+function promoSelectedDecisionCount() {
+    let count = 0;
+    _promoAllData.forEach(function(row) {
+        if (row.decision || row.plan) count += 1;
+        (row.promotion_options || []).forEach(function(action) {
+            if (action.decision || action.plan) count += 1;
+        });
+    });
+    return count;
+}
+
+function updatePromoUploadTemplatePanel() {
+    const panel = document.getElementById('promo-upload-template-panel');
+    const countEl = document.getElementById('promo-upload-template-count');
+    if (!panel) return;
+    const count = promoSelectedDecisionCount();
+    panel.style.display = count > 0 ? 'flex' : 'none';
+    if (countEl) {
+        countEl.textContent = count + ' ' + (count === 1 ? 'строка' : count < 5 ? 'строки' : 'строк');
+    }
 }
 
 function promoDateRange(start, end) {
@@ -335,6 +357,7 @@ async function loadPromoData() {
 
         _promoAllData = data;
         populatePromoFilterOptions();
+        updatePromoUploadTemplatePanel();
 
         console.log('[Promo Grid] Loaded', data.length, 'rows');
         loadPromoSummary();
@@ -536,6 +559,7 @@ async function setPromoActionDecision(e, row, rowId, decision) {
         });
         closePromoProductActions();
         togglePromoProductActions(row);
+        updatePromoUploadTemplatePanel();
     } catch (err) {
         alert('Ошибка сохранения решения: ' + err.message);
     }
@@ -750,6 +774,26 @@ async function downloadPromoExcel() {
         URL.revokeObjectURL(a.href);
     } catch (e) {
         alert('Ошибка экспорта: ' + e.message);
+    }
+}
+
+async function downloadPromoWbTemplate() {
+    const promotionId = document.getElementById('promo-flt-action')?.value || '';
+    let url = '/api/v1/nl/promotions/download-wb-template?org_id=' + ORG_ID;
+    if (promotionId) url += '&promotion_id=' + encodeURIComponent(promotionId);
+    try {
+        const res = await fetch(url, {headers: {'Authorization': 'Bearer ' + TOKEN}});
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'wb_upload_template.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+    } catch (e) {
+        alert('Ошибка скачивания шаблона ВБ: ' + e.message);
     }
 }
 

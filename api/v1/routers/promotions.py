@@ -948,3 +948,93 @@ async def download_promo_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/api/v1/nl/promotions/download-wb-template")
+async def download_promo_wb_template(
+    org_id: str,
+    promotion_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Simple WB upload template generated from selected promotion decisions."""
+    params = {"org": org_id}
+    promo_filter = ""
+    if promotion_id:
+        promo_filter = " AND pp.wb_promotion_ext_id = :promo_id"
+        params["promo_id"] = int(promotion_id)
+
+    price_before_spp_expr = price_before_spp_sql(fallback_sql="pp.current_price")
+    query = text(
+        f"""
+        SELECT
+            pp.nm_id,
+            pp.decision,
+            pp.plan,
+            pp.price_in_promo,
+            pp.required_price,
+            {price_before_spp_expr} as price_before_spp
+        FROM wb_promotion_products pp
+        LEFT JOIN LATERAL (
+            SELECT price, price_discount, stock_qty
+            FROM tech_status ts2
+            WHERE ts2.organization_id = :org AND ts2.nm_id = pp.nm_id
+            ORDER BY target_date DESC LIMIT 1
+        ) ts ON true
+        LEFT JOIN LATERAL (
+            SELECT price_basic, price_product
+            FROM wb_promotion_snapshots snp2
+            WHERE snp2.organization_id = :org AND snp2.nm_id = pp.nm_id
+            ORDER BY snp2.snapshot_date DESC LIMIT 1
+        ) snp ON true
+        WHERE pp.organization_id = :org
+          AND (pp.decision IN ('enter', 'exit') OR COALESCE(pp.plan, false) = true)
+        """
+        + promo_filter
+        + """
+        ORDER BY pp.nm_id
+        """
+    )
+    result = await db.execute(query, params)
+    rows = result.all()
+
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Шаблон загрузки ВБ"
+    worksheet.append(["Артикул WB", "Цена"])
+
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="6c5ce7", end_color="6c5ce7", fill_type="solid")
+    for col_idx in range(1, 3):
+        cell = worksheet.cell(row=1, column=col_idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    worksheet.column_dimensions["A"].width = 14
+    worksheet.column_dimensions["B"].width = 12
+
+    for row in rows:
+        decision = row.decision or ("enter" if row.plan else "")
+        price_before_spp = float(row.price_before_spp) if row.price_before_spp else None
+        price_in_promo = float(row.price_in_promo) if row.price_in_promo else None
+        required_price = float(row.required_price) if row.required_price else None
+        if decision == "enter":
+            upload_price = price_in_promo or required_price or price_before_spp
+        elif decision == "exit":
+            upload_price = price_before_spp
+        else:
+            upload_price = price_in_promo or required_price or price_before_spp
+        worksheet.append([row.nm_id, upload_price])
+
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    filename = f"wb_upload_template_{org_id[:8]}.xlsx"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

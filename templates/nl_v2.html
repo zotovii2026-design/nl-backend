@@ -170,7 +170,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
-<script type="text/javascript" src="/static/js/promo-grid.js?v=20260708b"></script>
+<script type="text/javascript" src="/static/js/promo-grid.js?v=20260708c"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
 <script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260701-adsmodel13"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
@@ -951,6 +951,11 @@ var _sectionHTML = {
 <input type="file" id="promo-upload-input" accept=".xlsx,.xls" style="display:none" onchange="uploadPromoTemplate(this)">
 <button class="btn" onclick="savePromoData()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
 <span style="font-size:.85em;color:#999;margin-left:auto" id="promo-count"></span>
+</div>
+<div id="promo-upload-template-panel" style="display:none;align-items:center;gap:12px;margin-bottom:14px;padding:10px 12px;background:#fff;border:1px solid #d8e2ff;border-left:4px solid #6c5ce7;border-radius:8px;flex-wrap:wrap">
+<div style="font-weight:700;color:#333">Шаблон загрузки</div>
+<div style="font-size:.85em;color:#666">Выбрано: <span id="promo-upload-template-count">0 строк</span></div>
+<button class="btn" onclick="downloadPromoWbTemplate()" style="padding:6px 14px;font-size:.85em;background:#6c5ce7;color:#fff">Скачать шаблон загрузки ВБ</button>
 </div>
 <div id="promo-tabulator" style="overflow-x:auto;max-height:70vh"></div>
 <div style="margin-top:12px;display:flex;gap:16px;font-size:.85em;flex-wrap:wrap" id="promo-summary"></div>

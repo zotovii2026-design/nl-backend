@@ -9,6 +9,7 @@ import pytest
 from api.v1.routers.promotions import (
     PromoProductSave,
     download_promo_excel,
+    download_promo_wb_template,
     get_promotions,
     get_promotion_products,
     save_promotion_products,
@@ -22,6 +23,7 @@ PROMOTION_ROUTES = {
     ("GET", "/api/v1/nl/promotions/products"),
     ("POST", "/api/v1/nl/promotions/products/save"),
     ("POST", "/api/v1/nl/promotions/upload-excel"),
+    ("GET", "/api/v1/nl/promotions/download-wb-template"),
     ("POST", "/api/v1/nl/promotions/sync-api"),
 }
 
@@ -73,6 +75,15 @@ def test_promotion_products_exposes_decision_contract():
     assert '"decision": row.decision' in products_source
     assert 'decision not in (None, "enter", "exit")' in save_source
     assert "pp.decision IN ('enter', 'exit')" in download_source
+
+
+def test_promo_wb_template_is_selected_two_column_file_contract():
+    source = inspect.getsource(download_promo_wb_template)
+
+    assert "/api/v1/nl/promotions/download-wb-template" in source
+    assert 'worksheet.append(["Артикул WB", "Цена"])' in source
+    assert "pp.decision IN ('enter', 'exit')" in source
+    assert 'worksheet.append([row.nm_id, upload_price])' in source
 
 
 @pytest.mark.asyncio
