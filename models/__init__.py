@@ -38,42 +38,44 @@ from models.celery_task_run import CeleryTaskRun
 from models.wb_finance import WbFinanceRow, WbFinanceSync, WbOpiuSnapshot
 
 __all__ = [
-    "User",
-    "Organization",
-    "Membership",
-    "Invitation",
-    "WbApiKey",
-    "SubscriptionTier",
-    "SubscriptionStatus",
-    "Role",
-    "InvitationStatus",
-    "SyncLog",
-    "WbProduct",
-    "WbSale",
-    "WbOrder",
-    "OrderStatus",
-    "RawApiData",
-    "RawBarcode",
-    "WarehouseRef",
-    "TechStatus",
-    "RawSyncStatus",
-    "ProductEntity",
-    "EntityBarcode",
-    "UnmatchedBarcode",
-    "ReferenceBook",
-    "WbTariffSnapshot",
-    "SalesPlan",
-    "PlanType",
-    "Seasonality",
-    "CeleryTaskRun",
-    "WbFinanceRow",
-    "WbFinanceSync",
-    "WbOpiuSnapshot",
+    User,
+    Organization,
+    Membership,
+    Invitation,
+    WbApiKey,
+    SubscriptionTier,
+    SubscriptionStatus,
+    Role,
+    InvitationStatus,
+    SyncLog,
+    WbProduct,
+    WbSale,
+    WbOrder,
+    OrderStatus,
+    RawApiData,
+    RawBarcode,
+    WarehouseRef,
+    TechStatus,
+    RawSyncStatus,
+    ProductEntity,
+    EntityBarcode,
+    UnmatchedBarcode,
+    ReferenceBook,
+    WbTariffSnapshot,
+    SalesPlan,
+    PlanType,
+    Seasonality,
+    CeleryTaskRun,
+    WbFinanceRow,
+    WbFinanceSync,
+    WbOpiuSnapshot,
 ]
 
 from models.promotion import WbPromotion, WbPromotionProduct
-__all__.extend(["WbPromotion", "WbPromotionProduct"])
+__all__.extend([WbPromotion, WbPromotionProduct])
 from models.wb_box_tariff import WbBoxTariff
-__all__.append("WbBoxTariff")
+__all__.append(WbBoxTariff)
 from models.strategy import StrategyDefinition, StrategyMilestone
-__all__.extend(["StrategyDefinition", "StrategyMilestone"])
+__all__.extend([StrategyDefinition, StrategyMilestone])
+from models.keyword_seasonality import WbKeywordSeasonality
+__all__.append(WbKeywordSeasonality)
