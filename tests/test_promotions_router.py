@@ -54,6 +54,18 @@ def test_promotion_products_exposes_rrc_from_reference_book():
     assert '"rrc_price": rrc_price' in source
 
 
+def test_promotion_products_exposes_decision_contract():
+    products_source = inspect.getsource(get_promotion_products)
+    save_source = inspect.getsource(save_promotion_products)
+    download_source = inspect.getsource(download_promo_excel)
+
+    assert "pp.decision" in products_source
+    assert "'decision', pp3.decision" in products_source
+    assert '"decision": row.decision' in products_source
+    assert 'decision not in (None, "enter", "exit")' in save_source
+    assert "pp.decision IN ('enter', 'exit')" in download_source
+
+
 @pytest.mark.asyncio
 async def test_get_promotions_keeps_response_contract():
     promotion_id = uuid.uuid4()
@@ -106,7 +118,7 @@ async def test_get_promotions_keeps_response_contract():
 
 @pytest.mark.asyncio
 async def test_save_promotion_products_keeps_org_scoped_update_contract():
-    promotion_product = SimpleNamespace(plan=False, price_in_promo=None)
+    promotion_product = SimpleNamespace(plan=False, decision=None, price_in_promo=None)
     db = AsyncMock()
     db.execute.return_value = SimpleNamespace(
         scalar_one_or_none=lambda: promotion_product,
@@ -117,7 +129,7 @@ async def test_save_promotion_products_keeps_org_scoped_update_contract():
             items=[
                 {
                     "id": str(uuid.uuid4()),
-                    "plan": True,
+                    "decision": "enter",
                     "price_in_promo": 749.0,
                 }
             ]
@@ -128,5 +140,6 @@ async def test_save_promotion_products_keeps_org_scoped_update_contract():
 
     assert result == {"ok": True, "saved": 1}
     assert promotion_product.plan is True
+    assert promotion_product.decision == "enter"
     assert promotion_product.price_in_promo == 749.0
     db.commit.assert_awaited_once()

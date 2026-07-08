@@ -70,6 +70,7 @@ class WbPromotionProduct(Base):
     profit_in_promo = Column(Numeric(10, 2), nullable=True)             # Прибыль в акции
     margin_delta = Column(Numeric(10, 2), nullable=True)                # Разница маржи
     plan = Column(Boolean, default=False)                                # ЛПР отметил для участия
+    decision = Column(String(10), nullable=True)                        # enter / exit — решение по шаблону
     status_text = Column(String(200), nullable=True)                    # Статус из шаблона WB
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

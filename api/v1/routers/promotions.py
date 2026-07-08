@@ -237,6 +237,7 @@ async def get_promotion_products(
             pp.profit_in_promo,
             pp.margin_delta,
             pp.plan,
+            pp.decision,
             pp.status_text,
             pe.id as entity_id,
             pp.promotion_id_col,
@@ -297,6 +298,7 @@ async def get_promotion_products(
                     'profit_in_promo', pp3.profit_in_promo,
                     'margin_delta', pp3.margin_delta,
                     'plan', COALESCE(pp3.plan, false),
+                    'decision', pp3.decision,
                     'status_text', pp3.status_text
                 )
                 ORDER BY COALESCE(pp3.in_action, false) DESC, wp3.start_date NULLS LAST, pp3.synced_at DESC NULLS LAST
@@ -475,6 +477,7 @@ async def get_promotion_products(
                     float(row.margin_delta) if row.margin_delta else None
                 ),
                 "plan": row.plan or False,
+                "decision": row.decision,
                 "status_text": row.status_text,
                 "entity_id": str(row.entity_id) if row.entity_id else None,
                 "vendor_code": row.vendor_code,
@@ -535,8 +538,16 @@ async def save_promotion_products(
         promotion_product = result.scalar_one_or_none()
         if not promotion_product:
             continue
+        decision = item.get("decision") if "decision" in item else None
+        if decision == "":
+            decision = None
+        if "decision" in item and decision not in (None, "enter", "exit"):
+            continue
         if "plan" in item:
             promotion_product.plan = item["plan"]
+        if "decision" in item:
+            promotion_product.decision = decision
+            promotion_product.plan = decision == "enter"
         if "price_in_promo" in item:
             promotion_product.price_in_promo = item["price_in_promo"]
         saved += 1
@@ -593,6 +604,8 @@ async def upload_promo_excel(
                 col_map["upload_discount"] = col_idx
             elif "статус" in value_lower:
                 col_map["status"] = col_idx
+            elif "решение" in value_lower:
+                col_map["decision"] = col_idx
 
     nm_col = col_map.get("nm_id")
     if not nm_col:
@@ -652,6 +665,14 @@ async def upload_promo_excel(
             in_action = in_action.strip().upper() in ("ДА", "YES", "1", "+")
         elif isinstance(in_action, (int, float)):
             in_action = bool(in_action)
+        decision_raw = cell_value("decision")
+        decision = None
+        if decision_raw is not None:
+            decision_text = str(decision_raw).strip().lower()
+            if decision_text in ("зайти", "войти", "enter", "join", "yes", "да", "1", "+", "✓"):
+                decision = "enter"
+            elif decision_text in ("выйти", "exit", "leave", "no", "нет", "-1", "-", "✕", "x"):
+                decision = "exit"
 
         existing = await db.execute(
             text(
@@ -672,7 +693,8 @@ async def upload_promo_excel(
                 text(
                     "UPDATE wb_promotion_products "
                     "SET in_action = :ia, status_text = :st, "
-                    "current_price = :cp, entity_id = :eid, "
+                    "current_price = :cp, entity_id = :eid, decision = :decision, "
+                    "plan = CASE WHEN :decision = 'enter' THEN true WHEN :decision = 'exit' THEN false ELSE plan END, "
                     "promotion_id_col = :pid, updated_at = now() "
                     "WHERE id = :rid"
                 ),
@@ -680,6 +702,7 @@ async def upload_promo_excel(
                     "ia": in_action,
                     "st": str(cell_value("status") or "")[:200],
                     "cp": cell_value("current_price"),
+                    "decision": decision,
                     "eid": entity_id,
                     "pid": str(new_promotion.id),
                     "rid": existing_row[0],
@@ -691,9 +714,9 @@ async def upload_promo_excel(
                     "INSERT INTO wb_promotion_products "
                     "(id, organization_id, promotion_id_col, "
                     "wb_promotion_ext_id, nm_id, entity_id, in_action, "
-                    "current_price, status_text, created_at) "
+                    "current_price, status_text, decision, plan, created_at) "
                     "VALUES (gen_random_uuid(), :org, :pid, :ext_id, :nm, "
-                    ":eid, :ia, :cp, :st, now())"
+                    ":eid, :ia, :cp, :st, :decision, :plan, now())"
                 ),
                 {
                     "org": org_id,
@@ -704,6 +727,8 @@ async def upload_promo_excel(
                     "ia": in_action,
                     "cp": cell_value("current_price"),
                     "st": str(cell_value("status") or "")[:200],
+                    "decision": decision,
+                    "plan": decision == "enter",
                 },
             )
         count += 1
@@ -732,6 +757,7 @@ async def sync_promo_api(
 async def download_promo_excel(
     org_id: str,
     promotion_id: Optional[str] = None,
+    selected_only: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -745,26 +771,37 @@ async def download_promo_excel(
     if promotion_id:
         promo_filter = " AND pp.wb_promotion_ext_id = :promo_id"
         params["promo_id"] = int(promotion_id)
+    selected_filter = ""
+    if selected_only:
+        selected_filter = " AND (pp.decision IN ('enter', 'exit') OR COALESCE(pp.plan, false) = true)"
 
     query = text(
         """
         SELECT
             pp.nm_id,
+            pp.wb_promotion_ext_id,
             pp.in_action,
             pp.current_price,
             pp.price_in_promo,
+            pp.profit_in_promo,
+            pp.margin_delta,
             pp.plan,
+            pp.decision,
             pp.status_text,
             pe.vendor_code,
             pe.product_name,
             pe.brand,
             pe.subject_name,
+            wp.title as promo_title,
+            wp.promo_type,
             COALESCE(snp.price_basic, ts.price, pp.current_price) as price_before_spp,
             ts.stock_qty,
             rb.cost_price,
-            rb.min_price
+            rb.min_price,
+            rb.rrc_price
         FROM wb_promotion_products pp
         LEFT JOIN product_entities pe ON pe.id = pp.entity_id
+        LEFT JOIN wb_promotions wp ON wp.id = pp.promotion_id_col
         LEFT JOIN LATERAL (
             SELECT price, stock_qty
             FROM tech_status ts2
@@ -778,13 +815,14 @@ async def download_promo_excel(
             ORDER BY snp2.snapshot_date DESC LIMIT 1
         ) snp ON true
         LEFT JOIN LATERAL (
-            SELECT cost_price, min_price FROM reference_book rb2
+            SELECT cost_price, min_price, rrc_price FROM reference_book rb2
             WHERE rb2.organization_id = :org AND rb2.entity_id = pp.entity_id
             ORDER BY valid_from DESC LIMIT 1
         ) rb ON true
         WHERE pp.organization_id = :org
         """
         + promo_filter
+        + selected_filter
         + """
         ORDER BY pp.nm_id
         """
@@ -799,7 +837,10 @@ async def download_promo_excel(
 
     # Заголовки (шаблон WB)
     headers = [
+        "Решение",
         "Артикул WB",
+        "ID акции",
+        "Акция",
         "Бренд",
         "Предмет",
         "Наименование",
@@ -810,6 +851,9 @@ async def download_promo_excel(
         "Остаток",
         "Себестоимость",
         "Мин. цена справочника",
+        "РРЦ",
+        "Прибыль в акции",
+        "Δ маржи",
         "Статус",
     ]
     ws.append(headers)
@@ -825,7 +869,7 @@ async def download_promo_excel(
         cell.alignment = Alignment(horizontal="center")
 
     # Ширины колонок
-    col_widths = [12, 16, 18, 30, 14, 12, 12, 10, 10, 12, 16, 12]
+    col_widths = [12, 12, 12, 24, 16, 18, 30, 14, 12, 12, 10, 10, 12, 16, 12, 14, 12, 12]
     for i, w in enumerate(col_widths, 1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
 
@@ -836,6 +880,12 @@ async def download_promo_excel(
         price_in_promo = float(row.price_in_promo) if row.price_in_promo else None
         min_price = float(row.min_price) if row.min_price else None
         cost_price = float(row.cost_price) if row.cost_price else None
+        rrc_price = float(row.rrc_price) if row.rrc_price else None
+        decision_val = row.decision or ("enter" if row.plan else "")
+        decision_label = {
+            "enter": "Зайти",
+            "exit": "Выйти",
+        }.get(decision_val, "")
 
         # Скидка %
         discount_pct = None
@@ -852,7 +902,10 @@ async def download_promo_excel(
             )
 
         ws.append([
+            decision_label,
             row.nm_id,
+            row.wb_promotion_ext_id,
+            row.promo_title or "",
             row.brand or "",
             row.subject_name or "",
             row.product_name or "",
@@ -863,6 +916,9 @@ async def download_promo_excel(
             row.stock_qty or 0,
             cost_price,
             min_price,
+            rrc_price,
+            float(row.profit_in_promo) if row.profit_in_promo else None,
+            float(row.margin_delta) if row.margin_delta else None,
             status_val,
         ])
 

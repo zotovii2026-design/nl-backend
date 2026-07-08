@@ -9,7 +9,7 @@ let _promoExpandedRow = null;
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'promo-grid-v3';
+    const VER = 'promo-grid-v4';
     if (localStorage.getItem('promo-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-promo-grid-state-columns');
         localStorage.removeItem('tabulator-promo-grid-state-sort');
@@ -39,6 +39,38 @@ function promoDelta(value, suffix) {
     if (!Number.isFinite(n)) return '—';
     const color = n >= 0 ? '#27ae60' : '#e74c3c';
     return '<span style="color:' + color + ';font-weight:600">' + n.toLocaleString('ru-RU', {maximumFractionDigits: 1}) + (suffix || '') + '</span>';
+}
+
+function promoDecisionLabel(value) {
+    if (value === 'enter') return '<span style="color:#1e7e34;font-weight:700">✓ зайти</span>';
+    if (value === 'exit') return '<span style="color:#b02a37;font-weight:700">✕ выйти</span>';
+    return '—';
+}
+
+function promoDecisionButton(rowId, current, decision, label, title) {
+    const active = current === decision;
+    const isEnter = decision === 'enter';
+    const color = isEnter ? '#1e7e34' : '#b02a37';
+    const bg = active ? (isEnter ? '#d4edda' : '#f8d7da') : '#fff';
+    const border = active ? color : '#d0d5dd';
+    return '<button type="button" class="promo-decision-btn"'
+        + ' data-id="' + promoEscape(rowId) + '"'
+        + ' data-decision="' + promoEscape(decision) + '"'
+        + ' title="' + promoEscape(title) + '"'
+        + ' style="width:24px;height:24px;border:1px solid ' + border + ';background:' + bg + ';color:' + color + ';border-radius:4px;cursor:pointer;font-weight:700;line-height:1;margin-right:4px">'
+        + label + '</button>';
+}
+
+function promoHasDecision(row, decision) {
+    const selfMatch = decision
+        ? row.decision === decision || (decision === 'enter' && row.plan)
+        : row.decision || row.plan;
+    if (selfMatch) return true;
+    return (row.promotion_options || []).some(function(a) {
+        return decision
+            ? a.decision === decision || (decision === 'enter' && a.plan)
+            : a.decision || a.plan;
+    });
 }
 
 function promoDateRange(start, end) {
@@ -330,8 +362,8 @@ function applyPromoFilters() {
     }
     if (fltBrand) filtered = filtered.filter(p => (p.brand || '') === fltBrand);
     if (fltStatus === 'in_action') filtered = filtered.filter(p => p.in_any_promo);
-    if (fltStatus === 'plan') filtered = filtered.filter(p => p.plan);
-    if (fltStatus === 'not_in') filtered = filtered.filter(p => !p.in_any_promo && !p.plan);
+    if (fltStatus === 'plan') filtered = filtered.filter(p => promoHasDecision(p, 'enter'));
+    if (fltStatus === 'not_in') filtered = filtered.filter(p => !p.in_any_promo && !promoHasDecision(p));
     if (fltAction) {
         filtered = filtered.filter(p => {
             if (String(p.wb_promotion_ext_id || '') === String(fltAction)) return true;
@@ -387,12 +419,13 @@ function togglePromoProductActions(row) {
 
     const priceBlockOffset = 686;
     const detailCss = 'margin-left:' + priceBlockOffset + 'px;max-width:calc(100% - ' + priceBlockOffset + 'px);overflow-x:auto';
-    const tableCss = 'width:982px;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;font-size:11px;table-layout:fixed';
+    const tableCss = 'width:1066px;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;font-size:11px;table-layout:fixed';
     const thCss = 'padding:4px 6px;text-align:left;color:#777;background:#f3f4f6;border-bottom:1px solid #e5e7eb;font-weight:600;white-space:nowrap';
     const tdCss = 'padding:4px 6px;border-bottom:1px solid #eef0f3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
 
     let html = '<div style="' + detailCss + '"><table style="' + tableCss + '">';
     html += '<thead><tr>';
+    html += '<th style="' + thCss + ';width:84px">Выбор</th>';
     html += '<th style="' + thCss + ';width:82px">Текущая</th>';
     html += '<th style="' + thCss + ';width:82px">Нужная</th>';
     html += '<th style="' + thCss + ';width:82px">В акции</th>';
@@ -406,6 +439,7 @@ function togglePromoProductActions(row) {
     html += '</tr></thead><tbody>';
 
     html += '<tr>';
+    html += '<td style="' + tdCss + '">—</td>';
     html += '<td style="' + tdCss + '">' + promoMoney(data.price_before_spp || data.price_basic) + '</td>';
     html += '<td style="' + tdCss + '">—</td>';
     html += '<td style="' + tdCss + '">' + promoMoney(data.price_product) + '</td>';
@@ -419,12 +453,13 @@ function togglePromoProductActions(row) {
     html += '</tr>';
 
     if (!actions.length) {
-        html += '<tr><td style="' + tdCss + '" colspan="10">Нет доступных regular-акций по WB Calendar API</td></tr>';
+        html += '<tr><td style="' + tdCss + '" colspan="11">Нет доступных regular-акций по WB Calendar API</td></tr>';
     } else {
         actions.forEach(function(a) {
             const title = a.title || ('Акция ' + (a.promotion_id || ''));
             const status = a.in_action ? '<span style="color:#1e7e34;font-weight:700">✓ участвует</span>' : 'доступна';
             html += '<tr>';
+            html += '<td style="' + tdCss + '">' + promoDecisionButton(a.id, a.decision, 'enter', '✓', 'Зайти в акцию') + promoDecisionButton(a.id, a.decision, 'exit', '✕', 'Выйти из акции') + '</td>';
             html += '<td style="' + tdCss + '">' + promoMoney(data.price_before_spp || a.current_price) + '</td>';
             html += '<td style="' + tdCss + '">' + promoMoney(a.required_price) + '</td>';
             html += '<td style="' + tdCss + '">' + promoMoney(a.price_in_promo) + '</td>';
@@ -441,8 +476,69 @@ function togglePromoProductActions(row) {
     html += '</tbody></table></div>';
 
     td.innerHTML = html;
+    td.querySelectorAll('.promo-decision-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            setPromoActionDecision(e, row, btn.dataset.id, btn.dataset.decision);
+        });
+    });
     tr.appendChild(td);
     el.parentNode.insertBefore(tr, el.nextSibling);
+}
+
+async function setPromoActionDecision(e, row, rowId, decision) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!rowId || !decision) return;
+
+    const data = row.getData();
+    const actions = data.promotion_options || [];
+    const action = actions.find(a => String(a.id || '') === String(rowId));
+    const nextDecision = action && action.decision === decision ? '' : decision;
+
+    try {
+        const res = await fetch('/api/v1/nl/promotions/products/save?org_id=' + ORG_ID, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer '+TOKEN },
+            body: JSON.stringify({ items: [{ id: rowId, decision: nextDecision }] })
+        });
+        const result = await res.json();
+        if (!res.ok || !result.ok) {
+            throw new Error(result.error || ('HTTP ' + res.status));
+        }
+
+        actions.forEach(function(a) {
+            if (String(a.id || '') === String(rowId)) {
+                a.decision = nextDecision || null;
+                a.plan = nextDecision === 'enter';
+            }
+        });
+        if (String(data.id || '') === String(rowId)) {
+            data.decision = nextDecision || null;
+            data.plan = nextDecision === 'enter';
+        }
+        data.plan = data.decision === 'enter' || actions.some(a => a.decision === 'enter' || a.plan);
+        row.update({
+            promotion_options: actions,
+            decision: data.decision,
+            plan: data.plan,
+        });
+        _promoAllData.forEach(function(item) {
+            if (String(item.id || '') === String(rowId)) {
+                item.decision = nextDecision || null;
+                item.plan = nextDecision === 'enter';
+            }
+            (item.promotion_options || []).forEach(function(a) {
+                if (String(a.id || '') === String(rowId)) {
+                    a.decision = nextDecision || null;
+                    a.plan = nextDecision === 'enter';
+                }
+            });
+        });
+        closePromoProductActions();
+        togglePromoProductActions(row);
+    } catch (err) {
+        alert('Ошибка сохранения решения: ' + err.message);
+    }
 }
 
 function populatePromoFilterOptions() {
@@ -639,7 +735,7 @@ function filterByPromo(promotionId) {
 
 async function downloadPromoExcel() {
     const promotionId = document.getElementById('promo-flt-action')?.value || '';
-    let url = '/api/v1/nl/promotions/download-excel?org_id=' + ORG_ID;
+    let url = '/api/v1/nl/promotions/download-excel?org_id=' + ORG_ID + '&selected_only=1';
     if (promotionId) url += '&promotion_id=' + encodeURIComponent(promotionId);
     try {
         const res = await fetch(url, {headers: {'Authorization': 'Bearer ' + TOKEN}});
