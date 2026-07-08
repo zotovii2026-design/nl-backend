@@ -77,6 +77,16 @@ def test_promotion_products_exposes_decision_contract():
     assert "pp.decision IN ('enter', 'exit')" in download_source
 
 
+def test_promotions_hide_actions_older_than_yesterday_contract():
+    promotions_source = inspect.getsource(get_promotions)
+    products_source = inspect.getsource(get_promotion_products)
+    wb_template_source = inspect.getsource(download_promo_wb_template)
+
+    assert "CURRENT_DATE - INTERVAL '1 day'" in promotions_source
+    assert "CURRENT_DATE - INTERVAL '1 day'" in products_source
+    assert "CURRENT_DATE - INTERVAL '1 day'" in wb_template_source
+
+
 def test_promo_wb_template_is_selected_two_column_file_contract():
     source = inspect.getsource(download_promo_wb_template)
 

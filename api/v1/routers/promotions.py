@@ -107,6 +107,7 @@ async def get_promotions_summary(
               )
         ) snp ON true
         WHERE wp.organization_id = :org
+          AND (wp.end_date IS NULL OR wp.end_date::date >= CURRENT_DATE - INTERVAL '1 day')
         GROUP BY wp.id, wp.promotion_id, wp.title, wp.promo_type, wp.start_date, wp.end_date, wp.is_active
         ORDER BY wp.start_date NULLS LAST, count DESC
         """
@@ -170,6 +171,7 @@ async def get_promotions(
               AND pp.in_action = true
         ) pp_count ON true
         WHERE wp.organization_id = :org
+          AND (wp.end_date IS NULL OR wp.end_date::date >= CURRENT_DATE - INTERVAL '1 day')
         """
     )
     
@@ -309,6 +311,7 @@ async def get_promotion_products(
             LEFT JOIN wb_promotions wp3 ON wp3.id = pp3.promotion_id_col
             WHERE pp3.organization_id = :org
               AND pp3.nm_id = pe.nm_id
+              AND (wp3.end_date IS NULL OR wp3.end_date::date >= CURRENT_DATE - INTERVAL '1 day')
         ) promo_opts ON true
         LEFT JOIN LATERAL (
             SELECT price, price_discount, stock_qty
@@ -822,6 +825,7 @@ async def download_promo_excel(
             ORDER BY valid_from DESC LIMIT 1
         ) rb ON true
         WHERE pp.organization_id = :org
+          AND (wp.end_date IS NULL OR wp.end_date::date >= CURRENT_DATE - INTERVAL '1 day')
         """
         + promo_filter
         + selected_filter
@@ -974,6 +978,7 @@ async def download_promo_wb_template(
             pp.required_price,
             {price_before_spp_expr} as price_before_spp
         FROM wb_promotion_products pp
+        LEFT JOIN wb_promotions wp ON wp.id = pp.promotion_id_col
         LEFT JOIN LATERAL (
             SELECT price, price_discount, stock_qty
             FROM tech_status ts2
@@ -988,6 +993,7 @@ async def download_promo_wb_template(
         ) snp ON true
         WHERE pp.organization_id = :org
           AND pp.decision IN ('enter', 'exit')
+          AND (wp.end_date IS NULL OR wp.end_date::date >= CURRENT_DATE - INTERVAL '1 day')
         """
         + promo_filter
         + """

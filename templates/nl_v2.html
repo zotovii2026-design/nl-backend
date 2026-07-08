@@ -170,7 +170,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
-<script type="text/javascript" src="/static/js/promo-grid.js?v=20260708c"></script>
+<script type="text/javascript" src="/static/js/promo-grid.js?v=20260708d"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
 <script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260701-adsmodel13"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
@@ -949,7 +949,7 @@ var _sectionHTML = {
 <button class="btn btn-outline" onclick="exportPromoExcel()" style="padding:6px 14px;font-size:.85em">📥 Excel</button>
 <button class="btn btn-outline" onclick="document.getElementById('promo-upload-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить шаблон</button>
 <input type="file" id="promo-upload-input" accept=".xlsx,.xls" style="display:none" onchange="uploadPromoTemplate(this)">
-<button class="btn" onclick="savePromoData()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
+<button class="btn" id="promo-save-btn" onclick="savePromoData()" style="padding:6px 14px;font-size:.85em;background:#00b894;color:#fff">💾 Сохранить</button>
 <span style="font-size:.85em;color:#999;margin-left:auto" id="promo-count"></span>
 </div>
 <div id="promo-upload-template-panel" style="display:none;align-items:center;gap:12px;margin-bottom:14px;padding:10px 12px;background:#fff;border:1px solid #d8e2ff;border-left:4px solid #6c5ce7;border-radius:8px;flex-wrap:wrap">
@@ -1376,6 +1376,7 @@ var _currentSection = 'stats';
 
 async function navTo(name, el) {
     if (_costDirty) await confirmDirty();
+    if (typeof confirmPromoDirty === 'function' && !await confirmPromoDirty()) return;
     // Leave current section
     if (_currentSection && _currentSection !== name) await _sectionLeave(_currentSection);
     // Nav UI
@@ -3735,6 +3736,7 @@ async function loadOrgs() {
 
 async function switchOrg() {
     if (_costDirty && !await confirmDirty()) return;
+    if (typeof confirmPromoDirty === 'function' && !await confirmPromoDirty()) return;
     // Update URL so refresh keeps the right org
     setCurrentOrgId(document.getElementById('org-select').value);
     resetAdsUiForOrgChange();
@@ -3800,6 +3802,7 @@ async function switchAnalyticsStore() {
 
 async function switchTopStore() {
     if (_costDirty && !await confirmDirty()) return;
+    if (typeof confirmPromoDirty === 'function' && !await confirmPromoDirty()) return;
     const fSel = document.getElementById('filter-store');
     const newOrgId = fSel.value;
     if (newOrgId === ORG_ID) return;

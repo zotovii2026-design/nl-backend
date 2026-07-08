@@ -6,10 +6,13 @@
 let promoTabulator = null;
 let _promoAllData = [];
 let _promoExpandedRow = null;
+let _promoInitialDecisions = {};
+let _promoPendingDecisions = {};
+let _promoDirty = false;
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'promo-grid-v5';
+    const VER = 'promo-grid-v6';
     if (localStorage.getItem('promo-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-promo-grid-state-columns');
         localStorage.removeItem('tabulator-promo-grid-state-sort');
@@ -74,14 +77,15 @@ function promoHasDecision(row, decision) {
 }
 
 function promoSelectedDecisionCount() {
-    let count = 0;
+    const selectedNmIds = new Set();
     _promoAllData.forEach(function(row) {
-        if (row.decision) count += 1;
+        if (row.decision) selectedNmIds.add(String(row.nm_id || ''));
         (row.promotion_options || []).forEach(function(action) {
-            if (action.decision) count += 1;
+            if (action.decision) selectedNmIds.add(String(row.nm_id || ''));
         });
     });
-    return count;
+    selectedNmIds.delete('');
+    return selectedNmIds.size;
 }
 
 function updatePromoUploadTemplatePanel() {
@@ -91,9 +95,150 @@ function updatePromoUploadTemplatePanel() {
     const count = promoSelectedDecisionCount();
     panel.style.display = count > 0 ? 'flex' : 'none';
     if (countEl) {
-        countEl.textContent = count + ' ' + (count === 1 ? 'строка' : count < 5 ? 'строки' : 'строк');
+        countEl.textContent = count + ' ' + (count === 1 ? 'арт' : count < 5 ? 'арта' : 'артов');
     }
 }
+
+function updatePromoDirtyState() {
+    _promoDirty = Object.keys(_promoPendingDecisions).length > 0;
+    const btn = document.getElementById('promo-save-btn');
+    if (btn) {
+        btn.style.background = _promoDirty ? '#e17055' : '#00b894';
+        btn.title = _promoDirty ? 'Есть несохранённые решения' : '';
+    }
+}
+
+function rememberPromoInitialDecisions(data) {
+    _promoInitialDecisions = {};
+    _promoPendingDecisions = {};
+    _promoDirty = false;
+    data.forEach(function(row) {
+        if (row.id) {
+            row._serverDecision = row.decision || null;
+            _promoInitialDecisions[String(row.id)] = row._serverDecision;
+        }
+        (row.promotion_options || []).forEach(function(action) {
+            if (action.id) {
+                action._serverDecision = action.decision || null;
+                _promoInitialDecisions[String(action.id)] = action._serverDecision;
+            }
+        });
+    });
+    updatePromoDirtyState();
+}
+
+function applyPromoDecisionLocally(row, rowId, nextDecision) {
+    const normalized = nextDecision || null;
+    const data = row.getData();
+    const nmId = String(data.nm_id || '');
+    const actions = data.promotion_options || [];
+    actions.forEach(function(action) {
+        if (String(action.id || '') === String(rowId)) {
+            action.decision = normalized;
+            action.plan = normalized === 'enter';
+        }
+    });
+    if (String(data.id || '') === String(rowId)) {
+        data.decision = normalized;
+        data.plan = normalized === 'enter';
+    }
+    if (normalized && nmId) {
+        actions.forEach(function(action) {
+            if (String(action.id || '') !== String(rowId)) {
+                action.decision = null;
+                action.plan = false;
+            }
+        });
+        if (String(data.id || '') !== String(rowId)) {
+            data.decision = null;
+        }
+    }
+    data.plan = data.decision === 'enter' || actions.some(a => a.decision === 'enter' || a.plan);
+    row.update({
+        promotion_options: actions,
+        decision: data.decision,
+        plan: data.plan,
+    });
+    _promoAllData.forEach(function(item) {
+        if (String(item.id || '') === String(rowId)) {
+            item.decision = normalized;
+            item.plan = normalized === 'enter';
+        }
+        (item.promotion_options || []).forEach(function(action) {
+            if (String(action.id || '') === String(rowId)) {
+                action.decision = normalized;
+                action.plan = normalized === 'enter';
+            }
+        });
+        if (normalized && String(item.nm_id || '') === nmId) {
+            if (String(item.id || '') !== String(rowId)) {
+                item.decision = null;
+            }
+            (item.promotion_options || []).forEach(function(action) {
+                if (String(action.id || '') !== String(rowId)) {
+                    action.decision = null;
+                    action.plan = false;
+                }
+            });
+            item.plan = item.decision === 'enter' || (item.promotion_options || []).some(a => a.decision === 'enter' || a.plan);
+        }
+    });
+    Object.keys(_promoInitialDecisions).forEach(function(id) {
+        let current = null;
+        _promoAllData.forEach(function(item) {
+            if (String(item.id || '') === id) current = item.decision || null;
+            (item.promotion_options || []).forEach(function(action) {
+                if (String(action.id || '') === id) current = action.decision || null;
+            });
+        });
+        const initial = _promoInitialDecisions[id] || null;
+        if (current === initial) delete _promoPendingDecisions[id];
+        else _promoPendingDecisions[id] = current || '';
+    });
+    updatePromoDirtyState();
+    updatePromoUploadTemplatePanel();
+}
+
+function revertPromoPendingDecisions() {
+    Object.keys(_promoPendingDecisions).forEach(function(rowId) {
+        const original = _promoInitialDecisions[String(rowId)] || null;
+        _promoAllData.forEach(function(item) {
+            if (String(item.id || '') === String(rowId)) {
+                item.decision = original;
+                item.plan = original === 'enter';
+            }
+            (item.promotion_options || []).forEach(function(action) {
+                if (String(action.id || '') === String(rowId)) {
+                    action.decision = original;
+                    action.plan = original === 'enter';
+                }
+            });
+            item.plan = item.decision === 'enter' || (item.promotion_options || []).some(a => a.decision === 'enter' || a.plan);
+        });
+    });
+    _promoPendingDecisions = {};
+    updatePromoDirtyState();
+    updatePromoUploadTemplatePanel();
+    closePromoProductActions();
+    if (promoTabulator) promoTabulator.replaceData(_promoAllData);
+}
+
+async function confirmPromoDirty() {
+    if (!_promoDirty) return true;
+    const answer = confirm('В акциях есть несохранённые решения. Нажмите ОК — сохранить, Отмена — перейти без сохранения.');
+    if (answer) {
+        return await savePromoData({silent: true});
+    }
+    revertPromoPendingDecisions();
+    return true;
+}
+
+window.addEventListener('beforeunload', function(e) {
+    if (_promoDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});
 
 function promoDateRange(start, end) {
     if (!start && !end) return 'Даты не указаны';
@@ -336,6 +481,7 @@ async function loadPromoData() {
         const res = await fetch(url, {headers:{'Authorization':'Bearer '+TOKEN}});
         const raw = await res.json();
         const data = Array.isArray(raw) ? raw : (raw.items || []);
+        rememberPromoInitialDecisions(data);
 
         // Помечаем безразмерные и добавляем уникальный ID
         const nmCounts = {};
@@ -517,52 +663,9 @@ async function setPromoActionDecision(e, row, rowId, decision) {
     const actions = data.promotion_options || [];
     const action = actions.find(a => String(a.id || '') === String(rowId));
     const nextDecision = action && action.decision === decision ? '' : decision;
-
-    try {
-        const res = await fetch('/api/v1/nl/promotions/products/save?org_id=' + ORG_ID, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer '+TOKEN },
-            body: JSON.stringify({ items: [{ id: rowId, decision: nextDecision }] })
-        });
-        const result = await res.json();
-        if (!res.ok || !result.ok) {
-            throw new Error(result.error || ('HTTP ' + res.status));
-        }
-
-        actions.forEach(function(a) {
-            if (String(a.id || '') === String(rowId)) {
-                a.decision = nextDecision || null;
-                a.plan = nextDecision === 'enter';
-            }
-        });
-        if (String(data.id || '') === String(rowId)) {
-            data.decision = nextDecision || null;
-            data.plan = nextDecision === 'enter';
-        }
-        data.plan = data.decision === 'enter' || actions.some(a => a.decision === 'enter' || a.plan);
-        row.update({
-            promotion_options: actions,
-            decision: data.decision,
-            plan: data.plan,
-        });
-        _promoAllData.forEach(function(item) {
-            if (String(item.id || '') === String(rowId)) {
-                item.decision = nextDecision || null;
-                item.plan = nextDecision === 'enter';
-            }
-            (item.promotion_options || []).forEach(function(a) {
-                if (String(a.id || '') === String(rowId)) {
-                    a.decision = nextDecision || null;
-                    a.plan = nextDecision === 'enter';
-                }
-            });
-        });
-        closePromoProductActions();
-        togglePromoProductActions(row);
-        updatePromoUploadTemplatePanel();
-    } catch (err) {
-        alert('Ошибка сохранения решения: ' + err.message);
-    }
+    applyPromoDecisionLocally(row, rowId, nextDecision);
+    closePromoProductActions();
+    togglePromoProductActions(row);
 }
 
 function populatePromoFilterOptions() {
@@ -603,16 +706,15 @@ async function loadPromoActions() {
     }
 }
 
-async function savePromoData() {
-    if (!promoTabulator) return;
-    const allData = promoTabulator.getData();
-    if (!allData.length) { alert('Нет данных'); return; }
-
-    const items = allData.map(r => ({
-        id: r.id,
-        plan: r.plan || false,
-        price_in_promo: r.price_in_promo,
-    }));
+async function savePromoData(options) {
+    options = options || {};
+    const items = Object.keys(_promoPendingDecisions).map(function(rowId) {
+        return { id: rowId, decision: _promoPendingDecisions[rowId] };
+    });
+    if (!items.length) {
+        if (!options.silent) alert('Нет изменений для сохранения');
+        return true;
+    }
 
     try {
         const res = await fetch('/api/v1/nl/promotions/products/save?org_id=' + ORG_ID, {
@@ -621,13 +723,28 @@ async function savePromoData() {
             body: JSON.stringify({ items })
         });
         const result = await res.json();
-        if (result.ok) {
-            alert('Сохранено: ' + items.length + ' строк');
-        } else {
-            alert('Ошибка: ' + (result.error || 'неизвестная'));
+        if (!res.ok || !result.ok) {
+            throw new Error(result.error || result.detail || ('HTTP ' + res.status));
         }
+        items.forEach(function(item) {
+            const normalized = item.decision || null;
+            _promoInitialDecisions[String(item.id)] = normalized;
+            _promoAllData.forEach(function(row) {
+                if (String(row.id || '') === String(item.id)) row._serverDecision = normalized;
+                (row.promotion_options || []).forEach(function(action) {
+                    if (String(action.id || '') === String(item.id)) action._serverDecision = normalized;
+                });
+            });
+        });
+        _promoPendingDecisions = {};
+        updatePromoDirtyState();
+        updatePromoUploadTemplatePanel();
+        if (!options.silent) alert('Сохранено: ' + (result.saved || items.length) + ' решений');
+        return true;
     } catch (e) {
-        alert('Ошибка сохранения: ' + e.message);
+        if (!options.silent) alert('Ошибка сохранения: ' + e.message);
+        else alert('Ошибка сохранения решений: ' + e.message);
+        return false;
     }
 }
 
@@ -778,6 +895,12 @@ async function downloadPromoExcel() {
 }
 
 async function downloadPromoWbTemplate() {
+    if (_promoDirty) {
+        const shouldSave = confirm('Перед скачиванием шаблона нужно сохранить выбранные решения. Сохранить сейчас?');
+        if (!shouldSave) return;
+        const saved = await savePromoData({silent: true});
+        if (!saved) return;
+    }
     const promotionId = document.getElementById('promo-flt-action')?.value || '';
     let url = '/api/v1/nl/promotions/download-wb-template?org_id=' + ORG_ID;
     if (promotionId) url += '&promotion_id=' + encodeURIComponent(promotionId);
@@ -802,6 +925,10 @@ async function switchPromoStore() {
     if (!sel) return;
     const newOrgId = sel.value;
     if (newOrgId === ORG_ID) return;
+    if (!await confirmPromoDirty()) {
+        sel.value = ORG_ID;
+        return;
+    }
     ORG_ID = newOrgId;
     localStorage.setItem("nl_org_id", ORG_ID);
     const sideSel = document.getElementById("org-select");
