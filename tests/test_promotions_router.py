@@ -47,6 +47,13 @@ def test_promotion_price_before_spp_prefers_factual_snapshot_price():
         )
 
 
+def test_promotion_products_exposes_rrc_from_reference_book():
+    source = inspect.getsource(get_promotion_products)
+
+    assert "rb.rrc_price" in source
+    assert '"rrc_price": rrc_price' in source
+
+
 @pytest.mark.asyncio
 async def test_get_promotions_keeps_response_contract():
     promotion_id = uuid.uuid4()

@@ -254,6 +254,7 @@ async def get_promotion_products(
             COALESCE(snp.price_basic, ts.price, pp.current_price) as price_before_spp,
             ts.stock_qty,
             rb.cost_price,
+            rb.rrc_price,
             snp.snapshot_date,
             snp.promotions as snapshot_promotions_raw,
             snp.sale_conditions as sale_conditions_raw,
@@ -312,7 +313,7 @@ async def get_promotion_products(
             ORDER BY target_date DESC LIMIT 1
         ) ts ON true
         LEFT JOIN LATERAL (
-            SELECT cost_price FROM reference_book rb2
+            SELECT cost_price, rrc_price FROM reference_book rb2
             WHERE rb2.organization_id = :org AND rb2.entity_id = pe.id
             ORDER BY valid_from DESC LIMIT 1
         ) rb ON true
@@ -353,6 +354,7 @@ async def get_promotion_products(
             float(row.price_before_spp) if row.price_before_spp else None
         )
         cost = float(row.cost_price) if row.cost_price else None
+        rrc_price = float(row.rrc_price) if row.rrc_price else None
         margin_pct = None
         if price_before and cost and price_before > 0:
             margin_pct = round((price_before - cost) / price_before * 100, 1)
@@ -495,6 +497,7 @@ async def get_promotion_products(
                 "price_before_spp": price_before,
                 "stock_qty": row.available_qty if row.available_qty is not None else row.stock_qty,
                 "margin_pct": margin_pct,
+                "rrc_price": rrc_price,
                 # Новые поля из snapshot
                 "snapshot_promotions": snapshot_promotions,
                 "price_basic": float(row.price_basic) if row.price_basic else None,
