@@ -6,6 +6,7 @@
 import asyncio
 import logging
 import sys
+import json
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Set
 
@@ -144,7 +145,7 @@ async def save_product_seasonality(product: Dict, coefficients: Dict[str, float]
                 "org_id": product["organization_id"],
                 "nm_id": product["nm_id"],
                 "vendor_code": product.get("vendor_code"),
-                "coefficients": coefficients,
+                "coefficients": json.dumps(coefficients),
                 "source_keywords": source_keywords,
             })
             

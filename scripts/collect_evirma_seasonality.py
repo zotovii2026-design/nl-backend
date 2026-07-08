@@ -113,7 +113,7 @@ async def get_unique_keywords(org_id: str, nm_id: Optional[int] = None) -> Set[s
         for row in result.all():
             keywords.update([k for k in [row[0], row[1], row[2]] if is_valid_keyword(k)])
         _log.info(f"Found {len(keywords)} keywords for org={org_id} nm_id={nm_id}")
-        return keywords
+        return sorted(keywords)
 
 
 async def fetch_evirma(keywords: List[str]) -> Tuple[Optional[Dict], Optional[int]]:
