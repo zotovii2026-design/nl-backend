@@ -96,18 +96,18 @@ async def _update_reference_book(org_id: str):
         await db.execute(text("""
             UPDATE reference_book rb
             SET 
-                season_jan = ps.seasonality_coefficients->>'1',
-                season_feb = ps.seasonality_coefficients->>'2',
-                season_mar = ps.seasonality_coefficients->>'3',
-                season_apr = ps.seasonality_coefficients->>'4',
-                season_may = ps.seasonality_coefficients->>'5',
-                season_jun = ps.seasonality_coefficients->>'6',
-                season_jul = ps.seasonality_coefficients->>'7',
-                season_aug = ps.seasonality_coefficients->>'8',
-                season_sep = ps.seasonality_coefficients->>'9',
-                season_oct = ps.seasonality_coefficients->>'10',
-                season_nov = ps.seasonality_coefficients->>'11',
-                season_dec = ps.seasonality_coefficients->>'12'
+                season_jan = (ps.seasonality_coefficients->>'1')::numeric,
+                season_feb = (ps.seasonality_coefficients->>'2')::numeric,
+                season_mar = (ps.seasonality_coefficients->>'3')::numeric,
+                season_apr = (ps.seasonality_coefficients->>'4')::numeric,
+                season_may = (ps.seasonality_coefficients->>'5')::numeric,
+                season_jun = (ps.seasonality_coefficients->>'6')::numeric,
+                season_jul = (ps.seasonality_coefficients->>'7')::numeric,
+                season_aug = (ps.seasonality_coefficients->>'8')::numeric,
+                season_sep = (ps.seasonality_coefficients->>'9')::numeric,
+                season_oct = (ps.seasonality_coefficients->>'10')::numeric,
+                season_nov = (ps.seasonality_coefficients->>'11')::numeric,
+                season_dec = (ps.seasonality_coefficients->>'12')::numeric
             FROM wb_product_seasonality ps
             WHERE rb.nm_id = ps.nm_id
               AND rb.organization_id = :org_id
