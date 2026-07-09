@@ -53,6 +53,7 @@ async def get_products_with_keywords(org_id: str) -> List[Dict]:
 
 
 async def get_keyword_coefficients(org_id: str, keywords: List[str], days_back: int = 7) -> Dict[str, Dict[str, float]]:
+    """Получить коэффициенты сезонности (case-insensitive matching)"""
     """Получить коэффициенты сезонности для ключевых слов
     
     Берём последние данные за последние days_back дней.
@@ -61,13 +62,14 @@ async def get_keyword_coefficients(org_id: str, keywords: List[str], days_back: 
         return {}
     
     async with async_session() as db:
+        keywords = [k.lower() for k in keywords]
         cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
         
         result = await db.execute(text("""
             SELECT keyword, seasonality_coefficients
             FROM wb_keyword_seasonality
             WHERE organization_id = :org_id
-              AND keyword = ANY(:keywords)
+              AND LOWER(keyword) = ANY(:keywords)
               AND seasonality_coefficients IS NOT NULL
               AND collected_at >= :cutoff
             ORDER BY keyword, collected_at DESC
@@ -83,7 +85,7 @@ async def get_keyword_coefficients(org_id: str, keywords: List[str], days_back: 
         for row in result.all():
             kw = row.keyword
             if kw not in seen_keywords:
-                coeffs[kw] = row.seasonality_coefficients
+                coeffs[kw.lower()] = row.seasonality_coefficients
                 seen_keywords.add(kw)
         
         return coeffs
@@ -175,14 +177,15 @@ async def calculate_product_seasonality(org_id: str, dry_run: bool = False):
         coeffs_dict = await get_keyword_coefficients(org_id, keywords)
         
         # Фильтруем ключевые слова, для которых есть данные
-        valid_keywords = [k for k in keywords if k in coeffs_dict]
+        valid_keywords_lower = [k.lower() for k in keywords if k.lower() in coeffs_dict]
+        coeffs_list = [coeffs_dict[kl] for kl in valid_keywords_lower if coeffs_dict[kl] is not None]
+        valid_keywords = [k for k in keywords if k.lower() in coeffs_dict]
         
         if not valid_keywords:
             _log.debug(f"No seasonality data for product {product['nm_id']} ({product.get('vendor_code')}) keywords: {keywords}")
             continue
         
         # Берём коэффициенты для каждого ключевого слова
-        coeffs_list = [coeffs_dict[k] for k in valid_keywords]
         
         # Усредняем
         avg_coeffs = average_coefficients(coeffs_list)
