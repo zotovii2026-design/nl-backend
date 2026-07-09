@@ -1,10 +1,10 @@
-"""WB API data-source status for the Connections page."""
+"""Enhanced API status with seasonality integration for the Connections page."""
 
 from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -167,6 +167,100 @@ def _status_for(row: RawApiData | None, ok_days: int, expected_days: int, stale_
     return "ok", "ок"
 
 
+async def _get_seasonality_status(org_id: str, db: AsyncSession) -> dict[str, Any]:
+    """Get seasonality collection status for the Connections page."""
+    
+    # Общее количество уникальных ключей в reference_book
+    total_keywords_result = await db.execute(text("""
+        SELECT COUNT(DISTINCT kw)
+        FROM (
+            SELECT top_query_1 as kw FROM reference_book WHERE organization_id = :org_id AND top_query_1 IS NOT NULL AND top_query_1 != ''
+            UNION SELECT top_query_2 FROM reference_book WHERE organization_id = :org_id AND top_query_2 IS NOT NULL AND top_query_2 != ''
+            UNION SELECT top_query_3 FROM reference_book WHERE organization_id = :org_id AND top_query_3 IS NOT NULL AND top_query_3 != ''
+        ) all_keywords
+    """), {"org_id": org_id})
+    total_keywords = total_keywords_result.scalar() or 0
+    
+    # Собраны за последние 7 дней с коэффициентами
+    collected_result = await db.execute(text("""
+        SELECT COUNT(DISTINCT keyword)
+        FROM wb_keyword_seasonality
+        WHERE organization_id = :org_id
+          AND seasonality_coefficients IS NOT NULL
+          AND collected_at >= NOW() - INTERVAL '7 days'
+    """), {"org_id": org_id})
+    collected = collected_result.scalar() or 0
+    
+    # Всего товаров
+    products_total_result = await db.execute(text("""
+        SELECT COUNT(DISTINCT nm_id)
+        FROM reference_book
+        WHERE organization_id = :org_id
+    """), {"org_id": org_id})
+    products_total = products_total_result.scalar() or 0
+    
+    # Товаров с сезонностью
+    products_with_seasonality_result = await db.execute(text("""
+        SELECT COUNT(DISTINCT nm_id)
+        FROM wb_product_seasonality
+        WHERE organization_id = :org_id
+    """), {"org_id": org_id})
+    products_with_seasonality = products_with_seasonality_result.scalar() or 0
+    
+    # Дата последнего сбора
+    last_collection_result = await db.execute(text("""
+        SELECT MAX(collected_at)
+        FROM wb_keyword_seasonality
+        WHERE organization_id = :org_id
+    """), {"org_id": org_id})
+    last_collection_date = last_collection_result.scalar()
+    
+    # Статус на основе freshness
+    status = "no_data"
+    status_label = "нет данных"
+    
+    if total_keywords > 0:
+        if last_collection_date:
+            age_hours = (datetime.now(timezone.utc) - _aware(last_collection_date)).total_seconds() / 3600 if last_collection_date else 999
+            
+            if collected >= total_keywords and age_hours < 24:
+                status = "ok"
+                status_label = "актуально"
+            elif collected > 0 and age_hours < 168:  # 7 days
+                status = "partial"
+                status_label = f"{collected}/{total_keywords}"
+            else:
+                status = "stale"
+                status_label = f"{collected}/{total_keywords}"
+        else:
+            status = "no_data"
+            status_label = "нет данных"
+    
+    return {
+        "method": "seasonality_analytics",
+        "title": "Сторонний аналитический сервис",
+        "endpoint": "Seasonality API (v2)",
+        "sections": ["Справочник", "Аналитика"],
+        "task": "seasonality.collect",
+        "schedule": "еженедельно",
+        "expected_days": 7,
+        "stale_hours": 168,  # 7 days
+        "storage": "wb_keyword_seasonality, wb_product_seasonality",
+        "update_mode": "накопление истории",
+        "status": status,
+        "status_label": status_label,
+        "total_keywords": total_keywords,
+        "collected_keywords": collected,
+        "products_total": products_total,
+        "products_with_seasonality": products_with_seasonality,
+        "last_collection_date": last_collection_date.isoformat() if last_collection_date else None,
+        "coverage_label": f"{collected}/{total_keywords}",
+        "records_count": collected,  # Using collected as the metric
+        "coverage_count": 1 if collected >= total_keywords and total_keywords > 0 else 0,
+        "coverage_expected": 1,
+    }
+
+
 @router.get("/api/v1/nl/wb-api-status")
 async def wb_api_status(org_id: str, db: AsyncSession = Depends(get_db)):
     """Return a read-only WB API passport with live raw-data status."""
@@ -252,6 +346,12 @@ async def wb_api_status(org_id: str, db: AsyncSession = Depends(get_db)):
             "coverage_label": f"{ok_days} из {expected_days}",
             "last_error": latest.error_message if latest else None,
         })
+
+    # Add seasonality status as an additional item
+    seasonality_status = await _get_seasonality_status(org_id, db)
+    if seasonality_status["total_keywords"] > 0 or seasonality_status["products_total"] > 0:
+        rows.append(seasonality_status)
+        summary[seasonality_status["status"]] += 1
 
     return {
         "org_id": org_id,

@@ -9,6 +9,7 @@ TASK_MODULES = (
     "tasks.box_tariffs_sync",
     "tasks.monitoring",
     "tasks.opiu_sync",
+    "tasks.seasonality_sync",
 )
 
 
@@ -107,6 +108,10 @@ BEAT_SCHEDULE = {
     "freshness-check-hourly": {
         "task": "wb.sched.freshness",
         "schedule": crontab(minute=45),
+    },
+    "seasonality-weekly": {
+        "task": "seasonality.collect",
+        "schedule": crontab(hour=2, minute=0, day_of_week="mon"),
     },
 }
 
