@@ -4127,19 +4127,20 @@ async function verifyShopKey(btn) {
         
         const data = await res.json();
         
-        if (data.status === 'ok') {
+        if (data.token_status === 'valid') {
             statusEl.style.color = '#00b894';
-            statusEl.innerHTML = '✅ Работает' + (data.products_count ? ' (' + data.products_count + ' тов.)' : '');
-            btn.textContent = '🔍 Проверить';
-        } else if (data.status === 'warn') {
+            statusEl.innerHTML = '✅ Полный доступ (' + data.ok_count + '/' + data.total_endpoints + ' API)' + (data.products_count ? ' · ' + data.products_count + ' тов.' : '');
+        } else if (data.token_status === 'limited') {
             statusEl.style.color = '#e17055';
             statusEl.innerHTML = '⚠️ ' + data.message;
-            btn.textContent = '🔍 Проверить';
-        } else {
+        } else if (data.token_status === 'invalid') {
             statusEl.style.color = '#e74c3c';
             statusEl.innerHTML = '❌ ' + data.message;
-            btn.textContent = '🔍 Проверить';
+        } else {
+            statusEl.style.color = '#e74c3c';
+            statusEl.innerHTML = '❌ ' + (data.message || 'Неизвестная ошибка');
         }
+        btn.textContent = '🔍 Проверить';
     } catch(e) {
         statusEl.style.color = '#e74c3c';
         statusEl.innerHTML = '❌ ' + e.message;
@@ -4301,27 +4302,48 @@ async function loadWbKeys() {
         el.innerHTML = '<div style="color:#999;font-size:.9em;padding:8px">Ключи не добавлены</div>';
         return;
     }
-    el.innerHTML = keys.map(k =>
-        '<div class="wb-key-item"><span class="name">🔑 ' + k.name + '</span><span class="date">' + (k.created_at||'').substring(0,10) + '</span><span class="del" data-keyid="' + k.id + '" onclick="deleteWbKeyBtn(this)">✕</span></div>'
-    ).join('');
+    el.innerHTML = keys.map(k => {
+        let badge = '';
+        if (k.token_status === 'valid') badge = '<span style="color:#00b894;font-size:.85em">✅ Полный доступ</span>';
+        else if (k.token_status === 'limited') badge = '<span style="color:#e17055;font-size:.85em">⚠️ Ограниченный (acc=1)</span>';
+        else if (k.token_status === 'invalid') badge = '<span style="color:#e74c3c;font-size:.85em">❌ Невалидный</span>';
+        else badge = '<span style="color:#999;font-size:.85em">⏳ Не проверен</span>';
+        return '<div class="wb-key-item"><span class="name">🔑 ' + k.name + '</span>' + badge + '<span class="date">' + (k.created_at||'').substring(0,10) + '</span><span class="del" data-keyid="' + k.id + '" onclick="deleteWbKeyBtn(this)">✕</span></div>';
+    }).join('');
 }
 
 async function addWbKey() {
     const name = document.getElementById('wb-key-name').value || 'WB Key';
     const api_key = document.getElementById('wb-key-value').value;
     if (!api_key) return;
-    const res = await fetch('/api/v1/nl/wb-keys?org_id=' + ORG_ID, {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name, api_key})
-    });
-    if (res.ok) {
-        document.getElementById('wb-key-name').value = '';
-        document.getElementById('wb-key-value').value = '';
-        loadWbKeys();
-        loadOrgs(); // update key count
-    } else {
-        const err = await res.json();
-        alert(err.detail || 'Ошибка');
+    const btn = document.getElementById('wb-key-add-btn') || {};
+    if (btn.disabled) return;
+    btn.disabled = true;
+    const oldText = btn.textContent;
+    btn.textContent = '⏳ Проверка...';
+    try {
+        const res = await fetch('/api/v1/nl/wb-keys?org_id=' + ORG_ID, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, api_key})
+        });
+        if (res.ok) {
+            const data = await res.json();
+            document.getElementById('wb-key-name').value = '';
+            document.getElementById('wb-key-value').value = '';
+            loadWbKeys();
+            loadOrgs();
+            if (data.token_status === 'valid') {
+                alert('✅ Ключ валиден. Полный доступ ко всем API.');
+            }
+        } else {
+            const err = await res.json();
+            alert('❌ ' + (err.detail || 'Ошибка'));
+        }
+    } catch(e) {
+        alert('❌ ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = oldText;
     }
 }
 

@@ -12,13 +12,20 @@ from core.security import decrypt_data
 from models.organization import WbApiKey
 
 
-async def get_all_wb_keys(sf: async_sessionmaker) -> List[Tuple[str, str]]:
+async def get_all_wb_keys(sf: async_sessionmaker, only_valid: bool = True) -> List[Tuple[str, str]]:
     """
     Получить все org_id + рабочие API-ключи.
+    only_valid=True — только ключи с token_status='valid' (прошедшие валидацию).
+    only_valid=False — все ключи (для backward compat).
     Returns: [(org_id, decrypted_token), ...]
     """
     async with sf() as db:
-        result = await db.execute(select(WbApiKey))
+        if only_valid:
+            result = await db.execute(
+                select(WbApiKey).where(WbApiKey.token_status == "valid")
+            )
+        else:
+            result = await db.execute(select(WbApiKey))
         key_recs = result.scalars().all()
         if not key_recs:
             return []

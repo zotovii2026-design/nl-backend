@@ -316,19 +316,35 @@ async def nl_wb_keys(org_id: str, db: AsyncSession = Depends(get_db)):
         select(WbApiKey).where(WbApiKey.organization_id == org_id)
     )
     keys = result.scalars().all()
-    return [{"id": str(k.id), "name": k.name, "created_at": str(k.created_at)} for k in keys]
+    return [{"id": str(k.id), "name": k.name, "created_at": str(k.created_at), "token_status": k.token_status or "unknown", "validated_at": str(k.validated_at) if k.validated_at else None} for k in keys]
 
 
 @router.post("/api/v1/nl/wb-keys")
 async def nl_add_wb_key(data: dict, org_id: str, db: AsyncSession = Depends(get_db)):
-    """Добавить WB API ключ"""
+    """Добавить WB API ключ с обязательной валидацией"""
     from models.organization import WbApiKey, Organization
+    from services.wb_api.token_validator import validate_wb_token
     name = data.get("name", "WB Key")
     api_key = data.get("api_key", "")
     if not api_key:
         raise HTTPException(400, "API ключ обязателен")
+
+    # Валидация токена перед сохранением
+    validation = await validate_wb_token(api_key)
+    if validation["token_status"] == "invalid":
+        raise HTTPException(400, validation["message"])
+    if validation["token_status"] == "limited":
+        raise HTTPException(400, validation["message"])
+
     encrypted = encrypt_data(api_key)
-    key = WbApiKey(organization_id=org_id, name=name, personal_token=encrypted, api_key="unused")
+    key = WbApiKey(
+        organization_id=org_id,
+        name=name,
+        personal_token=encrypted,
+        api_key="unused",
+        token_status=validation["token_status"],
+        validated_at=datetime.utcnow(),
+    )
     db.add(key)
     # Извлекаем wb_seller_id (oid) из JWT payload
     try:
@@ -346,7 +362,7 @@ async def nl_add_wb_key(data: dict, org_id: str, db: AsyncSession = Depends(get_
     except Exception:
         pass  # Не критично если не удалось распарсить
     await db.commit()
-    return {"status": "ok", "id": str(key.id)}
+    return {"status": "ok", "id": str(key.id), "token_status": validation["token_status"], "message": validation["message"]}
 
 
 @router.delete("/api/v1/nl/wb-keys/{key_id}")
@@ -410,9 +426,10 @@ async def nl_verify_wb_key(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Проверить работает ли WB API ключ магазина — реальный запрос к WB"""
-    import httpx
+    """Полная проверка WB API ключа — все endpoints"""
     from core.security import decrypt_data
+    from services.wb_api.token_validator import validate_wb_token
+    from datetime import datetime as _dt, timezone as _tz
 
     org_id = data.get("org_id", "").strip()
     if not org_id:
@@ -425,7 +442,6 @@ async def nl_verify_wb_key(
         db,
     )
 
-    # Get first active key for this org
     from models.organization import WbApiKey
     result = await db.execute(
         select(WbApiKey).where(WbApiKey.organization_id == org_id)
@@ -435,49 +451,40 @@ async def nl_verify_wb_key(
     if not keys:
         return {"status": "error", "message": "Нет API ключей", "products_count": 0}
 
-    # Decrypt and try WB API
-    for key in keys:
-        try:
-            api_token = decrypt_data(key.personal_token)
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.post(
-                    "https://content-api.wildberries.ru/content/v2/get/cards/list",
-                    headers={"Authorization": api_token},
-                    json={"settings": {"cursor": {"limit": 1}, "filter": {"withPhoto": -1}}}
-                )
-                if r.status_code == 200:
-                    body = r.json()
-                    cards = body.get("cards", [])
-                    total = 0
-                    try:
-                        from models.product_entity import ProductEntity
-                        from sqlalchemy import func as sqlfunc
-                        result2 = await db.execute(
-                            select(sqlfunc.count(ProductEntity.id)).where(ProductEntity.organization_id == org_id)
-                        )
-                        row = result2.first()
-                        if row:
-                            total = row[0]
-                    except Exception:
-                        pass
+    key = keys[0]
+    api_token = decrypt_data(key.personal_token)
+    validation = await validate_wb_token(api_token)
 
-                    return {
-                        "status": "ok",
-                        "message": "Ключ работает",
-                        "key_name": key.name,
-                        "products_count": total,
-                        "wb_response": "200 OK"
-                    }
-                elif r.status_code == 401:
-                    return {"status": "error", "message": "Ключ не авторизован (401)", "key_name": key.name, "products_count": 0}
-                elif r.status_code == 429:
-                    return {"status": "warn", "message": "Слишком много запросов (429), попробуйте позже", "key_name": key.name, "products_count": 0}
-                else:
-                    return {"status": "error", "message": f"Ошибка WB: {r.status_code}", "key_name": key.name, "products_count": 0}
-        except Exception as e:
-            return {"status": "error", "message": f"Ошибка: {str(e)[:100]}", "products_count": 0}
+    # Обновляем статус в БД
+    key.token_status = validation["token_status"]
+    key.validated_at = _dt.now(_tz.utc)
+    await db.commit()
 
-    return {"status": "error", "message": "Не удалось проверить", "products_count": 0}
+    # Считаем товары
+    total = 0
+    try:
+        from models.product_entity import ProductEntity
+        from sqlalchemy import func as sqlfunc
+        result2 = await db.execute(
+            select(sqlfunc.count(ProductEntity.id)).where(ProductEntity.organization_id == org_id)
+        )
+        row = result2.first()
+        if row:
+            total = row[0]
+    except Exception:
+        pass
+
+    return {
+        "status": validation["token_status"],
+        "message": validation["message"],
+        "key_name": key.name,
+        "products_count": total,
+        "token_status": validation["token_status"],
+        "acc_level": validation["acc_level"],
+        "details": validation["details"],
+        "ok_count": validation["ok_count"],
+        "total_endpoints": validation["total"],
+    }
 
 
 # ─── Rename org ────────────────────────────────────────────

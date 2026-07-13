@@ -53,6 +53,8 @@ class Organization(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    token_status = Column(String(20), nullable=False, default="unknown", server_default="unknown")
+    validated_at = Column(DateTime(timezone=True), nullable=True)
 
     # Отношения
     memberships = relationship("Membership", back_populates="organization", cascade="all, delete-orphan")
@@ -105,6 +107,8 @@ class WbApiKey(Base):
     personal_token = Column(Text, nullable=True)  # Personal token для analytics API (зашифрованный)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    token_status = Column(String(20), nullable=False, default="unknown", server_default="unknown")
+    validated_at = Column(DateTime(timezone=True), nullable=True)
 
     # Отношения
     organization = relationship("Organization", back_populates="wb_api_keys")
