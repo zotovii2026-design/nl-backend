@@ -52,12 +52,20 @@ def _register_user(client: httpx.Client, label: str) -> dict:
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["access_token"]
-    assert payload["org_id"]
+    assert payload["org_id"] is None
+    assert payload["needs_onboarding"] is True
+    org_response = client.post(
+        "/api/v1/nl/organizations",
+        json={"name": f"Characterization {label}"},
+        headers={"Authorization": f"Bearer {payload['access_token']}"},
+    )
+    assert org_response.status_code == 200, org_response.text
+    org_id = org_response.json()["id"]
     return {
         "email": email,
         "password": password,
         "token": payload["access_token"],
-        "org_id": payload["org_id"],
+        "org_id": org_id,
     }
 
 

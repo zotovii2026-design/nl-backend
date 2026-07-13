@@ -41,6 +41,7 @@ router = APIRouter(
 class RegisterData(BaseModel):
     email: str
     password: str
+    # Backward-compatible; registration no longer creates an empty organization.
     org_name: str = "Моя организация"
 
 
@@ -57,10 +58,8 @@ async def nl_register(
     data: RegisterData,
     db: AsyncSession = Depends(get_db),
 ):
-    """Регистрация нового пользователя + создание организации"""
+    """Регистрация нового пользователя без пустой организации."""
     await enforce_rate_limit(request, "nl-register", 3, 3600, data.email)
-    from models.organization import Organization, Membership, WbApiKey, Role
-    from models.organization import SubscriptionTier, SubscriptionStatus
 
     # Проверка email
     result = await db.execute(select(User).where(User.email == data.email))
@@ -70,21 +69,11 @@ async def nl_register(
     # Создаём пользователя
     user = User(email=data.email, password_hash=get_password_hash(data.password))
     db.add(user)
-    await db.flush()
-
-    # Создаём организацию
-    org = Organization(name=data.org_name, subscription_tier=SubscriptionTier.TRIAL, subscription_status=SubscriptionStatus.ACTIVE)
-    db.add(org)
-    await db.flush()
-
-    # Привязываем пользователя к организации
-    membership = Membership(user_id=user.id, organization_id=org.id, role=Role.OWNER)
-    db.add(membership)
     await db.commit()
 
-    # Токен с org_id
-    token = create_access_token(data={"sub": str(user.id), "org_id": str(org.id)})
-    return {"access_token": token, "org_id": str(org.id)}
+    # Токен без org_id: первый кабинет подключается в onboarding через /connect-wb.
+    token = create_access_token(data={"sub": str(user.id), "org_id": None})
+    return {"access_token": token, "org_id": None, "needs_onboarding": True}
 
 
 @router.post("/api/v1/nl/login")
@@ -187,6 +176,7 @@ async def nl_connect_wb(
     """Подключить новый магазин WB: создать организацию + ключ + membership"""
     from models.organization import Organization, Membership, WbApiKey, Role, SubscriptionTier, SubscriptionStatus
     from core.security import encrypt_data
+    from services.wb_api.token_validator import validate_wb_token
 
     name = data.get("name", "").strip()
     api_key = data.get("api_key", "").strip()
@@ -195,6 +185,10 @@ async def nl_connect_wb(
         raise HTTPException(400, "API ключ обязателен")
     if not name:
         name = "Новый магазин"
+
+    validation = await validate_wb_token(api_key)
+    if validation["token_status"] in ("invalid", "limited"):
+        raise HTTPException(400, validation["message"])
 
     # Parse JWT to extract seller_id (oid) as integer
     oid = None
@@ -240,7 +234,14 @@ async def nl_connect_wb(
 
     # Create WB API key (encrypted)
     encrypted = encrypt_data(api_key)
-    wb_key = WbApiKey(organization_id=org.id, name=name, personal_token=encrypted, api_key="unused")
+    wb_key = WbApiKey(
+        organization_id=org.id,
+        name=name,
+        personal_token=encrypted,
+        api_key="unused",
+        token_status=validation["token_status"],
+        validated_at=datetime.utcnow(),
+    )
     db.add(wb_key)
 
     await db.commit()
@@ -250,7 +251,9 @@ async def nl_connect_wb(
         "org_id": str(org.id),
         "name": org.name,
         "wb_seller_id": oid,
-        "key_id": str(wb_key.id)
+        "key_id": str(wb_key.id),
+        "token_status": validation["token_status"],
+        "message": validation["message"],
     }
 
 
@@ -403,7 +406,13 @@ async def nl_profile(
         )
         keys = keys_result.scalars().all()
 
-        keys_info = [{"id": str(k.id), "name": k.name, "created_at": str(k.created_at)[:10] if k.created_at else ""} for k in keys]
+        keys_info = [{
+            "id": str(k.id),
+            "name": k.name,
+            "created_at": str(k.created_at)[:10] if k.created_at else "",
+            "token_status": k.token_status or "unknown",
+            "validated_at": str(k.validated_at) if k.validated_at else None,
+        } for k in keys]
 
         shops.append({
             "id": str(o.id),

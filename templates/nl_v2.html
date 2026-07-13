@@ -193,11 +193,10 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
 <div id="auth-register" style="display:none">
 <h2>📝 Регистрация</h2>
-<p>Создайте аккаунт для доступа к аналитике</p>
+<p>Создайте аккаунт, затем подключите WB-кабинет</p>
 <div id="reg-error" class="auth-error" style="display:none"></div>
 <div class="field"><label>Email</label><input type="email" id="reg-email"></div>
 <div class="field"><label>Пароль</label><input type="password" id="reg-password"></div>
-<div class="field"><label>Название организации</label><input type="text" id="reg-org" value="Моя организация"></div>
 <button class="btn" onclick="doRegister()" style="width:100%">Зарегистрироваться</button>
 <a href="#" class="toggle" onclick="showLogin();return false">Уже есть аккаунт? Войти</a>
 </div>
@@ -327,7 +326,10 @@ function getCurrentOrgId() {
 }
 
 function setCurrentOrgId(orgId) {
-    if (!orgId || orgId === 'null') return;
+    if (!orgId || orgId === 'null') {
+        clearCurrentOrgId();
+        return;
+    }
     ORG_ID = orgId;
     localStorage.setItem('nl_org_id', ORG_ID);
     history.replaceState(null, '', '/nl/v2?org=' + encodeURIComponent(ORG_ID));
@@ -336,6 +338,16 @@ function setCurrentOrgId(orgId) {
         if (el && Array.from(el.options || []).some(function(opt) { return opt.value === ORG_ID; })) {
             el.value = ORG_ID;
         }
+    });
+}
+
+function clearCurrentOrgId() {
+    ORG_ID = null;
+    localStorage.removeItem('nl_org_id');
+    if (location.search.includes('org=')) history.replaceState(null, '', '/nl/v2');
+    ['org-select', 'filter-store', 'ue-store', 'promo-store', 'analytics-store', 'mkt-store', 'ext-ad-store', 'wb-api-status-shop'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '';
     });
 }
 
@@ -434,6 +446,11 @@ async function showApp() {
     document.getElementById('auth-section').style.display = 'none';
     document.getElementById('app-section').style.display = '';
     try {
+        await loadOrgs();
+        if (!ORG_ID) {
+            await navTo('connectors', document.querySelector('.nav-item[onclick*="connectors"]'));
+            return;
+        }
         if (ORG_ID) {
             await loadDates();
             var activeTab = document.querySelector('.page-section.active');
@@ -498,8 +515,7 @@ async function doLogin() {
         localStorage.setItem('nl_token', TOKEN);
         setCurrentOrgId(new URL(location.href).searchParams.get('org') || data.org_id);
         document.getElementById('user-email').textContent = email;
-        showApp();
-        loadOrgs();
+        await showApp();
         loadWbKeys();
         loadProfile();
     } catch(e) { err.textContent = e.message; err.style.display = ''; }
@@ -509,12 +525,11 @@ async function doRegister() {
     _authExpiredHandled = false;
     const email = document.getElementById('reg-email').value;
     const password = document.getElementById('reg-password').value;
-    const org_name = document.getElementById('reg-org').value;
     const err = document.getElementById('reg-error');
     try {
         const res = await fetch('/api/v1/nl/register', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({email, password, org_name})
+            body: JSON.stringify({email, password})
         });
         if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Ошибка'); }
         const data = await res.json();
@@ -522,9 +537,7 @@ async function doRegister() {
         localStorage.setItem('nl_token', TOKEN);
         setCurrentOrgId(data.org_id);
         document.getElementById('user-email').textContent = email;
-        showApp();
-        loadOrgs();
-        loadWbKeys();
+        await showApp();
         loadProfile();
     } catch(e) { err.textContent = e.message; err.style.display = ''; }
 }
@@ -1340,6 +1353,10 @@ function _clearSection(id) {
 }
 
 async function _sectionEnter(name) {
+    if (!ORG_ID && !['connectors', 'subscription', 'settings', 'help'].includes(name)) {
+        await navTo('connectors', document.querySelector('.nav-item[onclick*="connectors"]'));
+        return;
+    }
     switch(name) {
         case 'stats': loadStats(); break;
         case 'analytics':
@@ -3739,8 +3756,25 @@ async function loadOrgs() {
         ORG_ID = urlOrg;
         localStorage.setItem('nl_org_id', ORG_ID);
     }
+    if (ORG_ID && !orgs.some(function(o) { return o.id === ORG_ID; })) {
+        clearCurrentOrgId();
+    }
+    if (!ORG_ID && orgs.length) {
+        ORG_ID = orgs[0].id;
+        localStorage.setItem('nl_org_id', ORG_ID);
+    }
     const sel = document.getElementById('org-select');
     sel.innerHTML = '';
+    if (!orgs.length) {
+        clearCurrentOrgId();
+        const emptyOption = document.createElement('option');
+        emptyOption.value = '';
+        emptyOption.textContent = 'Подключите WB-кабинет';
+        sel.appendChild(emptyOption);
+        const fSelEmpty = document.getElementById("filter-store");
+        if (fSelEmpty) fSelEmpty.innerHTML = '<option value="">Нет кабинетов</option>';
+        return orgs;
+    }
     orgs.forEach(o => {
         const opt = document.createElement('option');
         opt.value = o.id;
@@ -3753,11 +3787,7 @@ async function loadOrgs() {
     const sid = document.getElementById('seller-id-display');
     if (sid && current && current.wb_seller_id) sid.innerHTML = '<strong>ID ' + current.wb_seller_id + '</strong>';
     else if (sid) sid.innerHTML = '';
-    if (!ORG_ID && orgs.length) {
-        ORG_ID = orgs[0].id;
-        localStorage.setItem('nl_org_id', ORG_ID);
-        sel.value = ORG_ID;
-    }
+    if (ORG_ID) sel.value = ORG_ID;
     // Sync ue-store dropdown in Юнит-экономика
     const ueSel = document.getElementById("ue-store");
     if (ueSel) {
@@ -3818,6 +3848,7 @@ async function loadOrgs() {
             mktSel.appendChild(opt);
         });
     }
+    return orgs;
 }
 
 async function switchOrg() {
@@ -4347,12 +4378,13 @@ async function addWbKey() {
     }
 }
 
-async function deleteWbKeyBtn(btn) { await deleteWbKey(btn.dataset.keyid); }
-async function deleteWbKey(id) {
+async function deleteWbKeyBtn(btn) { await deleteWbKey(btn.dataset.keyid, btn.dataset.orgid || ORG_ID); }
+async function deleteWbKey(id, orgId) {
     if (!confirm('Удалить ключ?')) return;
-    await fetch('/api/v1/nl/wb-keys/' + id + '?org_id=' + ORG_ID, {method: 'DELETE'});
+    await fetch('/api/v1/nl/wb-keys/' + id + '?org_id=' + orgId, {method: 'DELETE'});
     loadWbKeys();
     loadOrgs();
+    loadProfile();
 }
 
 
@@ -4440,13 +4472,14 @@ loadDates = async function() {
 
 // Auto-login
 try {
-    if (TOKEN && ORG_ID) {
+    if (TOKEN) {
         fetch('/api/v1/nl/me').then(r => {
             if (r.ok) return r.json(); throw '';
         }).then(d => {
+            if (d.org_id) setCurrentOrgId(new URL(location.href).searchParams.get('org') || d.org_id);
+            else clearCurrentOrgId();
             document.getElementById('user-email').textContent = d.email;
             showApp();
-            loadOrgs();
             loadWbKeys();
         }).catch(() => {
             TOKEN = null; ORG_ID = null;
