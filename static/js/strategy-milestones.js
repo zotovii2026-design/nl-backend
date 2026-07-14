@@ -41,8 +41,9 @@ function strategyToday() {
 }
 
 function strategyEsc(value) {
-    if (typeof esc === 'function') return esc(value || '');
-    return String(value || '').replace(/[&<>"']/g, function(ch) {
+    var text = value === null || value === undefined ? '' : String(value);
+    if (typeof esc === 'function') return esc(text);
+    return text.replace(/[&<>"']/g, function(ch) {
         return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
     });
 }
