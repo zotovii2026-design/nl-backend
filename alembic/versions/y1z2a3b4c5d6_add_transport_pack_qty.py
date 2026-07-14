@@ -1,7 +1,7 @@
 """add_transport_pack_qty
 
 Revision ID: y1z2a3b4c5d6
-Revises: x0y1z2a3b4c5
+Revises: b2c3d4e5f6g7
 Create Date: 2026-07-14 15:25:00
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "y1z2a3b4c5d6"
-down_revision: Union[str, None] = "x0y1z2a3b4c5"
+down_revision: Union[str, None] = "b2c3d4e5f6g7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
