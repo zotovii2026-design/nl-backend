@@ -266,42 +266,47 @@ async def get_strategy_milestones(
     d_to = _date_or_none(date_to) or date.today()
     d_from = _date_or_none(date_from) or (d_to - timedelta(days=30))
     params = {"org": org_id, "date_from": d_from, "date_to": d_to}
-    filters = ["sm.organization_id = :org", "sm.event_date BETWEEN :date_from AND :date_to"]
+
+    # Фильтры уровня товара — применяются в WHERE к списку товаров
+    product_filters = []
+    # Фильтры уровня вех — применяются в LATERAL к выбору вехи
+    ms_filters = ["sm.organization_id = :org", "sm.event_date BETWEEN :date_from AND :date_to"]
+
     if category:
         params["category"] = category
-        filters.append("sm.category = :category")
+        ms_filters.append("sm.category = :category")
     if strategy_id:
         params["strategy_id"] = strategy_id
-        filters.append("sm.strategy_id = :strategy_id")
+        ms_filters.append("sm.strategy_id = :strategy_id")
     if executor:
         params["executor"] = executor
-        filters.append("COALESCE(sm.executor, '') = :executor")
+        ms_filters.append("COALESCE(sm.executor, '') = :executor")
     if role:
         params["role"] = role
-        filters.append("COALESCE(sm.role, '') = :role")
+        ms_filters.append("COALESCE(sm.role, '') = :role")
     if product_status:
         params["product_status"] = product_status
-        filters.append("COALESCE(rb.product_status, '') = :product_status")
+        product_filters.append("COALESCE(rb.product_status, '') = :product_status")
     if product_class:
         params["product_class"] = product_class
-        filters.append("COALESCE(rb.product_class, '') = :product_class")
+        product_filters.append("COALESCE(rb.product_class, '') = :product_class")
     if brand:
         params["brand"] = brand
-        filters.append("COALESCE(NULLIF(rb.brand, ''), pe.brand, '') = :brand")
+        product_filters.append("COALESCE(NULLIF(rb.brand, ''), pe.brand, '') = :brand")
     if subject:
         params["subject"] = subject
-        filters.append("COALESCE(pe.subject_name, '') = :subject")
+        product_filters.append("COALESCE(pe.subject_name, '') = :subject")
     if search:
         params["search"] = f"%{search.strip()}%"
-        filters.append(
+        product_filters.append(
             """(
-                sm.nm_id::text ILIKE :search
+                pe.nm_id::text ILIKE :search
                 OR COALESCE(pe.product_name, '') ILIKE :search
                 OR COALESCE(pe.vendor_code, rb.vendor_code, '') ILIKE :search
-                OR COALESCE(sd.title, '') ILIKE :search
-                OR COALESCE(sm.comment, '') ILIKE :search
             )"""
         )
+
+    product_where = (" AND " + " AND ".join(product_filters)) if product_filters else ""
 
     result = await db.execute(
         text(
@@ -322,21 +327,21 @@ async def get_strategy_milestones(
                 ORDER BY nm_id, valid_from DESC, created_at DESC NULLS LAST
             )
             SELECT
-                sm.id,
-                sm.nm_id,
-                sm.event_date,
-                sm.date_to,
-                sm.category,
-                sm.strategy_id,
-                sm.strategy_code,
-                COALESCE(sd.code, sm.strategy_code, '') AS code,
+                lms.id,
+                pe.nm_id,
+                lms.event_date,
+                lms.date_to,
+                COALESCE(lms.category, '') AS category,
+                lms.strategy_id,
+                COALESCE(lms.strategy_code, '') AS strategy_code,
+                COALESCE(sd.code, lms.strategy_code, '') AS code,
                 COALESCE(sd.title, '') AS strategy_title,
                 COALESCE(sd.description, '') AS strategy_description,
-                COALESCE(sm.executor, sd.default_executor, '') AS executor,
-                COALESCE(sm.role, sd.role, '') AS role,
-                sm.source_links,
-                COALESCE(sm.comment, '') AS comment,
-                COALESCE(sm.result_note, '') AS result_note,
+                COALESCE(lms.executor, sd.default_executor, '') AS executor,
+                COALESCE(lms.role, sd.role, '') AS role,
+                lms.source_links,
+                COALESCE(lms.comment, '') AS comment,
+                COALESCE(lms.result_note, '') AS result_note,
                 COALESCE(pe.vendor_code, rb.vendor_code, '') AS vendor_code,
                 COALESCE(pe.product_name, '') AS product_name,
                 COALESCE(pe.photo_main, '') AS photo_main,
@@ -344,12 +349,21 @@ async def get_strategy_milestones(
                 COALESCE(pe.subject_name, '') AS subject_name,
                 COALESCE(rb.product_status, '') AS product_status,
                 COALESCE(rb.product_class, '') AS product_class
-            FROM strategy_milestones sm
-            LEFT JOIN strategy_definitions sd ON sd.id = sm.strategy_id
-            LEFT JOIN pe ON pe.nm_id = sm.nm_id
-            LEFT JOIN rb ON rb.nm_id = sm.nm_id
-            WHERE {" AND ".join(filters)}
-            ORDER BY sm.event_date DESC, sm.nm_id, sm.category
+            FROM pe
+            LEFT JOIN rb ON rb.nm_id = pe.nm_id
+            LEFT JOIN LATERAL (
+                SELECT sm.id, sm.event_date, sm.date_to, sm.category,
+                       sm.strategy_id, sm.strategy_code, sm.executor, sm.role,
+                       sm.source_links, sm.comment, sm.result_note
+                FROM strategy_milestones sm
+                WHERE sm.nm_id = pe.nm_id
+                  AND {" AND ".join(ms_filters)}
+                ORDER BY sm.event_date DESC
+                LIMIT 1
+            ) lms ON true
+            LEFT JOIN strategy_definitions sd ON sd.id = lms.strategy_id
+            WHERE 1=1{product_where}
+            ORDER BY lms.event_date DESC NULLS LAST, pe.nm_id
             LIMIT 2000
             """
         ),
@@ -358,7 +372,7 @@ async def get_strategy_milestones(
     milestones = []
     for row in result.mappings().all():
         item = dict(row)
-        item["id"] = str(item["id"])
+        item["id"] = str(item["id"]) if item.get("id") else None
         item["strategy_id"] = str(item["strategy_id"]) if item.get("strategy_id") else None
         item["event_date"] = item["event_date"].isoformat() if item.get("event_date") else None
         item["date_to"] = item["date_to"].isoformat() if item.get("date_to") else None
