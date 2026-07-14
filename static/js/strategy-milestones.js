@@ -397,7 +397,7 @@ function renderStrategyMilestonesGrid() {
                 if (!selectedIds.has(id)) _strategySelectedNmIds.delete(id);
             });
             selectedIds.forEach(function(id) { _strategySelectedNmIds.add(id); });
-            updateBulkBar();
+            updateStrategyBulkBar();
         },
         renderComplete: function() {
             restoreStrategySelection();
@@ -545,7 +545,7 @@ function getSelectedNmIds() {
     return Array.from(_strategySelectedNmIds).map(function(id) { return parseInt(id, 10); }).filter(Boolean);
 }
 
-function updateBulkBar() {
+function updateStrategyBulkBar() {
     var bar = document.getElementById('strategy-bulk-bar');
     var countEl = document.getElementById('strategy-selected-count');
     if (!bar || !countEl) return;
@@ -562,18 +562,18 @@ function selectAllStrategyRows() {
         if (id) _strategySelectedNmIds.add(id);
     });
     strategyMilestonesTabulator.selectRow();
-    updateBulkBar();
+    updateStrategyBulkBar();
 }
 
 function clearSelectedStrategyRows() {
     _strategySelectedNmIds.clear();
     if (strategyMilestonesTabulator) strategyMilestonesTabulator.deselectRow();
-    updateBulkBar();
+    updateStrategyBulkBar();
 }
 
 function restoreStrategySelection() {
     if (!strategyMilestonesTabulator) {
-        updateBulkBar();
+        updateStrategyBulkBar();
         return;
     }
     _strategyRestoringSelection = true;
@@ -589,7 +589,7 @@ function restoreStrategySelection() {
         });
     } finally {
         _strategyRestoringSelection = false;
-        updateBulkBar();
+        updateStrategyBulkBar();
     }
 }
 
