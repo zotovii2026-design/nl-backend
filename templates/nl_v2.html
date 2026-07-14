@@ -1598,7 +1598,7 @@ function renderAdsFreshnessNotice(freshness) {
     if (freshness && freshness.includes_today) {
         messages.push('Сегодняшняя рекламная статистика WB может быть неполной и обновляется с задержкой.');
     }
-    if (freshness && freshness.yesterday && !freshness.has_yesterday) {
+    if (freshness && freshness.includes_yesterday && freshness.yesterday && !freshness.has_yesterday) {
         var lastDate = freshness.last_stat_date || 'нет загруженных дат';
         messages.push('За вчера (' + freshness.yesterday + ') данных пока нет. Последняя загруженная дата: ' + lastDate + '.');
     }

@@ -836,6 +836,7 @@ async def get_ad_stats(
             "date_from": d_from.isoformat(),
             "date_to": d_to.isoformat(),
             "includes_today": d_from <= today <= d_to,
+            "includes_yesterday": d_from <= yesterday <= d_to,
             "last_stat_date": last_stat_date.isoformat() if last_stat_date else None,
             "has_yesterday": any(d["date"] == yesterday.isoformat() for d in daily),
         },
