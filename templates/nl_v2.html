@@ -173,7 +173,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
 <script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260701-adsmodel13"></script>
-<script type="text/javascript" src="/static/js/strategy-milestones.js?v=20260714a"></script>
+<script type="text/javascript" src="/static/js/strategy-milestones.js?v=20260714b"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
 </head>
 <body>
@@ -785,7 +785,7 @@ var _sectionHTML = {
 <div id="strategy-ms-detail" style="margin-bottom:10px;padding:9px 11px;background:#fbfcfe;border:1px solid #edf0f3;border-radius:8px;font-size:.88em;color:#555">Кликните по вехе в таблице, чтобы увидеть детали.</div>
 
 <!-- Bulk toolbar -->
-<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:8px 12px;background:#f0f4ff;border-radius:8px;font-size:.85em">
+<div id="strategy-bulk-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:8px 12px;background:#f7f8fa;border-radius:8px;font-size:.85em">
 <button onclick="selectAllStrategyRows()" style="border:1px solid #b0c4de;background:#fff;border-radius:6px;padding:5px 12px;cursor:pointer;font-weight:600">☑ Выделить все</button>
 <button onclick="clearSelectedStrategyRows()" style="border:1px solid #ddd;background:#fff;border-radius:6px;padding:5px 12px;cursor:pointer">Снять выделение</button>
 <span style="color:#555">Выбрано: <b id="strategy-selected-count">0</b></span>
@@ -1405,7 +1405,8 @@ async function _sectionEnter(name) {
             if (!_marketerInited) { _lazyInit('marketer'); loadOrgs(); _marketerInited = true; }
             loadMarketer(); break;
         case 'strategies':
-            if (!_strategiesInited) { _lazyInit('strategies'); loadOrgs(); _strategiesInited = true; }
+            if (!_strategiesInited) { _lazyInit('strategies'); await loadOrgs(); _strategiesInited = true; }
+            else { await loadOrgs(); }
             initStrategyMilestonesPage(); break;
         case 'extads':
             if (!_extadsInited) { _lazyInit('extads'); loadOrgs(); _extadsInited = true; }

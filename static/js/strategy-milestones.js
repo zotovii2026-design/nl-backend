@@ -18,6 +18,8 @@ let _strategyList = [];
 let _strategyMilestones = [];
 let _strategyOptions = {brands: [], subjects: [], statuses: [], classes: []};
 let _expandedRows = new Set();
+let _strategySelectedNmIds = new Set();
+let _strategyRestoringSelection = false;
 
 function strategyApiHeaders() {
     return {
@@ -43,6 +45,11 @@ function strategyEsc(value) {
     return String(value || '').replace(/[&<>"']/g, function(ch) {
         return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch];
     });
+}
+
+function strategyNmKey(value) {
+    if (value === null || value === undefined || value === '') return '';
+    return String(value);
 }
 
 function initStrategyMilestonesPage() {
@@ -377,7 +384,26 @@ function renderStrategyMilestonesGrid() {
         initialSort: [{column: 'event_date', dir: 'desc'}],
         placeholder: 'Нет товаров',
         rowFormatter: rowExpansionFormatter,
+        rowClick: function(e, row) {
+            var target = e && e.target;
+            if (target && target.closest && target.closest('button,a,input,select,textarea')) return;
+            openStrategyMilestoneForRow(row.getData());
+        },
+        rowSelectionChanged: function(data) {
+            if (_strategyRestoringSelection) return;
+            var visibleIds = new Set(_strategyMilestones.map(function(r) { return strategyNmKey(r.nm_id); }).filter(Boolean));
+            var selectedIds = new Set((data || []).map(function(r) { return strategyNmKey(r.nm_id); }).filter(Boolean));
+            visibleIds.forEach(function(id) {
+                if (!selectedIds.has(id)) _strategySelectedNmIds.delete(id);
+            });
+            selectedIds.forEach(function(id) { _strategySelectedNmIds.add(id); });
+            updateBulkBar();
+        },
+        renderComplete: function() {
+            restoreStrategySelection();
+        },
     });
+    restoreStrategySelection();
 }
 
 /* Row expansion: shows milestone history below the row */
@@ -474,6 +500,37 @@ function updateStrategyMilestoneCount() {
     if (el) el.textContent = _strategyMilestones.length + ' товаров';
 }
 
+function openStrategyMilestoneForRow(row) {
+    if (!row) return;
+    document.getElementById('strategy-ms-id').value = '';
+    document.getElementById('strategy-ms-nm').value = row.nm_id || '';
+    document.getElementById('strategy-ms-date').value = strategyToday();
+    var category = document.getElementById('strategy-ms-category');
+    if (category) category.value = row.category || _strategyActiveCategory;
+    if (row.category && row.category !== _strategyActiveCategory) {
+        _strategyActiveCategory = row.category;
+        selectStrategyCategory(row.category).then(function() {
+            var strategy = document.getElementById('strategy-ms-strategy');
+            if (strategy) strategy.value = '';
+        });
+    } else {
+        var strategy = document.getElementById('strategy-ms-strategy');
+        if (strategy) strategy.value = '';
+    }
+    document.getElementById('strategy-ms-executor').value = row.executor || '';
+    document.getElementById('strategy-ms-role').value = row.role || '';
+    document.getElementById('strategy-ms-links').value = '';
+    document.getElementById('strategy-ms-comment').value = '';
+    document.getElementById('strategy-ms-result').value = '';
+
+    var detail = document.getElementById('strategy-ms-detail');
+    if (detail) {
+        detail.innerHTML = '<b>Новая веха для артикула ' + strategyEsc(row.nm_id) + '</b>' +
+            '<span style="color:#888"> — ' + strategyEsc(row.product_name || 'товар без названия') + '</span>' +
+            '<div style="margin-top:4px;color:#777;font-size:.92em">Заполните направление, стратегию, комментарий и сохраните. История товара открывается кнопкой ▶ в строке.</div>';
+    }
+}
+
 function resetStrategyMilestoneFilters() {
     ['strategy-flt-category', 'strategy-flt-brand', 'strategy-flt-subject', 'strategy-flt-status', 'strategy-flt-class', 'strategy-flt-executor', 'strategy-flt-role', 'strategy-flt-search'].forEach(function(id) {
         var el = document.getElementById(id);
@@ -485,9 +542,7 @@ function resetStrategyMilestoneFilters() {
 /* ==================== MASS SELECT & BATCH ASSIGN ==================== */
 
 function getSelectedNmIds() {
-    if (!strategyMilestonesTabulator) return [];
-    var selected = strategyMilestonesTabulator.getSelectedData();
-    return selected.map(function(r) { return r.nm_id; }).filter(Boolean);
+    return Array.from(_strategySelectedNmIds).map(function(id) { return parseInt(id, 10); }).filter(Boolean);
 }
 
 function updateBulkBar() {
@@ -496,19 +551,46 @@ function updateBulkBar() {
     if (!bar || !countEl) return;
     var count = getSelectedNmIds().length;
     countEl.textContent = count;
-    bar.style.display = count > 0 ? 'flex' : 'none';
+    bar.style.display = 'flex';
+    bar.style.background = count > 0 ? '#f0f4ff' : '#f7f8fa';
 }
 
 function selectAllStrategyRows() {
     if (!strategyMilestonesTabulator) return;
+    _strategyMilestones.forEach(function(r) {
+        var id = strategyNmKey(r.nm_id);
+        if (id) _strategySelectedNmIds.add(id);
+    });
     strategyMilestonesTabulator.selectRow();
     updateBulkBar();
 }
 
 function clearSelectedStrategyRows() {
-    if (!strategyMilestonesTabulator) return;
-    strategyMilestonesTabulator.deselectRow();
+    _strategySelectedNmIds.clear();
+    if (strategyMilestonesTabulator) strategyMilestonesTabulator.deselectRow();
     updateBulkBar();
+}
+
+function restoreStrategySelection() {
+    if (!strategyMilestonesTabulator) {
+        updateBulkBar();
+        return;
+    }
+    _strategyRestoringSelection = true;
+    try {
+        strategyMilestonesTabulator.getRows().forEach(function(row) {
+            var id = strategyNmKey(row.getData().nm_id);
+            if (!id) return;
+            if (_strategySelectedNmIds.has(id)) {
+                row.select();
+            } else if (row.isSelected && row.isSelected()) {
+                row.deselect();
+            }
+        });
+    } finally {
+        _strategyRestoringSelection = false;
+        updateBulkBar();
+    }
 }
 
 function showBatchAssignModal() {
