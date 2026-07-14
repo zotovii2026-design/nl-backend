@@ -71,17 +71,26 @@ def _parse_change_time(raw: str) -> Optional[datetime]:
 
 
 @shared_task(name="wb.sched.ad_stats", soft_time_limit=7200, time_limit=7500)
-def sched_ad_stats(days_back: int = 1, org_id: Optional[str] = None):
+def sched_ad_stats(
+    days_back: int = 1,
+    org_id: Optional[str] = None,
+    include_current_day: bool = False,
+):
     async def _main():
         engine, sf = _make_session()
         try:
-            return await _do_ad_stats(sf, days_back, org_id)
+            return await _do_ad_stats(sf, days_back, org_id, include_current_day)
         finally:
             await engine.dispose()
     return asyncio.run(_main())
 
 
-async def _do_ad_stats(sf, days_back=1, only_org_id: Optional[str] = None):
+async def _do_ad_stats(
+    sf,
+    days_back=1,
+    only_org_id: Optional[str] = None,
+    include_current_day: bool = False,
+):
     all_keys = await _get_all_keys(sf)
     if only_org_id:
         all_keys = [(oid, key) for oid, key in all_keys if oid == only_org_id]
@@ -93,7 +102,7 @@ async def _do_ad_stats(sf, days_back=1, only_org_id: Optional[str] = None):
     for idx, (org_id, api_key) in enumerate(all_keys):
         logger.info("[ad_stats] Processing org %s (%d/%d)", org_id, idx + 1, len(all_keys))
         try:
-            org_result = await _sync_org_ads(sf, org_id, api_key, days_back)
+            org_result = await _sync_org_ads(sf, org_id, api_key, days_back, include_current_day)
             total_result["orgs"][org_id] = org_result
             total_result["total_stats"] += org_result.get("stats_saved", 0)
             total_result["total_campaigns"] += org_result.get("campaigns", 0)
@@ -115,7 +124,13 @@ async def _do_ad_stats(sf, days_back=1, only_org_id: Optional[str] = None):
     return total_result
 
 
-async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
+async def _sync_org_ads(
+    sf,
+    org_id: str,
+    api_key: str,
+    days_back: int,
+    include_current_day: bool = False,
+):
     async with httpx.AsyncClient(
         base_url=ADVERT_API,
         headers={"Authorization": "Bearer " + api_key},
@@ -286,8 +301,12 @@ async def _sync_org_ads(sf, org_id: str, api_key: str, days_back: int):
         stat_ids = [str(c["advertId"]) for c in fresh_campaigns]
         total_saved = 0
 
+        first_offset = 0 if include_current_day else 1
         for day_offset in range(days_back):
-            target_date = (datetime.now(ZoneInfo("Europe/Moscow")).date() - timedelta(days=day_offset + 1)).isoformat()
+            target_date = (
+                datetime.now(ZoneInfo("Europe/Moscow")).date()
+                - timedelta(days=day_offset + first_offset)
+            ).isoformat()
 
             for batch_start in range(0, len(stat_ids), 50):
                 batch = stat_ids[batch_start:batch_start + 50]

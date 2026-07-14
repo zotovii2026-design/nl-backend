@@ -43,6 +43,11 @@ BEAT_SCHEDULE = {
         "task": "wb.sched.box_tariffs",
         "schedule": crontab(hour=8, minute=30),
     },
+    "morning-ad-stats-yesterday": {
+        "task": "wb.sched.ad_stats",
+        "schedule": crontab(hour=10, minute=0),
+        "kwargs": {"days_back": 2},
+    },
     "parse-morning": {
         "task": "wb.sched.parse_raw",
         "schedule": crontab(hour=9, minute=30),

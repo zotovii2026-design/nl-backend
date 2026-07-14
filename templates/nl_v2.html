@@ -1260,6 +1260,7 @@ var _sectionHTML = {
 <button class="btn" id="ads-refresh-btn" onclick="refreshAds()" style="padding:6px 14px;font-size:.85em">Обновить статистику</button>
 <div style="margin-left:auto;font-size:.85em;color:#999" id="ads-updated"></div>
 </div>
+<div id="ads-freshness-notice" style="display:none;margin:-8px 0 12px;padding:8px 12px;border:1px solid #ffeaa7;background:#fff9db;color:#7d5a00;border-radius:6px;font-size:.82em"></div>
 
 <div class="ads-top-panel" style="display:grid;grid-template-columns:minmax(340px,1.15fr) minmax(360px,.85fr);gap:10px;margin-bottom:8px;align-items:stretch">
 <div style="background:#fff;border-radius:8px;border:1px solid #eee;padding:10px 12px;min-width:0">
@@ -1573,6 +1574,7 @@ async function loadAds() {
             }
             document.getElementById('ads-daily-count').textContent = daily.length + ' дней';
         }
+        renderAdsFreshnessNotice(d.freshness || {});
         renderAdsTopChart(d.chart_daily || daily);
         // --- Рендер таблицы кампаний (Tabulator) ---
         window._adsAllCampaigns = d.campaigns || [];
@@ -1587,6 +1589,26 @@ async function loadAds() {
         console.error('loadAds error:', e);
         showAdsLoadError('Ошибка: ' + e.message);
     }
+}
+
+function renderAdsFreshnessNotice(freshness) {
+    var el = document.getElementById('ads-freshness-notice');
+    if (!el) return;
+    var messages = [];
+    if (freshness && freshness.includes_today) {
+        messages.push('Сегодняшняя рекламная статистика WB может быть неполной и обновляется с задержкой.');
+    }
+    if (freshness && freshness.yesterday && !freshness.has_yesterday) {
+        var lastDate = freshness.last_stat_date || 'нет загруженных дат';
+        messages.push('За вчера (' + freshness.yesterday + ') данных пока нет. Последняя загруженная дата: ' + lastDate + '.');
+    }
+    if (!messages.length) {
+        el.style.display = 'none';
+        el.textContent = '';
+        return;
+    }
+    el.textContent = messages.join(' ');
+    el.style.display = '';
 }
 
 function showAdsLoadError(message) {

@@ -5,6 +5,7 @@
 import decimal as _dec
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
@@ -44,6 +45,10 @@ AD_PAYMENT_TYPE_NAMES = {
 }
 
 
+def _ads_today():
+    return datetime.now(ZoneInfo("Europe/Moscow")).date()
+
+
 def _sf(v):
     """Безопасное преобразование в float."""
     if v is None:
@@ -62,15 +67,15 @@ def _parse_date_range(days: str, date_from: Optional[str], date_to: Optional[str
         except Exception:
             days_int = 7
         if days_int == 1:
-            d_from = date.today().isoformat()
-            d_to = date.today().isoformat()
+            d_from = _ads_today().isoformat()
+            d_to = _ads_today().isoformat()
         elif days_int == 2:
-            d = date.today() - timedelta(days=1)
+            d = _ads_today() - timedelta(days=1)
             d_from = d.isoformat()
             d_to = d.isoformat()
         else:
-            d_from = (date.today() - timedelta(days=days_int)).isoformat()
-            d_to = date.today().isoformat()
+            d_from = (_ads_today() - timedelta(days=days_int)).isoformat()
+            d_to = _ads_today().isoformat()
     return (
         datetime.strptime(d_from, "%Y-%m-%d").date(),
         datetime.strptime(d_to, "%Y-%m-%d").date(),
@@ -469,7 +474,11 @@ async def refresh_ad_stats(
 
     task = celery_app.send_task(
         "wb.sched.ad_stats",
-        kwargs={"days_back": ADS_REFRESH_DAYS_BACK, "org_id": org_id},
+        kwargs={
+            "days_back": ADS_REFRESH_DAYS_BACK,
+            "org_id": org_id,
+            "include_current_day": True,
+        },
     )
     state = await _ads_refresh_status(org_id, db)
     return {
@@ -809,6 +818,9 @@ async def get_ad_stats(
     totals["sum_price"] = round(all_sum_price, 2)
     totals["total_revenue"] = total_revenue_period
     totals["drr_total"] = round(totals["spent"] / total_revenue_period * 100, 1) if total_revenue_period else 0
+    today = _ads_today()
+    yesterday = today - timedelta(days=1)
+    last_stat_date = max((datetime.strptime(d["date"], "%Y-%m-%d").date() for d in daily), default=None)
 
     return {
         "daily": daily,
@@ -818,6 +830,15 @@ async def get_ad_stats(
         "totals": totals,
         "balance": balance,
         "statuses": status_list,
+        "freshness": {
+            "today": today.isoformat(),
+            "yesterday": yesterday.isoformat(),
+            "date_from": d_from.isoformat(),
+            "date_to": d_to.isoformat(),
+            "includes_today": d_from <= today <= d_to,
+            "last_stat_date": last_stat_date.isoformat() if last_stat_date else None,
+            "has_yesterday": any(d["date"] == yesterday.isoformat() for d in daily),
+        },
     }
 
 
