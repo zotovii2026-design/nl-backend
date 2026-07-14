@@ -16,6 +16,7 @@ class RefItem(BaseModel):
     notes: Optional[str] = None
     product_class: Optional[str] = None
     brand: Optional[str] = None
+    transport_pack_qty: Optional[int] = None
     tax_system: Optional[str] = None  # usn / osn / usn_dr
     tax_rate: Optional[float] = None
     vat_rate: Optional[float] = None

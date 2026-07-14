@@ -80,6 +80,7 @@ class ReferenceBook(Base):
     # === ПОСТАВКИ FBO ===
     supply_days = Column(Integer, nullable=True)                        # Срок поставки (дни)
     min_batch_fbo = Column(Integer, nullable=True)                      # Мин. партия FBO (шт)
+    transport_pack_qty = Column(Integer, nullable=True, default=1)      # Количество в транспортной упаковке
 
     # === НАЛОГИ ===
     tax_system = Column(String(20), nullable=True)                  # Налоговая: usn / osn / usn_dr

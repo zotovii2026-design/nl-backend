@@ -72,6 +72,7 @@ async def save_reference(item: RefItem, org_id: str, db: AsyncSession = Depends(
         purchase_cost=item.purchase_price, packaging_cost=item.packaging_cost,
         logistics_cost=item.logistics_cost, other_costs=item.other_costs, notes=item.notes,
         product_class=item.product_class, brand=item.brand,
+        transport_pack_qty=max(item.transport_pack_qty or 1, 1),
         tax_system=item.tax_system, tax_rate=item.tax_rate, vat_rate=item.vat_rate,
     )
     stmt = ins.on_conflict_do_update(
@@ -82,6 +83,7 @@ async def save_reference(item: RefItem, org_id: str, db: AsyncSession = Depends(
             "packaging_cost": ins.excluded.packaging_cost, "logistics_cost": ins.excluded.logistics_cost,
             "other_costs": ins.excluded.other_costs, "notes": ins.excluded.notes,
             "product_class": ins.excluded.product_class, "brand": ins.excluded.brand,
+            "transport_pack_qty": ins.excluded.transport_pack_qty,
             "tax_system": ins.excluded.tax_system, "tax_rate": ins.excluded.tax_rate, "vat_rate": ins.excluded.vat_rate,
             "updated_at": func.now(),
         }
@@ -601,6 +603,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "subn": ps(row, "Категория", "subject_name"),
             "sdays": pf(row, "Скорость достав. дн", "Скорость доставки, дн", "supply_days"),
             "minbat": pf(row, "Мин партия", "Минимальная партия FBO", "min_batch_fbo"),
+            "tpq": pf(row, "Кратность вложения", "Количество в транспортной упаковке", "transport_pack_qty"),
             "vfrom": pd(row, "Дата начала", "valid_from") or date.today(),
         }
 
@@ -621,7 +624,7 @@ _SAVE_COST_PRICE_SQL = (
     "mp_base_pct, mp_correction_pct, fulfillment_model, storage_pct, "
     "buyout_niche_pct, "
     "price_before_spp_plan, price_before_spp_change, change_date, "
-    "wb_club_discount_pct, ad_plan_rub, supply_days, min_batch_fbo, "
+    "wb_club_discount_pct, ad_plan_rub, supply_days, min_batch_fbo, transport_pack_qty, "
     "product_status, product_class, brand, tax_system, tax_rate, "
     "season_jan, season_feb, season_mar, season_apr, season_may, season_jun, season_jul, season_aug, season_sep, season_oct, season_nov, season_dec, "
     "plan_length, plan_width, plan_height, plan_volume, plan_weight, "
@@ -635,7 +638,7 @@ _SAVE_COST_PRICE_SQL = (
     ":mpb, :mpc, :ffm, :stp, "
     ":bnp, "
     ":pspp, :psppc, :cdate, "
-    ":wbcd, :adpr, :sdays, :minb, "
+    ":wbcd, :adpr, :sdays, :minb, :tpq, "
     ":pstatus, :pcls, :brand, :tsys, :tr, "
     ":sjan, :sfeb, :smar, :sapr, :smay, :sjun, :sjul, :saug, :ssep, :soct, :snov, :sdec, "
     ":pl, :pw, :ph, :pv, :pwg, "
@@ -666,6 +669,7 @@ _SAVE_COST_PRICE_SQL = (
     "ad_plan_rub = COALESCE(EXCLUDED.ad_plan_rub, reference_book.ad_plan_rub), "
     "supply_days = COALESCE(EXCLUDED.supply_days, reference_book.supply_days), "
     "min_batch_fbo = COALESCE(EXCLUDED.min_batch_fbo, reference_book.min_batch_fbo), "
+    "transport_pack_qty = COALESCE(EXCLUDED.transport_pack_qty, reference_book.transport_pack_qty), "
     "product_status = COALESCE(EXCLUDED.product_status, reference_book.product_status), "
     "product_class = COALESCE(EXCLUDED.product_class, reference_book.product_class), "
     "brand = COALESCE(EXCLUDED.brand, reference_book.brand), "
@@ -734,6 +738,7 @@ def _build_save_params(data: dict, org_id: str, nm_id: int, entity_id: str, vali
         ),
         "sdays": pint(data.get("supply_days")),
         "minb": pint(data.get("min_batch_fbo")),
+        "tpq": max(pint(data.get("transport_pack_qty")) or 1, 1),
         "pstatus": data.get("product_status"),
         "pcls": data.get("product_class"),
         "brand": data.get("brand"),
@@ -774,7 +779,7 @@ _UPLOAD_SQL = (
     "plan_length, plan_width, plan_height, plan_volume, plan_weight, "
     "top_query_1, top_query_2, top_query_3, "
     "fbs_warehouse, "
-    "supply_days, min_batch_fbo, "
+    "supply_days, min_batch_fbo, transport_pack_qty, "
     "valid_from, change_date, source) "
     "VALUES ("
     ":org, :nm, :bc, :vc, :sz, :eid, "
@@ -789,7 +794,7 @@ _UPLOAD_SQL = (
     ":plen, :pwid, :phei, :pvol, :pwgt, "
     ":tq1, :tq2, :tq3, "
     ":fbsw, "
-    ":sdays, :minbat, "
+    ":sdays, :minbat, :tpq, "
     ":vfrom, CURRENT_DATE, 'excel') "
     "ON CONFLICT (organization_id, nm_id, entity_id, valid_from) DO UPDATE SET "
     "barcode = COALESCE(EXCLUDED.barcode, reference_book.barcode), "
@@ -831,5 +836,6 @@ _UPLOAD_SQL = (
     "subject_name = COALESCE(EXCLUDED.subject_name, reference_book.subject_name), "
     "supply_days = COALESCE(EXCLUDED.supply_days, reference_book.supply_days), "
     "min_batch_fbo = COALESCE(EXCLUDED.min_batch_fbo, reference_book.min_batch_fbo), "
+    "transport_pack_qty = COALESCE(EXCLUDED.transport_pack_qty, reference_book.transport_pack_qty), "
     "change_date = CURRENT_DATE"
 )

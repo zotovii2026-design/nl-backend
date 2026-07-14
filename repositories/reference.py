@@ -10,7 +10,7 @@ from typing import Optional, List, Dict, Any
 GET_REFERENCE_SQL = text(
     "SELECT nm_id, vendor_code, cost_price, purchase_cost as purchase_price, packaging_cost, "
     "logistics_cost, other_costs, notes, product_class, brand, tax_system, tax_rate, vat_rate, "
-    "valid_from FROM reference_book "
+    "transport_pack_qty, valid_from FROM reference_book "
     "WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
 )
 
@@ -19,7 +19,7 @@ async def fetch_reference(db: AsyncSession, org_id: str, target_date: Optional[s
     sql = (
         "SELECT nm_id, vendor_code, cost_price, purchase_cost as purchase_price, packaging_cost, "
         "logistics_cost, other_costs, notes, product_class, brand, tax_system, tax_rate, vat_rate, "
-        "valid_from FROM reference_book "
+        "transport_pack_qty, valid_from FROM reference_book "
         "WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
     )
     params: Dict[str, Any] = {"org": org_id}
@@ -32,7 +32,7 @@ async def fetch_reference(db: AsyncSession, org_id: str, target_date: Optional[s
     return [{
         "nm_id": r[0],
         "vendor_code": r[1],
-        "target_date": str(r[13]),
+        "target_date": str(r[14]),
         "cost_price": float(r[2]) if r[2] else None,
         "purchase_price": float(r[3]) if r[3] else None,
         "packaging_cost": float(r[4]) if r[4] else None,
@@ -44,6 +44,7 @@ async def fetch_reference(db: AsyncSession, org_id: str, target_date: Optional[s
         "tax_system": r[10],
         "tax_rate": float(r[11]) if r[11] else None,
         "vat_rate": float(r[12]) if r[12] else None,
+        "transport_pack_qty": int(r[13]) if r[13] else 1,
     } for r in result.all()]
 
 
@@ -59,7 +60,7 @@ COST_PRICES_SQL = text(
     "cp.mp_base_pct, cp.mp_correction_pct, cp.fulfillment_model, cp.storage_pct, "
     "cp.buyout_niche_pct, cp.price_before_spp_plan, cp.price_before_spp_change, "
     "cp.change_date, cp.wb_club_discount_pct, cp.ad_plan_rub, cp.supply_days, "
-    "cp.min_batch_fbo, cp.product_status, cp.valid_from, cp.notes, "
+    "cp.min_batch_fbo, cp.transport_pack_qty, cp.product_status, cp.valid_from, cp.notes, "
     "cp.product_class, cp.tax_system, cp.tax_rate, "
     "cp.season_jan, cp.season_feb, cp.season_mar, cp.season_apr, cp.season_may, cp.season_jun, "
     "cp.season_jul, cp.season_aug, cp.season_sep, cp.season_oct, cp.season_nov, cp.season_dec, "
@@ -114,25 +115,26 @@ async def fetch_cost_prices(db: AsyncSession, org_id: str) -> List[Dict]:
         "ad_plan_rub": fval(r[30]),
         "supply_days": r[31],
         "min_batch_fbo": r[32],
-        "product_status": r[33] or "",
-        "valid_from": sval(r[34]) or "",
-        "notes": r[35] or "",
-        "product_class": r[36] or "",
-        "tax_system": r[37] or "",
-        "tax_rate": fval(r[38]) or 0,
-        "season_jan": fval(r[39]), "season_feb": fval(r[40]),
-        "season_mar": fval(r[41]), "season_apr": fval(r[42]),
-        "season_may": fval(r[43]), "season_jun": fval(r[44]),
-        "season_jul": fval(r[45]), "season_aug": fval(r[46]),
-        "season_sep": fval(r[47]), "season_oct": fval(r[48]),
-        "season_nov": fval(r[49]), "season_dec": fval(r[50]),
-        "plan_length": fval(r[51]), "plan_width": fval(r[52]),
-        "plan_height": fval(r[53]), "plan_volume": fval(r[54]),
-        "plan_weight": fval(r[55]),
-        "delivery_days_to_seller": ival(r[56]), "delivery_days_to_mp": ival(r[57]),
-        "top_query_1": r[58] or "", "top_query_2": r[59] or "", "top_query_3": r[60] or "",
-        "shipment_method": r[61] or "", "fbs_warehouse": r[62] or "",
-        "rrc_price": fval(r[63]), "vat_rate": fval(r[64]) or 0,
-        "product_name": r[65] or "",
+        "transport_pack_qty": ival(r[33]) or 1,
+        "product_status": r[34] or "",
+        "valid_from": sval(r[35]) or "",
+        "notes": r[36] or "",
+        "product_class": r[37] or "",
+        "tax_system": r[38] or "",
+        "tax_rate": fval(r[39]) or 0,
+        "season_jan": fval(r[40]), "season_feb": fval(r[41]),
+        "season_mar": fval(r[42]), "season_apr": fval(r[43]),
+        "season_may": fval(r[44]), "season_jun": fval(r[45]),
+        "season_jul": fval(r[46]), "season_aug": fval(r[47]),
+        "season_sep": fval(r[48]), "season_oct": fval(r[49]),
+        "season_nov": fval(r[50]), "season_dec": fval(r[51]),
+        "plan_length": fval(r[52]), "plan_width": fval(r[53]),
+        "plan_height": fval(r[54]), "plan_volume": fval(r[55]),
+        "plan_weight": fval(r[56]),
+        "delivery_days_to_seller": ival(r[57]), "delivery_days_to_mp": ival(r[58]),
+        "top_query_1": r[59] or "", "top_query_2": r[60] or "", "top_query_3": r[61] or "",
+        "shipment_method": r[62] or "", "fbs_warehouse": r[63] or "",
+        "rrc_price": fval(r[64]), "vat_rate": fval(r[65]) or 0,
+        "product_name": r[66] or "",
         "sizes": [],
     } for r in result.all()]

@@ -299,6 +299,9 @@ function getCostColumns() {
                     headerTooltip: 'Дата внесения правок (авто)', width: 80, tooltip: true, cssClass: 'truncate-cell', editable: false },
                 { title: 'Дата начала', field: 'valid_from',
                     headerTooltip: 'Дата начала действия', width: 80, tooltip: true, cssClass: 'truncate-cell', editor: 'input' },
+                { title: 'Кратность вложения', field: 'transport_pack_qty',
+                    headerTooltip: 'количество в транспортной упаковке', width: 80, editor: 'number',
+                    editorParams: {min:1, step:1}, headerSort: true },
             ]
         },
     ];
@@ -373,6 +376,7 @@ function prepareCostData(products) {
             ad_plan_rub: (c.ad_plan_rub !== null && c.ad_plan_rub !== '' && c.ad_plan_rub !== undefined) ? c.ad_plan_rub : '',
             supply_days: c.supply_days || '',
             min_batch_fbo: c.min_batch_fbo || '',
+            transport_pack_qty: c.transport_pack_qty || 1,
             rrc_price: c.rrc_price || '',
             min_price: c.min_price || '',
             change_date: c.change_date || '',
@@ -663,6 +667,7 @@ function getCostDataForSave() {
         delivery_days_to_seller: null, delivery_days_to_mp: null,
         top_query_1: textValue(data.top_query_1), top_query_2: textValue(data.top_query_2), top_query_3: textValue(data.top_query_3),
         shipment_method: null, fbs_warehouse: data.fulfillment_model === 'fbs' ? textValue(data.fbs_warehouse) : '',
+        transport_pack_qty: Math.max(intOrNull(data.transport_pack_qty) || 1, 1),
         vat_rate: (function(){ var v = data.vat_rate; return (!v || v === 'нет') ? 0 : numberOrNull(v); })(),
         valid_from: data.valid_from || new Date().toISOString().split('T')[0],
         notes: null,

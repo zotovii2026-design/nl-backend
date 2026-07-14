@@ -168,7 +168,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/stats-grid.js?v=20260623-dp"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260623-dp"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260619a"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260714a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
@@ -701,6 +701,7 @@ var _sectionHTML = {
 <option value="ad_plan_rub">Рекл. расходы %</option>
 <option value="supply_days">Скорость достав., дн</option>
 <option value="min_batch_fbo">Мин партия</option>
+<option value="transport_pack_qty">Кратность вложения</option>
 <option value="rrc_price">РРЦ</option>
 <option value="min_price">Мин. цена</option>
 
@@ -3106,7 +3107,7 @@ function downloadEmptyTemplate() {
         "Сезон янв;Сезон фев;Сезон мар;Сезон апр;Сезон май;Сезон июн;" +
         "Сезон июл;Сезон авг;Сезон сен;Сезон окт;Сезон ноя;Сезон дек;" +
         "ТОП запрос 1;ТОП запрос 2;ТОП запрос 3;" +
-        "% выкупа;Корр. комиссии %;Рекл. расходы %;Скорость достав. дн;Мин партия;РРЦ;Мин цена;Дата начала";
+        "% выкупа;Корр. комиссии %;Рекл. расходы %;Скорость достав. дн;Мин партия;РРЦ;Мин цена;Дата начала;Кратность вложения";
     var blob = new Blob(["\ufeff" + hdr], {type: "text/csv;charset=utf-8"});
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -3125,7 +3126,7 @@ function exportCostTemplate() {
         "Сезон янв;Сезон фев;Сезон мар;Сезон апр;Сезон май;Сезон июн;" +
         "Сезон июл;Сезон авг;Сезон сен;Сезон окт;Сезон ноя;Сезон дек;" +
         "ТОП запрос 1;ТОП запрос 2;ТОП запрос 3;" +
-        "% выкупа;Корр. комиссии %;Рекл. расходы %;Скорость достав. дн;Мин партия;РРЦ;Мин цена;Дата начала";
+        "% выкупа;Корр. комиссии %;Рекл. расходы %;Скорость достав. дн;Мин партия;РРЦ;Мин цена;Дата начала;Кратность вложения";
     var csv = hdr;
 
     if (typeof costTabulator !== "undefined" && costTabulator) {
@@ -3169,7 +3170,8 @@ function exportCostTemplate() {
                     d.min_batch_fbo || "",
                     d.rrc_price || "",
                     d.min_price || "",
-                    d.valid_from || ""
+                    d.valid_from || "",
+                    d.transport_pack_qty || 1
                 ];
                 csv += cols.join(";") + String.fromCharCode(10);
             });
