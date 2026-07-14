@@ -349,7 +349,7 @@ function renderStrategyMilestonesGrid() {
     var columns = [
         {title: '', field: '_expand', width: 40, frozen: true, hozAlign: 'center',
          formatter: expandToggleFormatter, headerSort: false, resizable: false},
-        {title: 'Дата', field: 'event_date', width: 100, frozen: true, sorter: 'date',
+        {title: 'Дата', field: 'event_date', width: 100, frozen: true,
          formatter: function(cell) { return cell.getValue() ? strategyEsc(cell.getValue()) : '<span style="color:#ccc">—</span>'; }},
         {title: 'Арт WB', field: 'nm_id', width: 105, frozen: true, formatter: function(cell) {
             var v = cell.getValue();
