@@ -372,7 +372,9 @@ function renderStrategyMilestonesGrid() {
     ];
 
     if (strategyMilestonesTabulator) {
+        _strategyRestoringSelection = true;
         try { strategyMilestonesTabulator.destroy(); } catch(e) {}
+        _strategyRestoringSelection = false;
         strategyMilestonesTabulator = null;
     }
 
@@ -389,16 +391,6 @@ function renderStrategyMilestonesGrid() {
             var target = e && e.target;
             if (target && target.closest && target.closest('button,a,input,select,textarea')) return;
             openStrategyMilestoneForRow(row.getData());
-        },
-        rowSelectionChanged: function(data) {
-            if (_strategyRestoringSelection) return;
-            var visibleIds = new Set(_strategyMilestones.map(function(r) { return strategyNmKey(r.nm_id); }).filter(Boolean));
-            var selectedIds = new Set((data || []).map(function(r) { return strategyNmKey(r.nm_id); }).filter(Boolean));
-            visibleIds.forEach(function(id) {
-                if (!selectedIds.has(id)) _strategySelectedNmIds.delete(id);
-            });
-            selectedIds.forEach(function(id) { _strategySelectedNmIds.add(id); });
-            updateStrategyBulkBar();
         },
         renderComplete: function() {
             restoreStrategySelection();
