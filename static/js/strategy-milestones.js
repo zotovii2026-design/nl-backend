@@ -404,6 +404,18 @@ function renderStrategyMilestonesGrid() {
             restoreStrategySelection();
         },
     });
+    strategyMilestonesTabulator.on('rowSelected', function(row) {
+        if (_strategyRestoringSelection) return;
+        var id = strategyNmKey(row.getData().nm_id);
+        if (id) _strategySelectedNmIds.add(id);
+        updateStrategyBulkBar();
+    });
+    strategyMilestonesTabulator.on('rowDeselected', function(row) {
+        if (_strategyRestoringSelection) return;
+        var id = strategyNmKey(row.getData().nm_id);
+        if (id) _strategySelectedNmIds.delete(id);
+        updateStrategyBulkBar();
+    });
     restoreStrategySelection();
 }
 
