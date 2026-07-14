@@ -1,5 +1,6 @@
 /**
  * Strategy Milestones — справочник стратегий и вехи по артикулам.
+ * v2: mass select, batch assign, row expansion for milestone history.
  */
 
 let strategyMilestonesTabulator = null;
@@ -16,6 +17,7 @@ let _strategyActiveCategory = 'price';
 let _strategyList = [];
 let _strategyMilestones = [];
 let _strategyOptions = {brands: [], subjects: [], statuses: [], classes: []};
+let _expandedRows = new Set();
 
 function strategyApiHeaders() {
     return {
@@ -55,6 +57,8 @@ function setStrategyFormDateDefaults() {
     var dateInput = document.getElementById('strategy-ms-date');
     if (dateInput && !dateInput.value) dateInput.value = strategyToday();
 }
+
+/* ==================== UPPER: STRATEGY LIBRARY ==================== */
 
 function renderStrategyTabs() {
     var host = document.getElementById('strategy-category-tabs');
@@ -249,6 +253,8 @@ function onMilestoneStrategyChange() {
     if (role && !role.value) role.value = s.role || '';
 }
 
+/* ==================== LOWER: MILESTONES TABLE ==================== */
+
 function strategyRangeParams() {
     if (typeof nlGetDateRangeParams === 'function') return nlGetDateRangeParams();
     return {date_from: '', date_to: ''};
@@ -303,8 +309,9 @@ function categoryFormatter(cell) {
 
 function strategyChipFormatter(cell) {
     var d = cell.getRow().getData();
-    var cat = strategyCat(d.category);
-    var code = d.code || d.strategy_code || '-';
+    if (!d.category && !d.code) return '<span style="color:#aaa">—</span>';
+    var cat = strategyCat(d.category || 'price');
+    var code = d.code || d.strategy_code || '';
     var title = d.strategy_title || '';
     return '<span style="display:inline-block;background:' + cat.color + ';color:#fff;border-radius:6px;padding:3px 7px;font-weight:700;font-size:.86em">' + strategyEsc(code) + '</span>' +
         (title ? '<span style="margin-left:6px;color:#333">' + strategyEsc(title) + '</span>' : '');
@@ -319,11 +326,24 @@ function linksFormatter(cell) {
     }).join('<br>');
 }
 
+/* Row expansion: + button toggles milestone history */
+function expandToggleFormatter(cell) {
+    var data = cell.getRow().getData();
+    var nmId = data.nm_id;
+    var expanded = _expandedRows.has(nmId);
+    return '<button onclick="toggleMilestoneHistory(' + nmId + ')" style="border:1px solid #ddd;background:#fff;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:.82em">' +
+        (expanded ? '▼' : '▶') + '</button>';
+}
+
 function renderStrategyMilestonesGrid() {
     var el = document.getElementById('strategy-milestones-tabulator');
     if (!el || typeof Tabulator === 'undefined') return;
+
     var columns = [
-        {title: 'Дата', field: 'event_date', width: 100, frozen: true, sorter: 'date'},
+        {title: '', field: '_expand', width: 40, frozen: true, hozAlign: 'center',
+         formatter: expandToggleFormatter, headerSort: false, resizable: false},
+        {title: 'Дата', field: 'event_date', width: 100, frozen: true, sorter: 'date',
+         formatter: function(cell) { return cell.getValue() ? strategyEsc(cell.getValue()) : '<span style="color:#ccc">—</span>'; }},
         {title: 'Арт WB', field: 'nm_id', width: 105, frozen: true, formatter: function(cell) {
             var v = cell.getValue();
             return '<a href="https://www.wildberries.ru/catalog/' + v + '/detail.aspx" target="_blank" rel="noopener" style="font-weight:700;color:#0984e3">' + v + '</a>';
@@ -341,46 +361,117 @@ function renderStrategyMilestonesGrid() {
         {title: 'Результат', field: 'result_note', width: 220},
         {title: 'Статус', field: 'product_status', width: 110},
         {title: 'Класс', field: 'product_class', width: 80},
-        {title: '', field: '_actions', width: 92, hozAlign: 'center', formatter: function(cell) {
-            var id = cell.getRow().getData().id;
-            return '<button onclick="editStrategyMilestone(\'' + id + '\')" style="border:1px solid #ddd;background:#fff;border-radius:5px;padding:3px 7px;cursor:pointer">Изм.</button>';
-        }},
     ];
+
     if (strategyMilestonesTabulator) {
-        strategyMilestonesTabulator.replaceData(_strategyMilestones);
-        return;
+        try { strategyMilestonesTabulator.destroy(); } catch(e) {}
+        strategyMilestonesTabulator = null;
     }
+
     strategyMilestonesTabulator = NLGrid.create(el, {
         data: _strategyMilestones,
         columns: columns,
         height: '64vh',
         layout: 'fitDataFill',
+        selectable: true,
         initialSort: [{column: 'event_date', dir: 'desc'}],
-        placeholder: 'Вехи ещё не добавлены',
-    });
-    strategyMilestonesTabulator.on('rowClick', function(e, row) {
-        showMilestoneDetails(row.getData());
+        placeholder: 'Нет товаров',
+        rowFormatter: rowExpansionFormatter,
     });
 }
 
-function showMilestoneDetails(row) {
-    var box = document.getElementById('strategy-ms-detail');
-    if (!box || !row) return;
-    var links = Array.isArray(row.source_links) ? row.source_links : [];
-    box.innerHTML =
-        '<div style="font-weight:700;margin-bottom:6px">' + strategyEsc(row.nm_id) + ' · ' + strategyEsc(row.event_date) + '</div>' +
-        '<div style="font-size:.86em;color:#555;line-height:1.45">' +
-        '<b>' + strategyEsc(strategyCat(row.category).label) + ':</b> ' + strategyEsc((row.code || row.strategy_code || '-') + ' ' + (row.strategy_title || '')) + '<br>' +
-        '<b>Исполнитель:</b> ' + strategyEsc(row.executor || '-') + ' · <b>роль:</b> ' + strategyEsc(row.role || '-') + '<br>' +
-        '<b>Комментарий:</b> ' + strategyEsc(row.comment || '-') + '<br>' +
-        '<b>Результат:</b> ' + strategyEsc(row.result_note || '-') + '<br>' +
-        (links.length ? '<b>Источники:</b><br>' + links.map(function(url) { return '<a href="' + strategyEsc(url) + '" target="_blank" rel="noopener">' + strategyEsc(url) + '</a>'; }).join('<br>') : '') +
-        '</div>';
+/* Row expansion: shows milestone history below the row */
+function rowExpansionFormatter(row) {
+    var data = row.getData();
+    var nmId = data.nm_id;
+    var expandEl = row.getElement().querySelector('.tabulator-row-expand');
+    if (_expandedRows.has(nmId)) {
+        // Create expansion container
+        var existing = row.getElement().querySelector('.milestone-history-container');
+        if (existing) return;
+        var container = document.createElement('div');
+        container.className = 'milestone-history-container';
+        container.style.cssText = 'padding:8px 12px;background:#f8f9fa;border-top:1px solid #edf0f3;border-bottom:1px solid #edf0f3;';
+        container.innerHTML = '<div style="color:#888;font-size:.82em">Загрузка истории...</div>';
+        row.getElement().appendChild(container);
+        loadMilestoneHistory(nmId, container, row);
+    } else {
+        var hist = row.getElement().querySelector('.milestone-history-container');
+        if (hist) hist.remove();
+    }
+}
+
+async function toggleMilestoneHistory(nmId) {
+    if (_expandedRows.has(nmId)) {
+        _expandedRows.delete(nmId);
+    } else {
+        _expandedRows.add(nmId);
+    }
+    // Re-render to show/hide expansion
+    if (strategyMilestonesTabulator) {
+        strategyMilestonesTabulator.redraw(true);
+    }
+}
+
+async function loadMilestoneHistory(nmId, container, row) {
+    try {
+        var resp = await fetch(
+            '/api/v1/nl/strategy-milestones/by-art/' + nmId + '?' + strategyOrgParam(),
+            {headers: {'Authorization': 'Bearer ' + TOKEN}}
+        );
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        var data = await resp.json();
+        var milestones = data.milestones || [];
+        if (!milestones.length) {
+            container.innerHTML = '<div style="color:#888;font-size:.82em;padding:4px 0">Вех по этому товару ещё нет. Используйте форму ниже или массовое назначение.</div>';
+            return;
+        }
+        var html = '<div style="font-weight:600;font-size:.86em;margin-bottom:6px;color:#555">История вех (' + milestones.length + ')</div>';
+        html += '<table style="width:100%;font-size:.8em;border-collapse:collapse">';
+        html += '<thead><tr style="color:#888;text-align:left">' +
+            '<th style="padding:3px 8px">Дата</th>' +
+            '<th style="padding:3px 8px">Направление</th>' +
+            '<th style="padding:3px 8px">Стратегия</th>' +
+            '<th style="padding:3px 8px">Исполнитель</th>' +
+            '<th style="padding:3px 8px">Комментарий</th>' +
+            '<th style="padding:3px 8px">Результат</th>' +
+            '<th style="padding:3px 8px"></th>' +
+            '</tr></thead><tbody>';
+        milestones.forEach(function(m) {
+            var cat = strategyCat(m.category);
+            html += '<tr style="border-top:1px solid #eee">' +
+                '<td style="padding:4px 8px;white-space:nowrap">' + strategyEsc(m.event_date || '—') + '</td>' +
+                '<td style="padding:4px 8px"><span style="display:inline-flex;align-items:center;gap:4px"><span style="width:7px;height:7px;border-radius:50%;background:' + cat.color + '"></span>' + strategyEsc(cat.label) + '</span></td>' +
+                '<td style="padding:4px 8px"><b>' + strategyEsc(m.code || m.strategy_code || '—') + '</b>' + (m.strategy_title ? ' ' + strategyEsc(m.strategy_title) : '') + '</td>' +
+                '<td style="padding:4px 8px">' + strategyEsc(m.executor || '—') + '</td>' +
+                '<td style="padding:4px 8px">' + strategyEsc(m.comment || '—') + '</td>' +
+                '<td style="padding:4px 8px">' + strategyEsc(m.result_note || '—') + '</td>' +
+                '<td style="padding:4px 8px"><button onclick="deleteMilestoneById(\'' + m.id + '\',' + nmId + ')" style="border:1px solid #ffd6d6;background:#fff;color:#d63031;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:.82em">✕</button></td>' +
+                '</tr>';
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } catch(e) {
+        container.innerHTML = '<div style="color:#d63031;font-size:.82em">Ошибка: ' + strategyEsc(e.message) + '</div>';
+    }
+}
+
+async function deleteMilestoneById(milestoneId, nmId) {
+    if (!confirm('Удалить эту веху?')) return;
+    var resp = await fetch('/api/v1/nl/strategy-milestones/' + encodeURIComponent(milestoneId) + '?' + strategyOrgParam(), {
+        method: 'DELETE',
+        headers: {'Authorization': 'Bearer ' + TOKEN}
+    });
+    if (!resp.ok) { alert('Ошибка удаления'); return; }
+    _expandedRows.delete(nmId);
+    await loadStrategyMilestones();
+    _expandedRows.add(nmId);
+    strategyMilestonesTabulator.redraw(true);
 }
 
 function updateStrategyMilestoneCount() {
     var el = document.getElementById('strategy-ms-count');
-    if (el) el.textContent = _strategyMilestones.length + ' вех';
+    if (el) el.textContent = _strategyMilestones.length + ' товаров';
 }
 
 function resetStrategyMilestoneFilters() {
@@ -390,6 +481,133 @@ function resetStrategyMilestoneFilters() {
     });
     loadStrategyMilestones();
 }
+
+/* ==================== MASS SELECT & BATCH ASSIGN ==================== */
+
+function getSelectedNmIds() {
+    if (!strategyMilestonesTabulator) return [];
+    var selected = strategyMilestonesTabulator.getSelectedData();
+    return selected.map(function(r) { return r.nm_id; }).filter(Boolean);
+}
+
+function updateBulkBar() {
+    var bar = document.getElementById('strategy-bulk-bar');
+    var countEl = document.getElementById('strategy-selected-count');
+    if (!bar || !countEl) return;
+    var count = getSelectedNmIds().length;
+    countEl.textContent = count;
+    bar.style.display = count > 0 ? 'flex' : 'none';
+}
+
+function selectAllStrategyRows() {
+    if (!strategyMilestonesTabulator) return;
+    strategyMilestonesTabulator.selectRow();
+    updateBulkBar();
+}
+
+function clearSelectedStrategyRows() {
+    if (!strategyMilestonesTabulator) return;
+    strategyMilestonesTabulator.deselectRow();
+    updateBulkBar();
+}
+
+function showBatchAssignModal() {
+    var nmIds = getSelectedNmIds();
+    if (!nmIds.length) { alert('Сначала выделите товары'); return; }
+
+    // Build modal
+    var overlay = document.getElementById('strategy-batch-modal') || document.createElement('div');
+    overlay.id = 'strategy-batch-modal';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.4);z-index:9999;display:flex;align-items:center;justify-content:center';
+
+    // Strategy options HTML
+    var strategyOpts = '<option value="">Без привязки</option>' + _strategyList.map(function(s) {
+        return '<option value="' + strategyEsc(s.id) + '">' + strategyEsc(s.code + ' — ' + strategyEsc(s.title)) + '</option>';
+    }).join('');
+
+    // Category options
+    var catOpts = _strategyCategories.map(function(c) {
+        return '<option value="' + c.key + '">' + strategyEsc(c.label) + '</option>';
+    }).join('');
+
+    overlay.innerHTML =
+        '<div style="background:#fff;border-radius:12px;padding:24px;width:480px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.15)">' +
+        '<div style="font-weight:700;font-size:1.05em;margin-bottom:4px">Назначить веху</div>' +
+        '<div style="font-size:.85em;color:#888;margin-bottom:16px">Выбрано товаров: <b>' + nmIds.length + '</b></div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">' +
+            '<div><label style="font-size:.82em;color:#555">Дата</label><input type="date" id="batch-ms-date" value="' + strategyToday() + '" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:.9em"></div>' +
+            '<div><label style="font-size:.82em;color:#555">Направление</label><select id="batch-ms-category" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:.9em">' + catOpts + '</select></div>' +
+        '</div>' +
+        '<div style="margin-bottom:12px"><label style="font-size:.82em;color:#555">Стратегия</label><select id="batch-ms-strategy" onchange="onBatchStrategyChange()" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:.9em">' + strategyOpts + '</select></div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">' +
+            '<div><label style="font-size:.82em;color:#555">Исполнитель</label><input type="text" id="batch-ms-executor" placeholder="не указан" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:.9em"></div>' +
+            '<div><label style="font-size:.82em;color:#555">Роль</label><input type="text" id="batch-ms-role" placeholder="не указана" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:.9em"></div>' +
+        '</div>' +
+        '<div style="margin-bottom:16px"><label style="font-size:.82em;color:#555">Комментарий</label><input type="text" id="batch-ms-comment" placeholder="комментарий к вехе" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:.9em"></div>' +
+        '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+            '<button onclick="closeBatchModal()" style="border:1px solid #ddd;background:#fff;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:.9em">Отмена</button>' +
+            '<button onclick="submitBatchAssign(' + nmIds.length + ')" style="border:none;background:#0984e3;color:#fff;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:.9em;font-weight:600">Назначить</button>' +
+        '</div>' +
+        '</div>';
+
+    if (!overlay.parentElement) document.body.appendChild(overlay);
+
+    // Set initial category to active
+    setTimeout(function() {
+        var catSel = document.getElementById('batch-ms-category');
+        if (catSel) catSel.value = _strategyActiveCategory;
+    }, 0);
+}
+
+function onBatchStrategyChange() {
+    var id = document.getElementById('batch-ms-strategy').value;
+    var s = _strategyList.find(function(item) { return item.id === id; });
+    if (!s) return;
+    var executor = document.getElementById('batch-ms-executor');
+    var role = document.getElementById('batch-ms-role');
+    var cat = document.getElementById('batch-ms-category');
+    if (executor && !executor.value) executor.value = s.default_executor || '';
+    if (role && !role.value) role.value = s.role || '';
+    if (cat) cat.value = s.category || _strategyActiveCategory;
+}
+
+function closeBatchModal() {
+    var overlay = document.getElementById('strategy-batch-modal');
+    if (overlay) overlay.remove();
+}
+
+async function submitBatchAssign(expectedCount) {
+    var nmIds = getSelectedNmIds();
+    if (!nmIds.length) return;
+
+    var payload = {
+        nm_ids: nmIds,
+        event_date: document.getElementById('batch-ms-date').value || strategyToday(),
+        category: document.getElementById('batch-ms-category').value || _strategyActiveCategory,
+        strategy_id: document.getElementById('batch-ms-strategy').value || null,
+        executor: document.getElementById('batch-ms-executor').value.trim(),
+        role: document.getElementById('batch-ms-role').value.trim(),
+        comment: document.getElementById('batch-ms-comment').value.trim()
+    };
+
+    closeBatchModal();
+
+    try {
+        var resp = await fetch('/api/v1/nl/strategy-milestones/batch?' + strategyOrgParam(), {
+            method: 'POST',
+            headers: strategyApiHeaders(),
+            body: JSON.stringify(payload)
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        var result = await resp.json();
+        clearSelectedStrategyRows();
+        await loadStrategyMilestones();
+    } catch(e) {
+        alert('Ошибка: ' + e.message);
+    }
+}
+
+/* ==================== SINGLE MILESTONE FORM (existing) ==================== */
 
 async function saveStrategyMilestone() {
     var links = (document.getElementById('strategy-ms-links').value || '').split(/\n+/).map(function(v) { return v.trim(); }).filter(Boolean);

@@ -502,6 +502,150 @@ async def save_strategy_milestone(
     return {"ok": True, "id": values["id"]}
 
 
+@router.post("/api/v1/nl/strategy-milestones/batch")
+async def batch_save_strategy_milestones(
+    request: Request,
+    org_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Массовое создание вех для нескольких товаров."""
+    org_id = await resolve_org_id(org_id, db)
+    data = await request.json()
+    nm_ids = data.get("nm_ids") or []
+    if not nm_ids:
+        raise HTTPException(400, "Список артикулов пуст")
+    nm_ids = [int(n) for n in nm_ids]
+
+    event_date = _date_or_none(data.get("event_date")) or date.today()
+    category = _text_or_none(data.get("category"))
+    if category not in _CATEGORY_KEYS:
+        raise HTTPException(400, "Некорректное направление вехи")
+
+    strategy_id = _text_or_none(data.get("strategy_id"))
+    strategy_code = _text_or_none(data.get("strategy_code"))
+    if strategy_id:
+        srow = await db.execute(
+            text(
+                """
+                SELECT id, category, code, default_executor, role
+                FROM strategy_definitions
+                WHERE id = :strategy_id AND organization_id = :org
+                """
+            ),
+            {"strategy_id": strategy_id, "org": org_id},
+        )
+        strategy = srow.mappings().first()
+        if not strategy:
+            raise HTTPException(404, "Стратегия не найдена")
+        category = strategy["category"]
+        strategy_code = strategy["code"]
+
+    executor = _text_or_none(data.get("executor"))
+    role_val = _text_or_none(data.get("role"))
+    comment = _text_or_none(data.get("comment"))
+    raw_links = data.get("source_links") or []
+    if isinstance(raw_links, str):
+        raw_links = [line.strip() for line in raw_links.splitlines() if line.strip()]
+    links_json = json.dumps(raw_links, ensure_ascii=False)
+
+    # Получаем entity_id для всех nm_ids
+    ent_rows = await db.execute(
+        text(
+            """
+            SELECT DISTINCT ON (nm_id) id, nm_id
+            FROM product_entities
+            WHERE organization_id = :org AND nm_id = ANY(:nm_ids)
+            ORDER BY nm_id, created_at DESC
+            """
+        ),
+        {"org": org_id, "nm_ids": nm_ids},
+    )
+    entity_map = {r.nm_id: r.id for r in ent_rows}
+
+    created = []
+    for nm_id in nm_ids:
+        milestone_id = str(uuid.uuid4())
+        values = {
+            "id": milestone_id,
+            "org": org_id,
+            "entity_id": entity_map.get(nm_id),
+            "strategy_id": strategy_id,
+            "nm_id": nm_id,
+            "event_date": event_date,
+            "date_to": _date_or_none(data.get("date_to")),
+            "category": category,
+            "strategy_code": strategy_code,
+            "executor": executor,
+            "role": role_val,
+            "source_links": links_json,
+            "comment": comment,
+            "result_note": None,
+            "meta": "{}",
+        }
+        await db.execute(
+            text(
+                """
+                INSERT INTO strategy_milestones (
+                    id, organization_id, entity_id, strategy_id, nm_id,
+                    event_date, date_to, category, strategy_code, executor,
+                    role, source_links, comment, result_note, meta
+                )
+                VALUES (
+                    :id, :org, :entity_id, :strategy_id, :nm_id,
+                    :event_date, :date_to, :category, :strategy_code, :executor,
+                    :role, CAST(:source_links AS jsonb), :comment, :result_note, CAST(:meta AS jsonb)
+                )
+                """
+            ),
+            values,
+        )
+        created.append(milestone_id)
+
+    await db.commit()
+    return {"ok": True, "created": len(created), "ids": created}
+
+
+@router.get("/api/v1/nl/strategy-milestones/by-art/{nm_id}")
+async def get_milestones_by_art(
+    nm_id: int,
+    org_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """История всех вех по конкретному товару."""
+    org_id = await resolve_org_id(org_id, db)
+    result = await db.execute(
+        text(
+            """
+            SELECT
+                sm.id, sm.nm_id, sm.event_date, sm.date_to, sm.category,
+                sm.strategy_id, sm.strategy_code,
+                COALESCE(sd.code, sm.strategy_code, '') AS code,
+                COALESCE(sd.title, '') AS strategy_title,
+                COALESCE(sm.executor, sd.default_executor, '') AS executor,
+                COALESCE(sm.role, sd.role, '') AS role,
+                sm.source_links,
+                COALESCE(sm.comment, '') AS comment,
+                COALESCE(sm.result_note, '') AS result_note
+            FROM strategy_milestones sm
+            LEFT JOIN strategy_definitions sd ON sd.id = sm.strategy_id
+            WHERE sm.organization_id = :org AND sm.nm_id = :nm_id
+            ORDER BY sm.event_date DESC, sm.created_at DESC
+            """
+        ),
+        {"org": org_id, "nm_id": nm_id},
+    )
+    milestones = []
+    for row in result.mappings().all():
+        item = dict(row)
+        item["id"] = str(item["id"])
+        item["strategy_id"] = str(item["strategy_id"]) if item.get("strategy_id") else None
+        item["event_date"] = item["event_date"].isoformat() if item.get("event_date") else None
+        item["date_to"] = item["date_to"].isoformat() if item.get("date_to") else None
+        item["source_links"] = item.get("source_links") or []
+        milestones.append(item)
+    return {"nm_id": nm_id, "milestones": milestones}
+
+
 @router.delete("/api/v1/nl/strategy-milestones/{milestone_id}")
 async def delete_strategy_milestone(milestone_id: str, org_id: str, db: AsyncSession = Depends(get_db)):
     org_id = await resolve_org_id(org_id, db)
