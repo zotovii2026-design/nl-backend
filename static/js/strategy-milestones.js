@@ -409,6 +409,8 @@ function renderStrategyMilestonesGrid() {
         updateStrategyBulkBar();
     });
     restoreStrategySelection();
+    setTimeout(restoreStrategySelection, 100);
+    setTimeout(restoreStrategySelection, 500);
 }
 
 /* Row expansion: shows milestone history below the row */
