@@ -295,13 +295,13 @@ function getCostColumns() {
                     headerTooltip: 'Рекомендованная розничная цена', width: 60, editor: 'number', headerSort: true },
                 { title: 'Мин. цена', field: 'min_price',
                     headerTooltip: 'Минимальная цена', width: 65, editor: 'number', headerSort: true },
+                { title: 'Кратность вложения', field: 'transport_pack_qty',
+                    headerTooltip: 'количество в транспортной упаковке', width: 80, editor: 'number',
+                    editorParams: {min:1, step:1}, headerSort: true },
                 { title: 'Дата правок', field: 'change_date',
                     headerTooltip: 'Дата внесения правок (авто)', width: 80, tooltip: true, cssClass: 'truncate-cell', editable: false },
                 { title: 'Дата начала', field: 'valid_from',
                     headerTooltip: 'Дата начала действия', width: 80, tooltip: true, cssClass: 'truncate-cell', editor: 'input' },
-                { title: 'Кратность вложения', field: 'transport_pack_qty',
-                    headerTooltip: 'количество в транспортной упаковке', width: 80, editor: 'number',
-                    editorParams: {min:1, step:1}, headerSort: true },
             ]
         },
     ];
