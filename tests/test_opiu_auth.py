@@ -57,6 +57,10 @@ async def test_opiu_report_allows_viewer(monkeypatch):
         "api.v1.routers.opiu._sync_info",
         AsyncMock(return_value=None),
     )
+    monkeypatch.setattr(
+        "api.v1.routers.opiu._enrichment_context",
+        AsyncMock(return_value=({}, {}, {}, {})),
+    )
 
     result = await get_opiu_report(
         org_id,

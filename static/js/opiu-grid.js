@@ -34,35 +34,31 @@ function opiuColumns() {
     const moneyColumn = {hozAlign: 'right', formatter: opiuMoney};
     const columns = [
         {title: 'Фото', field: 'photo_main', width: 58, headerSort: false, formatter: NLGrid.formatters.photo},
-        {title: 'Название', field: 'product_name', width: 240, tooltip: true},
-        {title: 'Артикул', field: 'vendor_code', width: 165},
+        {title: 'Артикул поставщика', field: 'vendor_code', width: 165},
         {title: 'Артикул WB', field: 'nm_id', width: 115, hozAlign: 'right'},
-        {title: 'Баркод', field: 'barcode', width: 150},
-        {title: 'Размер', field: 'size_name', width: 90},
-        {title: 'Класс', field: 'product_class', width: 110},
-        {title: 'Статус', field: 'product_status', width: 140},
-        {title: 'Бренд', field: 'brand', width: 150},
-        {title: 'Категория', field: 'subject_name', width: 180},
-        {title: 'Кол-во продаж', field: 'sales_qty', width: 125, hozAlign: 'right', formatter: opiuQuantity},
-        {title: 'Цена розничная (ед.)', field: 'retail_unit', width: 155, ...moneyColumn},
-        {title: 'ВБ реализовал товар (ед.)', field: 'realized_unit', width: 180, ...moneyColumn},
-        {title: 'Платёжная комиссия (ед.)', field: 'acquiring_unit', width: 175, ...moneyColumn},
-        {title: '% платёжной комиссии', field: 'acquiring_pct', width: 155, hozAlign: 'right', formatter: opiuPercent},
-        {title: 'Комиссия МП (ед.)', field: 'marketplace_commission_unit', width: 155, ...moneyColumn},
-        {title: '% комиссии МП', field: 'marketplace_commission_pct', width: 135, hozAlign: 'right', formatter: opiuPercent},
-        {title: 'Доставка (всего)', field: 'delivery_total', width: 140, ...moneyColumn},
-        {title: 'Доставка (ед.)', field: 'delivery_unit', width: 130, ...moneyColumn},
-        {title: 'Возвраты (шт)', field: 'returns_qty', width: 125, hozAlign: 'right', formatter: opiuQuantity},
-        {title: 'Возвраты (руб)', field: 'returns_rub', width: 135, ...moneyColumn},
-        {title: 'К перечислению за вычетом возвратов', field: 'net_for_pay', width: 220, ...moneyColumn},
+        {title: 'Название', field: 'product_name', width: 240, tooltip: true},
+        {title: 'Кол-во реализовано, шт', field: 'sales_qty', width: 145, hozAlign: 'right', formatter: opiuQuantity},
+        {title: 'Вайлдберриз реализовал Товар (Пр), руб', field: 'realized_sum', width: 220, ...moneyColumn},
+        {title: 'Комиссия ВБ с учетом НДС, %', field: 'marketplace_commission_pct', width: 175, hozAlign: 'right', formatter: opiuPercent},
+        {title: 'Комиссия ВБ с учетом НДС, сумма, руб', field: 'marketplace_commission_sum', width: 215, ...moneyColumn},
+        {title: 'Эквайринг, %', field: 'acquiring_pct', width: 120, hozAlign: 'right', formatter: opiuPercent},
+        {title: 'Эквайринг, сумма, руб', field: 'acquiring_sum', width: 155, ...moneyColumn},
+        {title: 'Услуги по доставке товара покупателю, руб', field: 'delivery_total', width: 230, ...moneyColumn},
         {title: 'Штрафы', field: 'penalty', width: 115, ...moneyColumn},
         {title: 'Хранение', field: 'storage', width: 120, ...moneyColumn},
-        {title: 'Удержания', field: 'deduction', width: 120, ...moneyColumn},
-        {title: 'Операции на приёмке', field: 'acceptance', width: 155, ...moneyColumn},
-        {title: 'Компенсация скидки лояльности', field: 'loyalty_compensation', width: 210, ...moneyColumn},
-        {title: 'Сумма баллов лояльности', field: 'loyalty_points', width: 180, ...moneyColumn},
-        {title: 'Стоимость участия в лояльности', field: 'loyalty_participation', width: 200, ...moneyColumn},
-        {title: 'Валовая прибыль', field: 'gross_profit', width: 155, ...moneyColumn},
+        {title: 'Реклама по API рекламы, руб', field: 'advertising_api_spend', width: 185, ...moneyColumn},
+        {title: 'ДРР, %', field: 'drr', width: 100, hozAlign: 'right', formatter: opiuPercent},
+        {title: 'Заказы, шт', field: 'orders_qty', width: 110, hozAlign: 'right', formatter: opiuQuantity},
+        {title: 'Заказы, сумма, руб', field: 'orders_sum', width: 155, ...moneyColumn},
+        {title: 'Удержания WB по фин. отчету, руб', field: 'deduction', width: 210, ...moneyColumn},
+        {title: 'Прочие затраты', field: 'other_expenses', width: 145, ...moneyColumn},
+        {title: 'К перечислению на р/с', field: 'net_for_pay', width: 170, ...moneyColumn},
+        {title: 'Себестоимость', field: 'cost_total', width: 135, ...moneyColumn},
+        {title: 'Чистая прибыль', field: 'net_profit', width: 145, ...moneyColumn},
+        {title: 'Баркод', field: 'barcode', width: 150},
+        {title: 'Размер', field: 'size_name', width: 90},
+        {title: 'Бренд', field: 'brand', width: 150},
+        {title: 'Категория', field: 'subject_name', width: 180},
     ];
     const savedOrder = NLGrid.loadColumnOrder('opiu-v2');
     if (!savedOrder || !savedOrder.length) return columns;
@@ -362,11 +358,11 @@ async function loadOpiu() {
         const response = await fetch(url, {headers: {'Authorization': 'Bearer ' + TOKEN}});
         if (!response.ok) throw new Error('Не удалось загрузить ОПиУ');
         const data = await response.json();
-        opiuAllRows = (data.items || []).map((row, index) => ({
+        opiuAllRows = (data.items || []).filter(row => !row.is_unassigned).map((row, index) => ({
             ...row,
             _row_id: row.entity_id + '|' + row.barcode + '|' + row.size_name + '|' + index,
         }));
-        opiuTotalRow = data.total || null;
+        opiuTotalRow = data.product_total || data.total || null;
         fillOpiuFilters(opiuAllRows);
         applyOpiuFilters();
         renderOpiuSyncInfo(data.sync);

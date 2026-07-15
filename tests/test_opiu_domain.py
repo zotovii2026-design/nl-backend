@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from domain.opiu import build_opiu_report, serialize_report
+from api.v1.routers.opiu import _enrich_serialized_report
 from services.opiu import (
     FINANCE_FIELDS,
     _fetch_finance_chunk,
@@ -171,6 +172,49 @@ def test_serialized_opiu_values_are_rounded_to_two_decimals():
 
     assert serialized["items"][0]["retail_unit"] == 33.33
     assert serialized["items"][0]["marketplace_commission_pct"] == 40.0
+
+
+def test_opiu_v2_enrichment_keeps_ads_orders_costs_separate():
+    report = build_opiu_report(
+        [
+            {
+                "entity_id": "entity-1",
+                "nm_id": 100,
+                "vendor_code": "article-1",
+                "barcode": "1",
+                "seller_oper_name": "Продажа",
+                "doc_type_name": "Продажа",
+                "quantity": 2,
+                "retail_amount": 1000,
+                "acquiring_fee": 50,
+                "for_pay": 800,
+            },
+            {
+                "seller_oper_name": "Удержание",
+                "deduction": 300,
+            },
+        ]
+    )
+
+    data = _enrich_serialized_report(
+        serialize_report(report),
+        {100: Decimal("123.45")},
+        {100: {"orders_qty": Decimal("3"), "orders_sum": Decimal("1500")}},
+        {"entity-1": Decimal("200")},
+        {},
+    )
+
+    item = next(row for row in data["items"] if row["vendor_code"] == "article-1")
+    unassigned = data["unassigned_items"][0]
+
+    assert item["advertising_api_spend"] == 123.45
+    assert item["orders_qty"] == 3.0
+    assert item["orders_sum"] == 1500.0
+    assert item["drr"] == 8.23
+    assert item["cost_total"] == 400.0
+    assert item["net_profit"] == 276.55
+    assert unassigned["vendor_code"] == "(без артикула)"
+    assert unassigned["deduction"] == 300.0
 
 
 def test_finance_api_row_normalization_uses_current_field_names():

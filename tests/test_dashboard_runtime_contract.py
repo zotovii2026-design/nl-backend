@@ -36,6 +36,26 @@ def test_opiu_loader_is_external_and_guards_removed_dom():
     assert "await loadOrgs(); _opiuInited = true;" in DASHBOARD_SOURCE
 
 
+def test_opiu_v2_columns_match_wb_template_language():
+    required_titles = (
+        "Артикул поставщика",
+        "Вайлдберриз реализовал Товар (Пр), руб",
+        "Комиссия ВБ с учетом НДС, %",
+        "Эквайринг, сумма, руб",
+        "Реклама по API рекламы, руб",
+        "ДРР, %",
+        "Заказы, сумма, руб",
+        "Прочие затраты",
+        "Себестоимость",
+        "Чистая прибыль",
+    )
+
+    for title in required_titles:
+        assert title in OPIU_SOURCE
+
+    assert "opiu-grid.js?v=20260715-opiuv2" in DASHBOARD_SOURCE
+
+
 def test_reference_book_visible_columns_contract_is_stable():
     columns_block = COST_GRID_SOURCE.split("function getCostColumns()", 1)[1].split(
         "/**\n * Подготовить данные", 1
