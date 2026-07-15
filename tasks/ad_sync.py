@@ -13,8 +13,9 @@ import json
 import asyncio
 import logging
 import httpx
+from redis.asyncio import Redis
 from services.wb_api.keys import get_all_wb_keys as _get_all_keys_imported
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Optional, List, Tuple
 
@@ -35,6 +36,11 @@ ADVERT_API = "https://advert-api.wildberries.ru"
 
 # Кампании старше этого количества дней — игнорируются (мусор/архив)
 FRESH_DAYS = 30
+
+# WB advertising fullstats is heavily rate-limited. A global lock keeps manual
+# refreshes and scheduled jobs from multiplying requests for the same API quota.
+AD_STATS_LOCK_KEY = "nl:ad-stats:lock"
+AD_STATS_LOCK_TTL_SECONDS = 3 * 60 * 60
 
 
 def _make_session():
@@ -78,9 +84,39 @@ def sched_ad_stats(
 ):
     async def _main():
         engine, sf = _make_session()
+        redis = Redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
+        lock_value = json.dumps({
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "days_back": days_back,
+            "org_id": org_id,
+            "include_current_day": include_current_day,
+        }, ensure_ascii=False)
         try:
+            acquired = await redis.set(
+                AD_STATS_LOCK_KEY,
+                lock_value,
+                ex=AD_STATS_LOCK_TTL_SECONDS,
+                nx=True,
+            )
+            if not acquired:
+                ttl = await redis.ttl(AD_STATS_LOCK_KEY)
+                current = await redis.get(AD_STATS_LOCK_KEY)
+                logger.info("[ad_stats] Skipped: another ad_stats task is running, ttl=%s", ttl)
+                return {
+                    "status": "skipped",
+                    "reason": "ad_stats_already_running",
+                    "lock_ttl_seconds": int(ttl) if ttl and ttl > 0 else 0,
+                    "running": current,
+                }
+
             return await _do_ad_stats(sf, days_back, org_id, include_current_day)
         finally:
+            try:
+                current = await redis.get(AD_STATS_LOCK_KEY)
+                if current == lock_value:
+                    await redis.delete(AD_STATS_LOCK_KEY)
+            finally:
+                await redis.aclose()
             await engine.dispose()
     return asyncio.run(_main())
 

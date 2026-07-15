@@ -27,6 +27,7 @@ VALID_AD_STATUSES = ("-1", "4", "7", "8", "9", "11")
 DEFAULT_AD_STATUSES = ["9", "11"]
 ADS_REFRESH_DAYS_BACK = 9
 ADS_REFRESH_COOLDOWN_SECONDS = 60 * 60
+AD_STATS_LOCK_KEY = "nl:ad-stats:lock"
 AD_TYPE_NAMES = {
     "4": "Автоматическая",
     "5": "Поиск",
@@ -403,6 +404,24 @@ def _ads_refresh_key(org_id: str) -> str:
     return f"nl:ads-refresh:{org_id}"
 
 
+async def _ads_global_sync_status():
+    try:
+        redis = get_rate_limit_redis()
+        ttl = await redis.ttl(AD_STATS_LOCK_KEY)
+        running = await redis.get(AD_STATS_LOCK_KEY)
+        return {
+            "ad_stats_running": bool(ttl and ttl > 0),
+            "sync_lock_remaining_seconds": int(ttl) if ttl and ttl > 0 else 0,
+            "sync_lock": running,
+        }
+    except Exception:
+        return {
+            "ad_stats_running": False,
+            "sync_lock_remaining_seconds": 0,
+            "sync_lock": None,
+        }
+
+
 async def _ads_refresh_status(org_id: str, db: AsyncSession):
     cooldown_remaining = 0
     triggered_at = None
@@ -427,14 +446,17 @@ async def _ads_refresh_status(org_id: str, db: AsyncSession):
     last_sync_at = latest[0] if latest else None
     last_stat_date = latest[1] if latest else None
 
+    sync_status = await _ads_global_sync_status()
+
     return {
-        "can_refresh": cooldown_remaining == 0,
+        "can_refresh": cooldown_remaining == 0 and not sync_status["ad_stats_running"],
         "cooldown_remaining_seconds": int(cooldown_remaining),
         "cooldown_seconds": ADS_REFRESH_COOLDOWN_SECONDS,
         "days_back": ADS_REFRESH_DAYS_BACK,
         "last_sync_at": last_sync_at.isoformat() if last_sync_at else None,
         "last_stat_date": last_stat_date.isoformat() if last_stat_date else None,
         "triggered_at": triggered_at,
+        **sync_status,
     }
 
 

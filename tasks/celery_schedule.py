@@ -48,6 +48,11 @@ BEAT_SCHEDULE = {
         "schedule": crontab(hour=10, minute=0),
         "kwargs": {"days_back": 2},
     },
+    "day-ad-stats-today": {
+        "task": "wb.sched.ad_stats",
+        "schedule": crontab(hour="12,16,19", minute=20),
+        "kwargs": {"days_back": 1, "include_current_day": True},
+    },
     "parse-morning": {
         "task": "wb.sched.parse_raw",
         "schedule": crontab(hour=9, minute=30),

@@ -434,7 +434,10 @@ function renderAdsRefreshStatus(data, prefix) {
         _adsRefreshTimer = null;
     }
 
-    var remaining = parseInt((data && data.cooldown_remaining_seconds) || 0, 10);
+    var cooldownRemaining = parseInt((data && data.cooldown_remaining_seconds) || 0, 10);
+    var syncRemaining = parseInt((data && data.sync_lock_remaining_seconds) || 0, 10);
+    var isSyncRunning = !!(data && data.ad_stats_running && syncRemaining > 0);
+    var remaining = isSyncRunning ? syncRemaining : cooldownRemaining;
     var lastSync = formatAdsRefreshDate(data && data.last_sync_at);
     var lastDate = data && data.last_stat_date ? data.last_stat_date : '';
     var base = prefix || (lastSync ? 'Последний сбор: ' + lastSync : 'Сбор еще не запускался');
@@ -442,7 +445,7 @@ function renderAdsRefreshStatus(data, prefix) {
 
     function paint(sec) {
         if (sec > 0) {
-            statusEl.textContent = base + ' · следующий запуск через ' + formatAdsRefreshSeconds(sec);
+            statusEl.textContent = base + ' · ' + (isSyncRunning ? 'идет общий сбор, осталось до ' : 'следующий запуск через ') + formatAdsRefreshSeconds(sec);
             if (btn) btn.disabled = true;
         } else {
             statusEl.textContent = base + ' · можно обновить';
