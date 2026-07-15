@@ -1,6 +1,6 @@
 /**
- * Strategy Milestones — справочник стратегий и вехи по артикулам.
- * v2: mass select, batch assign, row expansion for milestone history.
+ * Strategy Milestones — библиотека стратегий и график вех по артикулам.
+ * v3: product rows expand into a chart with visible milestone markers.
  */
 
 let strategyMilestonesTabulator = null;
@@ -21,6 +21,7 @@ let _expandedRows = new Set();
 let _strategySelectedNmIds = new Set();
 let _strategyRestoringSelection = false;
 let _strategyLastPickedId = '';
+let _strategyProductCharts = {};
 
 function strategyApiHeaders() {
     return {
@@ -293,7 +294,7 @@ async function useStrategyForMilestone(id, scrollToForm) {
     var detail = document.getElementById('strategy-ms-detail');
     if (detail) {
         detail.innerHTML = '<b>Стратегия выбрана: ' + strategyEsc((s.code || '') + ' — ' + (s.title || '')) + '</b>' +
-            '<div style="margin-top:4px;color:#777;font-size:.92em">Теперь кликните по товару в таблице или выделите несколько товаров и нажмите «Назначить стратегию выбранным».</div>';
+            '<div style="margin-top:4px;color:#777;font-size:.92em">Теперь раскройте артикул в таблице: график покажет вехи по датам, а форма в раскрытии создаст новую отметку.</div>';
     }
     if (scrollToForm) {
         var form = document.getElementById('strategy-ms-date');
@@ -365,6 +366,22 @@ function strategyChipFormatter(cell) {
         (title ? '<span style="margin-left:6px;color:#333">' + strategyEsc(title) + '</span>' : '');
 }
 
+function latestMilestoneFormatter(cell) {
+    var d = cell.getRow().getData();
+    if (!d.event_date && !d.code && !d.category) {
+        return '<span style="color:#aaa">нет вех в периоде</span>';
+    }
+    var cat = strategyCat(d.category || 'price');
+    var code = d.code || d.strategy_code || '';
+    var title = d.strategy_title || '';
+    var label = (code ? code + ' ' : '') + (title || strategyCat(d.category).label);
+    return '<div style="display:flex;align-items:center;gap:6px;min-width:0">' +
+        '<span style="width:8px;height:8px;border-radius:50%;background:' + cat.color + ';display:inline-block;flex:0 0 auto"></span>' +
+        '<span style="font-weight:700;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + strategyEsc(label) + '</span>' +
+        (d.event_date ? '<span style="color:#888;white-space:nowrap">' + strategyEsc(d.event_date) + '</span>' : '') +
+        '</div>';
+}
+
 function linksFormatter(cell) {
     var links = cell.getValue() || [];
     if (!Array.isArray(links)) links = [];
@@ -375,15 +392,15 @@ function linksFormatter(cell) {
 }
 
 function assignStrategyFormatter() {
-    return '<button type="button" style="border:1px solid #0984e3;background:#fff;color:#0984e3;border-radius:5px;padding:3px 8px;cursor:pointer;font-size:.82em;font-weight:600">+ Веха</button>';
+    return '<button type="button" title="Создать веху в раскрытой карточке товара" style="border:1px solid #0984e3;background:#fff;color:#0984e3;border-radius:5px;padding:3px 8px;cursor:pointer;font-size:.82em;font-weight:600">+ Веха</button>';
 }
 
-/* Row expansion: + button toggles milestone history */
+/* Row expansion: + button toggles product chart and milestone timeline */
 function expandToggleFormatter(cell) {
     var data = cell.getRow().getData();
     var nmId = data.nm_id;
     var expanded = _expandedRows.has(nmId);
-    return '<button onclick="toggleMilestoneHistory(' + nmId + ')" style="border:1px solid #ddd;background:#fff;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:.82em">' +
+    return '<button onclick="toggleMilestoneHistory(' + nmId + ')" title="График и вехи товара" style="border:1px solid #ddd;background:#fff;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:.82em">' +
         (expanded ? '▼' : '▶') + '</button>';
 }
 
@@ -394,8 +411,6 @@ function renderStrategyMilestonesGrid() {
     var columns = [
         {title: '', field: '_expand', width: 40, frozen: true, hozAlign: 'center',
          formatter: expandToggleFormatter, headerSort: false, resizable: false},
-        {title: 'Дата', field: 'event_date', width: 100, frozen: true,
-         formatter: function(cell) { return cell.getValue() ? strategyEsc(cell.getValue()) : '<span style="color:#ccc">—</span>'; }},
         {title: 'Арт WB', field: 'nm_id', width: 105, frozen: true, formatter: function(cell) {
             var v = cell.getValue();
             return '<a href="https://www.wildberries.ru/catalog/' + v + '/detail.aspx" target="_blank" rel="noopener" style="font-weight:700;color:#0984e3">' + v + '</a>';
@@ -404,17 +419,17 @@ function renderStrategyMilestonesGrid() {
         {title: 'Товар', field: 'product_name', width: 230},
         {title: 'Бренд', field: 'brand', width: 130},
         {title: 'Категория', field: 'subject_name', width: 150},
-        {title: 'Направление', field: 'category', width: 145, formatter: categoryFormatter},
-        {title: 'Стратегия', field: 'code', width: 230, formatter: strategyChipFormatter},
-        {title: 'Исполнитель', field: 'executor', width: 135},
-        {title: 'Роль', field: 'role', width: 115},
-        {title: 'Источники', field: 'source_links', width: 130, formatter: linksFormatter},
-        {title: 'Комментарий', field: 'comment', width: 260},
-        {title: 'Результат', field: 'result_note', width: 220},
+        {title: 'Последняя веха в периоде', field: 'code', width: 310, formatter: latestMilestoneFormatter},
         {title: 'Статус', field: 'product_status', width: 110},
         {title: 'Класс', field: 'product_class', width: 80},
         {title: '', field: '_assign', width: 86, hozAlign: 'center', headerSort: false, resizable: false,
-         formatter: assignStrategyFormatter, cellClick: function(e, cell) { openStrategyMilestoneForRow(cell.getRow().getData()); }},
+         formatter: assignStrategyFormatter, cellClick: function(e, cell) {
+             var row = cell.getRow();
+             var data = row.getData();
+             if (!_expandedRows.has(data.nm_id)) _expandedRows.add(data.nm_id);
+             openStrategyMilestoneForRow(data);
+             row.reformat();
+         }},
     ];
 
     if (strategyMilestonesTabulator) {
@@ -436,7 +451,14 @@ function renderStrategyMilestonesGrid() {
         rowClick: function(e, row) {
             var target = e && e.target;
             if (target && target.closest && target.closest('button,a,input,select,textarea')) return;
-            openStrategyMilestoneForRow(row.getData());
+            var data = row.getData();
+            if (_expandedRows.has(data.nm_id)) {
+                _expandedRows.delete(data.nm_id);
+            } else {
+                _expandedRows.add(data.nm_id);
+                openStrategyMilestoneForRow(data);
+            }
+            row.reformat();
         },
         renderComplete: function() {
             restoreStrategySelection();
@@ -459,24 +481,23 @@ function renderStrategyMilestonesGrid() {
     setTimeout(restoreStrategySelection, 500);
 }
 
-/* Row expansion: shows milestone history below the row */
+/* Row expansion: shows product chart, visible milestone dates and creation form */
 function rowExpansionFormatter(row) {
     var data = row.getData();
     var nmId = data.nm_id;
-    var expandEl = row.getElement().querySelector('.tabulator-row-expand');
     if (_expandedRows.has(nmId)) {
-        // Create expansion container
         var existing = row.getElement().querySelector('.milestone-history-container');
         if (existing) return;
         var container = document.createElement('div');
         container.className = 'milestone-history-container';
-        container.style.cssText = 'padding:8px 12px;background:#f8f9fa;border-top:1px solid #edf0f3;border-bottom:1px solid #edf0f3;';
-        container.innerHTML = '<div style="color:#888;font-size:.82em">Загрузка истории...</div>';
+        container.style.cssText = 'padding:12px;background:#f8f9fa;border-top:1px solid #edf0f3;border-bottom:1px solid #edf0f3;';
+        container.innerHTML = '<div style="color:#888;font-size:.82em">Загрузка графика и вех...</div>';
         row.getElement().appendChild(container);
-        loadMilestoneHistory(nmId, container, row);
+        loadMilestoneHistory(nmId, container, row.getData());
     } else {
         var hist = row.getElement().querySelector('.milestone-history-container');
         if (hist) hist.remove();
+        destroyStrategyProductChart(nmId);
     }
 }
 
@@ -486,53 +507,288 @@ async function toggleMilestoneHistory(nmId) {
     } else {
         _expandedRows.add(nmId);
     }
-    // Re-render to show/hide expansion
     if (strategyMilestonesTabulator) {
         strategyMilestonesTabulator.redraw(true);
     }
 }
 
-async function loadMilestoneHistory(nmId, container, row) {
+function destroyStrategyProductChart(nmId) {
+    var key = strategyNmKey(nmId);
+    if (_strategyProductCharts[key]) {
+        try { _strategyProductCharts[key].destroy(); } catch(e) {}
+        delete _strategyProductCharts[key];
+    }
+}
+
+function strategyRangeDates() {
+    var range = strategyRangeParams();
+    var from = range.date_from || '';
+    var to = range.date_to || '';
+    return {from: from, to: to};
+}
+
+function strategyDateValue(dateText) {
+    if (!dateText) return null;
+    var value = new Date(dateText + 'T00:00:00').getTime();
+    return Number.isFinite(value) ? value : null;
+}
+
+function strategyDateInRange(dateText, from, to) {
+    if (!dateText) return false;
+    return (!from || dateText >= from) && (!to || dateText <= to);
+}
+
+function strategyMarkerLeft(dateText, from, to) {
+    var start = strategyDateValue(from);
+    var end = strategyDateValue(to);
+    var current = strategyDateValue(dateText);
+    if (start === null || end === null || current === null || end <= start) return 0;
+    return Math.max(0, Math.min(100, ((current - start) / (end - start)) * 100));
+}
+
+function strategyMilestoneFormHtml(nmId, rowData) {
+    var picked = _strategyList.find(function(item) { return item.id === _strategyLastPickedId; });
+    var strategyOpts = '<option value="">Стратегия: без привязки</option>' + _strategyList.map(function(s) {
+        return '<option value="' + strategyEsc(s.id) + '"' + (picked && picked.id === s.id ? ' selected' : '') + '>' + strategyEsc(s.code + ' — ' + s.title) + '</option>';
+    }).join('');
+    var catOpts = _strategyCategories.map(function(c) {
+        var selected = (picked && picked.category === c.key) || (!picked && _strategyActiveCategory === c.key);
+        return '<option value="' + c.key + '"' + (selected ? ' selected' : '') + '>' + strategyEsc(c.label) + '</option>';
+    }).join('');
+    return '<div style="border:1px solid #e2e6ea;background:#fff;border-radius:8px;padding:10px;min-width:280px">' +
+        '<div style="font-weight:700;color:#333;margin-bottom:8px">Новая веха</div>' +
+        '<div style="display:grid;grid-template-columns:120px 150px minmax(180px,1fr) 130px 110px;gap:7px;margin-bottom:8px">' +
+            '<input id="strategy-panel-date-' + nmId + '" type="date" value="' + strategyToday() + '" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">' +
+            '<select id="strategy-panel-category-' + nmId + '" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">' + catOpts + '</select>' +
+            '<select id="strategy-panel-strategy-' + nmId + '" onchange="onPanelStrategyChange(' + nmId + ')" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">' + strategyOpts + '</select>' +
+            '<input id="strategy-panel-executor-' + nmId + '" value="' + strategyEsc((picked && picked.default_executor) || rowData.executor || '') + '" placeholder="Исполнитель" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">' +
+            '<input id="strategy-panel-role-' + nmId + '" value="' + strategyEsc((picked && picked.role) || rowData.role || '') + '" placeholder="Роль" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 120px;gap:7px;align-items:start">' +
+            '<textarea id="strategy-panel-links-' + nmId + '" placeholder="Источники, ссылки" rows="2" style="border:1px solid #ddd;border-radius:6px;padding:7px 8px;font-size:.86em;resize:vertical"></textarea>' +
+            '<textarea id="strategy-panel-comment-' + nmId + '" placeholder="Комментарий: что поменяли" rows="2" style="border:1px solid #ddd;border-radius:6px;padding:7px 8px;font-size:.86em;resize:vertical"></textarea>' +
+            '<textarea id="strategy-panel-result-' + nmId + '" placeholder="Результат / наблюдение" rows="2" style="border:1px solid #ddd;border-radius:6px;padding:7px 8px;font-size:.86em;resize:vertical"></textarea>' +
+            '<button onclick="saveStrategyMilestoneFromPanel(' + nmId + ')" class="btn" style="padding:7px 10px;font-size:.84em;background:#00b894;color:#fff">Создать веху</button>' +
+        '</div>' +
+    '</div>';
+}
+
+function renderStrategyMilestoneTimeline(milestones, range) {
+    var inRange = (milestones || []).filter(function(m) {
+        return strategyDateInRange(m.event_date, range.from, range.to);
+    }).sort(function(a, b) {
+        return String(a.event_date || '') < String(b.event_date || '') ? -1 : 1;
+    });
+    var html = '<div style="margin-top:8px">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;font-size:.8em;color:#777">' +
+        '<span>' + strategyEsc(range.from || 'начало') + '</span>' +
+        '<span>Вехи на графике</span>' +
+        '<span>' + strategyEsc(range.to || 'сегодня') + '</span>' +
+        '</div>';
+    html += '<div style="position:relative;height:34px;border-radius:6px;background:#fff;border:1px solid #e2e6ea;overflow:hidden">';
+    html += '<div style="position:absolute;left:0;right:0;top:16px;border-top:1px solid #dfe3e8"></div>';
+    if (!inRange.length) {
+        html += '<div style="position:absolute;left:0;right:0;top:8px;text-align:center;color:#999;font-size:.82em">В выбранном периоде вех нет</div>';
+    }
+    inRange.forEach(function(m) {
+        var cat = strategyCat(m.category);
+        var left = strategyMarkerLeft(m.event_date, range.from, range.to);
+        var title = (m.event_date || '') + ' ' + (m.code || m.strategy_code || strategyCat(m.category).label) + (m.strategy_title ? ' — ' + m.strategy_title : '');
+        html += '<button type="button" title="' + strategyEsc(title) + '" style="position:absolute;left:calc(' + left.toFixed(2) + '% - 7px);top:8px;width:14px;height:18px;border:0;background:transparent;cursor:pointer;padding:0">' +
+            '<span style="display:block;width:12px;height:12px;border-radius:50%;background:' + cat.color + ';border:2px solid #fff;box-shadow:0 0 0 1px ' + cat.color + '"></span>' +
+            '<span style="display:block;width:1px;height:8px;background:' + cat.color + ';margin:0 auto"></span>' +
+            '</button>';
+    });
+    html += '</div></div>';
+    return html;
+}
+
+function renderStrategyMilestoneList(milestones) {
+    if (!milestones || !milestones.length) {
+        return '<div style="color:#888;font-size:.86em;padding:8px 0">Вех по этому товару ещё нет.</div>';
+    }
+    var html = '<div style="font-weight:700;font-size:.9em;margin-bottom:6px;color:#333">История вех (' + milestones.length + ')</div>';
+    html += '<div style="display:flex;flex-direction:column;gap:6px;max-height:230px;overflow:auto">';
+    milestones.forEach(function(m) {
+        var cat = strategyCat(m.category);
+        html += '<div style="display:grid;grid-template-columns:82px minmax(110px,160px) 1fr 28px;gap:7px;align-items:start;border-top:1px solid #edf0f3;padding-top:6px;font-size:.82em">' +
+            '<div style="color:#666;white-space:nowrap">' + strategyEsc(m.event_date || '—') + '</div>' +
+            '<div><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:' + cat.color + '"></span>' + strategyEsc(cat.label) + '</span></div>' +
+            '<div><b>' + strategyEsc(m.code || m.strategy_code || '—') + '</b>' + (m.strategy_title ? ' ' + strategyEsc(m.strategy_title) : '') +
+                (m.comment ? '<div style="color:#666;margin-top:2px">' + strategyEsc(m.comment) + '</div>' : '') +
+                (m.result_note ? '<div style="color:#888;margin-top:2px">' + strategyEsc(m.result_note) + '</div>' : '') +
+            '</div>' +
+            '<button onclick="deleteMilestoneById(\'' + m.id + '\',' + m.nm_id + ')" title="Удалить веху" style="border:1px solid #ffd6d6;background:#fff;color:#d63031;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:.82em">×</button>' +
+            '</div>';
+    });
+    html += '</div>';
+    return html;
+}
+
+async function loadMilestoneHistory(nmId, container, rowData) {
     try {
-        var resp = await fetch(
+        var range = strategyRangeDates();
+        var chartParams = new URLSearchParams();
+        chartParams.set('org_id', getCurrentOrgId ? getCurrentOrgId() : ORG_ID);
+        chartParams.set('nm_ids', nmId);
+        chartParams.set('metrics', 'orders_count,sales_fact,ad_cost_sum,price_spp');
+        if (range.from) chartParams.set('date_from', range.from);
+        if (range.to) chartParams.set('date_to', range.to);
+        var chartPromise = fetch('/api/v1/nl/marketer/chart-data?' + chartParams.toString(), {
+            headers: {'Authorization': 'Bearer ' + TOKEN}
+        });
+        var msPromise = fetch(
             '/api/v1/nl/strategy-milestones/by-art/' + nmId + '?' + strategyOrgParam(),
             {headers: {'Authorization': 'Bearer ' + TOKEN}}
         );
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        var data = await resp.json();
-        var milestones = data.milestones || [];
-        if (!milestones.length) {
-            container.innerHTML = '<div style="color:#888;font-size:.82em;padding:4px 0">Вех по этому товару ещё нет. Используйте форму ниже или массовое назначение.</div>';
-            return;
-        }
-        var html = '<div style="font-weight:600;font-size:.86em;margin-bottom:6px;color:#555">История вех (' + milestones.length + ')</div>';
-        html += '<table style="width:100%;font-size:.8em;border-collapse:collapse">';
-        html += '<thead><tr style="color:#888;text-align:left">' +
-            '<th style="padding:3px 8px">Дата</th>' +
-            '<th style="padding:3px 8px">Направление</th>' +
-            '<th style="padding:3px 8px">Стратегия</th>' +
-            '<th style="padding:3px 8px">Исполнитель</th>' +
-            '<th style="padding:3px 8px">Комментарий</th>' +
-            '<th style="padding:3px 8px">Результат</th>' +
-            '<th style="padding:3px 8px"></th>' +
-            '</tr></thead><tbody>';
-        milestones.forEach(function(m) {
-            var cat = strategyCat(m.category);
-            html += '<tr style="border-top:1px solid #eee">' +
-                '<td style="padding:4px 8px;white-space:nowrap">' + strategyEsc(m.event_date || '—') + '</td>' +
-                '<td style="padding:4px 8px"><span style="display:inline-flex;align-items:center;gap:4px"><span style="width:7px;height:7px;border-radius:50%;background:' + cat.color + '"></span>' + strategyEsc(cat.label) + '</span></td>' +
-                '<td style="padding:4px 8px"><b>' + strategyEsc(m.code || m.strategy_code || '—') + '</b>' + (m.strategy_title ? ' ' + strategyEsc(m.strategy_title) : '') + '</td>' +
-                '<td style="padding:4px 8px">' + strategyEsc(m.executor || '—') + '</td>' +
-                '<td style="padding:4px 8px">' + strategyEsc(m.comment || '—') + '</td>' +
-                '<td style="padding:4px 8px">' + strategyEsc(m.result_note || '—') + '</td>' +
-                '<td style="padding:4px 8px"><button onclick="deleteMilestoneById(\'' + m.id + '\',' + nmId + ')" style="border:1px solid #ffd6d6;background:#fff;color:#d63031;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:.82em">✕</button></td>' +
-                '</tr>';
-        });
-        html += '</tbody></table>';
+        var results = await Promise.all([chartPromise, msPromise]);
+        if (!results[0].ok) throw new Error('chart HTTP ' + results[0].status);
+        if (!results[1].ok) throw new Error('milestones HTTP ' + results[1].status);
+        var chartData = await results[0].json();
+        var msData = await results[1].json();
+        var milestones = msData.milestones || [];
+        var product = (chartData.product_charts || [])[0] || {};
+        var canvasId = 'strategy-product-chart-' + nmId;
+        var displayName = rowData.product_name || product.product_name || 'товар без названия';
+        var photo = rowData.photo_main || product.photo || '';
+        var html = '<div style="display:grid;grid-template-columns:minmax(420px,1.35fr) minmax(300px,.65fr);gap:12px;align-items:start">';
+        html += '<div style="background:#fff;border:1px solid #e2e6ea;border-radius:8px;padding:10px;min-width:0">' +
+            '<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;min-width:0">' +
+            (photo ? '<img src="' + strategyEsc(photo) + '" style="width:42px;height:42px;object-fit:cover;border-radius:6px;border:1px solid #edf0f3">' : '') +
+            '<div style="min-width:0"><div style="font-weight:800;color:#333">Арт WB ' + strategyEsc(nmId) + '</div>' +
+            '<div style="font-size:.82em;color:#777;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + strategyEsc(displayName) + '</div></div>' +
+            '</div>' +
+            '<div style="height:235px;min-width:0"><canvas id="' + canvasId + '"></canvas></div>' +
+            renderStrategyMilestoneTimeline(milestones, range) +
+            '</div>';
+        html += '<div style="display:flex;flex-direction:column;gap:10px;min-width:0">' +
+            strategyMilestoneFormHtml(nmId, rowData) +
+            '<div style="background:#fff;border:1px solid #e2e6ea;border-radius:8px;padding:10px">' + renderStrategyMilestoneList(milestones) + '</div>' +
+            '</div></div>';
         container.innerHTML = html;
+        setTimeout(function() {
+            renderStrategyProductChart(canvasId, nmId, product.points || [], chartData.metrics || []);
+        }, 0);
     } catch(e) {
         container.innerHTML = '<div style="color:#d63031;font-size:.82em">Ошибка: ' + strategyEsc(e.message) + '</div>';
     }
+}
+
+function strategyMetricAxis(metric) {
+    var unit = metric && metric.unit;
+    if (unit === 'rub') return 'rub';
+    if (unit === 'percent') return 'pct';
+    return 'qty';
+}
+
+function strategySetChartEmpty(canvas, message) {
+    var parent = canvas.parentElement;
+    if (!parent) return;
+    var old = parent.querySelector('.strategy-chart-empty');
+    if (old) old.remove();
+    if (!message) {
+        canvas.style.display = '';
+        return;
+    }
+    canvas.style.display = 'none';
+    var empty = document.createElement('div');
+    empty.className = 'strategy-chart-empty';
+    empty.style.cssText = 'height:100%;display:flex;align-items:center;justify-content:center;text-align:center;color:#888;font-size:.86em;background:#fbfcfe;border:1px dashed #dfe3e8;border-radius:6px;padding:16px';
+    empty.textContent = message;
+    parent.appendChild(empty);
+}
+
+function renderStrategyProductChart(canvasId, nmId, points, metrics) {
+    var canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    destroyStrategyProductChart(nmId);
+    if (typeof Chart === 'undefined') {
+        strategySetChartEmpty(canvas, 'График недоступен: библиотека Chart.js не загружена');
+        return;
+    }
+    if (!points || !points.length) {
+        strategySetChartEmpty(canvas, 'Нет данных для графика в выбранном периоде');
+        return;
+    }
+    strategySetChartEmpty(canvas, '');
+    var palette = ['#0984e3', '#00b894', '#e17055', '#6c5ce7', '#636e72'];
+    var metricList = (metrics || []).filter(function(m) {
+        return ['orders_count', 'sales_fact', 'ad_cost_sum', 'price_spp'].indexOf(m.key) !== -1;
+    });
+    if (!metricList.length) metricList = metrics || [];
+    var labels = points.map(function(p) { return String(p.date || '').slice(5); });
+    var datasets = metricList.map(function(metric, idx) {
+        return {
+            label: metric.label || metric.key,
+            data: points.map(function(p) { return Number(p[metric.key] || 0); }),
+            borderColor: palette[idx % palette.length],
+            backgroundColor: palette[idx % palette.length] + '22',
+            yAxisID: strategyMetricAxis(metric),
+            tension: 0.2,
+            borderWidth: 2,
+            pointRadius: 1,
+            pointHoverRadius: 4,
+        };
+    });
+    _strategyProductCharts[strategyNmKey(nmId)] = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {labels: labels, datasets: datasets},
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {mode: 'index', intersect: false},
+            plugins: {legend: {position: 'top', labels: {boxWidth: 10, font: {size: 10}}}},
+            scales: {
+                qty: {type: 'linear', position: 'left', grid: {color: 'rgba(0,0,0,.06)'}},
+                rub: {type: 'linear', position: 'right', grid: {drawOnChartArea: false}},
+                pct: {type: 'linear', position: 'right', display: false, grid: {drawOnChartArea: false}},
+            },
+        },
+    });
+}
+
+function onPanelStrategyChange(nmId) {
+    var strategyEl = document.getElementById('strategy-panel-strategy-' + nmId);
+    if (!strategyEl) return;
+    var id = strategyEl.value;
+    _strategyLastPickedId = id || '';
+    var s = _strategyList.find(function(item) { return item.id === id; });
+    if (!s) return;
+    var cat = document.getElementById('strategy-panel-category-' + nmId);
+    var executor = document.getElementById('strategy-panel-executor-' + nmId);
+    var role = document.getElementById('strategy-panel-role-' + nmId);
+    if (cat) cat.value = s.category || _strategyActiveCategory;
+    if (executor && !executor.value) executor.value = s.default_executor || '';
+    if (role && !role.value) role.value = s.role || '';
+}
+
+async function saveStrategyMilestoneFromPanel(nmId) {
+    var linksEl = document.getElementById('strategy-panel-links-' + nmId);
+    var links = (linksEl && linksEl.value || '').split(/\n+/).map(function(v) { return v.trim(); }).filter(Boolean);
+    var payload = {
+        id: null,
+        nm_id: nmId,
+        event_date: (document.getElementById('strategy-panel-date-' + nmId) || {}).value || strategyToday(),
+        category: (document.getElementById('strategy-panel-category-' + nmId) || {}).value || _strategyActiveCategory,
+        strategy_id: (document.getElementById('strategy-panel-strategy-' + nmId) || {}).value || null,
+        executor: ((document.getElementById('strategy-panel-executor-' + nmId) || {}).value || '').trim(),
+        role: ((document.getElementById('strategy-panel-role-' + nmId) || {}).value || '').trim(),
+        source_links: links,
+        comment: ((document.getElementById('strategy-panel-comment-' + nmId) || {}).value || '').trim(),
+        result_note: ((document.getElementById('strategy-panel-result-' + nmId) || {}).value || '').trim()
+    };
+    var resp = await fetch('/api/v1/nl/strategy-milestones?' + strategyOrgParam(), {
+        method: 'POST',
+        headers: strategyApiHeaders(),
+        body: JSON.stringify(payload)
+    });
+    if (!resp.ok) {
+        alert('Ошибка: ' + await resp.text());
+        return;
+    }
+    await loadStrategyMilestones();
+    _expandedRows.add(nmId);
+    if (strategyMilestonesTabulator) strategyMilestonesTabulator.redraw(true);
 }
 
 async function deleteMilestoneById(milestoneId, nmId) {

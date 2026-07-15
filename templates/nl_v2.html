@@ -173,7 +173,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
 <script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260715-adsfresh1"></script>
-<script type="text/javascript" src="/static/js/strategy-milestones.js?v=20260714i"></script>
+<script type="text/javascript" src="/static/js/strategy-milestones.js?v=20260715a"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
 </head>
 <body>
@@ -220,7 +220,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <a class="nav-item" onclick="navTo('opexpenses',this)"><span class="icon">📝</span>Опер. расходы</a>
 <a class="nav-item" onclick="navTo('ads',this)"><span class="icon">📢</span>Реклама</a>
 <a class="nav-item" onclick="navTo('marketer',this)"><span class="icon">📊</span>Стол маркетолога</a>
-<a class="nav-item" onclick="navTo('strategies',this)"><span class="icon">🧭</span>Стратегии и вехи</a>
+<a class="nav-item" onclick="navTo('strategies',this)"><span class="icon">🧭</span>Стратегии</a>
 <a class="nav-item" onclick="navTo('extads',this)"><span class="icon">🎯</span>Внешняя реклама</a>
 <a class="nav-item" onclick="navTo('fboneeds',this)"><span class="icon">🚚</span>Потребность FBO</a>
 <a class="nav-item" onclick="navTo('unitecon',this)"><span class="icon">🧮</span>Юнит Экономика</a>
@@ -570,7 +570,7 @@ var _sectionRegistry = {
     opexpenses: { title:'Опер. расходы' },
     ads:        { title:'Реклама', topFilters:true },
     marketer:   { title:'Стол маркетолога' },
-    strategies: { title:'Стратегии и вехи', topFilters:true },
+    strategies: { title:'Стратегии', topFilters:true },
     extads:     { title:'Внешняя реклама' },
     fboneeds:   { title:'Потребность FBO' },
     unitecon:   { title:'Юнит Экономика' },
@@ -744,8 +744,8 @@ var _sectionHTML = {
 <div style="background:#fff;border:1px solid #e6e8ec;border-radius:8px;padding:12px">
 <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap">
 <div>
-<div style="font-weight:800;color:#333;font-size:1.05em">Вехи по артикулам</div>
-<div style="font-size:.8em;color:#888">История применения стратегий по товарам за выбранный период</div>
+<div style="font-weight:800;color:#333;font-size:1.05em">Артикулы и график вех</div>
+<div style="font-size:.8em;color:#888">Раскройте товар, чтобы увидеть график за выбранный период и отметки стратегий по датам</div>
 </div>
 <span id="strategy-ms-count" style="font-size:.86em;color:#888"></span>
 </div>
@@ -765,7 +765,7 @@ var _sectionHTML = {
 <button onclick="resetStrategyMilestoneFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 10px;font-size:.9em;background:#fff;cursor:pointer">✕ Сбросить</button>
 </div>
 
-<div style="display:grid;grid-template-columns:90px 120px 170px 130px 110px minmax(180px,1fr) 130px;gap:7px;margin-bottom:10px;align-items:start">
+<div style="display:none">
 <input type="hidden" id="strategy-ms-id">
 <input id="strategy-ms-date" type="date" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">
 <input id="strategy-ms-nm" type="number" placeholder="Арт WB" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">
@@ -775,14 +775,13 @@ var _sectionHTML = {
 <select id="strategy-ms-strategy" onchange="onMilestoneStrategyChange()" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em"><option value="">Стратегия для вехи</option></select>
 <input id="strategy-ms-executor" placeholder="Исполнитель" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">
 <input id="strategy-ms-role" placeholder="Роль" style="border:1px solid #ddd;border-radius:6px;padding:6px 8px;font-size:.86em">
-<button onclick="saveStrategyMilestone()" class="btn" style="padding:6px 10px;font-size:.84em;background:#00b894;color:#fff">Создать веху</button>
 </div>
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+<div style="display:none">
 <textarea id="strategy-ms-links" placeholder="Источники, ссылки — каждая с новой строки" rows="2" style="border:1px solid #ddd;border-radius:6px;padding:7px 8px;font-size:.86em;resize:vertical"></textarea>
 <textarea id="strategy-ms-comment" placeholder="Комментарий: что поменяли" rows="2" style="border:1px solid #ddd;border-radius:6px;padding:7px 8px;font-size:.86em;resize:vertical"></textarea>
 <textarea id="strategy-ms-result" placeholder="Результат / наблюдение после изменения" rows="2" style="border:1px solid #ddd;border-radius:6px;padding:7px 8px;font-size:.86em;resize:vertical"></textarea>
 </div>
-<div id="strategy-ms-detail" style="margin-bottom:10px;padding:9px 11px;background:#fbfcfe;border:1px solid #edf0f3;border-radius:8px;font-size:.88em;color:#555">Создайте или выберите стратегию выше, затем кликните по товару в таблице или используйте массовое назначение.</div>
+<div id="strategy-ms-detail" style="margin-bottom:10px;padding:9px 11px;background:#fbfcfe;border:1px solid #edf0f3;border-radius:8px;font-size:.88em;color:#555">Создайте или выберите стратегию выше, затем раскройте артикул в таблице. Веха создаётся прямо в раскрытой карточке товара.</div>
 
 <!-- Bulk toolbar -->
 <div id="strategy-bulk-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:8px 12px;background:#f7f8fa;border-radius:8px;font-size:.85em">
