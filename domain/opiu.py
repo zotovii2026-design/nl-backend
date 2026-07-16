@@ -212,25 +212,6 @@ def build_opiu_report(rows):
     unassigned = grouped.get(("unassigned",))
     allocations = []
     if unassigned and allocation_keys:
-        _distribute_unassigned_amount(
-            grouped,
-            allocation_keys,
-            "storage",
-            unassigned["storage"],
-        )
-        if unassigned["storage"]:
-            allocations.append(
-                {
-                    "operation": "Хранение",
-                    "source_field": "paid_storage",
-                    "target_field": "storage",
-                    "amount": unassigned["storage"],
-                    "allocation": "Равными долями по проданным артикулам",
-                    "items_count": len(allocation_keys),
-                }
-            )
-            unassigned["storage"] = ZERO
-
         distributable_deduction = ZERO
         for row in rows:
             if _group_key(row) != ("unassigned",):
