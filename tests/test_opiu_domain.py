@@ -51,7 +51,29 @@ def test_opiu_matches_reference_report_totals():
 
     assert report["total"]["net_for_pay"] == Decimal("216801.56")
     assert report["total"]["gross_profit"] == Decimal("126970.12")
-    assert report["items"][-1]["vendor_code"] == "(без артикула)"
+    assert len(report["items"]) == 1
+    assert report["items"][0]["storage"] == Decimal("3806.09")
+    assert report["items"][0]["distributed_other_expenses"] == Decimal(
+        "58583.00"
+    )
+    assert report["allocations"] == [
+        {
+            "operation": "Хранение",
+            "source_field": "paid_storage",
+            "target_field": "storage",
+            "amount": Decimal("3806.09"),
+            "allocation": "Равными долями по проданным артикулам",
+            "items_count": 1,
+        },
+        {
+            "operation": "Удержания без артикула",
+            "source_field": "deduction",
+            "target_field": "other_expenses",
+            "amount": Decimal("58583.00"),
+            "allocation": "Равными долями по проданным артикулам",
+            "items_count": 1,
+        },
+    ]
 
 
 def test_opiu_unit_values_use_sales_quantity_not_row_count():
@@ -205,16 +227,15 @@ def test_opiu_v2_enrichment_keeps_ads_orders_costs_separate():
     )
 
     item = next(row for row in data["items"] if row["vendor_code"] == "article-1")
-    unassigned = data["unassigned_items"][0]
 
     assert item["advertising_api_spend"] == 123.45
     assert item["orders_qty"] == 3.0
     assert item["orders_sum"] == 1500.0
     assert item["drr"] == 8.23
     assert item["cost_total"] == 400.0
-    assert item["net_profit"] == 276.55
-    assert unassigned["vendor_code"] == "(без артикула)"
-    assert unassigned["deduction"] == 300.0
+    assert item["other_expenses"] == 300.0
+    assert item["net_profit"] == -23.45
+    assert data["unassigned_items"] == []
 
 
 def test_finance_api_row_normalization_uses_current_field_names():

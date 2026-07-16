@@ -390,6 +390,7 @@ def _enrich_serialized_report(
         other_expenses = (
             _as_decimal(item.get("deduction"))
             + _as_decimal(item.get("acceptance"))
+            + _as_decimal(item.get("distributed_other_expenses"))
             + _as_decimal(item.get("loyalty_points"))
             + _as_decimal(item.get("loyalty_participation"))
         )
@@ -616,6 +617,15 @@ CONTROL_COLUMNS = [
     ("Валовая прибыль finance", "gross_profit"),
 ]
 
+OTHER_EXPENSE_COLUMNS = [
+    ("Операция / группа", "operation"),
+    ("Поле WB", "source_field"),
+    ("Куда попало в отчете", "target_field"),
+    ("Сумма, руб", "amount"),
+    ("Правило распределения", "allocation"),
+    ("Кол-во артикулов", "items_count"),
+]
+
 RAW_FINANCE_COLUMNS = [
     ("Дата операции", "operation_date"),
     ("Тип документа", "doc_type_name"),
@@ -633,6 +643,9 @@ RAW_FINANCE_COLUMNS = [
     ("Хранение", "paid_storage"),
     ("Удержания", "deduction"),
     ("Приёмка", "paid_acceptance"),
+    ("Компенсация скидки", "cashback_amount"),
+    ("Баллы/скидка лояльности", "cashback_discount"),
+    ("Участие в лояльности", "cashback_commission_change"),
 ]
 
 
@@ -719,7 +732,7 @@ async def export_opiu_report(
     product_rows = [
         item for item in data["items"] if not item.get("is_unassigned")
     ]
-    product_rows.append(data["product_total"])
+    product_rows = [data["product_total"]] + product_rows
     control_rows = [
         {
             **item,
@@ -738,10 +751,16 @@ async def export_opiu_report(
     _style_worksheet(worksheet)
 
     total_fill = PatternFill("solid", fgColor="D9EAD3")
-    for cell in worksheet[worksheet.max_row]:
+    for cell in worksheet[2]:
         cell.fill = total_fill
         cell.font = Font(bold=True)
 
+    _append_sheet(
+        workbook,
+        "Расшифровка прочих затрат",
+        OTHER_EXPENSE_COLUMNS,
+        data.get("allocations", []),
+    )
     _append_sheet(
         workbook,
         "Контроль нераспределено",

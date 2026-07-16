@@ -36,6 +36,7 @@ def _empty_group():
         "storage": ZERO,
         "deduction": ZERO,
         "acceptance": ZERO,
+        "distributed_other_expenses": ZERO,
         "loyalty_compensation": ZERO,
         "loyalty_points": ZERO,
         "loyalty_participation": ZERO,
@@ -50,6 +51,11 @@ def _is_return(row) -> bool:
 def _is_sale(row) -> bool:
     operation = str(row.get("seller_oper_name") or "").strip().lower()
     return operation == "продажа" and not _is_return(row)
+
+
+def _is_wb_promotion_service(row) -> bool:
+    operation = str(row.get("seller_oper_name") or "").strip().lower()
+    return "wb продвиж" in operation or "вб продвиж" in operation
 
 
 def _group_key(row):
@@ -115,6 +121,7 @@ def _calculate_item(meta, totals):
         - totals["storage"]
         - totals["deduction"]
         - totals["acceptance"]
+        - totals["distributed_other_expenses"]
         - totals["loyalty_points"]
         - totals["loyalty_participation"]
     )
@@ -137,6 +144,7 @@ def _calculate_item(meta, totals):
         "storage": totals["storage"],
         "deduction": totals["deduction"],
         "acceptance": totals["acceptance"],
+        "distributed_other_expenses": totals["distributed_other_expenses"],
         "loyalty_compensation": totals["loyalty_compensation"],
         "loyalty_points": totals["loyalty_points"],
         "loyalty_participation": totals["loyalty_participation"],
@@ -196,6 +204,60 @@ def build_opiu_report(rows):
             row.get("cashback_commission_change")
         )
 
+    allocation_keys = [
+        key
+        for key, totals in grouped.items()
+        if key != ("unassigned",) and totals["sales_qty"] > ZERO
+    ]
+    unassigned = grouped.get(("unassigned",))
+    allocations = []
+    if unassigned and allocation_keys:
+        _distribute_unassigned_amount(
+            grouped,
+            allocation_keys,
+            "storage",
+            unassigned["storage"],
+        )
+        if unassigned["storage"]:
+            allocations.append(
+                {
+                    "operation": "Хранение",
+                    "source_field": "paid_storage",
+                    "target_field": "storage",
+                    "amount": unassigned["storage"],
+                    "allocation": "Равными долями по проданным артикулам",
+                    "items_count": len(allocation_keys),
+                }
+            )
+            unassigned["storage"] = ZERO
+
+        distributable_deduction = ZERO
+        for row in rows:
+            if _group_key(row) != ("unassigned",):
+                continue
+            deduction = as_decimal(row.get("deduction"))
+            if not deduction or _is_wb_promotion_service(row):
+                continue
+            distributable_deduction += deduction
+        _distribute_unassigned_amount(
+            grouped,
+            allocation_keys,
+            "distributed_other_expenses",
+            distributable_deduction,
+        )
+        if distributable_deduction:
+            allocations.append(
+                {
+                    "operation": "Удержания без артикула",
+                    "source_field": "deduction",
+                    "target_field": "other_expenses",
+                    "amount": distributable_deduction,
+                    "allocation": "Равными долями по проданным артикулам",
+                    "items_count": len(allocation_keys),
+                }
+            )
+            unassigned["deduction"] -= distributable_deduction
+
     items = [
         _calculate_item(metadata[key], totals)
         for key, totals in grouped.items()
@@ -230,7 +292,17 @@ def build_opiu_report(rows):
         },
         all_totals,
     )
-    return {"items": items, "total": total}
+    return {"items": items, "total": total, "allocations": allocations}
+
+
+def _distribute_unassigned_amount(grouped, allocation_keys, target_field, amount):
+    if not amount or not allocation_keys:
+        return
+    per_item = money(amount / Decimal(len(allocation_keys)))
+    remainder = amount - (per_item * (len(allocation_keys) - 1))
+    for key in allocation_keys[:-1]:
+        grouped[key][target_field] += per_item
+    grouped[allocation_keys[-1]][target_field] += remainder
 
 
 def serialize_report(report):
@@ -251,4 +323,5 @@ def serialize_report(report):
     return {
         "items": [serialize_item(item) for item in report["items"]],
         "total": serialize_item(report["total"]),
+        "allocations": [serialize_item(item) for item in report["allocations"]],
     }
