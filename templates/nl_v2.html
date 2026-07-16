@@ -333,7 +333,7 @@ function setCurrentOrgId(orgId) {
     ORG_ID = orgId;
     localStorage.setItem('nl_org_id', ORG_ID);
     history.replaceState(null, '', '/nl/v2?org=' + encodeURIComponent(ORG_ID));
-    ['org-select', 'filter-store', 'ue-store', 'promo-store', 'analytics-store', 'mkt-store', 'ext-ad-store', 'wb-api-status-shop'].forEach(function(id) {
+    ['org-select', 'filter-store', 'promo-store', 'analytics-store', 'mkt-store', 'ext-ad-store', 'wb-api-status-shop'].forEach(function(id) {
         const el = document.getElementById(id);
         if (el && Array.from(el.options || []).some(function(opt) { return opt.value === ORG_ID; })) {
             el.value = ORG_ID;
@@ -345,7 +345,7 @@ function clearCurrentOrgId() {
     ORG_ID = null;
     localStorage.removeItem('nl_org_id');
     if (location.search.includes('org=')) history.replaceState(null, '', '/nl/v2');
-    ['org-select', 'filter-store', 'ue-store', 'promo-store', 'analytics-store', 'mkt-store', 'ext-ad-store', 'wb-api-status-shop'].forEach(function(id) {
+    ['org-select', 'filter-store', 'promo-store', 'analytics-store', 'mkt-store', 'ext-ad-store', 'wb-api-status-shop'].forEach(function(id) {
         const el = document.getElementById(id);
         if (el) el.innerHTML = '';
     });
@@ -981,10 +981,8 @@ var _sectionHTML = {
 </div>
 `,
     'unitecon': `
-<!-- Верхняя панель: магазин (как в Справочнике) -->
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
-<span style="font-size:.9em;color:#666">🏪 Магазин:</span>
-<select id="ue-store" onchange="switchUEStore()" style="border:1px solid #e0e0e0;border-radius:6px;padding:6px 12px;font-size:.9em;min-width:200px"></select>
+<!-- Подсказка (selector магазина — глобальный, сверху) -->
+<div style="margin-bottom:12px;padding:8px 16px;background:#f8f9fb;border-radius:8px;flex-wrap:wrap">
 <span style="font-size:.82em;color:#888">Расчёт на текущих справочных данных и последних доступных ценах/тарифах.</span>
 </div>
 
@@ -1715,11 +1713,11 @@ function switchMktStore() {
 }
 
 function initMktStores() {
-    // Populate store selector from existing store selectors
-    var ueStore = document.getElementById('ue-store');
+    // Populate store selector from global filter-store
+    var fStore = document.getElementById('filter-store');
     var mktStore = document.getElementById('mkt-store');
-    if (ueStore && mktStore) {
-        mktStore.innerHTML = ueStore.innerHTML;
+    if (fStore && mktStore) {
+        mktStore.innerHTML = fStore.innerHTML;
         mktStore.value = ORG_ID;
     }
 }
@@ -3822,18 +3820,7 @@ async function loadOrgs() {
     if (sid && current && current.wb_seller_id) sid.innerHTML = '<strong>ID ' + current.wb_seller_id + '</strong>';
     else if (sid) sid.innerHTML = '';
     if (ORG_ID) sel.value = ORG_ID;
-    // Sync ue-store dropdown in Юнит-экономика
-    const ueSel = document.getElementById("ue-store");
-    if (ueSel) {
-        ueSel.innerHTML = "";
-        orgs.forEach(o => {
-            const opt = document.createElement("option");
-            opt.value = o.id;
-            opt.textContent = o.name + (o.wb_seller_id ? " (ID " + o.wb_seller_id + ")" : "");
-            if (o.id === ORG_ID) opt.selected = true;
-            ueSel.appendChild(opt);
-        });
-    }
+
     // Sync promo-store dropdown in Акции
     const promoSel = document.getElementById("promo-store");
     if (promoSel) {
@@ -3892,8 +3879,7 @@ async function switchOrg() {
     setCurrentOrgId(document.getElementById('org-select').value);
     resetAdsUiForOrgChange();
     // Sync all store dropdowns
-    const ueSel2 = document.getElementById('ue-store');
-    if (ueSel2) ueSel2.value = ORG_ID;
+
     const promoSel2 = document.getElementById('promo-store');
     if (promoSel2) promoSel2.value = ORG_ID;
     const anSel2 = document.getElementById('analytics-store');
@@ -3920,31 +3906,17 @@ async function switchOrg() {
     }
 }
 
-async function switchUEStore() {
-    const ueSel = document.getElementById("ue-store");
-    const newOrgId = ueSel.value;
-    if (newOrgId === ORG_ID) return;
-    setCurrentOrgId(newOrgId);
-    // Sync sidebar + promo-store
-    const sideSel = document.getElementById("org-select");
-    if (sideSel) sideSel.value = ORG_ID;
-    const promoSel3 = document.getElementById("promo-store");
-    if (promoSel3) promoSel3.value = ORG_ID;
-    const mktSel3 = document.getElementById("mkt-store");
-    if (mktSel3) mktSel3.value = ORG_ID;
-    loadUEData();
-}
+
 
 async function switchAnalyticsStore() {
     const anSel = document.getElementById("analytics-store");
     const newOrgId = anSel.value;
     if (newOrgId === ORG_ID) return;
     setCurrentOrgId(newOrgId);
-    // Sync sidebar + ue-store + promo-store
+    // Sync sidebar + promo-store
     const sideSel = document.getElementById("org-select");
     if (sideSel) sideSel.value = ORG_ID;
-    const ueSel = document.getElementById("ue-store");
-    if (ueSel) ueSel.value = ORG_ID;
+
     const promoSel = document.getElementById("promo-store");
     if (promoSel) promoSel.value = ORG_ID;
     const anSel2 = document.getElementById("analytics-store");
@@ -3963,8 +3935,7 @@ async function switchTopStore() {
     // Sync all other selectors
     const sideSel = document.getElementById('org-select');
     if (sideSel) sideSel.value = ORG_ID;
-    const ueSel = document.getElementById('ue-store');
-    if (ueSel) ueSel.value = ORG_ID;
+
     const promoSel = document.getElementById('promo-store');
     if (promoSel) promoSel.value = ORG_ID;
     const anSel = document.getElementById('analytics-store');
