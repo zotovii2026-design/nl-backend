@@ -16,6 +16,7 @@ from core.database import get_db
 from core.dependencies import get_current_user
 from core.role_deps import require_organization_role
 from domain.opiu import build_opiu_report, serialize_report
+from domain.unit_economics import normalize_tax_system
 from models.organization import Role
 from models.user import User
 from models.wb_finance import WbFinanceSync
@@ -319,13 +320,12 @@ async def _load_cost_by_item(
             SELECT DISTINCT ON (entity_id, nm_id)
                    entity_id,
                    nm_id,
-                   COALESCE(cost_price, 0)
-                 + COALESCE(purchase_cost, 0)
-                 + COALESCE(packaging_cost, 0)
-                 + COALESCE(logistics_cost, 0)
-                 + COALESCE(other_costs, 0)
-                 + COALESCE(extra_costs, 0)
-                 + COALESCE(vat, 0) AS unit_cost
+                   COALESCE(cost_price, 0) AS cost_price,
+                   COALESCE(extra_costs, 0) AS extra_costs,
+                   COALESCE(purchase_cost, 0) AS purchase_cost,
+                   COALESCE(tax_system, '') AS tax_system,
+                   COALESCE(tax_rate, 0) AS tax_rate,
+                   COALESCE(vat_rate, 0) AS vat_rate
             FROM reference_book
             WHERE organization_id = :org
               AND (valid_to IS NULL OR valid_to >= :date_from)
@@ -336,8 +336,23 @@ async def _load_cost_by_item(
     )
     by_entity = {}
     by_nm = {}
-    for entity_id, nm_id, unit_cost in result.all():
-        value = _as_decimal(unit_cost)
+    for (
+        entity_id,
+        nm_id,
+        cost_price,
+        extra_costs,
+        purchase_cost,
+        tax_system,
+        tax_rate,
+        vat_rate,
+    ) in result.all():
+        value = {
+            "unit_cost": _as_decimal(cost_price) + _as_decimal(extra_costs),
+            "purchase_cost": _as_decimal(purchase_cost),
+            "tax_system": normalize_tax_system(tax_system),
+            "tax_rate": _as_decimal(tax_rate),
+            "vat_rate": _as_decimal(vat_rate),
+        }
         if entity_id:
             by_entity[str(entity_id)] = value
         if nm_id:
@@ -352,12 +367,28 @@ def _item_nm_id(item):
     return int(nm_id)
 
 
+def _calculate_selected_tax(
+    tax_system: str | None,
+    tax_rate: Decimal,
+    revenue: Decimal,
+    expenses_before_tax: Decimal,
+) -> Decimal:
+    normalized = normalize_tax_system(tax_system)
+    if normalized == "usn":
+        return revenue * tax_rate / Decimal("100")
+    if normalized == "usn_dr":
+        return max(revenue - expenses_before_tax, ZERO) * tax_rate / Decimal("100")
+    if normalized == "osn" and tax_rate:
+        return max(revenue - expenses_before_tax, ZERO) * tax_rate / Decimal("100")
+    return ZERO
+
+
 def _enrich_serialized_report(
     data: dict,
     ad_spend_by_nm: dict[int, Decimal],
     orders_by_nm: dict[int, dict],
-    cost_by_entity: dict[str, Decimal],
-    cost_by_nm: dict[int, Decimal],
+    cost_by_entity: dict[str, dict],
+    cost_by_nm: dict[int, dict],
 ):
     enriched_items = []
     totals = {
@@ -365,11 +396,15 @@ def _enrich_serialized_report(
         "acquiring_sum": ZERO,
         "realized_sum": ZERO,
         "advertising_api_spend": ZERO,
+        "external_ad_spend": ZERO,
         "orders_qty": ZERO,
         "orders_sum": ZERO,
         "cost_total": ZERO,
+        "vat_tax": ZERO,
+        "selected_tax": ZERO,
         "other_expenses": ZERO,
         "net_profit": ZERO,
+        "gross_profit_after_ads": ZERO,
     }
 
     for item in data["items"]:
@@ -379,14 +414,20 @@ def _enrich_serialized_report(
         acquiring_sum = _as_decimal(item.get("acquiring_unit")) * sales_qty
         realized_sum = _as_decimal(item.get("realized_unit")) * sales_qty
         ad_spend = ad_spend_by_nm.get(nm_id, ZERO) if nm_id else ZERO
+        external_ad_spend = ZERO
         orders = orders_by_nm.get(nm_id, {}) if nm_id else {}
         orders_qty = _as_decimal(orders.get("orders_qty"))
         orders_sum = _as_decimal(orders.get("orders_sum"))
-        unit_cost = cost_by_entity.get(
+        cost_ref = cost_by_entity.get(
             str(item.get("entity_id") or ""),
-            cost_by_nm.get(nm_id, ZERO) if nm_id else ZERO,
+            cost_by_nm.get(nm_id, {}) if nm_id else {},
         )
+        unit_cost = _as_decimal(cost_ref.get("unit_cost"))
         cost_total = unit_cost * sales_qty
+        revenue_tax_base = _as_decimal(item.get("retail_net_sum")) or realized_sum
+        vat_rate = _as_decimal(cost_ref.get("vat_rate"))
+        tax_rate = _as_decimal(cost_ref.get("tax_rate"))
+        vat_tax = revenue_tax_base * vat_rate / Decimal("100")
         other_expenses = (
             _as_decimal(item.get("deduction"))
             + _as_decimal(item.get("acceptance"))
@@ -394,22 +435,79 @@ def _enrich_serialized_report(
             + _as_decimal(item.get("loyalty_points"))
             + _as_decimal(item.get("loyalty_participation"))
         )
-        net_profit = _as_decimal(item.get("gross_profit")) - ad_spend - cost_total
+        expenses_before_tax = (
+            mp_sum
+            + acquiring_sum
+            + _as_decimal(item.get("delivery_total"))
+            + _as_decimal(item.get("penalty"))
+            + _as_decimal(item.get("storage"))
+            + ad_spend
+            + external_ad_spend
+            + cost_total
+            + other_expenses
+        )
+        selected_tax = _calculate_selected_tax(
+            cost_ref.get("tax_system"),
+            tax_rate,
+            revenue_tax_base,
+            expenses_before_tax,
+        )
+        gross_profit_after_ads = _as_decimal(item.get("gross_profit")) - ad_spend
+        net_profit = (
+            gross_profit_after_ads
+            - external_ad_spend
+            - cost_total
+            - vat_tax
+            - selected_tax
+        )
         drr = ad_spend / orders_sum * 100 if orders_sum else ZERO
+        gross_margin = (
+            gross_profit_after_ads / realized_sum * 100 if realized_sum else ZERO
+        )
+        roi = net_profit / cost_total * 100 if cost_total else ZERO
+        net_margin = net_profit / realized_sum * 100 if realized_sum else ZERO
+        markup = realized_sum / cost_total * 100 if cost_total else ZERO
+        loyalty_pct = (
+            (
+                _as_decimal(item.get("loyalty_points"))
+                + _as_decimal(item.get("loyalty_participation"))
+            )
+            / _as_decimal(item.get("retail_net_sum"))
+            * 100
+            if _as_decimal(item.get("retail_net_sum"))
+            else ZERO
+        )
 
         item.update(
             {
+                "retail_sum": _money(item.get("retail_sum")),
+                "returns_retail_sum": _money(item.get("returns_retail_sum")),
+                "retail_net_sum": _money(item.get("retail_net_sum")),
                 "marketplace_commission_sum": _money(mp_sum),
                 "acquiring_sum": _money(acquiring_sum),
                 "realized_sum": _money(realized_sum),
                 "advertising_api_spend": _money(ad_spend),
+                "external_ad_spend": _money(external_ad_spend),
+                "storage_difference_info": 0,
+                "advertising_difference_info": 0,
                 "orders_qty": float(orders_qty),
                 "orders_sum": _money(orders_sum),
                 "drr": _money(drr),
                 "cost_unit": _money(unit_cost),
                 "cost_total": _money(cost_total),
+                "tax_system": cost_ref.get("tax_system") or "",
+                "tax_rate": _money(tax_rate),
+                "vat_rate": _money(vat_rate),
+                "vat_tax": _money(vat_tax),
+                "selected_tax": _money(selected_tax),
                 "other_expenses": _money(other_expenses),
+                "gross_profit_after_ads": _money(gross_profit_after_ads),
                 "net_profit": _money(net_profit),
+                "gross_margin": _money(gross_margin),
+                "net_margin": _money(net_margin),
+                "roi": _money(roi),
+                "markup": _money(markup),
+                "loyalty_pct": _money(loyalty_pct),
                 "is_unassigned": item.get("vendor_code") == "(без артикула)",
             }
         )
@@ -419,11 +517,15 @@ def _enrich_serialized_report(
                 "acquiring_sum": acquiring_sum,
                 "realized_sum": realized_sum,
                 "advertising_api_spend": ad_spend,
+                "external_ad_spend": external_ad_spend,
                 "orders_qty": orders_qty,
                 "orders_sum": orders_sum,
                 "cost_total": cost_total,
+                "vat_tax": vat_tax,
+                "selected_tax": selected_tax,
                 "other_expenses": other_expenses,
                 "net_profit": net_profit,
+                "gross_profit_after_ads": gross_profit_after_ads,
             }[key]
         enriched_items.append(item)
 
@@ -435,6 +537,24 @@ def _enrich_serialized_report(
         if totals["orders_sum"]
         else ZERO
     )
+    realized_sum = _as_decimal(total.get("realized_sum"))
+    cost_total = _as_decimal(total.get("cost_total"))
+    total["gross_margin"] = _money(
+        totals["gross_profit_after_ads"] / realized_sum * 100
+        if realized_sum
+        else ZERO
+    )
+    total["roi"] = _money(
+        totals["net_profit"] / cost_total * 100 if cost_total else ZERO
+    )
+    total["net_margin"] = _money(
+        totals["net_profit"] / realized_sum * 100 if realized_sum else ZERO
+    )
+    total["markup"] = _money(
+        realized_sum / cost_total * 100 if cost_total else ZERO
+    )
+    total["storage_difference_info"] = 0
+    total["advertising_difference_info"] = 0
     total["is_unassigned"] = False
     data["items"] = enriched_items
     data["unassigned_items"] = [
@@ -581,23 +701,43 @@ EXPORT_COLUMNS = [
     ("Артикул WB", "nm_id"),
     ("Название", "product_name"),
     ("Кол-во реализовано, шт", "sales_qty"),
+    ("Цена розничная с учетом согласованной скидки, руб", "retail_sum"),
+    ("Возвраты, сумма, руб", "returns_retail_sum"),
+    (
+        "Цена розн. с учетом скидки за вычетом возвратов, руб",
+        "retail_net_sum",
+    ),
     ("Вайлдберриз реализовал Товар (Пр), руб", "realized_sum"),
     ("Комиссия ВБ с учетом НДС, %", "marketplace_commission_pct"),
     ("Комиссия ВБ с учетом НДС, сумма, руб", "marketplace_commission_sum"),
     ("Эквайринг, %", "acquiring_pct"),
     ("Эквайринг, сумма, руб", "acquiring_sum"),
     ("Услуги по доставке товара покупателю, руб", "delivery_total"),
-    ("Штрафы", "penalty"),
-    ("Хранение", "storage"),
-    ("Реклама по API рекламы, руб", "advertising_api_spend"),
+    ("Общая сумма штрафов, руб", "penalty"),
+    ("Хранение, руб", "storage"),
+    ("Расхождение по хранению (инфо, не распределяется), руб", "storage_difference_info"),
+    ("Внутренняя реклама WB, руб", "advertising_api_spend"),
+    ("Внешняя реклама (заглушка), руб", "external_ad_spend"),
+    ("Расхождение по рекламе (инфо, не распределяется), руб", "advertising_difference_info"),
     ("ДРР, %", "drr"),
     ("Заказы, шт", "orders_qty"),
     ("Заказы, сумма, руб", "orders_sum"),
-    ("Удержания WB по фин. отчету, руб", "deduction"),
-    ("Прочие затраты", "other_expenses"),
+    ("Стоимость участия в программе лояльности, руб", "loyalty_participation"),
+    ("Сумма баллов, удержанных по программе лояльности, руб", "loyalty_points"),
+    ("% программы лояльности", "loyalty_pct"),
+    ("Платная приемка, руб", "acceptance"),
+    ("Прочие затраты, руб", "other_expenses"),
     ("К перечислению на р/с", "net_for_pay"),
-    ("Себестоимость", "cost_total"),
+    ("Валовая прибыль, руб", "gross_profit_after_ads"),
+    ("Валовая рентабельность, %", "gross_margin"),
+    ("Себестоимость, руб/ед", "cost_unit"),
+    ("Себестоимость, сумма руб", "cost_total"),
+    ("Налоговые удержания НДС, руб", "vat_tax"),
+    ("Налоговые удержания (выбранный режим), руб", "selected_tax"),
     ("Чистая прибыль", "net_profit"),
+    ("Рентабельность, %", "net_margin"),
+    ("ROI, %", "roi"),
+    ("Наценка, %", "markup"),
     ("Баркод", "barcode"),
     ("Размер", "size_name"),
     ("Бренд", "brand"),
@@ -687,6 +827,9 @@ def _product_total_row(rows):
     acquiring_sum = _sum_rows(rows, "acquiring_sum")
     ad_spend = _sum_rows(rows, "advertising_api_spend")
     orders_sum = _sum_rows(rows, "orders_sum")
+    gross_profit = _sum_rows(rows, "gross_profit_after_ads")
+    net_profit = _sum_rows(rows, "net_profit")
+    cost_total = _sum_rows(rows, "cost_total")
 
     total = {
         "vendor_code": "ИТОГО ПО АРТИКУЛАМ",
@@ -710,6 +853,14 @@ def _product_total_row(rows):
         acquiring_sum / realized_sum * 100 if realized_sum else ZERO
     )
     total["drr"] = _money(ad_spend / orders_sum * 100 if orders_sum else ZERO)
+    total["gross_margin"] = _money(
+        gross_profit / realized_sum * 100 if realized_sum else ZERO
+    )
+    total["roi"] = _money(net_profit / cost_total * 100 if cost_total else ZERO)
+    total["net_margin"] = _money(
+        net_profit / realized_sum * 100 if realized_sum else ZERO
+    )
+    total["markup"] = _money(realized_sum / cost_total * 100 if cost_total else ZERO)
     return total
 
 

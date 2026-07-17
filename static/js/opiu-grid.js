@@ -38,29 +38,46 @@ function opiuColumns() {
         {title: 'Артикул WB', field: 'nm_id', width: 115, hozAlign: 'right'},
         {title: 'Название', field: 'product_name', width: 240, tooltip: true},
         {title: 'Кол-во реализовано, шт', field: 'sales_qty', width: 145, hozAlign: 'right', formatter: opiuQuantity},
+        {title: 'Цена розничная с учетом согласованной скидки, руб', field: 'retail_sum', width: 230, ...moneyColumn},
+        {title: 'Возвраты, сумма, руб', field: 'returns_retail_sum', width: 150, ...moneyColumn},
+        {title: 'Цена розн. с учетом скидки за вычетом возвратов, руб', field: 'retail_net_sum', width: 250, ...moneyColumn},
         {title: 'Вайлдберриз реализовал Товар (Пр), руб', field: 'realized_sum', width: 220, ...moneyColumn},
         {title: 'Комиссия ВБ с учетом НДС, %', field: 'marketplace_commission_pct', width: 175, hozAlign: 'right', formatter: opiuPercent},
         {title: 'Комиссия ВБ с учетом НДС, сумма, руб', field: 'marketplace_commission_sum', width: 215, ...moneyColumn},
         {title: 'Эквайринг, %', field: 'acquiring_pct', width: 120, hozAlign: 'right', formatter: opiuPercent},
         {title: 'Эквайринг, сумма, руб', field: 'acquiring_sum', width: 155, ...moneyColumn},
         {title: 'Услуги по доставке товара покупателю, руб', field: 'delivery_total', width: 230, ...moneyColumn},
-        {title: 'Штрафы', field: 'penalty', width: 115, ...moneyColumn},
-        {title: 'Хранение', field: 'storage', width: 120, ...moneyColumn},
-        {title: 'Реклама по API рекламы, руб', field: 'advertising_api_spend', width: 185, ...moneyColumn},
+        {title: 'Общая сумма штрафов, руб', field: 'penalty', width: 160, ...moneyColumn},
+        {title: 'Хранение, руб', field: 'storage', width: 120, ...moneyColumn},
+        {title: 'Расхождение по хранению, руб', field: 'storage_difference_info', width: 185, headerTooltip: 'Информационная колонка: разница между детализацией и контрольной суммой, в строки не распределяется.', ...moneyColumn},
+        {title: 'Внутренняя реклама WB, руб', field: 'advertising_api_spend', width: 180, ...moneyColumn},
+        {title: 'Внешняя реклама, руб', field: 'external_ad_spend', width: 160, headerTooltip: 'Заглушка под внешний рекламный расход. Сейчас не участвует в расчете, пока источник не подключен.', ...moneyColumn},
+        {title: 'Расхождение по рекламе, руб', field: 'advertising_difference_info', width: 180, headerTooltip: 'Информационная колонка: разница между источниками рекламы, в строки не распределяется.', ...moneyColumn},
         {title: 'ДРР, %', field: 'drr', width: 100, hozAlign: 'right', formatter: opiuPercent},
         {title: 'Заказы, шт', field: 'orders_qty', width: 110, hozAlign: 'right', formatter: opiuQuantity},
         {title: 'Заказы, сумма, руб', field: 'orders_sum', width: 155, ...moneyColumn},
-        {title: 'Удержания WB по фин. отчету, руб', field: 'deduction', width: 210, ...moneyColumn},
-        {title: 'Прочие затраты', field: 'other_expenses', width: 145, ...moneyColumn},
+        {title: 'Стоимость участия в программе лояльности, руб', field: 'loyalty_participation', width: 235, ...moneyColumn},
+        {title: 'Сумма баллов, удержанных по программе лояльности, руб', field: 'loyalty_points', width: 255, ...moneyColumn},
+        {title: '% программы лояльности', field: 'loyalty_pct', width: 150, hozAlign: 'right', formatter: opiuPercent},
+        {title: 'Платная приемка, руб', field: 'acceptance', width: 150, ...moneyColumn},
+        {title: 'Прочие затраты, руб', field: 'other_expenses', width: 170, headerTooltip: 'Иные удержания из детализации WB, которые не попали в отдельные колонки. Если WB не отдал артикул, сумма распределяется пропорционально количеству реализованных товаров минус возвраты.', ...moneyColumn},
         {title: 'К перечислению на р/с', field: 'net_for_pay', width: 170, ...moneyColumn},
-        {title: 'Себестоимость', field: 'cost_total', width: 135, ...moneyColumn},
+        {title: 'Валовая прибыль, руб', field: 'gross_profit_after_ads', width: 165, ...moneyColumn},
+        {title: 'Валовая рентабельность, %', field: 'gross_margin', width: 160, hozAlign: 'right', formatter: opiuPercent},
+        {title: 'Себестоимость, руб/ед', field: 'cost_unit', width: 155, ...moneyColumn},
+        {title: 'Себестоимость, сумма руб', field: 'cost_total', width: 175, ...moneyColumn},
+        {title: 'Налоговые удержания НДС, руб', field: 'vat_tax', width: 190, headerTooltip: 'НДС от дохода из строки справочника.', ...moneyColumn},
+        {title: 'Налоговые удержания (выбранный режим), руб', field: 'selected_tax', width: 240, headerTooltip: 'Налог считается по системе и ставке из соответствующей строки справочника.', ...moneyColumn},
         {title: 'Чистая прибыль', field: 'net_profit', width: 145, ...moneyColumn},
+        {title: 'Рентабельность, %', field: 'net_margin', width: 135, hozAlign: 'right', formatter: opiuPercent},
+        {title: 'ROI, %', field: 'roi', width: 100, hozAlign: 'right', formatter: opiuPercent},
+        {title: 'Наценка, %', field: 'markup', width: 110, hozAlign: 'right', formatter: opiuPercent},
         {title: 'Баркод', field: 'barcode', width: 150},
         {title: 'Размер', field: 'size_name', width: 90},
         {title: 'Бренд', field: 'brand', width: 150},
         {title: 'Категория', field: 'subject_name', width: 180},
     ];
-    const savedOrder = NLGrid.loadColumnOrder('opiu-v2');
+    const savedOrder = NLGrid.loadColumnOrder('opiu-v3');
     if (!savedOrder || !savedOrder.length) return columns;
     const byField = new Map(columns.map(column => [column.field, column]));
     return savedOrder.map(field => byField.get(field)).filter(Boolean)
@@ -119,7 +136,7 @@ function initOpiuGrid() {
         },
     });
     opiuTabulator.on('columnMoved', function() {
-        NLGrid.saveColumnOrder(opiuTabulator, 'opiu-v2');
+        NLGrid.saveColumnOrder(opiuTabulator, 'opiu-v3');
     });
     return true;
 }

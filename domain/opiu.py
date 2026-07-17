@@ -24,11 +24,13 @@ def money(value: Decimal) -> Decimal:
 def _empty_group():
     return {
         "sales_qty": ZERO,
+        "returns_qty": ZERO,
+        "net_sales_qty": ZERO,
         "retail_sum": ZERO,
+        "returns_retail_sum": ZERO,
         "realized_sum": ZERO,
         "acquiring_sum": ZERO,
         "sales_for_pay": ZERO,
-        "returns_qty": ZERO,
         "returns_rub": ZERO,
         "net_for_pay": ZERO,
         "delivery_total": ZERO,
@@ -94,11 +96,13 @@ def _metadata(row):
 
 def _calculate_item(meta, totals):
     sales_qty = totals["sales_qty"]
+    net_sales_qty = totals["net_sales_qty"]
 
     def per_unit(field):
         return totals[field] / sales_qty if sales_qty else ZERO
 
     retail_unit = per_unit("retail_sum")
+    retail_net_sum = totals["retail_sum"] - totals["returns_retail_sum"]
     realized_unit = per_unit("realized_sum")
     acquiring_unit = per_unit("acquiring_sum")
     seller_payment_unit = per_unit("sales_for_pay")
@@ -129,7 +133,11 @@ def _calculate_item(meta, totals):
     return {
         **meta,
         "sales_qty": sales_qty,
+        "net_sales_qty": net_sales_qty,
+        "retail_sum": totals["retail_sum"],
         "retail_unit": retail_unit,
+        "returns_retail_sum": totals["returns_retail_sum"],
+        "retail_net_sum": retail_net_sum,
         "realized_unit": realized_unit,
         "acquiring_unit": acquiring_unit,
         "acquiring_pct": acquiring_pct,
@@ -182,13 +190,21 @@ def build_opiu_report(rows):
         quantity = as_decimal(row.get("quantity"))
         if _is_sale(row):
             totals["sales_qty"] += quantity
+            totals["net_sales_qty"] += quantity
             totals["retail_sum"] += as_decimal(row.get("retail_price"))
             totals["realized_sum"] += as_decimal(row.get("retail_amount"))
             totals["acquiring_sum"] += as_decimal(row.get("acquiring_fee"))
             totals["sales_for_pay"] += as_decimal(row.get("for_pay"))
         if _is_return(row):
-            totals["returns_qty"] += abs(quantity)
+            return_qty = abs(quantity)
+            totals["returns_qty"] += return_qty
+            totals["net_sales_qty"] -= return_qty
             totals["returns_rub"] += as_decimal(row.get("for_pay"))
+            totals["returns_retail_sum"] += abs(
+                as_decimal(row.get("return_amount"))
+                or as_decimal(row.get("retail_amount"))
+                or as_decimal(row.get("for_pay"))
+            )
 
         totals["net_for_pay"] += as_decimal(row.get("for_pay"))
         totals["delivery_total"] += as_decimal(row.get("delivery_service"))
@@ -207,7 +223,7 @@ def build_opiu_report(rows):
     allocation_keys = [
         key
         for key, totals in grouped.items()
-        if key != ("unassigned",) and totals["sales_qty"] > ZERO
+        if key != ("unassigned",) and totals["net_sales_qty"] > ZERO
     ]
     unassigned = grouped.get(("unassigned",))
     allocations = []
@@ -233,7 +249,10 @@ def build_opiu_report(rows):
                     "source_field": "deduction",
                     "target_field": "other_expenses",
                     "amount": distributable_deduction,
-                    "allocation": "Равными долями по проданным артикулам",
+                    "allocation": (
+                        "Пропорционально количеству реализованных товаров "
+                        "за вычетом возвратов"
+                    ),
                     "items_count": len(allocation_keys),
                 }
             )
@@ -279,11 +298,15 @@ def build_opiu_report(rows):
 def _distribute_unassigned_amount(grouped, allocation_keys, target_field, amount):
     if not amount or not allocation_keys:
         return
-    per_item = money(amount / Decimal(len(allocation_keys)))
-    remainder = amount - (per_item * (len(allocation_keys) - 1))
+    total_qty = sum((grouped[key]["net_sales_qty"] for key in allocation_keys), ZERO)
+    if total_qty <= ZERO:
+        return
+    allocated = ZERO
     for key in allocation_keys[:-1]:
-        grouped[key][target_field] += per_item
-    grouped[allocation_keys[-1]][target_field] += remainder
+        share = money(amount * grouped[key]["net_sales_qty"] / total_qty)
+        grouped[key][target_field] += share
+        allocated += share
+    grouped[allocation_keys[-1]][target_field] += amount - allocated
 
 
 def serialize_report(report):
@@ -293,7 +316,7 @@ def serialize_report(report):
             if key == "_raw":
                 continue
             if isinstance(value, Decimal):
-                if key in {"sales_qty", "returns_qty"}:
+                if key in {"sales_qty", "returns_qty", "net_sales_qty"}:
                     result[key] = float(value.quantize(QTY).normalize())
                 else:
                     result[key] = float(money(value))

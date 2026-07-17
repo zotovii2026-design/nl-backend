@@ -65,7 +65,10 @@ def test_opiu_matches_reference_report_totals():
             "source_field": "deduction",
             "target_field": "other_expenses",
             "amount": Decimal("58583.00"),
-            "allocation": "Равными долями по проданным артикулам",
+            "allocation": (
+                "Пропорционально количеству реализованных товаров "
+                "за вычетом возвратов"
+            ),
             "items_count": 1,
         },
     ]
@@ -217,7 +220,15 @@ def test_opiu_v2_enrichment_keeps_ads_orders_costs_separate():
         serialize_report(report),
         {100: Decimal("123.45")},
         {100: {"orders_qty": Decimal("3"), "orders_sum": Decimal("1500")}},
-        {"entity-1": Decimal("200")},
+        {
+            "entity-1": {
+                "unit_cost": Decimal("200"),
+                "purchase_cost": Decimal("0"),
+                "tax_system": None,
+                "tax_rate": Decimal("0"),
+                "vat_rate": Decimal("0"),
+            }
+        },
         {},
     )
 
@@ -231,6 +242,49 @@ def test_opiu_v2_enrichment_keeps_ads_orders_costs_separate():
     assert item["other_expenses"] == 300.0
     assert item["net_profit"] == -23.45
     assert data["unassigned_items"] == []
+
+
+def test_opiu_enrichment_uses_reference_total_cost_and_row_taxes():
+    report = build_opiu_report(
+        [
+            {
+                "entity_id": "entity-1",
+                "nm_id": 100,
+                "vendor_code": "article-1",
+                "barcode": "1",
+                "seller_oper_name": "Продажа",
+                "doc_type_name": "Продажа",
+                "quantity": 2,
+                "retail_price": 2000,
+                "retail_amount": 2000,
+                "for_pay": 1600,
+            }
+        ]
+    )
+
+    data = _enrich_serialized_report(
+        serialize_report(report),
+        {},
+        {},
+        {
+            "entity-1": {
+                "unit_cost": Decimal("250"),
+                "purchase_cost": Decimal("0"),
+                "tax_system": "usn",
+                "tax_rate": Decimal("6"),
+                "vat_rate": Decimal("5"),
+            }
+        },
+        {},
+    )
+
+    item = data["items"][0]
+
+    assert item["cost_unit"] == 250.0
+    assert item["cost_total"] == 500.0
+    assert item["vat_tax"] == 100.0
+    assert item["selected_tax"] == 120.0
+    assert item["net_profit"] == 880.0
 
 
 def test_finance_api_row_normalization_uses_current_field_names():
