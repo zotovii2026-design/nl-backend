@@ -208,9 +208,9 @@ async def fetch_paid_storage_rows(
         },
         timeout=120,
     ) as client:
-        response = await client.post(
+        response = await client.get(
             PAID_STORAGE_CREATE_PATH,
-            json={
+            params={
                 "dateFrom": date_from.isoformat(),
                 "dateTo": date_to.isoformat(),
             },
