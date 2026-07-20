@@ -4,6 +4,7 @@ Identity, organizations and WB API keys — маршруты вынесены и
 """
 import base64
 import json as _json
+import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta
@@ -34,6 +35,7 @@ router = APIRouter(
     tags=["nl"],
     dependencies=[Depends(require_query_organization_access)],
 )
+logger = logging.getLogger(__name__)
 
 
 # ─── Pydantic модели ───────────────────────────────────────
@@ -246,6 +248,17 @@ async def nl_connect_wb(
 
     await db.commit()
 
+    initial_sync_task_id = None
+    initial_sync_warning = None
+    try:
+        from tasks.celery_app import celery_app
+
+        task = celery_app.send_task("wb.initial_sync", kwargs={"org_id": str(org.id)})
+        initial_sync_task_id = task.id
+    except Exception as exc:
+        logger.exception("[connect-wb] failed to enqueue initial sync org=%s", org.id)
+        initial_sync_warning = str(exc)
+
     return {
         "status": "ok",
         "org_id": str(org.id),
@@ -254,6 +267,8 @@ async def nl_connect_wb(
         "key_id": str(wb_key.id),
         "token_status": validation["token_status"],
         "message": validation["message"],
+        "initial_sync_task_id": initial_sync_task_id,
+        "initial_sync_warning": initial_sync_warning,
     }
 
 

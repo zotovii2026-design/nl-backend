@@ -4264,9 +4264,12 @@ async function connectNewShop() {
         
         statusEl.style.background = '#e8f5e9';
         statusEl.style.color = '#2e7d32';
+        const syncText = data.initial_sync_task_id
+            ? 'Первый сбор поставлен в очередь. Task: ' + data.initial_sync_task_id
+            : 'Магазин подключен, но первый сбор не удалось поставить автоматически.';
         statusEl.innerHTML = '✅ Магазин <strong>' + data.name + '</strong> подключен!' +
             (data.wb_seller_id ? ' (seller ID: ' + data.wb_seller_id + ')' : '') +
-            '<br><span style="font-size:.8em;color:#666">Запускаем синхронизацию данных...</span>';
+            '<br><span style="font-size:.8em;color:#666">' + syncText + '</span>';
         
         document.getElementById('new-shop-name').value = '';
         document.getElementById('new-shop-key').value = '';

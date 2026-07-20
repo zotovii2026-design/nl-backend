@@ -7,6 +7,7 @@ TASK_MODULES = (
     "tasks.ad_sync",
     "tasks.promo_sync",
     "tasks.box_tariffs_sync",
+    "tasks.initial_sync",
     "tasks.monitoring",
     "tasks.opiu_sync",
     "tasks.seasonality_sync",

@@ -6,6 +6,7 @@
 import asyncio
 import logging
 import random
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Optional
 
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 PAUSE_SEC = 30
 RETRY_DELAYS = [30, 60, 120]  # base delays for exponential backoff
+_WB_KEY_ORG_FILTER: ContextVar[str | None] = ContextVar("wb_key_org_filter", default=None)
 
 
 def _get_retry_delay(attempt: int, response=None) -> float:
@@ -102,7 +104,24 @@ def _run(coro):
 
 async def _get_all_keys(sf):
     """Delegate to services.wb_api.keys"""
-    return await _get_all_keys_imported(sf)
+    keys = await _get_all_keys_imported(sf)
+    org_id = _WB_KEY_ORG_FILTER.get()
+    if org_id:
+        return [(key_org_id, api_key) for key_org_id, api_key in keys if key_org_id == org_id]
+    return keys
+
+
+def set_wb_key_org_filter(org_id: str):
+    """Limit sync helpers to one organization inside the current async context."""
+    return _WB_KEY_ORG_FILTER.set(str(org_id))
+
+
+def reset_wb_key_org_filter(token) -> None:
+    _WB_KEY_ORG_FILTER.reset(token)
+
+
+def get_wb_key_org_filter() -> str | None:
+    return _WB_KEY_ORG_FILTER.get()
 
 
 async def _save_raw(db, org_id, method, target, response, count=None, status="ok", error=None):

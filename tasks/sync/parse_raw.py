@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from tasks.ue_precompute import run_precompute
-from tasks.sync.utils import _run, _get_all_keys, _save_raw
+from tasks.sync.utils import _run, _get_all_keys, _save_raw, get_wb_key_org_filter
 from models.raw_data import TechStatus
 from services.entity_sync import find_entity_by_barcode, add_unmatched
 
@@ -50,11 +50,22 @@ async def _do_parse_raw(sf):
     window_dates = [today_msk - timedelta(days=i) for i in range(9)]
     window_dates_set = set(window_dates)
 
-    # Получаем org_ids из raw_api_data
+    # Получаем org_ids из raw_api_data. Initial sync can scope this to one org.
+    org_filter = get_wb_key_org_filter()
     async with sf() as db:
-        result = await db.execute(
-            text("SELECT DISTINCT organization_id FROM raw_api_data WHERE status = 'ok'")
-        )
+        if org_filter:
+            result = await db.execute(
+                text("""
+                    SELECT DISTINCT organization_id
+                    FROM raw_api_data
+                    WHERE status = 'ok' AND organization_id = :org
+                """),
+                {"org": org_filter},
+            )
+        else:
+            result = await db.execute(
+                text("SELECT DISTINCT organization_id FROM raw_api_data WHERE status = 'ok'")
+            )
         org_ids = [str(r[0]) for r in result.all()]
 
     total = 0
@@ -583,4 +594,3 @@ async def _do_parse_raw(sf):
 
 
 # ─── ПОДТЯЖКА ФОТО ────────────────────────────────────────
-

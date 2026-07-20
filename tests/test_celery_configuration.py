@@ -58,6 +58,18 @@ def test_every_scheduled_task_is_registered():
     assert scheduled_tasks <= set(celery_app.tasks)
 
 
+def test_initial_sync_task_is_registered():
+    from tasks.celery_app import celery_app
+
+    for module_name in TASK_MODULES:
+        importlib.import_module(module_name)
+    celery_app.loader.import_default_modules()
+    celery_app.finalize()
+
+    assert "tasks.initial_sync" in TASK_MODULES
+    assert "wb.initial_sync" in celery_app.tasks
+
+
 def test_deprecated_supplier_stocks_tasks_are_not_scheduled():
     scheduled_tasks = {entry["task"] for entry in BEAT_SCHEDULE.values()}
 
