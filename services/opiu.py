@@ -11,7 +11,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from domain.opiu import as_decimal, build_opiu_report, serialize_report
+from domain.opiu import as_decimal, build_opiu_report, money, serialize_report
 from models.product_entity import EntityBarcode, ProductEntity
 from models.wb_finance import (
     WbFinanceRow,
@@ -523,19 +523,21 @@ def normalize_finance_row(
 
 
 def _paid_storage_amount(item: dict) -> Decimal:
-    return as_decimal(
-        _pick(
-            item,
-            "warehousePrice",
-            "storagePrice",
-            "storageFee",
-            "storageSum",
-            "storage",
-            "paidStorage",
-            "amount",
-            "sum",
-            "sumPrice",
-            default=0,
+    return money(
+        as_decimal(
+            _pick(
+                item,
+                "warehousePrice",
+                "storagePrice",
+                "storageFee",
+                "storageSum",
+                "storage",
+                "paidStorage",
+                "amount",
+                "sum",
+                "sumPrice",
+                default=0,
+            )
         )
     )
 

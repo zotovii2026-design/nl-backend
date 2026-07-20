@@ -327,7 +327,7 @@ def test_paid_storage_row_normalization_accepts_wb_field_names():
             "vendorCode": "abc",
             "brandName": "Brand",
             "subjectName": "Subject",
-            "warehousePrice": "42.15",
+            "warehousePrice": "42.155",
         },
         "org-id",
         "entity-id",
@@ -337,7 +337,7 @@ def test_paid_storage_row_normalization_accepts_wb_field_names():
     assert row["storage_date"] == date.fromisoformat("2026-07-13")
     assert row["nm_id"] == 123
     assert row["entity_id"] == "entity-id"
-    assert row["storage_amount"] == Decimal("42.15")
+    assert row["storage_amount"] == Decimal("42.16")
 
 
 def test_paid_storage_rows_aggregate_before_sync_total():
