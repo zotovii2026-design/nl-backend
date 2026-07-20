@@ -8,6 +8,8 @@
 let opiuTabulator = null;
 let opiuAllRows = [];
 let opiuTotalRow = null;
+let opiuUnassignedRows = [];
+let opiuAllocations = [];
 
 function opiuMoney(cell) {
     const value = Number(cell.getValue() || 0);
@@ -56,6 +58,7 @@ function opiuColumns() {
         {title: 'ДРР, %', field: 'drr', width: 100, hozAlign: 'right', formatter: opiuPercent},
         {title: 'Заказы, шт', field: 'orders_qty', width: 110, hozAlign: 'right', formatter: opiuQuantity},
         {title: 'Заказы, сумма, руб', field: 'orders_sum', width: 155, ...moneyColumn},
+        {title: 'Компенсация скидки по программе лояльности, руб', field: 'loyalty_compensation', width: 265, ...moneyColumn},
         {title: 'Стоимость участия в программе лояльности, руб', field: 'loyalty_participation', width: 235, ...moneyColumn},
         {title: 'Сумма баллов, удержанных по программе лояльности, руб', field: 'loyalty_points', width: 255, ...moneyColumn},
         {title: '% программы лояльности', field: 'loyalty_pct', width: 150, hozAlign: 'right', formatter: opiuPercent},
@@ -290,6 +293,70 @@ function fmtPct(value) {
     }) + '%';
 }
 
+function opiuExpenseLine(label, value, tone) {
+    const amount = Number(value || 0);
+    const color = tone === 'bad' ? '#c0392b' : (tone === 'good' ? '#287a3e' : '#333');
+    return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #eee">' +
+        '<span style="color:#555">' + label + '</span>' +
+        '<strong style="color:' + color + ';white-space:nowrap">' + fmtMoney(amount) + ' ₽</strong>' +
+        '</div>';
+}
+
+function renderOpiuUnassigned(data) {
+    const container = document.getElementById('opiu-unassigned');
+    if (!container) return;
+
+    const rows = data?.unassigned_items || [];
+    const allocations = data?.allocations || [];
+    const hasRows = rows.length > 0;
+    const hasAllocations = allocations.length > 0;
+
+    if (!hasRows && !hasAllocations) {
+        container.innerHTML = '';
+        container.style.display = 'none';
+        return;
+    }
+
+    container.style.display = 'block';
+
+    const unassignedHtml = rows.map(row => {
+        const parts = [
+            opiuExpenseLine('Хранение без артикула', row.storage, 'bad'),
+            opiuExpenseLine('Удержания WB без артикула', row.deduction, 'bad'),
+            opiuExpenseLine('Штрафы без артикула', row.penalty, 'bad'),
+            opiuExpenseLine('Приёмка без артикула', row.acceptance, 'bad'),
+            opiuExpenseLine('К перечислению без артикула', row.net_for_pay, Number(row.net_for_pay || 0) >= 0 ? 'good' : 'bad'),
+            opiuExpenseLine('Влияние на чистую прибыль', row.net_profit, Number(row.net_profit || 0) >= 0 ? 'good' : 'bad'),
+        ].join('');
+        return '<div style="min-width:260px;flex:1;padding:12px 14px;background:#fff;border:1px solid #eadfbd;border-radius:8px">' +
+            '<div style="font-weight:700;color:#6b5200;margin-bottom:6px">Строка без артикула</div>' +
+            parts +
+            '</div>';
+    }).join('');
+
+    const allocationsHtml = allocations.map(item => (
+        '<div style="padding:10px 12px;background:#fff;border:1px solid #e2e6ef;border-radius:8px;margin-bottom:8px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">' +
+        '<strong style="color:#333">' + (item.operation || 'Распределение') + '</strong>' +
+        '<strong style="color:#c0392b;white-space:nowrap">' + fmtMoney(item.amount) + ' ₽</strong>' +
+        '</div>' +
+        '<div style="font-size:.82em;color:#777;margin-top:4px">' + (item.allocation || '') +
+        (item.items_count ? ' · ' + item.items_count + ' артикулов' : '') +
+        '</div>' +
+        '</div>'
+    )).join('');
+
+    container.innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">' +
+        '<div><div style="font-size:1.02em;font-weight:700;color:#333">Без артикула / контроль</div>' +
+        '<div style="font-size:.82em;color:#777">Суммы, которые WB отдал без привязки к товару, и правила распределения</div></div>' +
+        '</div>' +
+        '<div style="display:flex;gap:12px;align-items:stretch;flex-wrap:wrap">' +
+        unassignedHtml +
+        (allocationsHtml ? '<div style="min-width:280px;flex:1">' + allocationsHtml + '</div>' : '') +
+        '</div>';
+}
+
 function renderOpiuSummary(total, dateFrom, dateTo) {
     const container = document.getElementById('opiu-summary');
     if (!container || !total) return;
@@ -298,35 +365,45 @@ function renderOpiuSummary(total, dateFrom, dateTo) {
         ? 'за ' + dateFrom + ' — ' + dateTo
         : '';
 
-    const revenue = Number(total.realized_unit * total.sales_qty || 0);
+    const revenue = Number(total.realized_sum || total.realized_unit * total.sales_qty || 0);
     const netPay = Number(total.net_for_pay || 0);
     const delivery = Number(total.delivery_total || 0);
     const storage = Number(total.storage || 0);
     const penalty = Number(total.penalty || 0);
-    const deduction = Number(total.deduction || 0);
+    const otherExpenses = Number(total.other_expenses || total.deduction || 0);
     const acceptance = Number(total.acceptance || 0);
+    const adSpend = Number(total.advertising_api_spend || 0);
+    const ordersSum = Number(total.orders_sum || 0);
+    const costTotal = Number(total.cost_total || 0);
+    const netProfit = Number(total.net_profit || 0);
     const loyaltyPoints = Number(total.loyalty_points || 0);
     const loyaltyParticipation = Number(total.loyalty_participation || 0);
-    const grossProfit = Number(total.gross_profit || 0);
+    const loyaltyCompensation = Number(total.loyalty_compensation || 0);
+    const grossProfit = Number(total.gross_profit_after_ads || total.gross_profit || 0);
     const returnsRub = Number(total.returns_rub || 0);
     const salesQty = Number(total.sales_qty || 0);
     const returnsQty = Number(total.returns_qty || 0);
-    const margin = revenue ? (grossProfit / revenue * 100) : 0;
+    const netMargin = Number(total.net_margin || (revenue ? (netProfit / revenue * 100) : 0));
+    const drr = Number(total.drr || (ordersSum ? (adSpend / ordersSum * 100) : 0));
 
     const cards = [
-        {label: 'Выручка', value: fmtMoney(revenue) + ' ₽', color: '#5B4B8A'},
+        {label: 'Выручка WB', value: fmtMoney(revenue) + ' ₽', color: '#5B4B8A'},
+        {label: 'Заказы', value: fmtMoney(ordersSum) + ' ₽ / ' + opiuQuantity({getValue: () => total.orders_qty}) + ' шт', color: '#333'},
         {label: 'Продажи', value: salesQty.toLocaleString('ru-RU') + ' шт', color: '#333'},
         {label: 'Возвраты', value: returnsQty.toLocaleString('ru-RU') + ' шт / ' + fmtMoney(returnsRub) + ' ₽', color: '#c0392b'},
         {label: 'К перечислению', value: fmtMoney(netPay) + ' ₽', color: '#27ae60'},
-        {label: 'Комиссия МП', value: fmtMoney(total.marketplace_commission_unit * salesQty) + ' ₽', color: '#e67e22'},
+        {label: 'Реклама WB', value: fmtMoney(adSpend) + ' ₽ / ДРР ' + fmtPct(drr), color: '#c0392b'},
+        {label: 'Себестоимость', value: fmtMoney(costTotal) + ' ₽', color: '#333'},
+        {label: 'Комиссия МП', value: fmtMoney(total.marketplace_commission_sum || total.marketplace_commission_unit * salesQty) + ' ₽', color: '#e67e22'},
         {label: 'Доставка', value: fmtMoney(delivery) + ' ₽', color: '#333'},
         {label: 'Хранение', value: fmtMoney(storage) + ' ₽', color: '#333'},
         {label: 'Штрафы', value: fmtMoney(penalty) + ' ₽', color: '#c0392b'},
-        {label: 'Удержания', value: fmtMoney(deduction) + ' ₽', color: '#c0392b'},
+        {label: 'Прочие затраты', value: fmtMoney(otherExpenses) + ' ₽', color: '#c0392b'},
         {label: 'Приёмка', value: fmtMoney(acceptance) + ' ₽', color: '#333'},
-        {label: 'Лояльность', value: fmtMoney(loyaltyPoints + loyaltyParticipation) + ' ₽', color: '#8e44ad'},
-        {label: 'Валовая прибыль', value: fmtMoney(grossProfit) + ' ₽', color: grossProfit >= 0 ? '#27ae60' : '#c0392b', bold: true},
-        {label: 'Маржинальность', value: fmtPct(margin), color: margin >= 20 ? '#27ae60' : (margin >= 0 ? '#e67e22' : '#c0392b'), bold: true},
+        {label: 'Лояльность', value: fmtMoney(loyaltyPoints + loyaltyParticipation) + ' ₽ / комп. ' + fmtMoney(loyaltyCompensation), color: '#8e44ad'},
+        {label: 'Валовая после рекламы', value: fmtMoney(grossProfit) + ' ₽', color: grossProfit >= 0 ? '#27ae60' : '#c0392b', bold: true},
+        {label: 'Чистая прибыль', value: fmtMoney(netProfit) + ' ₽', color: netProfit >= 0 ? '#27ae60' : '#c0392b', bold: true},
+        {label: 'Рентабельность', value: fmtPct(netMargin), color: netMargin >= 20 ? '#27ae60' : (netMargin >= 0 ? '#e67e22' : '#c0392b'), bold: true},
     ];
 
     const html = cards.map(card => {
@@ -379,18 +456,28 @@ async function loadOpiu() {
             ...row,
             _row_id: row.entity_id + '|' + row.barcode + '|' + row.size_name + '|' + index,
         }));
+        opiuUnassignedRows = data.unassigned_items || [];
+        opiuAllocations = data.allocations || [];
         opiuTotalRow = data.product_total || data.total || null;
         fillOpiuFilters(opiuAllRows);
         applyOpiuFilters();
         renderOpiuSyncInfo(data.sync);
         renderOpiuSummary(data.total, range.dateFrom, range.dateTo);
+        renderOpiuUnassigned(data);
     } catch (error) {
         console.error('loadOpiu error:', error);
         opiuAllRows = [];
+        opiuUnassignedRows = [];
+        opiuAllocations = [];
         opiuTotalRow = null;
         if (opiuTabulator) opiuTabulator.replaceData([]);
         const summary = document.getElementById('opiu-summary');
         if (summary) summary.innerHTML = '';
+        const unassigned = document.getElementById('opiu-unassigned');
+        if (unassigned) {
+            unassigned.innerHTML = '';
+            unassigned.style.display = 'none';
+        }
         if (count) count.textContent = 'Ошибка загрузки';
     }
 }

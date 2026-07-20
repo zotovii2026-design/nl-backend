@@ -45,15 +45,18 @@ def test_opiu_v2_columns_match_wb_template_language():
         "Внутренняя реклама WB, руб",
         "ДРР, %",
         "Заказы, сумма, руб",
+        "Компенсация скидки по программе лояльности",
         "Прочие затраты",
         "Себестоимость",
         "Чистая прибыль",
+        "Без артикула / контроль",
     )
 
     for title in required_titles:
         assert title in OPIU_SOURCE
 
-    assert "opiu-grid.js?v=20260717-opiuv3" in DASHBOARD_SOURCE
+    assert "id=\"opiu-unassigned\"" in DASHBOARD_SOURCE
+    assert "opiu-grid.js?v=20260720-opiuv3-front" in DASHBOARD_SOURCE
 
 
 def test_reference_book_visible_columns_contract_is_stable():
