@@ -36,6 +36,32 @@ router = APIRouter(
     dependencies=[Depends(require_query_organization_access)],
 )
 logger = logging.getLogger(__name__)
+ADS_INITIAL_BACKFILL_DAYS = 9
+
+
+def _enqueue_wb_initial_tasks(org_id: str):
+    """Queue initial WB syncs after a valid token is saved."""
+    task_ids = {}
+    warnings = {}
+    try:
+        from tasks.celery_app import celery_app
+
+        initial_task = celery_app.send_task("wb.initial_sync", kwargs={"org_id": org_id})
+        task_ids["initial_sync_task_id"] = initial_task.id
+
+        ads_task = celery_app.send_task(
+            "wb.sched.ad_stats",
+            kwargs={
+                "days_back": ADS_INITIAL_BACKFILL_DAYS,
+                "org_id": org_id,
+                "include_current_day": True,
+            },
+        )
+        task_ids["ads_backfill_task_id"] = ads_task.id
+    except Exception as exc:
+        logger.exception("[connect-wb] failed to enqueue initial tasks org=%s", org_id)
+        warnings["initial_sync_warning"] = str(exc)
+    return task_ids, warnings
 
 
 # ─── Pydantic модели ───────────────────────────────────────
@@ -248,16 +274,7 @@ async def nl_connect_wb(
 
     await db.commit()
 
-    initial_sync_task_id = None
-    initial_sync_warning = None
-    try:
-        from tasks.celery_app import celery_app
-
-        task = celery_app.send_task("wb.initial_sync", kwargs={"org_id": str(org.id)})
-        initial_sync_task_id = task.id
-    except Exception as exc:
-        logger.exception("[connect-wb] failed to enqueue initial sync org=%s", org.id)
-        initial_sync_warning = str(exc)
+    task_ids, task_warnings = _enqueue_wb_initial_tasks(str(org.id))
 
     return {
         "status": "ok",
@@ -267,8 +284,8 @@ async def nl_connect_wb(
         "key_id": str(wb_key.id),
         "token_status": validation["token_status"],
         "message": validation["message"],
-        "initial_sync_task_id": initial_sync_task_id,
-        "initial_sync_warning": initial_sync_warning,
+        **task_ids,
+        **task_warnings,
     }
 
 
@@ -380,7 +397,15 @@ async def nl_add_wb_key(data: dict, org_id: str, db: AsyncSession = Depends(get_
     except Exception:
         pass  # Не критично если не удалось распарсить
     await db.commit()
-    return {"status": "ok", "id": str(key.id), "token_status": validation["token_status"], "message": validation["message"]}
+    task_ids, task_warnings = _enqueue_wb_initial_tasks(str(org_id))
+    return {
+        "status": "ok",
+        "id": str(key.id),
+        "token_status": validation["token_status"],
+        "message": validation["message"],
+        **task_ids,
+        **task_warnings,
+    }
 
 
 @router.delete("/api/v1/nl/wb-keys/{key_id}")
