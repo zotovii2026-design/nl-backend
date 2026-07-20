@@ -164,3 +164,79 @@ class WbOpiuSnapshot(Base):
             "period_to",
         ),
     )
+
+
+class WbPaidStorageRow(Base):
+    __tablename__ = "wb_paid_storage_rows"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    entity_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("product_entities.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    storage_date = Column(Date, nullable=False)
+    nm_id = Column(BigInteger, nullable=False)
+    vendor_code = Column(String(200), nullable=True)
+    subject_name = Column(String(200), nullable=True)
+    brand = Column(String(200), nullable=True)
+    storage_amount = Column(Numeric(16, 2), nullable=False, default=0)
+    raw_data = Column(JSONB, nullable=False)
+    fetched_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "storage_date",
+            "nm_id",
+            name="wb_paid_storage_rows_org_date_nm_key",
+        ),
+        Index(
+            "ix_wb_paid_storage_rows_org_date",
+            "organization_id",
+            "storage_date",
+        ),
+        Index(
+            "ix_wb_paid_storage_rows_org_nm",
+            "organization_id",
+            "nm_id",
+        ),
+    )
+
+
+class WbPaidStorageSync(Base):
+    __tablename__ = "wb_paid_storage_syncs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    date_from = Column(Date, nullable=False)
+    date_to = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, default="running")
+    rows_count = Column(Integer, nullable=False, default=0)
+    total_storage = Column(Numeric(16, 2), nullable=False, default=0)
+    task_id = Column(String(100), nullable=True)
+    error_message = Column(Text, nullable=True)
+    started_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index(
+            "ix_wb_paid_storage_syncs_org_period",
+            "organization_id",
+            "date_from",
+            "date_to",
+        ),
+    )

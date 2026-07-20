@@ -13,14 +13,24 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from domain.opiu import as_decimal, build_opiu_report, serialize_report
 from models.product_entity import EntityBarcode, ProductEntity
-from models.wb_finance import WbFinanceRow, WbFinanceSync, WbOpiuSnapshot
+from models.wb_finance import (
+    WbFinanceRow,
+    WbFinanceSync,
+    WbOpiuSnapshot,
+    WbPaidStorageRow,
+    WbPaidStorageSync,
+)
 
 
 logger = logging.getLogger(__name__)
 
 FINANCE_API = "https://finance-api.wildberries.ru"
+SELLER_ANALYTICS_API = "https://seller-analytics-api.wildberries.ru"
 DETAIL_PATH = "/api/finance/v1/sales-reports/detailed"
 LIST_PATH = "/api/finance/v1/sales-reports/list"
+PAID_STORAGE_CREATE_PATH = "/api/v1/paid_storage"
+PAID_STORAGE_STATUS_PATH = "/api/v1/paid_storage/tasks/{task_id}/status"
+PAID_STORAGE_DOWNLOAD_PATH = "/api/v1/paid_storage/tasks/{task_id}/download"
 PAGE_LIMIT = 100000
 MAX_PAGES = 1000
 UPSERT_CHUNK = 1000
@@ -122,6 +132,46 @@ def _extract_items(payload: Any) -> list[dict]:
     return []
 
 
+def _extract_task_id(payload: Any) -> str | None:
+    if isinstance(payload, dict):
+        for key in ("taskId", "task_id", "id"):
+            value = payload.get(key)
+            if value:
+                return str(value)
+        for key in ("data", "result"):
+            nested = _extract_task_id(payload.get(key))
+            if nested:
+                return nested
+    return None
+
+
+def _paid_storage_status_done(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    values = []
+    for key in ("done", "isDone", "completed", "isCompleted"):
+        if payload.get(key) is True:
+            return True
+    for key in ("status", "state"):
+        if payload.get(key) is not None:
+            values.append(str(payload.get(key)).strip().lower())
+    data = payload.get("data")
+    if isinstance(data, dict):
+        for key in ("done", "isDone", "completed", "isCompleted"):
+            if data.get(key) is True:
+                return True
+        for key in ("status", "state"):
+            if data.get(key) is not None:
+                values.append(str(data.get(key)).strip().lower())
+    return any(value in {"done", "success", "finished", "completed"} for value in values)
+
+
+def _paid_storage_date_window(date_from: date, date_to: date) -> tuple[date, date]:
+    # WB finance rows usually book storage one day earlier than the
+    # paid_storage report date, so a finance period N..M maps to N+1..M+1.
+    return date_from + timedelta(days=1), date_to + timedelta(days=1)
+
+
 async def _request_with_retry(
     client: httpx.AsyncClient,
     path: str,
@@ -140,6 +190,52 @@ async def _request_with_retry(
             delay = 30
         await asyncio.sleep(delay)
     raise RuntimeError("WB Finance API retry loop exhausted")
+
+
+async def fetch_paid_storage_rows(
+    token: str,
+    date_from: date,
+    date_to: date,
+    poll_interval: float = 5,
+    max_polls: int = 60,
+) -> tuple[str, list[dict]]:
+    async with httpx.AsyncClient(
+        base_url=SELLER_ANALYTICS_API,
+        headers={
+            "Authorization": _authorization_value(token),
+            "Content-Type": "application/json",
+            "User-Agent": "NL-Table/1.0",
+        },
+        timeout=120,
+    ) as client:
+        response = await client.post(
+            PAID_STORAGE_CREATE_PATH,
+            json={
+                "dateFrom": date_from.isoformat(),
+                "dateTo": date_to.isoformat(),
+            },
+        )
+        response.raise_for_status()
+        task_id = _extract_task_id(response.json())
+        if not task_id:
+            raise RuntimeError("WB paid_storage task id was not returned")
+
+        for _ in range(max_polls):
+            status_response = await client.get(
+                PAID_STORAGE_STATUS_PATH.format(task_id=task_id)
+            )
+            status_response.raise_for_status()
+            if _paid_storage_status_done(status_response.json()):
+                break
+            await asyncio.sleep(poll_interval)
+        else:
+            raise TimeoutError("WB paid_storage task did not finish in time")
+
+        download_response = await client.get(
+            PAID_STORAGE_DOWNLOAD_PATH.format(task_id=task_id)
+        )
+        download_response.raise_for_status()
+        return task_id, _extract_items(download_response.json())
 
 
 async def fetch_finance_rows(
@@ -426,6 +522,50 @@ def normalize_finance_row(
     }
 
 
+def _paid_storage_amount(item: dict) -> Decimal:
+    return as_decimal(
+        _pick(
+            item,
+            "warehousePrice",
+            "storagePrice",
+            "storageFee",
+            "storageSum",
+            "storage",
+            "paidStorage",
+            "amount",
+            "sum",
+            "sumPrice",
+            default=0,
+        )
+    )
+
+
+def normalize_paid_storage_row(
+    item: dict,
+    organization_id: str,
+    entity_id,
+    fallback_date: date,
+) -> dict | None:
+    nm_id = _pick(item, "nmId", "nmID", "nm_id", "nm")
+    if nm_id in (None, ""):
+        return None
+    storage_date = _parse_date(
+        _pick(item, "date", "storageDate", "reportDate", "dt")
+    ) or fallback_date
+    return {
+        "organization_id": organization_id,
+        "entity_id": entity_id,
+        "storage_date": storage_date,
+        "nm_id": int(nm_id),
+        "vendor_code": _pick(item, "vendorCode", "supplierArticle"),
+        "subject_name": _pick(item, "subjectName", "subject"),
+        "brand": _pick(item, "brandName", "brand"),
+        "storage_amount": _paid_storage_amount(item),
+        "raw_data": item,
+        "fetched_at": datetime.now(timezone.utc),
+    }
+
+
 def _chunks(values: list[dict], size: int) -> Iterable[list[dict]]:
     for start in range(0, len(values), size):
         yield values[start : start + size]
@@ -474,6 +614,120 @@ async def _upsert_rows(db: AsyncSession, rows: list[dict]) -> int:
         await db.execute(statement)
     await db.commit()
     return len(rows)
+
+
+async def _upsert_paid_storage_rows(db: AsyncSession, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    aggregated = {}
+    for row in rows:
+        key = (
+            row["organization_id"],
+            row["storage_date"],
+            row["nm_id"],
+        )
+        if key not in aggregated:
+            aggregated[key] = row.copy()
+            continue
+        previous_raw = aggregated[key]["raw_data"]
+        previous_items = (
+            previous_raw.get("items", [previous_raw])
+            if isinstance(previous_raw, dict)
+            else [previous_raw]
+        )
+        aggregated[key]["storage_amount"] += row["storage_amount"]
+        aggregated[key]["raw_data"] = {"items": [*previous_items, row["raw_data"]]}
+        if not aggregated[key].get("entity_id") and row.get("entity_id"):
+            aggregated[key]["entity_id"] = row["entity_id"]
+
+    values = list(aggregated.values())
+    for chunk in _chunks(values, UPSERT_CHUNK):
+        statement = pg_insert(WbPaidStorageRow).values(chunk)
+        excluded = statement.excluded
+        statement = statement.on_conflict_do_update(
+            constraint="wb_paid_storage_rows_org_date_nm_key",
+            set_={
+                "entity_id": excluded.entity_id,
+                "vendor_code": excluded.vendor_code,
+                "subject_name": excluded.subject_name,
+                "brand": excluded.brand,
+                "storage_amount": excluded.storage_amount,
+                "raw_data": excluded.raw_data,
+                "fetched_at": excluded.fetched_at,
+            },
+        )
+        await db.execute(statement)
+    await db.commit()
+    return len(values)
+
+
+async def sync_paid_storage_period(
+    session_factory: async_sessionmaker,
+    organization_id: str,
+    token: str,
+    date_from: date,
+    date_to: date,
+) -> dict:
+    async with session_factory() as db:
+        sync = WbPaidStorageSync(
+            organization_id=organization_id,
+            date_from=date_from,
+            date_to=date_to,
+            status="running",
+        )
+        db.add(sync)
+        await db.commit()
+        await db.refresh(sync)
+        sync_id = sync.id
+
+    try:
+        task_id, raw_rows = await fetch_paid_storage_rows(
+            token,
+            date_from,
+            date_to,
+        )
+        async with session_factory() as db:
+            maps = await _entity_maps(db, organization_id)
+            normalized = []
+            for item in raw_rows:
+                row = normalize_paid_storage_row(
+                    item,
+                    organization_id,
+                    _resolve_entity(item, *maps),
+                    date_from,
+                )
+                if row is not None:
+                    normalized.append(row)
+            rows_count = await _upsert_paid_storage_rows(db, normalized)
+            total_storage = sum(
+                (row["storage_amount"] for row in normalized),
+                Decimal("0"),
+            )
+
+        async with session_factory() as db:
+            sync = await db.get(WbPaidStorageSync, sync_id)
+            sync.status = "success"
+            sync.rows_count = rows_count
+            sync.total_storage = total_storage
+            sync.task_id = task_id
+            sync.finished_at = datetime.now(timezone.utc)
+            await db.commit()
+        return {
+            "status": "success",
+            "task_id": task_id,
+            "rows": rows_count,
+            "total_storage": float(total_storage),
+            "date_from": date_from.isoformat(),
+            "date_to": date_to.isoformat(),
+        }
+    except Exception as error:
+        async with session_factory() as db:
+            sync = await db.get(WbPaidStorageSync, sync_id)
+            sync.status = "error"
+            sync.error_message = str(error)
+            sync.finished_at = datetime.now(timezone.utc)
+            await db.commit()
+        raise
 
 
 def _snapshot_group_key(item: dict) -> str:
@@ -547,6 +801,22 @@ async def sync_finance_period(
 
     try:
         raw_rows = await fetch_finance_rows(token, date_from, date_to)
+        paid_storage_result = None
+        storage_from, storage_to = _paid_storage_date_window(date_from, date_to)
+        try:
+            paid_storage_result = await sync_paid_storage_period(
+                session_factory,
+                organization_id,
+                token,
+                storage_from,
+                storage_to,
+            )
+        except Exception as error:
+            logger.warning(
+                "WB paid_storage sync is unavailable for org=%s: %s",
+                organization_id,
+                error,
+            )
         try:
             bank_payment_sum = await fetch_bank_payment_sum(
                 token, date_from, date_to
@@ -620,6 +890,7 @@ async def sync_finance_period(
             ),
             "calculated_payment_sum": float(calculated),
             "difference": float(difference) if difference is not None else None,
+            "paid_storage": paid_storage_result,
         }
     except Exception as error:
         logger.exception(

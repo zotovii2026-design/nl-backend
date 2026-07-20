@@ -10,6 +10,7 @@ from api.v1.routers.opiu import _enrich_serialized_report
 from services.opiu import (
     FINANCE_FIELDS,
     _fetch_finance_chunk,
+    normalize_paid_storage_row,
     normalize_finance_row,
 )
 
@@ -56,22 +57,9 @@ def test_opiu_matches_reference_report_totals():
     unassigned = report["items"][1]
     assert product["storage"] == Decimal("0")
     assert unassigned["storage"] == Decimal("3806.09")
-    assert report["items"][0]["distributed_other_expenses"] == Decimal(
-        "58583.00"
-    )
-    assert report["allocations"] == [
-        {
-            "operation": "Удержания без артикула",
-            "source_field": "deduction",
-            "target_field": "other_expenses",
-            "amount": Decimal("58583.00"),
-            "allocation": (
-                "Пропорционально количеству реализованных товаров "
-                "за вычетом возвратов"
-            ),
-            "items_count": 1,
-        },
-    ]
+    assert product["distributed_other_expenses"] == Decimal("0")
+    assert unassigned["deduction"] == Decimal("58583.00")
+    assert report["allocations"] == []
 
 
 def test_opiu_unit_values_use_sales_quantity_not_row_count():
@@ -239,9 +227,9 @@ def test_opiu_v2_enrichment_keeps_ads_orders_costs_separate():
     assert item["orders_sum"] == 1500.0
     assert item["drr"] == 8.23
     assert item["cost_total"] == 400.0
-    assert item["other_expenses"] == 300.0
-    assert item["net_profit"] == -23.45
-    assert data["unassigned_items"] == []
+    assert item["other_expenses"] == 0.0
+    assert item["net_profit"] == 276.55
+    assert data["unassigned_items"][0]["deduction"] == 300.0
 
 
 def test_opiu_enrichment_uses_reference_total_cost_and_row_taxes():
@@ -285,6 +273,70 @@ def test_opiu_enrichment_uses_reference_total_cost_and_row_taxes():
     assert item["vat_tax"] == 100.0
     assert item["selected_tax"] == 120.0
     assert item["net_profit"] == 880.0
+
+
+def test_opiu_enrichment_can_use_historical_cost_total():
+    report = build_opiu_report(
+        [
+            {
+                "entity_id": "entity-1",
+                "nm_id": 100,
+                "vendor_code": "article-1",
+                "barcode": "1",
+                "seller_oper_name": "Продажа",
+                "doc_type_name": "Продажа",
+                "quantity": 3,
+                "retail_price": 3000,
+                "retail_amount": 3000,
+                "for_pay": 2400,
+            }
+        ]
+    )
+
+    data = _enrich_serialized_report(
+        serialize_report(report),
+        {},
+        {},
+        {
+            "entity-1": {
+                "unit_cost": Decimal("999"),
+                "purchase_cost": Decimal("0"),
+                "tax_system": None,
+                "tax_rate": Decimal("0"),
+                "vat_rate": Decimal("0"),
+            }
+        },
+        {},
+        {"entity-1": Decimal("450")},
+        {},
+    )
+
+    item = data["items"][0]
+
+    assert item["cost_unit"] == 150.0
+    assert item["cost_total"] == 450.0
+    assert item["net_profit"] == 1950.0
+
+
+def test_paid_storage_row_normalization_accepts_wb_field_names():
+    row = normalize_paid_storage_row(
+        {
+            "date": "2026-07-13",
+            "nmId": 123,
+            "vendorCode": "abc",
+            "brandName": "Brand",
+            "subjectName": "Subject",
+            "warehousePrice": "42.15",
+        },
+        "org-id",
+        "entity-id",
+        date.fromisoformat("2026-07-13"),
+    )
+
+    assert row["storage_date"] == date.fromisoformat("2026-07-13")
+    assert row["nm_id"] == 123
+    assert row["entity_id"] == "entity-id"
+    assert row["storage_amount"] == Decimal("42.15")
 
 
 def test_finance_api_row_normalization_uses_current_field_names():

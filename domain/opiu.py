@@ -220,43 +220,7 @@ def build_opiu_report(rows):
             row.get("cashback_commission_change")
         )
 
-    allocation_keys = [
-        key
-        for key, totals in grouped.items()
-        if key != ("unassigned",) and totals["net_sales_qty"] > ZERO
-    ]
-    unassigned = grouped.get(("unassigned",))
     allocations = []
-    if unassigned and allocation_keys:
-        distributable_deduction = ZERO
-        for row in rows:
-            if _group_key(row) != ("unassigned",):
-                continue
-            deduction = as_decimal(row.get("deduction"))
-            if not deduction or _is_wb_promotion_service(row):
-                continue
-            distributable_deduction += deduction
-        _distribute_unassigned_amount(
-            grouped,
-            allocation_keys,
-            "distributed_other_expenses",
-            distributable_deduction,
-        )
-        if distributable_deduction:
-            allocations.append(
-                {
-                    "operation": "Удержания без артикула",
-                    "source_field": "deduction",
-                    "target_field": "other_expenses",
-                    "amount": distributable_deduction,
-                    "allocation": (
-                        "Пропорционально количеству реализованных товаров "
-                        "за вычетом возвратов"
-                    ),
-                    "items_count": len(allocation_keys),
-                }
-            )
-            unassigned["deduction"] -= distributable_deduction
 
     items = [
         _calculate_item(metadata[key], totals)

@@ -1,7 +1,7 @@
 """API endpoints for the rebuilt OPIU report."""
 
 import io
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import openpyxl
@@ -95,6 +95,7 @@ async def _load_report_rows(
                           AND ref.nm_id = fr.nm_id
                       )
                   )
+                  AND ref.valid_from <= :date_to
                   AND (ref.valid_to IS NULL OR ref.valid_to >= :date_from)
                 ORDER BY
                     CASE WHEN ref.entity_id = fr.entity_id THEN 0 ELSE 1 END,
@@ -120,6 +121,128 @@ async def _load_report_rows(
         },
     )
 
+    names = [
+        "entity_id",
+        "nm_id",
+        "vendor_code",
+        "barcode",
+        "size_name",
+        "doc_type_name",
+        "seller_oper_name",
+        "quantity",
+        "return_amount",
+        "retail_price",
+        "retail_amount",
+        "for_pay",
+        "acquiring_fee",
+        "delivery_service",
+        "penalty",
+        "paid_storage",
+        "deduction",
+        "paid_acceptance",
+        "cashback_amount",
+        "cashback_discount",
+        "cashback_commission_change",
+        "product_name",
+        "photo_main",
+        "brand",
+        "product_class",
+        "product_status",
+        "subject_name",
+    ]
+    return [dict(zip(names, row)) for row in result.all()]
+
+
+async def _load_paid_storage_report_rows(
+    db: AsyncSession,
+    organization_id: str,
+    date_from: date,
+    date_to: date,
+):
+    storage_from = date_from + timedelta(days=1)
+    storage_to = date_to + timedelta(days=1)
+    result = await db.execute(
+        text(
+            """
+            SELECT
+                ps.entity_id,
+                ps.nm_id,
+                COALESCE(ps.vendor_code, pe.vendor_code, '') AS vendor_code,
+                '' AS barcode,
+                '' AS size_name,
+                'Продажа' AS doc_type_name,
+                'Хранение' AS seller_oper_name,
+                0 AS quantity,
+                0 AS return_amount,
+                0 AS retail_price,
+                0 AS retail_amount,
+                0 AS for_pay,
+                0 AS acquiring_fee,
+                0 AS delivery_service,
+                0 AS penalty,
+                SUM(ps.storage_amount) AS paid_storage,
+                0 AS deduction,
+                0 AS paid_acceptance,
+                0 AS cashback_amount,
+                0 AS cashback_discount,
+                0 AS cashback_commission_change,
+                pe.product_name,
+                pe.photo_main,
+                COALESCE(rb.brand, ps.brand, pe.brand, '') AS brand,
+                COALESCE(rb.product_class, '') AS product_class,
+                COALESCE(rb.product_status, '') AS product_status,
+                COALESCE(rb.subject_name, ps.subject_name, pe.subject_name, '') AS subject_name
+            FROM wb_paid_storage_rows ps
+            LEFT JOIN product_entities pe ON pe.id = ps.entity_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    ref.brand,
+                    ref.product_class,
+                    ref.product_status,
+                    ref.subject_name
+                FROM reference_book ref
+                WHERE ref.organization_id = ps.organization_id
+                  AND (
+                      ref.entity_id = ps.entity_id
+                      OR (
+                          ps.entity_id IS NULL
+                          AND ref.nm_id = ps.nm_id
+                      )
+                  )
+                  AND ref.valid_from <= :date_to
+                  AND (ref.valid_to IS NULL OR ref.valid_to >= :date_from)
+                ORDER BY
+                    CASE WHEN ref.entity_id = ps.entity_id THEN 0 ELSE 1 END,
+                    ref.valid_from DESC
+                LIMIT 1
+            ) rb ON TRUE
+            WHERE ps.organization_id = :org
+              AND ps.storage_date BETWEEN :storage_from AND :storage_to
+            GROUP BY
+                ps.entity_id,
+                ps.nm_id,
+                ps.vendor_code,
+                ps.brand,
+                ps.subject_name,
+                pe.vendor_code,
+                pe.product_name,
+                pe.photo_main,
+                pe.brand,
+                pe.subject_name,
+                rb.brand,
+                rb.product_class,
+                rb.product_status,
+                rb.subject_name
+            """
+        ),
+        {
+            "org": organization_id,
+            "date_from": date_from,
+            "date_to": date_to,
+            "storage_from": storage_from,
+            "storage_to": storage_to,
+        },
+    )
     names = [
         "entity_id",
         "nm_id",
@@ -313,6 +436,7 @@ async def _load_cost_by_item(
     db: AsyncSession,
     organization_id: str,
     date_from: date,
+    date_to: date,
 ):
     result = await db.execute(
         text(
@@ -328,11 +452,12 @@ async def _load_cost_by_item(
                    COALESCE(vat_rate, 0) AS vat_rate
             FROM reference_book
             WHERE organization_id = :org
+              AND valid_from <= :date_to
               AND (valid_to IS NULL OR valid_to >= :date_from)
             ORDER BY entity_id, nm_id, valid_from DESC, created_at DESC NULLS LAST
             """
         ),
-        {"org": organization_id, "date_from": date_from},
+        {"org": organization_id, "date_from": date_from, "date_to": date_to},
     )
     by_entity = {}
     by_nm = {}
@@ -357,6 +482,75 @@ async def _load_cost_by_item(
             by_entity[str(entity_id)] = value
         if nm_id:
             by_nm[int(nm_id)] = value
+    return by_entity, by_nm
+
+
+async def _load_cost_totals_by_item(
+    db: AsyncSession,
+    organization_id: str,
+    date_from: date,
+    date_to: date,
+):
+    result = await db.execute(
+        text(
+            """
+            SELECT
+                fr.entity_id,
+                fr.nm_id,
+                SUM(
+                    COALESCE(fr.quantity, 0)
+                    * (
+                        COALESCE(ref.cost_price, 0)
+                        + COALESCE(ref.extra_costs, 0)
+                    )
+                ) AS cost_total
+            FROM wb_finance_rows fr
+            LEFT JOIN LATERAL (
+                SELECT cost_price, extra_costs
+                FROM reference_book rb
+                WHERE rb.organization_id = fr.organization_id
+                  AND (
+                      rb.entity_id = fr.entity_id
+                      OR (
+                          fr.entity_id IS NULL
+                          AND rb.nm_id = fr.nm_id
+                      )
+                  )
+                  AND rb.valid_from <= COALESCE(fr.operation_date::date, :date_to)
+                  AND (
+                      rb.valid_to IS NULL
+                      OR rb.valid_to >= COALESCE(fr.operation_date::date, :date_to)
+                  )
+                ORDER BY
+                    CASE WHEN rb.entity_id = fr.entity_id THEN 0 ELSE 1 END,
+                    rb.valid_from DESC,
+                    rb.created_at DESC NULLS LAST
+                LIMIT 1
+            ) ref ON TRUE
+            WHERE fr.organization_id = :org
+              AND fr.operation_date::date BETWEEN :date_from AND :date_to
+              AND LOWER(COALESCE(fr.seller_oper_name, '')) = 'продажа'
+              AND LOWER(COALESCE(fr.doc_type_name, '')) NOT LIKE '%возврат%'
+              AND (
+                  ref.cost_price IS NOT NULL
+                  OR ref.extra_costs IS NOT NULL
+              )
+            GROUP BY fr.entity_id, fr.nm_id
+            """
+        ),
+        {
+            "org": organization_id,
+            "date_from": date_from,
+            "date_to": date_to,
+        },
+    )
+    by_entity = {}
+    by_nm = {}
+    for entity_id, nm_id, cost_total in result.all():
+        if entity_id:
+            by_entity[str(entity_id)] = _as_decimal(cost_total)
+        if nm_id:
+            by_nm[int(nm_id)] = _as_decimal(cost_total)
     return by_entity, by_nm
 
 
@@ -389,7 +583,11 @@ def _enrich_serialized_report(
     orders_by_nm: dict[int, dict],
     cost_by_entity: dict[str, dict],
     cost_by_nm: dict[int, dict],
+    cost_total_by_entity: dict[str, Decimal] | None = None,
+    cost_total_by_nm: dict[int, Decimal] | None = None,
 ):
+    cost_total_by_entity = cost_total_by_entity or {}
+    cost_total_by_nm = cost_total_by_nm or {}
     enriched_items = []
     totals = {
         "marketplace_commission_sum": ZERO,
@@ -423,7 +621,17 @@ def _enrich_serialized_report(
             cost_by_nm.get(nm_id, {}) if nm_id else {},
         )
         unit_cost = _as_decimal(cost_ref.get("unit_cost"))
-        cost_total = unit_cost * sales_qty
+        historical_cost_total = cost_total_by_entity.get(
+            str(item.get("entity_id") or ""),
+            cost_total_by_nm.get(nm_id) if nm_id else None,
+        )
+        cost_total = (
+            historical_cost_total
+            if historical_cost_total is not None
+            else unit_cost * sales_qty
+        )
+        if sales_qty and historical_cost_total is not None:
+            unit_cost = cost_total / sales_qty
         revenue_tax_base = _as_decimal(item.get("retail_net_sum")) or realized_sum
         vat_rate = _as_decimal(cost_ref.get("vat_rate"))
         tax_rate = _as_decimal(cost_ref.get("tax_rate"))
@@ -586,9 +794,19 @@ async def _enrichment_context(
         if nm_id not in orders_by_nm or not orders_by_nm[nm_id]["orders_sum"]:
             orders_by_nm[nm_id] = orders
     cost_by_entity, cost_by_nm = await _load_cost_by_item(
-        db, organization_id, date_from
+        db, organization_id, date_from, date_to
     )
-    return ad_spend_by_nm, orders_by_nm, cost_by_entity, cost_by_nm
+    cost_total_by_entity, cost_total_by_nm = await _load_cost_totals_by_item(
+        db, organization_id, date_from, date_to
+    )
+    return (
+        ad_spend_by_nm,
+        orders_by_nm,
+        cost_by_entity,
+        cost_by_nm,
+        cost_total_by_entity,
+        cost_total_by_nm,
+    )
 
 
 async def _sync_info(
@@ -648,6 +866,12 @@ async def _authorized_report(
     rows = await _load_report_rows(
         db, organization_id, date_from, date_to
     )
+    paid_storage_rows = await _load_paid_storage_report_rows(
+        db, organization_id, date_from, date_to
+    )
+    if paid_storage_rows:
+        rows = [{**row, "paid_storage": ZERO} for row in rows]
+        rows.extend(paid_storage_rows)
     return build_opiu_report(rows)
 
 
