@@ -616,9 +616,7 @@ async def _upsert_rows(db: AsyncSession, rows: list[dict]) -> int:
     return len(rows)
 
 
-async def _upsert_paid_storage_rows(db: AsyncSession, rows: list[dict]) -> int:
-    if not rows:
-        return 0
+def _aggregate_paid_storage_rows(rows: list[dict]) -> list[dict]:
     aggregated = {}
     for row in rows:
         key = (
@@ -639,8 +637,13 @@ async def _upsert_paid_storage_rows(db: AsyncSession, rows: list[dict]) -> int:
         aggregated[key]["raw_data"] = {"items": [*previous_items, row["raw_data"]]}
         if not aggregated[key].get("entity_id") and row.get("entity_id"):
             aggregated[key]["entity_id"] = row["entity_id"]
+    return list(aggregated.values())
 
-    values = list(aggregated.values())
+
+async def _upsert_paid_storage_rows(db: AsyncSession, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    values = _aggregate_paid_storage_rows(rows)
     for chunk in _chunks(values, UPSERT_CHUNK):
         statement = pg_insert(WbPaidStorageRow).values(chunk)
         excluded = statement.excluded
@@ -698,9 +701,10 @@ async def sync_paid_storage_period(
                 )
                 if row is not None:
                     normalized.append(row)
-            rows_count = await _upsert_paid_storage_rows(db, normalized)
+            aggregated = _aggregate_paid_storage_rows(normalized)
+            rows_count = await _upsert_paid_storage_rows(db, aggregated)
             total_storage = sum(
-                (row["storage_amount"] for row in normalized),
+                (row["storage_amount"] for row in aggregated),
                 Decimal("0"),
             )
 

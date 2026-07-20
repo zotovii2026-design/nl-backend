@@ -9,6 +9,7 @@ from domain.opiu import build_opiu_report, serialize_report
 from api.v1.routers.opiu import _enrich_serialized_report
 from services.opiu import (
     FINANCE_FIELDS,
+    _aggregate_paid_storage_rows,
     _fetch_finance_chunk,
     normalize_paid_storage_row,
     normalize_finance_row,
@@ -337,6 +338,39 @@ def test_paid_storage_row_normalization_accepts_wb_field_names():
     assert row["nm_id"] == 123
     assert row["entity_id"] == "entity-id"
     assert row["storage_amount"] == Decimal("42.15")
+
+
+def test_paid_storage_rows_aggregate_before_sync_total():
+    rows = [
+        {
+            "organization_id": "org-id",
+            "storage_date": date.fromisoformat("2026-07-13"),
+            "nm_id": 123,
+            "entity_id": None,
+            "vendor_code": "abc",
+            "subject_name": "Subject",
+            "brand": "Brand",
+            "storage_amount": Decimal("10.10"),
+            "raw_data": {"row": 1},
+        },
+        {
+            "organization_id": "org-id",
+            "storage_date": date.fromisoformat("2026-07-13"),
+            "nm_id": 123,
+            "entity_id": "entity-id",
+            "vendor_code": "abc",
+            "subject_name": "Subject",
+            "brand": "Brand",
+            "storage_amount": Decimal("0.27"),
+            "raw_data": {"row": 2},
+        },
+    ]
+
+    aggregated = _aggregate_paid_storage_rows(rows)
+
+    assert len(aggregated) == 1
+    assert aggregated[0]["entity_id"] == "entity-id"
+    assert aggregated[0]["storage_amount"] == Decimal("10.37")
 
 
 def test_finance_api_row_normalization_uses_current_field_names():
