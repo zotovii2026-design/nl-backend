@@ -186,7 +186,7 @@ function applyOpiuFilters() {
     });
 
     const data = filtered.slice();
-    if (opiuTotalRow) data.push({...opiuTotalRow, _is_total: true, _row_id: '__total__'});
+    if (opiuTotalRow) data.unshift({...opiuTotalRow, _is_total: true, _row_id: '__total__'});
     opiuTabulator.replaceData(data);
     const count = document.getElementById('opiu-count');
     if (count) count.textContent = filtered.length + ' из ' + opiuAllRows.length + ' строк';
@@ -458,7 +458,7 @@ async function loadOpiu() {
         }));
         opiuUnassignedRows = data.unassigned_items || [];
         opiuAllocations = data.allocations || [];
-        opiuTotalRow = data.product_total || data.total || null;
+        opiuTotalRow = data.total || data.product_total || null;
         fillOpiuFilters(opiuAllRows);
         applyOpiuFilters();
         renderOpiuSyncInfo(data.sync);

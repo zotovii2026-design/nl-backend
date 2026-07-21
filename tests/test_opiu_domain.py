@@ -52,14 +52,16 @@ def test_opiu_matches_reference_report_totals():
     report = build_opiu_report(rows)
 
     assert report["total"]["net_for_pay"] == Decimal("216801.56")
-    assert report["total"]["gross_profit"] == Decimal("126970.12")
+    assert report["total"]["gross_profit"] == Decimal("185553.12")
+    assert report["total"]["wb_promotion_deduction"] == Decimal("58583.00")
     assert len(report["items"]) == 2
     product = report["items"][0]
     unassigned = report["items"][1]
     assert product["storage"] == Decimal("0")
     assert unassigned["storage"] == Decimal("3806.09")
     assert product["distributed_other_expenses"] == Decimal("0")
-    assert unassigned["deduction"] == Decimal("58583.00")
+    assert unassigned["deduction"] == Decimal("0")
+    assert unassigned["wb_promotion_deduction"] == Decimal("58583.00")
     assert report["allocations"] == []
 
 
@@ -230,7 +232,61 @@ def test_opiu_v2_enrichment_keeps_ads_orders_costs_separate():
     assert item["cost_total"] == 400.0
     assert item["other_expenses"] == 0.0
     assert item["net_profit"] == 276.55
-    assert data["unassigned_items"][0]["deduction"] == 300.0
+    assert data["unassigned_items"][0]["deduction"] == 0.0
+    assert data["unassigned_items"][0]["wb_promotion_deduction"] == 300.0
+
+
+def test_opiu_total_tracks_wb_promotion_as_advertising_difference_only():
+    report = build_opiu_report(
+        [
+            {
+                "entity_id": "entity-1",
+                "nm_id": 100,
+                "vendor_code": "article-1",
+                "barcode": "1",
+                "seller_oper_name": "Продажа",
+                "doc_type_name": "Продажа",
+                "quantity": 2,
+                "retail_amount": 1000,
+                "for_pay": 800,
+            },
+            {
+                "seller_oper_name": "Удержание",
+                "deduction": 300,
+            },
+        ]
+    )
+
+    data = _enrich_serialized_report(
+        serialize_report(report),
+        {100: Decimal("123.45")},
+        {100: {"orders_qty": Decimal("3"), "orders_sum": Decimal("1500")}},
+        {
+            "entity-1": {
+                "unit_cost": Decimal("200"),
+                "purchase_cost": Decimal("0"),
+                "tax_system": None,
+                "tax_rate": Decimal("0"),
+                "vat_rate": Decimal("0"),
+            }
+        },
+        {},
+        control_totals={
+            "finance_storage": Decimal("0"),
+            "wb_promotion_deduction": Decimal("300"),
+            "advertising_total": Decimal("123.45"),
+        },
+    )
+
+    item = next(row for row in data["items"] if row["vendor_code"] == "article-1")
+
+    assert item["advertising_difference_info"] == 0
+    assert item["other_expenses"] == 0.0
+    assert data["total"]["wb_promotion_deduction"] == 300.0
+    assert data["total"]["advertising_api_spend"] == 123.45
+    assert data["total"]["advertising_difference_info"] == 176.55
+    assert data["total"]["other_expenses"] == 0.0
+    assert data["total"]["net_profit"] == 100.0
 
 
 def test_opiu_enrichment_uses_reference_total_cost_and_row_taxes():

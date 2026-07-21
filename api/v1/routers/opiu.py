@@ -313,6 +313,76 @@ async def _load_ad_spend_by_nm(
     return {int(nm_id): _as_decimal(spent) for nm_id, spent in result.all()}
 
 
+async def _load_control_totals(
+    db: AsyncSession,
+    organization_id: str,
+    date_from: date,
+    date_to: date,
+):
+    result = await db.execute(
+        text(
+            """
+            WITH finance AS (
+                SELECT
+                    COALESCE(SUM(fr.paid_storage), 0) AS finance_storage,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN COALESCE(fr.deduction, 0) <> 0
+                             AND (
+                                 LOWER(COALESCE(fr.seller_oper_name, '')) LIKE '%wb продвиж%'
+                                 OR LOWER(COALESCE(fr.seller_oper_name, '')) LIKE '%вб продвиж%'
+                                 OR (
+                                     LOWER(COALESCE(fr.seller_oper_name, '')) = 'удержание'
+                                     AND COALESCE(fr.nm_id, 0) = 0
+                                     AND COALESCE(fr.vendor_code, '') = ''
+                                     AND COALESCE(fr.barcode, '') = ''
+                                     AND fr.entity_id IS NULL
+                                 )
+                             )
+                            THEN fr.deduction
+                            ELSE 0
+                        END
+                    ), 0) AS wb_promotion_deduction
+                FROM wb_finance_rows fr
+                WHERE fr.organization_id = :org
+                  AND (
+                      fr.operation_date::date BETWEEN :date_from AND :date_to
+                      OR (
+                          fr.operation_date IS NULL
+                          AND fr.report_date_from <= :date_to
+                          AND fr.report_date_to >= :date_from
+                      )
+                  )
+            ),
+            ads AS (
+                SELECT COALESCE(SUM(sn.spent), 0) AS advertising_total
+                FROM ad_stats_nm sn
+                WHERE sn.organization_id = :org
+                  AND sn.stat_date BETWEEN :date_from AND :date_to
+                  AND sn.nm_id IS NOT NULL
+            )
+            SELECT
+                finance.finance_storage,
+                finance.wb_promotion_deduction,
+                ads.advertising_total
+            FROM finance
+            CROSS JOIN ads
+            """
+        ),
+        {
+            "org": organization_id,
+            "date_from": date_from,
+            "date_to": date_to,
+        },
+    )
+    row = result.one()
+    return {
+        "finance_storage": _as_decimal(row.finance_storage),
+        "wb_promotion_deduction": _as_decimal(row.wb_promotion_deduction),
+        "advertising_total": _as_decimal(row.advertising_total),
+    }
+
+
 async def _load_sales_funnel_orders_by_nm(
     db: AsyncSession,
     organization_id: str,
@@ -585,9 +655,11 @@ def _enrich_serialized_report(
     cost_by_nm: dict[int, dict],
     cost_total_by_entity: dict[str, Decimal] | None = None,
     cost_total_by_nm: dict[int, Decimal] | None = None,
+    control_totals: dict[str, Decimal] | None = None,
 ):
     cost_total_by_entity = cost_total_by_entity or {}
     cost_total_by_nm = cost_total_by_nm or {}
+    control_totals = control_totals or {}
     enriched_items = []
     totals = {
         "marketplace_commission_sum": ZERO,
@@ -738,7 +810,44 @@ def _enrich_serialized_report(
         enriched_items.append(item)
 
     total = data["total"]
+    finance_storage = _as_decimal(control_totals.get("finance_storage"))
+    wb_promotion_deduction = _as_decimal(
+        control_totals.get("wb_promotion_deduction")
+    )
+    advertising_total = _as_decimal(control_totals.get("advertising_total"))
+    product_storage = sum(
+        (
+            _as_decimal(item.get("storage"))
+            for item in enriched_items
+            if not item.get("is_unassigned")
+        ),
+        ZERO,
+    )
+    if advertising_total:
+        totals["advertising_api_spend"] = advertising_total
+    advertising_difference = (
+        wb_promotion_deduction - totals["advertising_api_spend"]
+        if wb_promotion_deduction
+        else ZERO
+    )
+    storage_difference = (
+        finance_storage - product_storage if finance_storage else ZERO
+    )
+    if wb_promotion_deduction:
+        totals["gross_profit_after_ads"] = (
+            _as_decimal(total.get("gross_profit"))
+            - totals["advertising_api_spend"]
+            - advertising_difference
+        )
+        totals["net_profit"] = (
+            totals["gross_profit_after_ads"]
+            - totals["external_ad_spend"]
+            - totals["cost_total"]
+            - totals["vat_tax"]
+            - totals["selected_tax"]
+        )
     total.update({key: _money(value) for key, value in totals.items()})
+    total["wb_promotion_deduction"] = _money(wb_promotion_deduction)
     total["orders_qty"] = float(totals["orders_qty"])
     total["drr"] = _money(
         totals["advertising_api_spend"] / totals["orders_sum"] * 100
@@ -761,8 +870,9 @@ def _enrich_serialized_report(
     total["markup"] = _money(
         realized_sum / cost_total * 100 if cost_total else ZERO
     )
-    total["storage_difference_info"] = 0
-    total["advertising_difference_info"] = 0
+    total["cost_unit"] = None
+    total["storage_difference_info"] = _money(storage_difference)
+    total["advertising_difference_info"] = _money(advertising_difference)
     total["is_unassigned"] = False
     data["items"] = enriched_items
     data["unassigned_items"] = [
@@ -799,6 +909,9 @@ async def _enrichment_context(
     cost_total_by_entity, cost_total_by_nm = await _load_cost_totals_by_item(
         db, organization_id, date_from, date_to
     )
+    control_totals = await _load_control_totals(
+        db, organization_id, date_from, date_to
+    )
     return (
         ad_spend_by_nm,
         orders_by_nm,
@@ -806,6 +919,7 @@ async def _enrichment_context(
         cost_by_nm,
         cost_total_by_entity,
         cost_total_by_nm,
+        control_totals,
     )
 
 
@@ -1077,6 +1191,9 @@ def _product_total_row(rows):
         acquiring_sum / realized_sum * 100 if realized_sum else ZERO
     )
     total["drr"] = _money(ad_spend / orders_sum * 100 if orders_sum else ZERO)
+    total["cost_unit"] = None
+    total["storage_difference_info"] = 0
+    total["advertising_difference_info"] = 0
     total["gross_margin"] = _money(
         gross_profit / realized_sum * 100 if realized_sum else ZERO
     )
@@ -1107,7 +1224,7 @@ async def export_opiu_report(
     product_rows = [
         item for item in data["items"] if not item.get("is_unassigned")
     ]
-    product_rows = [data["product_total"]] + product_rows
+    product_rows = [data["total"]] + product_rows
     control_rows = [
         {
             **item,

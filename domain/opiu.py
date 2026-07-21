@@ -37,6 +37,7 @@ def _empty_group():
         "penalty": ZERO,
         "storage": ZERO,
         "deduction": ZERO,
+        "wb_promotion_deduction": ZERO,
         "acceptance": ZERO,
         "distributed_other_expenses": ZERO,
         "loyalty_compensation": ZERO,
@@ -57,7 +58,16 @@ def _is_sale(row) -> bool:
 
 def _is_wb_promotion_service(row) -> bool:
     operation = str(row.get("seller_oper_name") or "").strip().lower()
-    return "wb продвиж" in operation or "вб продвиж" in operation
+    if "wb продвиж" in operation or "вб продвиж" in operation:
+        return True
+    if operation != "удержание" or not as_decimal(row.get("deduction")):
+        return False
+    has_product_identity = any(
+        str(row.get(field) or "").strip()
+        for field in ("entity_id", "vendor_code", "barcode")
+    )
+    nm_id = row.get("nm_id")
+    return not has_product_identity and nm_id in (None, "", 0, "0")
 
 
 def _group_key(row):
@@ -151,6 +161,7 @@ def _calculate_item(meta, totals):
         "penalty": totals["penalty"],
         "storage": totals["storage"],
         "deduction": totals["deduction"],
+        "wb_promotion_deduction": totals["wb_promotion_deduction"],
         "acceptance": totals["acceptance"],
         "distributed_other_expenses": totals["distributed_other_expenses"],
         "loyalty_compensation": totals["loyalty_compensation"],
@@ -210,7 +221,11 @@ def build_opiu_report(rows):
         totals["delivery_total"] += as_decimal(row.get("delivery_service"))
         totals["penalty"] += as_decimal(row.get("penalty"))
         totals["storage"] += as_decimal(row.get("paid_storage"))
-        totals["deduction"] += as_decimal(row.get("deduction"))
+        deduction = as_decimal(row.get("deduction"))
+        if _is_wb_promotion_service(row):
+            totals["wb_promotion_deduction"] += deduction
+        else:
+            totals["deduction"] += deduction
         totals["acceptance"] += as_decimal(row.get("paid_acceptance"))
         totals["loyalty_compensation"] += as_decimal(
             row.get("cashback_amount")
