@@ -56,7 +56,7 @@ def test_opiu_v2_columns_match_wb_template_language():
         assert title in OPIU_SOURCE
 
     assert "id=\"opiu-unassigned\"" in DASHBOARD_SOURCE
-    assert "opiu-grid.js?v=20260720-opiuv3-front" in DASHBOARD_SOURCE
+    assert "opiu-grid.js?v=20260721-opiuv4-totals" in DASHBOARD_SOURCE
 
 
 def test_reference_book_visible_columns_contract_is_stable():
