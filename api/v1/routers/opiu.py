@@ -739,10 +739,7 @@ def _enrich_serialized_report(
         vat_tax = revenue_tax_base * vat_rate / Decimal("100")
         other_expenses = (
             _as_decimal(item.get("deduction"))
-            + _as_decimal(item.get("acceptance"))
             + _as_decimal(item.get("distributed_other_expenses"))
-            + _as_decimal(item.get("loyalty_points"))
-            + _as_decimal(item.get("loyalty_participation"))
         )
         expenses_before_tax = (
             mp_sum

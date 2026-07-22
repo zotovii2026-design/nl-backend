@@ -79,6 +79,8 @@ def _group_key(row):
     has_nm_id = nm_id not in (None, "", 0, "0")
     if not article and not barcode and not has_nm_id and not entity_id:
         return ("unassigned",)
+    if entity_id:
+        return ("entity", entity_id)
     return (
         entity_id,
         article,

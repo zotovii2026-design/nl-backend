@@ -131,6 +131,33 @@ def test_opiu_keeps_two_barcodes_of_one_article_separate():
     }
 
 
+def test_opiu_merges_storage_detail_by_entity_id():
+    rows = [
+        {
+            "entity_id": "entity-1",
+            "vendor_code": "article-1",
+            "barcode": "4600000000001",
+            "nm_id": 100,
+            "seller_oper_name": "Продажа",
+            "doc_type_name": "Продажа",
+            "quantity": 1,
+            "for_pay": 700,
+        },
+        {
+            "entity_id": "entity-1",
+            "vendor_code": "article-1",
+            "nm_id": 100,
+            "seller_oper_name": "Хранение",
+            "paid_storage": Decimal("42.10"),
+        },
+    ]
+
+    report = build_opiu_report(rows)
+
+    assert len(report["items"]) == 1
+    assert report["items"][0]["storage"] == Decimal("42.10")
+
+
 def test_opiu_returns_are_counted_by_quantity_and_net_payment_keeps_sign():
     rows = [
         {
@@ -261,6 +288,40 @@ def test_opiu_v2_enrichment_keeps_ads_orders_costs_separate():
     assert item["net_profit"] == 276.55
     assert data["unassigned_items"][0]["deduction"] == 0.0
     assert data["unassigned_items"][0]["wb_promotion_deduction"] == 300.0
+
+
+def test_opiu_other_expenses_exclude_separate_acceptance_and_loyalty_columns():
+    report = build_opiu_report(
+        [
+            {
+                "entity_id": "entity-1",
+                "nm_id": 100,
+                "vendor_code": "article-1",
+                "barcode": "1",
+                "seller_oper_name": "Продажа",
+                "doc_type_name": "Продажа",
+                "quantity": 1,
+                "for_pay": 800,
+                "paid_acceptance": 60,
+                "cashback_discount": 77.08,
+                "cashback_commission_change": 2.80,
+            }
+        ]
+    )
+
+    data = _enrich_serialized_report(
+        serialize_report(report),
+        {},
+        {},
+        {},
+        {},
+    )
+
+    assert data["items"][0]["acceptance"] == 60.0
+    assert data["items"][0]["loyalty_points"] == 77.08
+    assert data["items"][0]["loyalty_participation"] == 2.8
+    assert data["items"][0]["other_expenses"] == 0.0
+    assert data["total"]["other_expenses"] == 0.0
 
 
 def test_opiu_total_tracks_wb_promotion_as_advertising_difference_only():
