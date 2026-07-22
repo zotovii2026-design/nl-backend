@@ -6,7 +6,10 @@ import httpx
 import pytest
 
 from domain.opiu import build_opiu_report, serialize_report
-from api.v1.routers.opiu import _enrich_serialized_report
+from api.v1.routers.opiu import (
+    _build_reconciliation_rows,
+    _enrich_serialized_report,
+)
 from services.opiu import (
     FINANCE_FIELDS,
     _aggregate_paid_storage_rows,
@@ -451,6 +454,38 @@ def test_opiu_total_can_use_bank_payment_control_for_account_payment():
 
     assert data["items"][0]["net_for_pay"] == 800.0
     assert data["total"]["net_for_pay"] == 777.77
+
+
+def test_opiu_reconciliation_rows_explain_bank_payment_and_gross_profit():
+    data = {
+        "total": {
+            "net_for_pay": 777.77,
+            "gross_profit": 1000.00,
+            "gross_profit_after_ads": 700.00,
+            "wb_promotion_deduction": 300.00,
+            "storage": 10.25,
+            "storage_difference_info": -0.25,
+            "advertising_api_spend": 123.45,
+            "penalty": 40,
+            "acceptance": 60,
+            "other_expenses": 0,
+            "loyalty_points": 20,
+            "loyalty_participation": 5,
+        },
+        "product_total": {"net_for_pay": 900.00},
+        "sync": {"bank_payment_sum": 777.77},
+    }
+
+    rows = _build_reconciliation_rows(data)
+    by_metric = {row["metric"]: row for row in rows}
+
+    assert by_metric["К перечислению на р/с"]["row_amount"] == 900.0
+    assert by_metric["К перечислению на р/с"]["control_amount"] == 777.77
+    assert by_metric["К перечислению на р/с"]["difference"] == -122.23
+    assert by_metric["Валовая прибыль, руб"]["row_amount"] == 700.0
+    assert by_metric["Валовая прибыль, руб"]["control_amount"] == 700.0
+    assert by_metric["Валовая прибыль, руб"]["difference"] == 0.0
+    assert by_metric["Хранение, руб"]["control_amount"] == 10.0
 
 
 def test_opiu_enrichment_uses_reference_total_cost_and_row_taxes():

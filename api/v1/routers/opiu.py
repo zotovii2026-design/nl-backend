@@ -1141,6 +1141,63 @@ OTHER_EXPENSE_COLUMNS = [
     ("Кол-во артикулов", "items_count"),
 ]
 
+RECONCILIATION_COLUMNS = [
+    ("Показатель", "metric"),
+    ("Сумма по строкам", "row_amount"),
+    ("Контроль WB/API", "control_amount"),
+    ("Расхождение", "difference"),
+    ("Источник строк", "row_source"),
+    ("Источник контроля", "control_source"),
+    ("Комментарий", "comment"),
+]
+
+FORMULA_COLUMNS = [
+    ("Колонка", "metric"),
+    ("Формула", "formula"),
+    ("Поля / источник", "source"),
+]
+
+FORMULA_ROWS = [
+    {
+        "metric": "К перечислению на р/с",
+        "formula": (
+            "ИТОГО = bankPaymentSum из WB finance summary. "
+            "По строкам = продажи forPay - возвраты forPay."
+        ),
+        "source": "sync.bank_payment_sum; wb_finance_rows.for_pay",
+    },
+    {
+        "metric": "Валовая прибыль, руб",
+        "formula": (
+            "gross_profit_after_ads = gross_profit - wb_promotion_deduction. "
+            "gross_profit = signed_forPay - delivery - penalty - storage "
+            "- deduction - acceptance - other_expenses - loyalty_points "
+            "- loyalty_participation."
+        ),
+        "source": "wb_finance_rows + paid_storage API + WB promotion deduction",
+    },
+    {
+        "metric": "% программы лояльности",
+        "formula": (
+            "(loyalty_points + loyalty_participation) / retail_net_sum * 100"
+        ),
+        "source": (
+            "cashbackDiscount + cashbackCommissionChange; "
+            "retail_sum - returns_retail_sum"
+        ),
+    },
+    {
+        "metric": "Расхождение по хранению",
+        "formula": "finance paidStorage - paid_storage API detail",
+        "source": "wb_finance_rows.paid_storage; wb_paid_storage_rows.storage_amount",
+    },
+    {
+        "metric": "Расхождение по рекламе",
+        "formula": "WB promotion deduction - advertising API spend",
+        "source": "wb_finance_rows.deduction; ad_stats_nm.spent",
+    },
+]
+
 RAW_FINANCE_COLUMNS = [
     ("Дата операции", "operation_date"),
     ("Тип документа", "doc_type_name"),
@@ -1190,6 +1247,115 @@ def _append_sheet(workbook, title: str, columns: list[tuple[str, str]], rows):
         worksheet.append([item.get(field) for _, field in columns])
     _style_worksheet(worksheet)
     return worksheet
+
+
+def _reconciliation_row(
+    metric: str,
+    row_amount,
+    control_amount,
+    row_source: str,
+    control_source: str,
+    comment: str,
+):
+    row_value = _as_decimal(row_amount)
+    control_value = _as_decimal(control_amount)
+    return {
+        "metric": metric,
+        "row_amount": _money(row_value),
+        "control_amount": _money(control_value),
+        "difference": _money(control_value - row_value),
+        "row_source": row_source,
+        "control_source": control_source,
+        "comment": comment,
+    }
+
+
+def _build_reconciliation_rows(data: dict):
+    total = data.get("total", {})
+    product_total = data.get("product_total", {})
+    sync = data.get("sync") or {}
+    storage_control = (
+        _as_decimal(total.get("storage"))
+        + _as_decimal(total.get("storage_difference_info"))
+    )
+    loyalty_cost = (
+        _as_decimal(total.get("loyalty_points"))
+        + _as_decimal(total.get("loyalty_participation"))
+    )
+
+    gross_profit_formula = (
+        _as_decimal(total.get("gross_profit"))
+        - _as_decimal(total.get("wb_promotion_deduction"))
+    )
+    return [
+        _reconciliation_row(
+            "К перечислению на р/с",
+            product_total.get("net_for_pay"),
+            sync.get("bank_payment_sum") or total.get("net_for_pay"),
+            "Сумма товарных строк: продажи forPay - возвраты forPay",
+            "WB finance summary: bankPaymentSum",
+            (
+                "bankPaymentSum — банковское перечисление WB; "
+                "товарный forPay не равен выплате на р/с."
+            ),
+        ),
+        _reconciliation_row(
+            "Валовая прибыль, руб",
+            gross_profit_formula,
+            total.get("gross_profit_after_ads"),
+            "gross_profit - wb_promotion_deduction",
+            "Итоговая колонка gross_profit_after_ads",
+            "Должно сходиться в ноль.",
+        ),
+        _reconciliation_row(
+            "Хранение, руб",
+            total.get("storage"),
+            storage_control,
+            "paid_storage API detail",
+            "WB finance paidStorage",
+            "Малое расхождение возможно из-за округления paid_storage detail.",
+        ),
+        _reconciliation_row(
+            "Внутренняя реклама WB, руб",
+            total.get("advertising_api_spend"),
+            total.get("wb_promotion_deduction"),
+            "ad_stats_nm.spent",
+            "WB finance deduction: удержание WB-продвижение",
+            "Расхождение вынесено в информационную колонку.",
+        ),
+        _reconciliation_row(
+            "Штрафы, руб",
+            total.get("penalty"),
+            total.get("penalty"),
+            "WB finance rows, дата отчета",
+            "Итог ОПиУ",
+            "Должно сходиться в ноль.",
+        ),
+        _reconciliation_row(
+            "Платная приемка, руб",
+            total.get("acceptance"),
+            total.get("acceptance"),
+            "WB finance rows, дата отчета",
+            "Итог ОПиУ",
+            "Должно сходиться в ноль.",
+        ),
+        _reconciliation_row(
+            "Прочие затраты, руб",
+            total.get("other_expenses"),
+            total.get("other_expenses"),
+            "Нераспределенные прочие удержания",
+            "Итог ОПиУ",
+            "Приемка и лояльность не дублируются в прочих.",
+        ),
+        _reconciliation_row(
+            "Лояльность, руб",
+            loyalty_cost,
+            loyalty_cost,
+            "Баллы + участие в программе лояльности",
+            "Итог ОПиУ",
+            "Процент считается от retail_net_sum.",
+        ),
+    ]
 
 
 def _sum_rows(rows, field: str) -> Decimal:
@@ -1266,6 +1432,7 @@ async def export_opiu_report(
         data,
         *(await _enrichment_context(db, org_id, date_from, date_to)),
     )
+    data["sync"] = await _sync_info(db, org_id, date_from, date_to)
     product_rows = [
         item for item in data["items"] if not item.get("is_unassigned")
     ]
@@ -1303,6 +1470,18 @@ async def export_opiu_report(
         "Контроль нераспределено",
         CONTROL_COLUMNS,
         control_rows,
+    )
+    _append_sheet(
+        workbook,
+        "Сверка итогов",
+        RECONCILIATION_COLUMNS,
+        _build_reconciliation_rows(data),
+    )
+    _append_sheet(
+        workbook,
+        "Формулы",
+        FORMULA_COLUMNS,
+        FORMULA_ROWS,
     )
     _append_sheet(
         workbook,
