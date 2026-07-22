@@ -104,11 +104,19 @@ async def _load_report_rows(
             ) rb ON TRUE
             WHERE fr.organization_id = :org
               AND (
-                  fr.operation_date::date BETWEEN :date_from AND :date_to
+                  (
+                      LOWER(COALESCE(fr.seller_oper_name, '')) IN (
+                          'хранение',
+                          'коррекция хранения'
+                      )
+                      AND fr.operation_date::date BETWEEN :date_from AND :date_to
+                  )
                   OR (
-                      fr.operation_date IS NULL
-                      AND fr.report_date_from <= :date_to
-                      AND fr.report_date_to >= :date_from
+                      LOWER(COALESCE(fr.seller_oper_name, '')) NOT IN (
+                          'хранение',
+                          'коррекция хранения'
+                      )
+                      AND fr.report_date_from BETWEEN :date_from AND :date_to
                   )
               )
             ORDER BY fr.rrd_id
@@ -324,10 +332,17 @@ async def _load_control_totals(
             """
             WITH finance AS (
                 SELECT
-                    COALESCE(SUM(fr.paid_storage), 0) AS finance_storage,
                     COALESCE(SUM(
                         CASE
-                            WHEN COALESCE(fr.deduction, 0) <> 0
+                            WHEN fr.operation_date::date BETWEEN :date_from AND :date_to
+                            THEN fr.paid_storage
+                            ELSE 0
+                        END
+                    ), 0) AS finance_storage,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN fr.report_date_from BETWEEN :date_from AND :date_to
+                             AND COALESCE(fr.deduction, 0) <> 0
                              AND (
                                  LOWER(COALESCE(fr.seller_oper_name, '')) LIKE '%wb продвиж%'
                                  OR LOWER(COALESCE(fr.seller_oper_name, '')) LIKE '%вб продвиж%'
@@ -347,12 +362,19 @@ async def _load_control_totals(
                 WHERE fr.organization_id = :org
                   AND (
                       fr.operation_date::date BETWEEN :date_from AND :date_to
-                      OR (
-                          fr.operation_date IS NULL
-                          AND fr.report_date_from <= :date_to
-                          AND fr.report_date_to >= :date_from
-                      )
+                      OR fr.report_date_from BETWEEN :date_from AND :date_to
                   )
+            ),
+            bank_control AS (
+                SELECT bank_payment_sum
+                FROM wb_finance_syncs
+                WHERE organization_id = :org
+                  AND date_from = :date_from
+                  AND date_to = :date_to
+                  AND status IN ('success', 'warning')
+                  AND bank_payment_sum IS NOT NULL
+                ORDER BY started_at DESC
+                LIMIT 1
             ),
             ads AS (
                 SELECT COALESCE(SUM(sn.spent), 0) AS advertising_total
@@ -364,9 +386,11 @@ async def _load_control_totals(
             SELECT
                 finance.finance_storage,
                 finance.wb_promotion_deduction,
-                ads.advertising_total
+                ads.advertising_total,
+                bank_control.bank_payment_sum
             FROM finance
             CROSS JOIN ads
+            LEFT JOIN bank_control ON TRUE
             """
         ),
         {
@@ -380,6 +404,11 @@ async def _load_control_totals(
         "finance_storage": _as_decimal(row.finance_storage),
         "wb_promotion_deduction": _as_decimal(row.wb_promotion_deduction),
         "advertising_total": _as_decimal(row.advertising_total),
+        "bank_payment_sum": (
+            _as_decimal(row.bank_payment_sum)
+            if row.bank_payment_sum is not None
+            else None
+        ),
     }
 
 
@@ -598,7 +627,7 @@ async def _load_cost_totals_by_item(
                 LIMIT 1
             ) ref ON TRUE
             WHERE fr.organization_id = :org
-              AND fr.operation_date::date BETWEEN :date_from AND :date_to
+              AND fr.report_date_from BETWEEN :date_from AND :date_to
               AND LOWER(COALESCE(fr.seller_oper_name, '')) = 'продажа'
               AND LOWER(COALESCE(fr.doc_type_name, '')) NOT LIKE '%возврат%'
               AND (
@@ -815,6 +844,7 @@ def _enrich_serialized_report(
         control_totals.get("wb_promotion_deduction")
     )
     advertising_total = _as_decimal(control_totals.get("advertising_total"))
+    bank_payment_sum = control_totals.get("bank_payment_sum")
     product_storage = sum(
         (
             _as_decimal(item.get("storage"))
@@ -871,6 +901,8 @@ def _enrich_serialized_report(
         realized_sum / cost_total * 100 if cost_total else ZERO
     )
     total["cost_unit"] = None
+    if bank_payment_sum is not None:
+        total["net_for_pay"] = _money(bank_payment_sum)
     total["storage_difference_info"] = _money(storage_difference)
     total["advertising_difference_info"] = _money(advertising_difference)
     total["is_unassigned"] = False

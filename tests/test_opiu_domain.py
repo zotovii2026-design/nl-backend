@@ -164,6 +164,33 @@ def test_opiu_returns_are_counted_by_quantity_and_net_payment_keeps_sign():
     assert item["net_for_pay"] == Decimal("600")
 
 
+def test_opiu_positive_return_payment_reduces_net_payment():
+    rows = [
+        {
+            "vendor_code": "article-1",
+            "barcode": "4600000000001",
+            "seller_oper_name": "Продажа",
+            "doc_type_name": "Продажа",
+            "quantity": 3,
+            "for_pay": Decimal("1800.00"),
+        },
+        {
+            "vendor_code": "article-1",
+            "barcode": "4600000000001",
+            "seller_oper_name": "Возврат",
+            "doc_type_name": "Возврат",
+            "quantity": 1,
+            "for_pay": Decimal("1200.00"),
+        },
+    ]
+
+    item = build_opiu_report(rows)["items"][0]
+
+    assert item["sales_qty"] == Decimal("3")
+    assert item["returns_qty"] == Decimal("1")
+    assert item["net_for_pay"] == Decimal("600.00")
+
+
 def test_serialized_opiu_values_are_rounded_to_two_decimals():
     report = build_opiu_report(
         [
@@ -287,6 +314,37 @@ def test_opiu_total_tracks_wb_promotion_as_advertising_difference_only():
     assert data["total"]["advertising_difference_info"] == 176.55
     assert data["total"]["other_expenses"] == 0.0
     assert data["total"]["net_profit"] == 100.0
+
+
+def test_opiu_total_can_use_bank_payment_control_for_account_payment():
+    report = build_opiu_report(
+        [
+            {
+                "entity_id": "entity-1",
+                "nm_id": 100,
+                "vendor_code": "article-1",
+                "barcode": "1",
+                "seller_oper_name": "Продажа",
+                "doc_type_name": "Продажа",
+                "quantity": 1,
+                "for_pay": 800,
+            }
+        ]
+    )
+
+    data = _enrich_serialized_report(
+        serialize_report(report),
+        {},
+        {},
+        {},
+        {},
+        control_totals={
+            "bank_payment_sum": Decimal("777.77"),
+        },
+    )
+
+    assert data["items"][0]["net_for_pay"] == 800.0
+    assert data["total"]["net_for_pay"] == 777.77
 
 
 def test_opiu_enrichment_uses_reference_total_cost_and_row_taxes():

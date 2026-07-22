@@ -217,7 +217,8 @@ def build_opiu_report(rows):
                 or as_decimal(row.get("for_pay"))
             )
 
-        totals["net_for_pay"] += as_decimal(row.get("for_pay"))
+        for_pay = as_decimal(row.get("for_pay"))
+        totals["net_for_pay"] += -abs(for_pay) if _is_return(row) else for_pay
         totals["delivery_total"] += as_decimal(row.get("delivery_service"))
         totals["penalty"] += as_decimal(row.get("penalty"))
         totals["storage"] += as_decimal(row.get("paid_storage"))
