@@ -324,6 +324,51 @@ def test_opiu_other_expenses_exclude_separate_acceptance_and_loyalty_columns():
     assert data["total"]["other_expenses"] == 0.0
 
 
+def test_opiu_total_loyalty_pct_uses_total_loyalty_cost():
+    report = build_opiu_report(
+        [
+            {
+                "entity_id": "entity-1",
+                "nm_id": 100,
+                "vendor_code": "article-1",
+                "barcode": "1",
+                "seller_oper_name": "Продажа",
+                "doc_type_name": "Продажа",
+                "quantity": 1,
+                "retail_price": 1000,
+                "retail_amount": 1000,
+                "for_pay": 800,
+                "cashback_discount": 20,
+                "cashback_commission_change": 5,
+            },
+            {
+                "entity_id": "entity-2",
+                "nm_id": 200,
+                "vendor_code": "article-2",
+                "barcode": "2",
+                "seller_oper_name": "Продажа",
+                "doc_type_name": "Продажа",
+                "quantity": 1,
+                "retail_price": 500,
+                "retail_amount": 500,
+                "for_pay": 400,
+                "cashback_discount": 5,
+            },
+        ]
+    )
+
+    data = _enrich_serialized_report(
+        serialize_report(report),
+        {},
+        {},
+        {},
+        {},
+    )
+
+    assert data["total"]["loyalty_pct"] == 2.0
+    assert data["product_total"]["loyalty_pct"] == 2.0
+
+
 def test_opiu_total_tracks_wb_promotion_as_advertising_difference_only():
     report = build_opiu_report(
         [

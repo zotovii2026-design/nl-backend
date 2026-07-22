@@ -882,6 +882,14 @@ def _enrich_serialized_report(
         else ZERO
     )
     realized_sum = _as_decimal(total.get("realized_sum"))
+    retail_net_sum = _as_decimal(total.get("retail_net_sum"))
+    loyalty_cost = (
+        _as_decimal(total.get("loyalty_points"))
+        + _as_decimal(total.get("loyalty_participation"))
+    )
+    total["loyalty_pct"] = _money(
+        loyalty_cost / retail_net_sum * 100 if retail_net_sum else ZERO
+    )
     cost_total = _as_decimal(total.get("cost_total"))
     total["gross_margin"] = _money(
         totals["gross_profit_after_ads"] / realized_sum * 100
@@ -1220,6 +1228,14 @@ def _product_total_row(rows):
         acquiring_sum / realized_sum * 100 if realized_sum else ZERO
     )
     total["drr"] = _money(ad_spend / orders_sum * 100 if orders_sum else ZERO)
+    retail_net_sum = _sum_rows(rows, "retail_net_sum")
+    loyalty_cost = (
+        _sum_rows(rows, "loyalty_points")
+        + _sum_rows(rows, "loyalty_participation")
+    )
+    total["loyalty_pct"] = _money(
+        loyalty_cost / retail_net_sum * 100 if retail_net_sum else ZERO
+    )
     total["cost_unit"] = None
     total["storage_difference_info"] = 0
     total["advertising_difference_info"] = 0
