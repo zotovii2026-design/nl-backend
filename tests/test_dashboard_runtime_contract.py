@@ -5,6 +5,7 @@ import re
 DASHBOARD_SOURCE = Path("templates/nl_v2.html").read_text(encoding="utf-8")
 OPIU_SOURCE = Path("static/js/opiu-grid.js").read_text(encoding="utf-8")
 COST_GRID_SOURCE = Path("static/js/cost-grid.js").read_text(encoding="utf-8")
+OPIU_ROUTER_SOURCE = Path("api/v1/routers/opiu.py").read_text(encoding="utf-8")
 
 
 def test_marketer_loader_is_defined():
@@ -57,6 +58,14 @@ def test_opiu_v2_columns_match_wb_template_language():
 
     assert "id=\"opiu-unassigned\"" in DASHBOARD_SOURCE
     assert "opiu-grid.js?v=20260721-opiuv4-totals" in DASHBOARD_SOURCE
+
+
+def test_opiu_finance_rows_fallback_to_product_entity_identity():
+    assert "COALESCE(NULLIF(fr.nm_id, 0), pe.nm_id) AS nm_id" in OPIU_ROUTER_SOURCE
+    assert (
+        "COALESCE(NULLIF(fr.vendor_code, ''), pe.vendor_code, '') AS vendor_code"
+        in OPIU_ROUTER_SOURCE
+    )
 
 
 def test_reference_book_visible_columns_contract_is_stable():

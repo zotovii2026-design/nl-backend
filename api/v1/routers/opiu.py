@@ -52,10 +52,10 @@ async def _load_report_rows(
             """
             SELECT
                 fr.entity_id,
-                fr.nm_id,
-                fr.vendor_code,
+                COALESCE(NULLIF(fr.nm_id, 0), pe.nm_id) AS nm_id,
+                COALESCE(NULLIF(fr.vendor_code, ''), pe.vendor_code, '') AS vendor_code,
                 fr.barcode,
-                fr.size_name,
+                COALESCE(NULLIF(fr.size_name, ''), pe.size_name, '') AS size_name,
                 fr.doc_type_name,
                 fr.seller_oper_name,
                 fr.quantity,
