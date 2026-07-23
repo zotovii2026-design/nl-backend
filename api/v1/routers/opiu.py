@@ -1451,7 +1451,106 @@ def _service_row(label: str, comment: str = "", **values):
     return row
 
 
-def _build_export_rows(data: dict):
+def _raw_is_return(row) -> bool:
+    return "возврат" in str(row.get("doc_type_name") or "").strip().lower()
+
+
+def _raw_is_wb_promotion(row) -> bool:
+    operation = str(row.get("seller_oper_name") or "").strip().lower()
+    if "wb продвиж" in operation or "вб продвиж" in operation:
+        return True
+    if operation != "удержание" or not _as_decimal(row.get("deduction")):
+        return False
+    has_product_identity = any(
+        str(row.get(field) or "").strip()
+        for field in ("entity_id", "vendor_code", "barcode")
+    )
+    nm_id = row.get("nm_id")
+    return not has_product_identity and nm_id in (None, "", 0, "0")
+
+
+def _build_operation_summary_rows(raw_rows):
+    grouped = {}
+    for raw in raw_rows:
+        operation = str(raw.get("seller_oper_name") or "Без операции").strip()
+        doc_type = str(raw.get("doc_type_name") or "").strip()
+        key = (doc_type, operation)
+        row = grouped.setdefault(
+            key,
+            {
+                "quantity": ZERO,
+                "realized_sum": ZERO,
+                "finance_net_for_pay": ZERO,
+                "acquiring_sum": ZERO,
+                "delivery_total": ZERO,
+                "penalty": ZERO,
+                "storage": ZERO,
+                "wb_promotion_deduction": ZERO,
+                "other_expenses": ZERO,
+                "acceptance": ZERO,
+                "loyalty_compensation": ZERO,
+                "loyalty_points": ZERO,
+                "loyalty_participation": ZERO,
+                "rows_count": 0,
+            },
+        )
+        row["rows_count"] += 1
+        row["quantity"] += _as_decimal(raw.get("quantity"))
+        row["realized_sum"] += _as_decimal(raw.get("retail_amount"))
+        for_pay = _as_decimal(raw.get("for_pay"))
+        row["finance_net_for_pay"] += -abs(for_pay) if _raw_is_return(raw) else for_pay
+        row["acquiring_sum"] += _as_decimal(raw.get("acquiring_fee"))
+        row["delivery_total"] += _as_decimal(raw.get("delivery_service"))
+        row["penalty"] += _as_decimal(raw.get("penalty"))
+        row["storage"] += _as_decimal(raw.get("paid_storage"))
+        deduction = _as_decimal(raw.get("deduction"))
+        if _raw_is_wb_promotion(raw):
+            row["wb_promotion_deduction"] += deduction
+        else:
+            row["other_expenses"] += deduction
+        row["acceptance"] += _as_decimal(raw.get("paid_acceptance"))
+        row["loyalty_compensation"] += _as_decimal(raw.get("cashback_amount"))
+        row["loyalty_points"] += _as_decimal(raw.get("cashback_discount"))
+        row["loyalty_participation"] += _as_decimal(
+            raw.get("cashback_commission_change")
+        )
+
+    rows = [
+        _service_row(
+            "ОПЕРАЦИИ WB ПО ТИПАМ",
+            (
+                "Группировка сырого финансового отчета WB по типу документа "
+                "и операции. Нужна для поиска корректировок, сторно и прочих "
+                "движений до банковского перевода."
+            ),
+        )
+    ]
+    for (doc_type, operation), values in sorted(grouped.items()):
+        rows.append(
+            _service_row(
+                "Операция WB",
+                f"{doc_type or '-'} / {operation} ({values['rows_count']} строк)",
+                sales_qty=_money(values["quantity"]),
+                realized_sum=_money(values["realized_sum"]),
+                finance_net_for_pay=_money(values["finance_net_for_pay"]),
+                acquiring_sum=_money(values["acquiring_sum"]),
+                delivery_total=_money(values["delivery_total"]),
+                penalty=_money(values["penalty"]),
+                storage=_money(values["storage"]),
+                wb_promotion_deduction=_money(
+                    values["wb_promotion_deduction"]
+                ),
+                other_expenses=_money(values["other_expenses"]),
+                acceptance=_money(values["acceptance"]),
+                loyalty_compensation=_money(values["loyalty_compensation"]),
+                loyalty_points=_money(values["loyalty_points"]),
+                loyalty_participation=_money(values["loyalty_participation"]),
+            )
+        )
+    return rows
+
+
+def _build_export_rows(data: dict, raw_rows=None):
     product_rows = [
         item for item in data["items"] if not item.get("is_unassigned")
     ]
@@ -1533,6 +1632,8 @@ def _build_export_rows(data: dict):
             ),
         ]
     )
+    if raw_rows is not None:
+        rows.extend(_build_operation_summary_rows(raw_rows))
     return rows
 
 
@@ -1553,7 +1654,8 @@ async def export_opiu_report(
         *(await _enrichment_context(db, org_id, date_from, date_to)),
     )
     data["sync"] = await _sync_info(db, org_id, date_from, date_to)
-    export_rows = _build_export_rows(data)
+    raw_rows = await _load_report_rows(db, org_id, date_from, date_to)
+    export_rows = _build_export_rows(data, raw_rows)
 
     workbook = openpyxl.Workbook()
     worksheet = workbook.active

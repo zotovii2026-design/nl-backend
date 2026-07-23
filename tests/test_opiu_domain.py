@@ -8,6 +8,7 @@ import pytest
 from domain.opiu import build_opiu_report, serialize_report
 from api.v1.routers.opiu import (
     _build_export_rows,
+    _build_operation_summary_rows,
     _build_reconciliation_rows,
     _enrich_serialized_report,
 )
@@ -539,6 +540,39 @@ def test_opiu_export_rows_keep_bank_reconciliation_on_main_sheet():
     assert any(row["vendor_code"] == "ОПЕРАЦИИ БЕЗ АРТИКУЛА" for row in rows)
     assert service_rows
     assert service_rows[-2]["bank_payment_difference"] == -22.23
+
+
+def test_opiu_operation_summary_groups_wb_raw_rows_on_main_sheet():
+    rows = _build_operation_summary_rows(
+        [
+            {
+                "doc_type_name": "Продажа",
+                "seller_oper_name": "Продажа",
+                "quantity": 2,
+                "retail_amount": 1000,
+                "for_pay": 800,
+                "acquiring_fee": 50,
+            },
+            {
+                "doc_type_name": "Возврат",
+                "seller_oper_name": "Возврат",
+                "quantity": -1,
+                "for_pay": 300,
+            },
+            {
+                "doc_type_name": "",
+                "seller_oper_name": "Удержание",
+                "deduction": 123,
+            },
+        ]
+    )
+
+    by_comment = {row["product_name"]: row for row in rows}
+
+    assert rows[0]["vendor_code"] == "ОПЕРАЦИИ WB ПО ТИПАМ"
+    assert by_comment["Продажа / Продажа (1 строк)"]["finance_net_for_pay"] == 800.0
+    assert by_comment["Возврат / Возврат (1 строк)"]["finance_net_for_pay"] == -300.0
+    assert by_comment["- / Удержание (1 строк)"]["wb_promotion_deduction"] == 123.0
 
 
 def test_opiu_enrichment_uses_reference_total_cost_and_row_taxes():
