@@ -2503,7 +2503,20 @@ function getProductStatusLabel(status) {
         'Категория С':'⚪ Категория С',
         'Планируется к запуску':'🟣 Планируется к запуску'
     };
-    return labels[status] || status;
+    if (!status) return '';
+    return labels[status] || ('⚫ ' + status);
+}
+
+function getProductStatusChipStyle(status) {
+    const colors = {
+        'Новинка':'background:#d4edda;color:#155724',
+        'Выводим':'background:#f8d7da;color:#721c24',
+        'ТОП (А)':'background:#cce5ff;color:#004085',
+        'Двигаем (В)':'background:#fff3cd;color:#856404',
+        'Категория С':'background:#e2e3e5;color:#383d41',
+        'Планируется к запуску':'background:#e2d9f3;color:#4b2e83'
+    };
+    return colors[status] || 'background:#eef1f5;color:#2f3542';
 }
 
 function getProductStatusEditorValues() {

@@ -50,13 +50,9 @@ function getCostColumns() {
                     },
                     formatter: function(cell) {
                         const v = cell.getValue() || '';
-                        const colors = {
-                            'Новинка':'background:#d4edda','Выводим':'background:#f8d7da',
-                            'ТОП (А)':'background:#cce5ff','Двигаем (В)':'background:#fff3cd',
-                            'Категория С':'background:#e2e3e5','Планируется к запуску':'background:#e2d9f3'
-                        };
                         const label = (typeof getProductStatusLabel === 'function') ? getProductStatusLabel(v) : v;
-                        return '<span style="' + (colors[v]||'') + ';padding:2px 6px;border-radius:3px;font-size:.85em">' + (label || '—') + '</span>';
+                        const style = (typeof getProductStatusChipStyle === 'function') ? getProductStatusChipStyle(v) : '';
+                        return '<span style="' + style + ';padding:2px 6px;border-radius:3px;font-size:.85em">' + (label || '—') + '</span>';
                     },
                 },
                 { title: 'Класс товара', field: 'product_class',
