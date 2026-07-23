@@ -307,7 +307,8 @@ async def get_control_metrics(
         eid = str(r[0])
         if eid not in barcodes_map:
             barcodes_map[eid] = []
-        barcodes_map[eid].append(r[1])
+        if r[1] and r[1] not in barcodes_map[eid]:
+            barcodes_map[eid].append(r[1])
 
     # --- Юнит Экономика для ТС ---
     from sqlalchemy import text
@@ -487,6 +488,5 @@ async def get_control_metrics(
         },
         "products": build_product_rows(products_detail.all())
     }
-
 
 

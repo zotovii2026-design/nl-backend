@@ -54,7 +54,7 @@ async def fetch_reference(db: AsyncSession, org_id: str, target_date: Optional[s
 COST_PRICES_SQL = text(
     "SELECT pe.id as entity_id, pe.nm_id, pe.size_name, pe.vendor_code, COALESCE(cp.brand, pe.brand) as brand, "
     "pe.subject_id, pe.subject_name, pe.length, pe.width, pe.height, pe.weight, "
-    "(SELECT string_agg(eb.barcode, ', ') FROM entity_barcodes eb WHERE eb.entity_id = pe.id AND eb.is_active = true) as barcodes, "
+    "(SELECT string_agg(DISTINCT eb.barcode, ', ' ORDER BY eb.barcode) FROM entity_barcodes eb WHERE eb.entity_id = pe.id AND eb.is_active = true) as barcodes, "
     "cp.id as ref_id, cp.cost_price, cp.purchase_cost, cp.logistics_cost, cp.packaging_cost, "
     "cp.other_costs, cp.extra_costs, cp.vat, cp.min_price, "
     "cp.mp_base_pct, cp.mp_correction_pct, cp.fulfillment_model, cp.storage_pct, "

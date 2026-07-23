@@ -33,3 +33,11 @@ def test_reference_status_options_are_not_hardcoded_only():
     assert "getProductStatusEditorValues" in cost_grid
     assert "cost-file-input" in dashboard
     assert "excelBtn.disabled" not in dashboard
+
+
+def test_reference_template_deduplicates_barcodes():
+    repository = Path("repositories/reference.py").read_text(encoding="utf-8")
+    dashboard = Path("api/v1/routers/dashboard.py").read_text(encoding="utf-8")
+    assert "string_agg(DISTINCT eb.barcode" in repository
+    assert "_dedupe_barcode_string" in REFERENCE_SOURCE
+    assert "r[1] not in barcodes_map[eid]" in dashboard

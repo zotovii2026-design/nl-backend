@@ -352,6 +352,17 @@ def _num_or_blank(value):
     return value
 
 
+def _dedupe_barcode_string(value):
+    parts = []
+    seen = set()
+    for part in str(value or "").split(","):
+        clean = part.strip()
+        if clean and clean not in seen:
+            seen.add(clean)
+            parts.append(clean)
+    return ", ".join(parts)
+
+
 def _reference_template_row(item: dict) -> list:
     fulfillment = "ФБС" if item.get("fulfillment_model") == "fbs" else "ФБО"
     vat_rate = item.get("vat_rate")
@@ -367,7 +378,7 @@ def _reference_template_row(item: dict) -> list:
         item.get("brand") or "",
         item.get("subject_name") or "",
         item.get("vendor_code") or "",
-        item.get("barcodes") or item.get("barcode") or "",
+        _dedupe_barcode_string(item.get("barcodes") or item.get("barcode")),
         fulfillment,
         item.get("fbs_warehouse") or "",
         _num_or_blank(item.get("cost_price")),
