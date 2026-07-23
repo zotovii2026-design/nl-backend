@@ -21,6 +21,7 @@ from datetime import datetime, date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -41,6 +42,28 @@ from repositories.reference import fetch_reference, fetch_cost_prices
 
 _log = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(require_query_organization_access)])
+
+DEFAULT_PRODUCT_STATUSES = [
+    "Новинка",
+    "Выводим",
+    "ТОП (А)",
+    "Двигаем (В)",
+    "Категория С",
+    "Планируется к запуску",
+]
+
+REFERENCE_TEMPLATE_HEADERS = [
+    "Арт WB", "Размер",
+    "Статус товара", "Класс", "Бренд", "Категория", "Арт продавца", "Баркод",
+    "Отгрузка", "Склад FBS",
+    "Себестоимость", "Доп расходы", "Налог %", "НДС от дохода",
+    "План длина", "План ширина", "План высота", "План вес",
+    "Сезон янв", "Сезон фев", "Сезон мар", "Сезон апр", "Сезон май", "Сезон июн",
+    "Сезон июл", "Сезон авг", "Сезон сен", "Сезон окт", "Сезон ноя", "Сезон дек",
+    "ТОП запрос 1", "ТОП запрос 2", "ТОП запрос 3",
+    "% выкупа", "Корр. комиссии %", "Рекл. расходы %", "Скорость достав. дн",
+    "Мин партия", "РРЦ", "Мин цена", "Кратность вложения", "Дата правок", "Дата начала",
+]
 
 
 # ============================================================================
@@ -166,6 +189,221 @@ async def get_fbs_warehouses(org_id: str, db: AsyncSession = Depends(get_db)):
 async def get_cost_prices(org_id: str, db: AsyncSession = Depends(get_db)):
     org_id = await resolve_org_id(org_id, db)
     return await fetch_cost_prices(db, org_id)
+
+
+# ============================================================================
+# GET /api/v1/nl/cost-prices/statuses — статусы товара для фильтров и шаблона
+# ============================================================================
+@router.get("/api/v1/nl/cost-prices/statuses")
+async def get_cost_price_statuses(org_id: str, db: AsyncSession = Depends(get_db)):
+    org_id = await resolve_org_id(org_id, db)
+    result = await db.execute(text("""
+        SELECT DISTINCT product_status
+        FROM reference_book
+        WHERE organization_id = :org
+          AND product_status IS NOT NULL
+          AND btrim(product_status) != ''
+        ORDER BY product_status
+    """), {"org": org_id})
+    statuses = []
+    seen = set()
+    for status in [*DEFAULT_PRODUCT_STATUSES, *[r[0] for r in result.all()]]:
+        clean = str(status).strip()
+        key = clean.lower()
+        if clean and key not in seen:
+            seen.add(key)
+            statuses.append(clean)
+    return {"statuses": statuses}
+
+
+# ============================================================================
+# GET /api/v1/nl/cost-prices/template — XLSX-шаблон с текущими данными
+# ============================================================================
+@router.get("/api/v1/nl/cost-prices/template")
+async def download_cost_prices_template(org_id: str, db: AsyncSession = Depends(get_db)):
+    """Сформировать XLSX-шаблон Справочника с текущими строками и dropdown-валидацией."""
+    org_id = await resolve_org_id(org_id, db)
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.worksheet.datavalidation import DataValidation
+    except ImportError as exc:
+        raise HTTPException(400, "xlsx не поддерживается") from exc
+
+    rows = await fetch_cost_prices(db, org_id)
+    brands = _unique_list([item.get("brand") for item in rows])
+    subjects = _unique_list([item.get("subject_name") for item in rows])
+    status_result = await db.execute(text("""
+        SELECT DISTINCT product_status
+        FROM reference_book
+        WHERE organization_id = :org
+          AND product_status IS NOT NULL
+          AND btrim(product_status) != ''
+        ORDER BY product_status
+    """), {"org": org_id})
+    statuses = _unique_list([*DEFAULT_PRODUCT_STATUSES, *[r[0] for r in status_result.all()]])
+    warehouse_result = await db.execute(text("""
+        SELECT DISTINCT fbs_warehouse
+        FROM reference_book
+        WHERE organization_id = :org
+          AND fbs_warehouse IS NOT NULL
+          AND btrim(fbs_warehouse) != ''
+        ORDER BY fbs_warehouse
+    """), {"org": org_id})
+    warehouses = _unique_list([r[0] for r in warehouse_result.all()])
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Справочник"
+    ws.append(REFERENCE_TEMPLATE_HEADERS)
+    header_fill = PatternFill("solid", fgColor="E9EEF8")
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    for item in rows:
+        ws.append(_reference_template_row(item))
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    widths = {
+        "A": 12, "B": 12, "C": 22, "D": 10, "E": 18, "F": 24, "G": 18, "H": 22,
+        "I": 12, "J": 24, "K": 14, "L": 14, "M": 10, "N": 14,
+        "AO": 16, "AP": 14, "AQ": 14,
+    }
+    for letter, width in widths.items():
+        ws.column_dimensions[letter].width = width
+    for col_idx in range(15, 44):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = 11
+
+    list_ws = wb.create_sheet("Списки")
+    list_ws.sheet_state = "hidden"
+    _write_list_column(list_ws, 1, "Статусы", statuses)
+    _write_list_column(list_ws, 2, "Классы", ["A", "B", "C"])
+    _write_list_column(list_ws, 3, "Отгрузка", ["ФБО", "ФБС"])
+    _write_list_column(list_ws, 4, "НДС", ["нет", "0", "5%", "7%"])
+    _write_list_column(list_ws, 5, "Склады FBS", warehouses)
+    _write_list_column(list_ws, 6, "Бренды", brands)
+    _write_list_column(list_ws, 7, "Категории", subjects)
+
+    max_row = max(ws.max_row, 500)
+    validations = [
+        ("C", _list_formula("A", len(statuses)), "Выберите статус товара из списка или введите новый текст"),
+        ("D", _list_formula("B", 3), "Выберите класс товара"),
+        ("I", _list_formula("C", 2), "Выберите модель отгрузки"),
+        ("N", _list_formula("D", 4), "Выберите НДС от дохода"),
+    ]
+    if warehouses:
+        validations.append(("J", _list_formula("E", len(warehouses)), "Выберите склад FBS"))
+    if brands:
+        validations.append(("E", _list_formula("F", len(brands)), "Выберите бренд из текущих данных или введите новый"))
+    if subjects:
+        validations.append(("F", _list_formula("G", len(subjects)), "Выберите категорию из текущих данных или введите новую"))
+    for col, formula, prompt in validations:
+        dv = DataValidation(type="list", formula1=formula, allow_blank=True)
+        if col in ("C", "E", "F"):
+            dv.showErrorMessage = False
+        dv.promptTitle = "Справочник"
+        dv.prompt = prompt
+        ws.add_data_validation(dv)
+        dv.add(f"{col}2:{col}{max_row}")
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    filename = "spravochnik_template.xlsx"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(
+        output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
+
+def _unique_list(values):
+    result = []
+    seen = set()
+    for value in values:
+        if value is None:
+            continue
+        clean = str(value).strip()
+        key = clean.lower()
+        if clean and key not in seen:
+            seen.add(key)
+            result.append(clean)
+    return result
+
+
+def _write_list_column(ws, col_idx: int, title: str, values):
+    ws.cell(row=1, column=col_idx, value=title)
+    for row_idx, value in enumerate(values, start=2):
+        ws.cell(row=row_idx, column=col_idx, value=value)
+
+
+def _list_formula(col_letter: str, length: int) -> str:
+    end_row = max(length + 1, 2)
+    return f"'Списки'!${col_letter}$2:${col_letter}${end_row}"
+
+
+def _num_or_blank(value):
+    if value is None:
+        return ""
+    return value
+
+
+def _reference_template_row(item: dict) -> list:
+    fulfillment = "ФБС" if item.get("fulfillment_model") == "fbs" else "ФБО"
+    vat_rate = item.get("vat_rate")
+    if vat_rate in (None, "", 0, 0.0):
+        vat_display = "нет"
+    else:
+        vat_display = f"{float(vat_rate):g}%"
+    return [
+        item.get("nm_id") or "",
+        item.get("size_name") or "",
+        item.get("product_status") or "",
+        item.get("product_class") or "",
+        item.get("brand") or "",
+        item.get("subject_name") or "",
+        item.get("vendor_code") or "",
+        item.get("barcodes") or item.get("barcode") or "",
+        fulfillment,
+        item.get("fbs_warehouse") or "",
+        _num_or_blank(item.get("cost_price")),
+        _num_or_blank(item.get("extra_costs")),
+        _num_or_blank(item.get("tax_rate")),
+        vat_display,
+        _num_or_blank(item.get("plan_length")),
+        _num_or_blank(item.get("plan_width")),
+        _num_or_blank(item.get("plan_height")),
+        _num_or_blank(item.get("plan_weight")),
+        _num_or_blank(item.get("season_jan")),
+        _num_or_blank(item.get("season_feb")),
+        _num_or_blank(item.get("season_mar")),
+        _num_or_blank(item.get("season_apr")),
+        _num_or_blank(item.get("season_may")),
+        _num_or_blank(item.get("season_jun")),
+        _num_or_blank(item.get("season_jul")),
+        _num_or_blank(item.get("season_aug")),
+        _num_or_blank(item.get("season_sep")),
+        _num_or_blank(item.get("season_oct")),
+        _num_or_blank(item.get("season_nov")),
+        _num_or_blank(item.get("season_dec")),
+        item.get("top_query_1") or "",
+        item.get("top_query_2") or "",
+        item.get("top_query_3") or "",
+        _num_or_blank(item.get("buyout_niche_pct")),
+        _num_or_blank(item.get("mp_correction_pct")),
+        _num_or_blank(item.get("ad_plan_rub")),
+        _num_or_blank(item.get("supply_days")),
+        _num_or_blank(item.get("min_batch_fbo")),
+        _num_or_blank(item.get("rrc_price")),
+        _num_or_blank(item.get("min_price")),
+        _num_or_blank(item.get("transport_pack_qty") or 1),
+        item.get("change_date") or "",
+        item.get("valid_from") or "",
+    ]
 
 
 # ============================================================================

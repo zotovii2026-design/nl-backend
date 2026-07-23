@@ -43,15 +43,9 @@ function getCostColumns() {
                     headerTooltip: 'Статус товара', width: 120, headerSort: true,
                     editor: 'list',
                     editorParams: {
-                        values: {
-                            '':'-',
-                            'Новинка':'🟢 Новинка',
-                            'Выводим':'🔴 Выводим',
-                            'ТОП (А)':'🔵 ТОП (А)',
-                            'Двигаем (В)':'🟡 Двигаем (В)',
-                            'Категория С':'⚪ Категория С',
-                            'Планируется к запуску':'🟣 Планируется к запуску',
-                        },
+                        values: (typeof getProductStatusEditorValues === 'function')
+                            ? getProductStatusEditorValues()
+                            : {'':'-', 'Новинка':'Новинка', 'Выводим':'Выводим', 'ТОП (А)':'ТОП (А)', 'Двигаем (В)':'Двигаем (В)', 'Категория С':'Категория С', 'Планируется к запуску':'Планируется к запуску'},
                         clearable: true,
                     },
                     formatter: function(cell) {
@@ -61,12 +55,8 @@ function getCostColumns() {
                             'ТОП (А)':'background:#cce5ff','Двигаем (В)':'background:#fff3cd',
                             'Категория С':'background:#e2e3e5','Планируется к запуску':'background:#e2d9f3'
                         };
-                        const labels = {
-                            'Новинка':'🟢 Новинка', 'Выводим':'🔴 Выводим',
-                            'ТОП (А)':'🔵 ТОП (А)', 'Двигаем (В)':'🟡 Двигаем (В)',
-                            'Категория С':'⚪ Категория С', 'Планируется к запуску':'🟣 Планируется к запуску'
-                        };
-                        return '<span style="' + (colors[v]||'') + ';padding:2px 6px;border-radius:3px;font-size:.85em">' + (v || '—') + '</span>';
+                        const label = (typeof getProductStatusLabel === 'function') ? getProductStatusLabel(v) : v;
+                        return '<span style="' + (colors[v]||'') + ';padding:2px 6px;border-radius:3px;font-size:.85em">' + (label || '—') + '</span>';
                     },
                 },
                 { title: 'Класс товара', field: 'product_class',

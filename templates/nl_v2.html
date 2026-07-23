@@ -168,7 +168,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/stats-grid.js?v=20260623-dp"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260721-opiuv4-totals"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260714b"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260723a"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
@@ -641,10 +641,9 @@ var _sectionHTML = {
 </div>
 <button id="tax-apply-btn" onclick="applyTaxToAll()" title="Применить налоги ко всем строкам" style="padding:6px 10px;font-size:.85em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px">📋 Применить ко всему</button>
 <button id="tax-lock-btn" onclick="toggleTaxLock()" title="Заблокировать/разблокировать" style="padding:6px 10px;font-size:1.2em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px;transition:all .2s">🔒</button>
-<button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить CSV/XLSX</button>
+<button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить шаблон</button>
 <input type="file" id="cost-file-input" accept=".xlsx,.csv" style="display:none" onchange="uploadCostExcel(this)">
-<button class="btn btn-outline" onclick="downloadEmptyTemplate()" style="padding:6px 14px;font-size:.85em">📥 Скачать CSV-шаблон</button>
-<button class="btn btn-outline" onclick="exportCostTemplate()" style="padding:6px 14px;font-size:.85em">📤 Экспорт данных</button>
+<button class="btn btn-outline" onclick="downloadReferenceTemplate()" style="padding:6px 14px;font-size:.85em">📥 Сформировать шаблон</button>
 <span style="font-size:.85em;color:#999" id="cost-count"></span>
 <button class="btn" onclick="autoFillReference()" style="padding:5px 12px;font-size:.82em;background:#6c5ce7;color:#fff;border-radius:4px">🔄 Автозаполнение</button>
 <button class="btn" onclick="saveAllCostPrices()" style="padding:7px 16px;font-size:.88em;background:#00b894;color:#fff;font-weight:600;border-radius:6px">СОХРАНИТЬ<br><span style="font-size:.65em;font-weight:400;opacity:.7">отправить на сервер</span></button>
@@ -659,7 +658,8 @@ var _sectionHTML = {
 <select id="flt-tax-system" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Налог. система: все</option><option value="usn">УСН</option><option value="usn_dr">Доходы-Расходы</option><option value="osn">ОСН</option></select>
 <select id="flt-product-class" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option></select>
 <select id="flt-brand" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
-<select id="flt-product-status" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option><option value="Новинка">🟢 Новинка</option><option value="Выводим">🔴 Выводим</option><option value="ТОП (А)">🔵 ТОП (А)</option><option value="Двигаем (В)">🟡 Двигаем (В)</option><option value="Категория С">⚪ Категория С</option><option value="Планируется к запуску">🟣 Планируется к запуску</option></select>
+<select id="flt-product-status" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option></select>
+<button onclick="addReferenceProductStatus()" title="Добавить свой статус товара" style="border:1px solid #ddd;background:#fff;color:#6c5ce7;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">+ Статус</button>
 <select id="flt-has-cost" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
 <input type="text" id="cost-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
 <button onclick="clearCostFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сбросить</button>
@@ -2456,6 +2456,125 @@ async function loadAnalytics() {
 // Глобальный кэш для фильтрации
 let _costProducts = [];
 let _costMap = {};
+let _referenceProductStatuses = ['Новинка', 'Выводим', 'ТОП (А)', 'Двигаем (В)', 'Категория С', 'Планируется к запуску'];
+
+function getReferenceStatusStorageKey() {
+    return 'reference_product_statuses_' + (getCurrentOrgId() || ORG_ID || 'default');
+}
+
+function uniqReferenceStatuses(values) {
+    const result = [];
+    const seen = new Set();
+    (values || []).forEach(function(value) {
+        const clean = String(value || '').trim();
+        const key = clean.toLowerCase();
+        if (clean && !seen.has(key)) {
+            seen.add(key);
+            result.push(clean);
+        }
+    });
+    return result;
+}
+
+function getStoredReferenceStatuses() {
+    try {
+        const raw = localStorage.getItem(getReferenceStatusStorageKey());
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+    } catch(e) {
+        return [];
+    }
+}
+
+function saveStoredReferenceStatuses(statuses) {
+    localStorage.setItem(getReferenceStatusStorageKey(), JSON.stringify(uniqReferenceStatuses(statuses)));
+}
+
+function getReferenceProductStatuses() {
+    return uniqReferenceStatuses(_referenceProductStatuses.concat(getStoredReferenceStatuses()));
+}
+
+function getProductStatusLabel(status) {
+    const labels = {
+        'Новинка':'🟢 Новинка',
+        'Выводим':'🔴 Выводим',
+        'ТОП (А)':'🔵 ТОП (А)',
+        'Двигаем (В)':'🟡 Двигаем (В)',
+        'Категория С':'⚪ Категория С',
+        'Планируется к запуску':'🟣 Планируется к запуску'
+    };
+    return labels[status] || status;
+}
+
+function getProductStatusEditorValues() {
+    const values = {'': '-'};
+    getReferenceProductStatuses().forEach(function(status) {
+        values[status] = getProductStatusLabel(status);
+    });
+    return values;
+}
+
+function updateReferenceStatusControls() {
+    const statuses = getReferenceProductStatuses();
+    const statusSelect = document.getElementById('flt-product-status');
+    if (statusSelect) {
+        const cur = statusSelect.value;
+        const opts = ['<option value="">Статус: все</option>'];
+        statuses.forEach(function(status) {
+            opts.push('<option value="' + esc(status) + '">' + esc(getProductStatusLabel(status)) + '</option>');
+        });
+        statusSelect.innerHTML = opts.join('');
+        statusSelect.value = statuses.indexOf(cur) !== -1 ? cur : '';
+    }
+    if (typeof costTabulator !== 'undefined' && costTabulator) {
+        costTabulator.updateColumnDefinition('product_status', {
+            editorParams: { values: getProductStatusEditorValues(), clearable: true }
+        });
+    }
+}
+
+async function loadReferenceProductStatuses(orgId) {
+    const fromRows = [];
+    _costProducts.forEach(function(p) {
+        const c = _costMap[p.entity_id] || {};
+        if (c.product_status) fromRows.push(c.product_status);
+    });
+    let fromApi = [];
+    try {
+        const res = await fetch('/api/v1/nl/cost-prices/statuses?org_id=' + encodeURIComponent(orgId));
+        if (res.ok) {
+            const data = await res.json();
+            fromApi = data.statuses || [];
+        }
+    } catch(e) {
+        console.warn('loadReferenceProductStatuses', e);
+    }
+    _referenceProductStatuses = uniqReferenceStatuses(_referenceProductStatuses.concat(fromApi, fromRows, getStoredReferenceStatuses()));
+    updateReferenceStatusControls();
+}
+
+function addReferenceProductStatus() {
+    const raw = prompt('Новый статус товара');
+    const status = String(raw || '').trim();
+    if (!status) return;
+    if (status.length > 50) {
+        showToast('❌ Статус не должен быть длиннее 50 символов', 'error');
+        return;
+    }
+    const statuses = getReferenceProductStatuses();
+    const exists = statuses.some(function(item) { return item.toLowerCase() === status.toLowerCase(); });
+    if (!exists) {
+        statuses.push(status);
+        saveStoredReferenceStatuses(statuses);
+        _referenceProductStatuses = uniqReferenceStatuses(_referenceProductStatuses.concat(statuses));
+    }
+    updateReferenceStatusControls();
+    const statusSelect = document.getElementById('flt-product-status');
+    if (statusSelect) statusSelect.value = status;
+    const bulkField = document.getElementById('bulk-field');
+    if (bulkField && bulkField.value === 'product_status') onBulkFieldChange();
+    showToast('✅ Статус добавлен: ' + status);
+}
 
 function calcPlanVol(el) {
   var row = el.closest('tr');
@@ -2569,7 +2688,6 @@ function setTaxLock(locked) {
     var sel = document.getElementById('tax-system-select');
     var inp = document.getElementById('tax-rate-input');
     var vat = document.getElementById('vat-type-select');
-    var excelBtn = document.getElementById('cost-file-input');
     if (locked) {
         btn.textContent = '\U0001f512';
         btn.style.borderColor = '#6c5ce7';
@@ -2582,7 +2700,6 @@ function setTaxLock(locked) {
             costTabulator.updateColumnDefinition('_tax_rate_override', {editable:false});
             costTabulator.updateColumnDefinition('vat_rate', {editable:false});
         }
-        if (excelBtn) excelBtn.disabled = true;
     } else {
         btn.textContent = '\U0001f513';
         btn.style.borderColor = '#ddd';
@@ -2595,7 +2712,6 @@ function setTaxLock(locked) {
             costTabulator.updateColumnDefinition('_tax_rate_override', {editable:true});
             costTabulator.updateColumnDefinition('vat_rate', {editable:true});
         }
-        if (excelBtn) excelBtn.disabled = false;
     }
 }
 
@@ -2646,6 +2762,7 @@ async function loadCostPrices() {
                 _costMap[c.entity_id] = c;  // ключ = entity_id
             });
         }
+        await loadReferenceProductStatuses(orgId);
         
         // Заполнить фильтры-дропдауны уникальными значениями
         populateCostFilterOptions();
@@ -2673,7 +2790,8 @@ function populateCostFilterOptions() {
     };
     fillSel('flt-product-class', classes);
     fillSel('flt-brand', brands);
-    // product_status filter is now static with predefined values
+    _referenceProductStatuses = uniqReferenceStatuses(_referenceProductStatuses.concat([...statuses]));
+    updateReferenceStatusControls();
 }
 
 function clearCostFilters() {
@@ -2951,7 +3069,7 @@ function onBulkFieldChange() {
     // Values for list-type fields (must match cost-grid.js editorParams)
     const listValues = {
         'product_class': [['','—'],['A','A'],['B','B'],['C','C']],
-        'product_status': [['','—'],['Новинка','🟢 Новинка'],['Выводим','🔴 Выводим'],['ТОП (А)','🔵 ТОП (А)'],['Двигаем (В)','🟡 Двигаем (В)'],['Категория С','⚪ Категория С'],['Планируется к запуску','🟣 Планируется к запуску']],
+        'product_status': [['','—']].concat(getReferenceProductStatuses().map(function(status) { return [status, getProductStatusLabel(status)]; })),
         'fulfillment_model': [['','—'],['fbo','ФБО'],['fbs','ФБС']],
         'vat_rate': [['','—'],['0','нет'],['5','5%'],['7','7%']],
     };
@@ -3106,93 +3224,37 @@ async function uploadCostExcel(input) {
     input.value = '';
 }
 
+async function downloadReferenceTemplate() {
+    const orgId = getCurrentOrgId();
+    if (!orgId) { showToast("❌ Выберите магазин", "error"); return; }
+    try {
+        const res = await fetch('/api/v1/nl/cost-prices/template?org_id=' + encodeURIComponent(orgId));
+        if (!res.ok) {
+            let detail = 'Ошибка формирования шаблона';
+            try {
+                const data = await res.json();
+                detail = data.detail || detail;
+            } catch(e) {}
+            throw new Error(detail);
+        }
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'spravochnik_template.xlsx';
+        a.click();
+        URL.revokeObjectURL(a.href);
+        showToast('📥 Шаблон сформирован');
+    } catch(e) {
+        showToast('❌ Ошибка: ' + e.message, 'error');
+    }
+}
+
 function downloadEmptyTemplate() {
-    var hdr = "Арт WB;Размер;" +
-        "Статус товара;Класс;Бренд;Категория;Арт продавца;Баркод;" +
-        "Отгрузка;Склад FBS;" +
-        "Себестоимость;Доп расходы;Налог %;НДС от дохода;" +
-        "План длина;План ширина;План высота;План вес;" +
-        "Сезон янв;Сезон фев;Сезон мар;Сезон апр;Сезон май;Сезон июн;" +
-        "Сезон июл;Сезон авг;Сезон сен;Сезон окт;Сезон ноя;Сезон дек;" +
-        "ТОП запрос 1;ТОП запрос 2;ТОП запрос 3;" +
-        "% выкупа;Корр. комиссии %;Рекл. расходы %;Скорость достав. дн;Мин партия;РРЦ;Мин цена;Кратность вложения;Дата правок;Дата начала";
-    var blob = new Blob(["\ufeff" + hdr], {type: "text/csv;charset=utf-8"});
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "template_spravochnik.csv";
-    a.click();
-    URL.revokeObjectURL(a.href);
-    showToast("📥 Шаблон скачан");
+    return downloadReferenceTemplate();
 }
 
 function exportCostTemplate() {
-    var hdr = "Арт WB;Размер;" +
-        "Статус товара;Класс;Бренд;Категория;Арт продавца;Баркод;" +
-        "Отгрузка;Склад FBS;" +
-        "Себестоимость;Доп расходы;Налог %;НДС от дохода;" +
-        "План длина;План ширина;План высота;План вес;" +
-        "Сезон янв;Сезон фев;Сезон мар;Сезон апр;Сезон май;Сезон июн;" +
-        "Сезон июл;Сезон авг;Сезон сен;Сезон окт;Сезон ноя;Сезон дек;" +
-        "ТОП запрос 1;ТОП запрос 2;ТОП запрос 3;" +
-        "% выкупа;Корр. комиссии %;Рекл. расходы %;Скорость достав. дн;Мин партия;РРЦ;Мин цена;Кратность вложения;Дата правок;Дата начала";
-    var csv = hdr;
-
-    if (typeof costTabulator !== "undefined" && costTabulator) {
-        var data = costTabulator.getData();
-        if (data.length) {
-            csv += String.fromCharCode(10);
-            data.forEach(function(d) {
-                var taxVal = "";
-                if (d._tax_rate_override !== null && d._tax_rate_override !== "" && d._tax_rate_override !== undefined) {
-                    taxVal = d._tax_rate_override;
-                }
-                var vatVal = 0;
-                if (d.vat_rate && d.vat_rate !== 0 && d.vat_rate !== "нет") vatVal = d.vat_rate;
-                var cols = [
-                    d.nm_id_display || d.nm_id || "",
-                    d._sizeList === "\u2014" ? "" : (d.size_name || ""),
-                    d.product_status || "",
-                    d.product_class || "",
-                    d.brand || "",
-                    d.subject_name || "",
-                    d.vendor_code || "",
-                    d._barcodes || "",
-                    d.fulfillment_model === "fbs" ? "ФБС" : "ФБО",
-                    d.fulfillment_model === "fbs" ? (d.fbs_warehouse || "") : "",
-                    d.cost_price || "",
-                    d.extra_costs || "",
-                    taxVal,
-                    vatVal,
-                    d.plan_length || "",
-                    d.plan_width || "",
-                    d.plan_height || "",
-                    d.plan_weight || "",
-                    d.season_jan || "", d.season_feb || "", d.season_mar || "", d.season_apr || "",
-                    d.season_may || "", d.season_jun || "", d.season_jul || "", d.season_aug || "",
-                    d.season_sep || "", d.season_oct || "", d.season_nov || "", d.season_dec || "",
-                    d.top_query_1 || "", d.top_query_2 || "", d.top_query_3 || "",
-                    d.buyout_niche_pct || "",
-                    d.mp_correction_pct || "",
-                    d.ad_plan_rub || "",
-                    d.supply_days || "",
-                    d.min_batch_fbo || "",
-                    d.rrc_price || "",
-                    d.min_price || "",
-                    d.transport_pack_qty || 1,
-                    d.change_date || "",
-                    d.valid_from || ""
-                ];
-                csv += cols.join(";") + String.fromCharCode(10);
-            });
-        }
-    }
-
-    var blob = new Blob(["\ufeff" + csv], {type: "text/csv;charset=utf-8"});
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "export_spravochnik.csv";
-    a.click();
-    URL.revokeObjectURL(a.href);
+    return downloadReferenceTemplate();
 }
 
 async function loadWarehouses() {
