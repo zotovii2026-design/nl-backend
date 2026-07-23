@@ -807,6 +807,9 @@ def _enrich_serialized_report(
                 "vat_tax": _money(vat_tax),
                 "selected_tax": _money(selected_tax),
                 "other_expenses": _money(other_expenses),
+                "finance_net_for_pay": _money(item.get("net_for_pay")),
+                "bank_payment_sum": 0,
+                "bank_payment_difference": 0,
                 "gross_profit_after_ads": _money(gross_profit_after_ads),
                 "net_profit": _money(net_profit),
                 "gross_margin": _money(gross_margin),
@@ -906,6 +909,16 @@ def _enrich_serialized_report(
         realized_sum / cost_total * 100 if cost_total else ZERO
     )
     total["cost_unit"] = None
+    finance_net_for_pay = _as_decimal(total.get("net_for_pay"))
+    total["finance_net_for_pay"] = _money(finance_net_for_pay)
+    total["bank_payment_sum"] = (
+        _money(bank_payment_sum) if bank_payment_sum is not None else None
+    )
+    total["bank_payment_difference"] = (
+        _money(_as_decimal(bank_payment_sum) - finance_net_for_pay)
+        if bank_payment_sum is not None
+        else None
+    )
     if bank_payment_sum is not None:
         total["net_for_pay"] = _money(bank_payment_sum)
     total["storage_difference_info"] = _money(storage_difference)
@@ -1102,6 +1115,9 @@ EXPORT_COLUMNS = [
     ("% программы лояльности", "loyalty_pct"),
     ("Платная приемка, руб", "acceptance"),
     ("Прочие затраты, руб", "other_expenses"),
+    ("К перечислению по фин. строкам WB, руб", "finance_net_for_pay"),
+    ("Банковский перевод WB, руб", "bank_payment_sum"),
+    ("Разница до банковского перевода WB, руб", "bank_payment_difference"),
     ("К перечислению на р/с", "net_for_pay"),
     ("Валовая прибыль, руб", "gross_profit_after_ads"),
     ("Валовая рентабельность, %", "gross_margin"),
@@ -1416,6 +1432,108 @@ def _product_total_row(rows):
     return total
 
 
+def _service_row(label: str, comment: str = "", **values):
+    row = {field: None for _, field in EXPORT_COLUMNS}
+    row.update(
+        {
+            "vendor_code": label,
+            "nm_id": "",
+            "product_name": comment,
+            "barcode": "",
+            "size_name": "",
+            "brand": "",
+            "subject_name": "",
+        }
+    )
+    row.update(values)
+    return row
+
+
+def _build_export_rows(data: dict):
+    product_rows = [
+        item for item in data["items"] if not item.get("is_unassigned")
+    ]
+    rows = [data["total"], *product_rows]
+
+    unassigned_items = data.get("unassigned_items", [])
+    if unassigned_items:
+        rows.append(
+            _service_row(
+                "ОПЕРАЦИИ БЕЗ АРТИКУЛА",
+                (
+                    "Удержания, корректировки и прочие движения WB, "
+                    "которые нельзя привязать к товарной строке."
+                ),
+            )
+        )
+        rows.extend(
+            {
+                **item,
+                "vendor_code": "Без артикула",
+                "product_name": (
+                    item.get("product_name")
+                    or item.get("seller_oper_name")
+                    or "Операция WB без товарной привязки"
+                ),
+            }
+            for item in unassigned_items
+        )
+
+    total = data.get("total", {})
+    product_total = data.get("product_total", {})
+    unassigned_net_for_pay = _sum_rows(unassigned_items, "finance_net_for_pay")
+    finance_net_for_pay = _as_decimal(total.get("finance_net_for_pay"))
+    bank_payment_sum = _as_decimal(total.get("bank_payment_sum"))
+    bank_payment_difference = _as_decimal(total.get("bank_payment_difference"))
+
+    rows.extend(
+        [
+            _service_row(
+                "СВЕРКА WB",
+                "Товарные строки: продажи forPay минус возвраты forPay.",
+                finance_net_for_pay=product_total.get("finance_net_for_pay"),
+                net_for_pay=product_total.get("net_for_pay"),
+            ),
+            _service_row(
+                "СВЕРКА WB",
+                "Операции без артикула, которые влияют на выплату WB.",
+                finance_net_for_pay=_money(unassigned_net_for_pay),
+                net_for_pay=_money(unassigned_net_for_pay),
+            ),
+            _service_row(
+                "СВЕРКА WB",
+                "Все финансовые строки WB, попавшие в период отчета.",
+                finance_net_for_pay=_money(finance_net_for_pay),
+                net_for_pay=_money(finance_net_for_pay),
+            ),
+            _service_row(
+                "СВЕРКА WB",
+                "Банковский перевод WB из finance summary bankPaymentSum.",
+                bank_payment_sum=_money(bank_payment_sum),
+                net_for_pay=_money(bank_payment_sum),
+            ),
+            _service_row(
+                "СВЕРКА WB",
+                (
+                    "Разница между всеми фин. строками отчета и банковским "
+                    "переводом WB. Ее нужно расшифровать через корректировки, "
+                    "сторно и прочие движения WB."
+                ),
+                bank_payment_difference=_money(bank_payment_difference),
+            ),
+            _service_row(
+                "СВЕРКА WB",
+                (
+                    "Валовая прибыль = финансовая база WB - логистика - штрафы "
+                    "- хранение - реклама WB - приемка - лояльность - прочие."
+                ),
+                gross_profit_after_ads=total.get("gross_profit_after_ads"),
+            ),
+        ]
+    )
+    return rows
+
+
 @router.get("/api/v1/nl/opiu/export")
 async def export_opiu_report(
     org_id: str,
@@ -1433,24 +1551,13 @@ async def export_opiu_report(
         *(await _enrichment_context(db, org_id, date_from, date_to)),
     )
     data["sync"] = await _sync_info(db, org_id, date_from, date_to)
-    product_rows = [
-        item for item in data["items"] if not item.get("is_unassigned")
-    ]
-    product_rows = [data["total"]] + product_rows
-    control_rows = [
-        {
-            **item,
-            "control_group": "Нераспределено: нет артикула/nm_id/barcode",
-        }
-        for item in data.get("unassigned_items", [])
-    ]
-    raw_rows = await _load_report_rows(db, org_id, date_from, date_to)
+    export_rows = _build_export_rows(data)
 
     workbook = openpyxl.Workbook()
     worksheet = workbook.active
-    worksheet.title = "ОПиУ по артикулам"
+    worksheet.title = "ОПиУ"
     worksheet.append([title for title, _ in EXPORT_COLUMNS])
-    for item in product_rows:
+    for item in export_rows:
         worksheet.append([item.get(field) for _, field in EXPORT_COLUMNS])
     _style_worksheet(worksheet)
 
@@ -1458,37 +1565,6 @@ async def export_opiu_report(
     for cell in worksheet[2]:
         cell.fill = total_fill
         cell.font = Font(bold=True)
-
-    _append_sheet(
-        workbook,
-        "Расшифровка прочих затрат",
-        OTHER_EXPENSE_COLUMNS,
-        data.get("allocations", []),
-    )
-    _append_sheet(
-        workbook,
-        "Контроль нераспределено",
-        CONTROL_COLUMNS,
-        control_rows,
-    )
-    _append_sheet(
-        workbook,
-        "Сверка итогов",
-        RECONCILIATION_COLUMNS,
-        _build_reconciliation_rows(data),
-    )
-    _append_sheet(
-        workbook,
-        "Формулы",
-        FORMULA_COLUMNS,
-        FORMULA_ROWS,
-    )
-    _append_sheet(
-        workbook,
-        "Raw finance rows",
-        RAW_FINANCE_COLUMNS,
-        raw_rows,
-    )
 
     output = io.BytesIO()
     workbook.save(output)

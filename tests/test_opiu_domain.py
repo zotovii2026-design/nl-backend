@@ -7,6 +7,7 @@ import pytest
 
 from domain.opiu import build_opiu_report, serialize_report
 from api.v1.routers.opiu import (
+    _build_export_rows,
     _build_reconciliation_rows,
     _enrich_serialized_report,
 )
@@ -454,6 +455,9 @@ def test_opiu_total_can_use_bank_payment_control_for_account_payment():
 
     assert data["items"][0]["net_for_pay"] == 800.0
     assert data["total"]["net_for_pay"] == 777.77
+    assert data["total"]["finance_net_for_pay"] == 800.0
+    assert data["total"]["bank_payment_sum"] == 777.77
+    assert data["total"]["bank_payment_difference"] == -22.23
 
 
 def test_opiu_reconciliation_rows_explain_bank_payment_and_gross_profit():
@@ -486,6 +490,55 @@ def test_opiu_reconciliation_rows_explain_bank_payment_and_gross_profit():
     assert by_metric["Валовая прибыль, руб"]["control_amount"] == 700.0
     assert by_metric["Валовая прибыль, руб"]["difference"] == 0.0
     assert by_metric["Хранение, руб"]["control_amount"] == 10.0
+
+
+def test_opiu_export_rows_keep_bank_reconciliation_on_main_sheet():
+    data = {
+        "total": {
+            "vendor_code": "ИТОГО",
+            "net_for_pay": 777.77,
+            "finance_net_for_pay": 800.0,
+            "bank_payment_sum": 777.77,
+            "bank_payment_difference": -22.23,
+            "gross_profit_after_ads": 700.0,
+        },
+        "product_total": {
+            "finance_net_for_pay": 900.0,
+            "net_for_pay": 900.0,
+        },
+        "items": [
+            {
+                "vendor_code": "article-1",
+                "product_name": "Product",
+                "finance_net_for_pay": 900.0,
+                "net_for_pay": 900.0,
+                "is_unassigned": False,
+            },
+            {
+                "vendor_code": "(без артикула)",
+                "finance_net_for_pay": -100.0,
+                "net_for_pay": -100.0,
+                "is_unassigned": True,
+            },
+        ],
+        "unassigned_items": [
+            {
+                "vendor_code": "(без артикула)",
+                "finance_net_for_pay": -100.0,
+                "net_for_pay": -100.0,
+                "is_unassigned": True,
+            }
+        ],
+    }
+
+    rows = _build_export_rows(data)
+    service_rows = [row for row in rows if row["vendor_code"] == "СВЕРКА WB"]
+
+    assert rows[0]["vendor_code"] == "ИТОГО"
+    assert rows[0]["bank_payment_sum"] == 777.77
+    assert any(row["vendor_code"] == "ОПЕРАЦИИ БЕЗ АРТИКУЛА" for row in rows)
+    assert service_rows
+    assert service_rows[-2]["bank_payment_difference"] == -22.23
 
 
 def test_opiu_enrichment_uses_reference_total_cost_and_row_taxes():
