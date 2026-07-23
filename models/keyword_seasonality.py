@@ -29,7 +29,7 @@ class WbKeywordSeasonality(Base):
     freq_monthly = Column(Integer, nullable=True)
     freq_weekly = Column(Integer, nullable=True)
     weekly_trend = Column(Integer, nullable=True)
-    growth_rate = Column(Numeric(5, 3), nullable=True)
+    growth_rate = Column(Numeric(10, 3), nullable=True)
     product_count = Column(Integer, nullable=True)
     
     wb_subject_id = Column(Integer, nullable=True)

@@ -64,6 +64,40 @@ async def _run_step(name: str, fn, sf) -> dict[str, Any]:
         return {"status": "error", "error": str(exc)}
 
 
+async def _auto_extract_top_queries(sf, org_id: str) -> dict[str, Any]:
+    """Автоизвлечение top_query_1 из product_name после первичной загрузки товаров.
+
+    Берёт первые 2 слова из product_name в tech_status и записывает
+    в reference_book.top_query_1 для строк, где он пустой.
+    """
+    logger.info("[initial_sync] auto-extracting top_query_1 for org=%s", org_id)
+    try:
+        async with sf() as db:
+            result = await db.execute(text("""
+                UPDATE reference_book rb
+                SET top_query_1 = sub.query_text
+                FROM (
+                    SELECT DISTINCT ts.nm_id, ts.organization_id,
+                        LOWER(SPLIT_PART(TRIM(ts.product_name), ' ', 1) || ' ' ||
+                              SPLIT_PART(TRIM(ts.product_name), ' ', 2)) AS query_text
+                    FROM tech_status ts
+                    WHERE ts.product_name IS NOT NULL
+                      AND TRIM(ts.product_name) != ''
+                      AND ts.organization_id = :org_id
+                ) sub
+                WHERE rb.nm_id = sub.nm_id
+                  AND rb.organization_id = sub.organization_id
+                  AND (rb.top_query_1 IS NULL OR rb.top_query_1 = '')
+            """), {"org_id": org_id})
+            await db.commit()
+            count = result.rowcount
+            logger.info("[initial_sync] auto-extracted top_query_1 for %s products org=%s", count, org_id)
+            return {"status": "ok", "extracted": count}
+    except Exception as exc:
+        logger.exception("[initial_sync] auto-extract top_query_1 failed org=%s", org_id)
+        return {"status": "error", "error": str(exc)}
+
+
 async def _do_initial_sync(sf, org_id: str, task_id: str | None = None) -> dict[str, Any]:
     org_id = str(org_id)
     redis = Redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
@@ -96,6 +130,7 @@ async def _do_initial_sync(sf, org_id: str, task_id: str | None = None) -> dict[
                 ("prices", wb_fetch._do_prices),
                 ("sales_funnel", wb_fetch._do_sales_funnel),
                 ("parse_raw", parse_raw._do_parse_raw),
+                ("auto_extract_queries", lambda sf: _auto_extract_top_queries(sf, org_id)),
                 ("tariff_snapshot", wb_fetch._do_tariff_snapshot),
             ]
 
@@ -129,4 +164,11 @@ def initial_sync(self, org_id: str):
             run_precompute([str(org_id)])
         except Exception as exc:
             logger.warning("[initial_sync] ue_precompute skipped org=%s: %s", org_id, exc)
+        # Запускаем сбор сезонности после успешного initial_sync
+        try:
+            from tasks.celery_app import celery_app
+            celery_app.send_task("seasonality.collect", kwargs={"org_id": str(org_id)})
+            logger.info("[initial_sync] seasonality.collect queued for org=%s", org_id)
+        except Exception as exc:
+            logger.warning("[initial_sync] failed to queue seasonality for org=%s: %s", org_id, exc)
     return result

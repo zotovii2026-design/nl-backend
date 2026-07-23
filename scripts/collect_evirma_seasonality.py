@@ -234,6 +234,7 @@ async def save_seasonality(records: List[Dict], dry_run: bool = False) -> int:
                 saved += 1
             except Exception as e:
                 _log.error(f"Save error for keyword {r.get('keyword')}: {e}")
+                await db.rollback()
         
         await db.commit()
         return saved
