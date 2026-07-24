@@ -30,6 +30,12 @@ from services.reference import ensure_reference_book_for_entities
 
 logger = logging.getLogger(__name__)
 
+def _safe_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
 
 
 
@@ -312,6 +318,18 @@ async def _do_prices(sf):
 
                 # Обновляем цены в tech_status + reference_book (WB API возвращает в рублях)
                 async with sf() as db:
+                    entity_result = await db.execute(text("""
+                        SELECT id, nm_id, chrt_id
+                        FROM product_entities
+                        WHERE organization_id = :org
+                    """), {"org": org_id})
+                    entity_by_nm_chrt = {}
+                    for row in entity_result.all():
+                        nm_key = _safe_int(row[1])
+                        chrt_key = _safe_int(row[2])
+                        if nm_key is not None and chrt_key is not None:
+                            entity_by_nm_chrt[(nm_key, chrt_key)] = str(row[0])
+
                     updated_ts = 0
                     updated_rb = 0
                     from datetime import datetime as _dt, timezone as _tz
@@ -323,30 +341,44 @@ async def _do_prices(sf):
                         sizes = item.get("sizes") or []
                         if not sizes:
                             continue
-                        sz = sizes[0]
                         discount = item.get("discount", 0)
-# WB Prices API возвращает цены в копейках — делим на 100
-                        price_retail = float(sz.get("price") or 0) / 100
-                        price_discounted = float(sz.get("discountedPrice") or 0) / 100
-                        price_club = float(sz.get("clubDiscountedPrice") or 0) / 100
-                        if not price_retail:
-                            continue
-                        # tech_status
-                        r1 = await db.execute(text("""
-                            UPDATE tech_status 
-                            SET price = :price, price_discount = :price_disc, price_spp = :price_spp
-                            WHERE organization_id = :org AND nm_id = :nm 
-                            AND target_date = CURRENT_DATE
-                        """), {"price": price_retail, "price_disc": price_discounted, "price_spp": price_club, "org": org_id, "nm": int(nm_id)})
-                        updated_ts += r1.rowcount
-                        # reference_book — цена факта из WB API
-                        r2 = await db.execute(text("""
-                            UPDATE reference_book 
-                            SET wb_price_fact = :pf, wb_price_retail = :pr, wb_discount_pct = :disc, wb_prices_updated_at = :now
-                            WHERE organization_id = :org AND nm_id = :nm 
-                            AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
-                        """), {"pf": price_discounted, "pr": price_retail, "disc": discount, "now": now_utc, "org": org_id, "nm": int(nm_id)})
-                        updated_rb += r2.rowcount
+                        nm_int = int(nm_id)
+                        for sz in sizes:
+                            chrt_key = _safe_int(sz.get("chrtID") or sz.get("chrtId") or sz.get("sizeID"))
+                            entity_id = entity_by_nm_chrt.get((nm_int, chrt_key)) if chrt_key is not None else None
+                            price_retail = float(sz.get("price") or 0)
+                            price_discounted = float(sz.get("discountedPrice") or 0)
+                            price_club = float(sz.get("clubDiscountedPrice") or 0)
+                            if not price_retail:
+                                continue
+                            if entity_id:
+                                r1 = await db.execute(text("""
+                                    UPDATE tech_status
+                                    SET price = :price, price_discount = :price_disc, price_spp = :price_spp
+                                    WHERE organization_id = :org AND entity_id = :entity
+                                    AND target_date = CURRENT_DATE
+                                """), {"price": price_retail, "price_disc": price_discounted, "price_spp": price_club, "org": org_id, "entity": entity_id})
+                                r2 = await db.execute(text("""
+                                    UPDATE reference_book
+                                    SET wb_price_fact = :pf, wb_price_retail = :pr, wb_discount_pct = :disc, wb_prices_updated_at = :now
+                                    WHERE organization_id = :org AND entity_id = :entity
+                                    AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+                                """), {"pf": price_discounted, "pr": price_retail, "disc": discount, "now": now_utc, "org": org_id, "entity": entity_id})
+                            else:
+                                r1 = await db.execute(text("""
+                                    UPDATE tech_status
+                                    SET price = :price, price_discount = :price_disc, price_spp = :price_spp
+                                    WHERE organization_id = :org AND nm_id = :nm
+                                    AND target_date = CURRENT_DATE
+                                """), {"price": price_retail, "price_disc": price_discounted, "price_spp": price_club, "org": org_id, "nm": nm_int})
+                                r2 = await db.execute(text("""
+                                    UPDATE reference_book
+                                    SET wb_price_fact = :pf, wb_price_retail = :pr, wb_discount_pct = :disc, wb_prices_updated_at = :now
+                                    WHERE organization_id = :org AND nm_id = :nm
+                                    AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+                                """), {"pf": price_discounted, "pr": price_retail, "disc": discount, "now": now_utc, "org": org_id, "nm": nm_int})
+                            updated_ts += r1.rowcount
+                            updated_rb += r2.rowcount
                     await db.commit()
                     logger.info(f"[sched] prices updated {updated_ts} tech_status, {updated_rb} reference_book")
 

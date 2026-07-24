@@ -3,6 +3,8 @@ from pathlib import Path
 
 DASHBOARD_ROUTER = Path("api/v1/routers/dashboard.py").read_text(encoding="utf-8")
 STATS_GRID = Path("static/js/stats-grid.js").read_text(encoding="utf-8")
+WB_FETCH = Path("tasks/sync/wb_fetch.py").read_text(encoding="utf-8")
+PRICES_ROUTER = Path("api/v1/routers/prices.py").read_text(encoding="utf-8")
 
 
 def test_control_products_are_entity_level_with_separate_card_funnel_metrics():
@@ -29,6 +31,7 @@ def test_stats_grid_renders_entity_rows_grouped_by_card():
     assert "title: 'Размер'" in STATS_GRID
     assert "Заказы разм." in STATS_GRID
     assert "Показы карт." in STATS_GRID
+    assert "price_display: p.price_discount || p.price || p.wb_price_fact || 0" in STATS_GRID
 
 
 def test_parse_raw_uses_entity_level_fbo_and_prices_when_chrt_id_exists():
@@ -42,3 +45,13 @@ def test_parse_raw_uses_entity_level_fbo_and_prices_when_chrt_id_exists():
     assert 'sz.get("sizeID")' in parse_raw
     assert 'float(sz.get("discountedPrice", 0) or 0)' in parse_raw
     assert "_wp = prices_by_entity.get(e_id)" in parse_raw
+
+
+def test_price_refreshes_are_entity_level_and_do_not_rescale_wb_prices():
+    for source in (WB_FETCH, PRICES_ROUTER):
+        assert "SELECT id, nm_id, chrt_id" in source
+        assert "entity_by_nm_chrt" in source
+        assert 'sz.get("sizeID")' in source
+        assert 'float(sz.get("discountedPrice") or 0)' in source or 'float(sz.get("discountedPrice", 0))' in source
+        assert 'entity_id = entity_by_nm_chrt.get' in source
+        assert "AND entity_id = :entity" in source

@@ -22,6 +22,13 @@ PRICES_REFRESH_COOLDOWN = 300  # 5 минут
 PRICES_REFRESH_COOLDOWN = 15 * 60  # 15 минут
 
 
+def _safe_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 @router.post("/api/v1/nl/prices/refresh")
 async def refresh_prices_from_wb(org_id: str, db: AsyncSession = Depends(get_db)):
     """
@@ -87,7 +94,19 @@ async def refresh_prices_from_wb(org_id: str, db: AsyncSession = Depends(get_db)
     if not items:
         raise HTTPException(404, "WB API вернул пустой список товаров")
     
-    # Строим маппинг nm_id -> цены
+    entity_result = await db.execute(text("""
+        SELECT id, nm_id, chrt_id
+        FROM product_entities
+        WHERE organization_id = :org
+    """), {"org": org_id})
+    entity_by_nm_chrt = {}
+    for row in entity_result.all():
+        nm_key = _safe_int(row[1])
+        chrt_key = _safe_int(row[2])
+        if nm_key is not None and chrt_key is not None:
+            entity_by_nm_chrt[(nm_key, chrt_key)] = str(row[0])
+
+    # Строим маппинг entity_id/nm_id -> цены
     price_map = {}
     for item in items:
         nm_id = item.get("nmID") or item.get("nmId") or item.get("nm_id")
@@ -96,12 +115,15 @@ async def refresh_prices_from_wb(org_id: str, db: AsyncSession = Depends(get_db)
         nm_id = int(nm_id)
         discount = item.get("discount", 0)
         sizes = item.get("sizes", [])
-        if sizes:
-            sz = sizes[0]
+        for sz in sizes:
+            chrt_key = _safe_int(sz.get("chrtID") or sz.get("chrtId") or sz.get("sizeID"))
+            entity_id = entity_by_nm_chrt.get((nm_id, chrt_key)) if chrt_key is not None else None
             price_retail = float(sz.get("price", 0))
             price_fact = float(sz.get("discountedPrice", 0))
             if price_retail > 0:
-                price_map[nm_id] = {
+                price_map[entity_id or nm_id] = {
+                    "entity_id": entity_id,
+                    "nm_id": nm_id,
                     "price_retail": price_retail,
                     "price_fact": price_fact,
                     "discount": discount,
@@ -111,25 +133,39 @@ async def refresh_prices_from_wb(org_id: str, db: AsyncSession = Depends(get_db)
     now = _dt.now(_tz.utc)
     updated_count = 0
     
-    for nm_id, prices in price_map.items():
-        update_sql = (
-            "UPDATE reference_book "
-            "SET wb_price_fact = :pf, "
-            "    wb_price_retail = :pr, "
-            "    wb_discount_pct = :disc, "
-            "    wb_prices_updated_at = :now "
-            "WHERE organization_id = :org "
-            "  AND nm_id = :nm "
-            "  AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
-        )
-        result = await db.execute(text(update_sql), {
+    for prices in price_map.values():
+        if prices["entity_id"]:
+            update_sql = (
+                "UPDATE reference_book "
+                "SET wb_price_fact = :pf, "
+                "    wb_price_retail = :pr, "
+                "    wb_discount_pct = :disc, "
+                "    wb_prices_updated_at = :now "
+                "WHERE organization_id = :org "
+                "  AND entity_id = :entity "
+                "  AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
+            )
+            params = {"entity": prices["entity_id"]}
+        else:
+            update_sql = (
+                "UPDATE reference_book "
+                "SET wb_price_fact = :pf, "
+                "    wb_price_retail = :pr, "
+                "    wb_discount_pct = :disc, "
+                "    wb_prices_updated_at = :now "
+                "WHERE organization_id = :org "
+                "  AND nm_id = :nm "
+                "  AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
+            )
+            params = {"nm": prices["nm_id"]}
+        params.update({
             "pf": prices["price_fact"],
             "pr": prices["price_retail"],
             "disc": prices["discount"],
             "now": now,
             "org": org_id,
-            "nm": nm_id,
         })
+        result = await db.execute(text(update_sql), params)
         updated_count += result.rowcount
     
     await db.commit()
@@ -168,4 +204,3 @@ async def get_last_prices_refresh(org_id: str, db: AsyncSession = Depends(get_db
         "cooldown_remaining_seconds": remaining,
         "can_refresh": remaining == 0,
     }
-

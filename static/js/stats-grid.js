@@ -195,7 +195,7 @@ function prepareStatsProducts(products) {
             stock_total: Number(p.stock_qty || 0) + Number(p.stock_fbo_qty || 0),
             buyout_pct: orders ? buyouts / orders * 100 : 0,
             ctr: impressions ? clicks / impressions * 100 : 0,
-            price_display: p.wb_price_fact || p.price_discount || p.price || 0,
+            price_display: p.price_discount || p.price || p.wb_price_fact || 0,
         });
     });
 }
