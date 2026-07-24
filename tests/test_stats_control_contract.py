@@ -39,4 +39,6 @@ def test_parse_raw_uses_entity_level_fbo_and_prices_when_chrt_id_exists():
     assert "key = entity_id or nm" in parse_raw
     assert "_date_fbo.get(e_id) or _date_fbo.get(n_id, {})" in parse_raw
     assert "prices_by_entity" in parse_raw
+    assert 'sz.get("sizeID")' in parse_raw
+    assert 'float(sz.get("discountedPrice", 0) or 0)' in parse_raw
     assert "_wp = prices_by_entity.get(e_id)" in parse_raw

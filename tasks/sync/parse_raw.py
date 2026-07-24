@@ -424,11 +424,11 @@ async def _do_parse_raw(sf):
                 for sz in (item.get("sizes") or []):
                     nm_int = int(nm)
                     price_info = {
-                        "price": float(sz.get("price", 0) or 0) / 100,  # копейки → рубли
-                        "price_discount": float(sz.get("discountedPrice", 0) or 0) / 100,
-                        "price_spp": float(sz.get("clubDiscountedPrice", 0) or 0) / 100,
+                        "price": float(sz.get("price", 0) or 0),
+                        "price_discount": float(sz.get("discountedPrice", 0) or 0),
+                        "price_spp": float(sz.get("clubDiscountedPrice", 0) or 0),
                     }
-                    chrt = sz.get("chrtID") or sz.get("chrtId")
+                    chrt = sz.get("chrtID") or sz.get("chrtId") or sz.get("sizeID")
                     chrt_key = _safe_int(chrt)
                     entity_id = entity_by_nm_chrt.get((nm_int, chrt_key)) if chrt_key is not None else None
                     if entity_id:
