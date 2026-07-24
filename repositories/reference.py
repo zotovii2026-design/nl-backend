@@ -72,7 +72,12 @@ COST_PRICES_SQL = text(
     "FROM product_entities pe "
     "LEFT JOIN LATERAL (SELECT * FROM reference_book WHERE organization_id = :org AND nm_id = pe.nm_id AND entity_id = pe.id "
     "  AND (valid_to IS NULL OR valid_to >= CURRENT_DATE) ORDER BY valid_from DESC LIMIT 1) cp ON true "
-    "LEFT JOIN (SELECT DISTINCT nm_id, product_name FROM tech_status WHERE organization_id = :org) ts ON pe.nm_id = ts.nm_id "
+"LEFT JOIN ("
+"  SELECT DISTINCT ON (nm_id) nm_id, product_name "
+"  FROM tech_status "
+"  WHERE organization_id = :org "
+"  ORDER BY nm_id, target_date DESC, updated_at DESC NULLS LAST, created_at DESC"
+") ts ON pe.nm_id = ts.nm_id "
     "WHERE pe.organization_id = :org "
     "ORDER BY pe.nm_id, pe.size_name"
 )
