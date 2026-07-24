@@ -107,6 +107,18 @@ function statsStockFormatter(cell) {
         + '<div style="font-size:.75em;color:#6c5ce7">FBS ' + fbs.toLocaleString('ru-RU') + '</div>';
 }
 
+function statsSizesFormatter(cell) {
+    var row = cell.getData();
+    var sizes = Array.isArray(row.sizes) ? row.sizes : [];
+    var label = cell.getValue() || '';
+    if (!sizes.length) return esc(label || '—');
+    var names = sizes.map(function(s) { return s.size_name || ''; }).filter(Boolean);
+    var title = names.join(', ');
+    var shown = names.slice(0, 4).join(', ');
+    if (names.length > 4) shown += ' +' + (names.length - 4);
+    return '<span title="' + esc(title) + '">' + sizes.length + ' разм. ' + esc(shown || '') + '</span>';
+}
+
 function initStatsSummaryGrid() {
     if (statsSummaryTabulator || !document.getElementById('stats-summary-tabulator')) return;
     statsSummaryTabulator = new Tabulator('#stats-summary-tabulator', {
@@ -141,7 +153,7 @@ function getStatsProductColumns() {
             var value = cell.getValue() || '';
             return '<span title="' + esc(value) + '">' + esc(value) + '</span>';
         }},
-        {title: 'Размер', field: 'size_name', width: 90, headerFilter: 'input'},
+        {title: 'Размеры', field: 'size_name', width: 120, headerFilter: 'input', formatter: statsSizesFormatter},
         {title: 'ШК', field: 'barcode', width: 130, headerFilter: 'input'},
         {title: 'Остаток', field: 'stock_total', width: 105, hozAlign: 'right', formatter: statsStockFormatter},
         {title: 'Заказы', field: 'orders_count', width: 90, hozAlign: 'right', sorter: 'number'},
@@ -170,12 +182,6 @@ function initStatsProductsGrid() {
         placeholder: 'Нет данных',
         movableColumns: true,
         headerSortClickElement: 'header',
-        groupBy: 'nm_id',
-        groupHeader: function(value, count, data) {
-            var first = data && data[0] ? data[0] : {};
-            var title = first.product_name ? ' - ' + first.product_name : '';
-            return 'Арт WB ' + value + title + ' (' + count + ')';
-        },
     });
     statsProductsTabulator.on('dataFiltered', updateStatsProductsCount);
 }
