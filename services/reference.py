@@ -87,3 +87,58 @@ async def resolve_entity_id(db: AsyncSession, org_id: str, nm_id: int, entity_id
     if len(rows) == 1:
         return str(rows[0][0])
     return None  # Нельзя однозначно определить
+
+
+async def ensure_reference_book_for_entities(
+    db: AsyncSession,
+    org_id: str,
+    valid_from: Optional[date] = None,
+) -> int:
+    """Create empty reference_book rows for product entities missing active reference.
+
+    This keeps the seller-managed layer entity-first without touching existing
+    manual values. It only inserts rows for entities that do not have an active
+    reference_book record.
+    """
+    effective_date = valid_from or date.today()
+    result = await db.execute(
+        text("""
+            INSERT INTO reference_book (
+                organization_id, entity_id, nm_id, barcode, vendor_code, size_name,
+                subject_id, subject_name, brand, fulfillment_model,
+                transport_pack_qty, valid_from, source, notes
+            )
+            SELECT
+                pe.organization_id,
+                pe.id,
+                pe.nm_id,
+                (
+                    SELECT string_agg(DISTINCT eb.barcode, ', ' ORDER BY eb.barcode)
+                    FROM entity_barcodes eb
+                    WHERE eb.entity_id = pe.id
+                      AND eb.is_active = true
+                ) AS barcode,
+                pe.vendor_code,
+                pe.size_name,
+                pe.subject_id,
+                pe.subject_name,
+                pe.brand,
+                'fbo',
+                1,
+                :valid_from,
+                'api',
+                'auto-created from product_entities'
+            FROM product_entities pe
+            WHERE pe.organization_id = :org
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM reference_book rb
+                  WHERE rb.organization_id = pe.organization_id
+                    AND rb.entity_id = pe.id
+                    AND (rb.valid_to IS NULL OR rb.valid_to >= CURRENT_DATE)
+              )
+            ON CONFLICT ON CONSTRAINT reference_book_org_nm_eid_vf_key DO NOTHING
+        """),
+        {"org": org_id, "valid_from": effective_date},
+    )
+    return int(result.rowcount or 0)

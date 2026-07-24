@@ -26,6 +26,7 @@ from models.product_entity import ProductEntity
 from models.wb_tariff_snapshot import WbTariffSnapshot
 from services.wb_api.client import WBApiClient
 from services.entity_sync import sync_entities_from_raw
+from services.reference import ensure_reference_book_for_entities
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +64,26 @@ async def _do_products(sf):
 
             # Синхронизация сущностей из карточек
             entity_result = None
+            reference_created = 0
             async with sf() as db:
                 try:
                     entity_result = await sync_entities_from_raw(db, org_id, today)
+                    reference_created = await ensure_reference_book_for_entities(db, org_id, today)
+                    await db.commit()
                 except Exception as e:
+                    await db.rollback()
                     logger.error(f"[sched] entity_sync error: {e}")
 
-            logger.info(f"[sched] products: {count} cards, entities: {entity_result}")
-            results[org_id[:8]] = {"status": "ok", "cards": count, "entities": entity_result}
+            logger.info(
+                "[sched] products: %s cards, entities: %s, reference_created=%s",
+                count, entity_result, reference_created,
+            )
+            results[org_id[:8]] = {
+                "status": "ok",
+                "cards": count,
+                "entities": entity_result,
+                "reference_created": reference_created,
+            }
 
 
         except Exception as e:
