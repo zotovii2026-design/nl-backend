@@ -19,6 +19,12 @@ from services.entity_sync import find_entity_by_barcode, add_unmatched
 
 logger = logging.getLogger(__name__)
 
+def _safe_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
 @shared_task(name="wb.sched.parse_raw")
 def sched_parse_raw():
     """Парсинг raw_api_data → tech_status после всех сборов"""
@@ -72,18 +78,23 @@ async def _do_parse_raw(sf):
     for org_id in org_ids:
         logger.info(f"[parse_raw] processing org={org_id[:8]}, window={window_dates[-1]}..{window_dates[0]}")
 
-        # --- Маппинг entity_id по (nm_id, size_name) ---
+        # --- Маппинг entity_id по (nm_id, size_name/chrt_id) ---
         async with sf() as db:
             result = await db.execute(text("""
-                SELECT id, nm_id, size_name FROM product_entities WHERE organization_id = :org
+                SELECT id, nm_id, size_name, chrt_id FROM product_entities WHERE organization_id = :org
             """), {"org": org_id})
             entity_by_nm_size = {}
+            entity_by_nm_chrt = {}
             nm_to_first_entity = {}
             for row in result.all():
                 eid = str(row[0])
                 nm = int(row[1])
                 sz = str(row[2])
+                chrt_id = row[3]
                 entity_by_nm_size[(nm, sz)] = eid
+                chrt_key = _safe_int(chrt_id)
+                if chrt_key is not None:
+                    entity_by_nm_chrt[(nm, chrt_key)] = eid
                 if nm not in nm_to_first_entity:
                     nm_to_first_entity[nm] = eid
 
@@ -321,7 +332,7 @@ async def _do_parse_raw(sf):
         # будет заполнен ниже из stocks_fbo (только "склад продавца")
 
         # --- FBO Stocks (остатки на складах WB) ---
-        fbo_by_date = {}  # key = date -> {nm_id: {qty, chrt_id}}
+        fbo_by_date = {}  # key = date -> {entity_id/nm_id: {qty, chrt_id}}
         async with sf() as db:
             result = await db.execute(text("""
                 SELECT target_date, raw_response FROM raw_api_data 
@@ -344,22 +355,25 @@ async def _do_parse_raw(sf):
                     continue
                 nm = int(nm)
                 chrt = fi.get("chrtId")
+                chrt_key = _safe_int(chrt)
+                entity_id = entity_by_nm_chrt.get((nm, chrt_key)) if chrt_key is not None else None
                 qty = int(fi.get("quantity", 0) or 0)
                 wh_name = fi.get("warehouseName", "")
                 is_seller_wh = "склад продавца" in wh_name.lower()
                 
                 if is_seller_wh:
                     # FBS — склад продавца
-                    if nm not in fbs_map:
-                        fbs_map[nm] = {"qty": 0, "warehouses": set()}
-                    fbs_map[nm]["qty"] += qty
+                    key = entity_id or nm
+                    if key not in fbs_map:
+                        fbs_map[key] = {"qty": 0, "warehouses": set(), "entity_id": entity_id, "nm_id": nm}
+                    fbs_map[key]["qty"] += qty
                     if wh_name:
-                        fbs_map[nm]["warehouses"].add(wh_name)
+                        fbs_map[key]["warehouses"].add(wh_name)
                 else:
                     # FBO — склад WB
-                    key = nm
+                    key = entity_id or nm
                     if key not in fbo_map:
-                        fbo_map[key] = {"qty": 0, "chrt_ids": set()}
+                        fbo_map[key] = {"qty": 0, "chrt_ids": set(), "entity_id": entity_id, "nm_id": nm}
                     fbo_map[key]["qty"] += qty
                     if chrt:
                         fbo_map[key]["chrt_ids"].add(chrt)
@@ -367,11 +381,11 @@ async def _do_parse_raw(sf):
             if fbo_map:
                 fbo_by_date[ftd] = fbo_map
             if fbs_map:
-                stocks_by_date[ftd] = {v.get("nm_id", k) if isinstance(v, dict) else k: v for k, v in fbs_map.items()}
                 # re-key by entity_id
                 fbs_stock_map = {}
-                for snm, sval in fbs_map.items():
-                    eid = nm_to_first_entity.get(snm) or snm
+                for skey, sval in fbs_map.items():
+                    snm = sval.get("nm_id") or skey
+                    eid = sval.get("entity_id") or nm_to_first_entity.get(snm) or snm
                     if eid not in fbs_stock_map:
                         fbs_stock_map[eid] = {"qty": 0, "warehouses": set(), "entity_id": eid, "nm_id": snm}
                     fbs_stock_map[eid]["qty"] += sval["qty"]
@@ -398,6 +412,7 @@ async def _do_parse_raw(sf):
             prices_row = result.first()
         
         prices_by_nm = {}
+        prices_by_entity = {}
         if prices_row and prices_row[0]:
             items = prices_row[0] if isinstance(prices_row[0], list) else []
             for item in items:
@@ -407,11 +422,19 @@ async def _do_parse_raw(sf):
                 if not nm:
                     continue
                 for sz in (item.get("sizes") or []):
-                    prices_by_nm[int(nm)] = {
+                    nm_int = int(nm)
+                    price_info = {
                         "price": float(sz.get("price", 0) or 0) / 100,  # копейки → рубли
                         "price_discount": float(sz.get("discountedPrice", 0) or 0) / 100,
                         "price_spp": float(sz.get("clubDiscountedPrice", 0) or 0) / 100,
                     }
+                    chrt = sz.get("chrtID") or sz.get("chrtId")
+                    chrt_key = _safe_int(chrt)
+                    entity_id = entity_by_nm_chrt.get((nm_int, chrt_key)) if chrt_key is not None else None
+                    if entity_id:
+                        prices_by_entity[entity_id] = price_info
+                    else:
+                        prices_by_nm[nm_int] = price_info
 
         # --- Sales Funnel: показы/клики по nm_id за каждый день ---
         # Формат WB: [{product: {nmId, title, ...}, statistic: {selected: {openCount, cartCount, ...}}}]
@@ -502,14 +525,14 @@ async def _do_parse_raw(sf):
                 oinfo = orders_map.get((target_date, entity_key), {})
                 sinfo = sales_map.get((target_date, entity_key), {})
                 skinfo = date_stock.get(entity_key, {})
-                # FBO stock for this nm_id on this date
+                # FBO stock: prefer exact entity/chrt_id, fallback to nm_id only when source lacks size key.
                 _date_fbo = fbo_by_date.get(target_date, {})
-                _fbo_info = _date_fbo.get(n_id, {})
+                _fbo_info = _date_fbo.get(e_id) or _date_fbo.get(n_id, {})
                 _fbo_qty = _fbo_info.get("qty", 0) if _fbo_info else 0
 
                 # Цены: приоритет sales > orders > prices raw > tariff_snapshot
                 _tp = tariff_prices.get(n_id, {}) if n_id else {}
-                _wp = prices_by_nm.get(n_id, {}) if n_id else {}
+                _wp = prices_by_entity.get(e_id) or (prices_by_nm.get(n_id, {}) if n_id else {})
                 _price = sinfo.get("price", 0) or oinfo.get("price", 0) or _wp.get("price", 0) or _tp.get("price", 0)
                 _price_discount = sinfo.get("price_discount", 0) or oinfo.get("price_discount", 0) or _wp.get("price_discount", 0) or _tp.get("price_spp", 0)
                 _price_spp = _wp.get("price_spp", 0) or _tp.get("price_spp", 0)

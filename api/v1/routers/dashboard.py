@@ -385,20 +385,13 @@ async def get_control_metrics(
     def safe_int(v):
         return int(v) if v is not None else None
 
-    def _size_sort_key(size):
-        value = str(size.get("size_name") or "")
-        try:
-            return (0, float(value.replace(",", ".")))
-        except ValueError:
-            return (1, value.lower())
-
     def build_product_rows(rows):
         grouped = {}
         order = []
         for r in rows:
             eid = str(r[0]) if r[0] else ""
             nm = r[1]
-            key = f"nm:{nm}"
+            key = eid or f"nm:{nm}:{r[17] or ''}"
             if key not in grouped:
                 grouped[key] = {
                     "entity_id": eid or None,
@@ -411,96 +404,63 @@ async def get_control_metrics(
                     "orders_count": 0,
                     "buyouts_count": 0,
                     "returns_count": 0,
+                    "total_orders_revenue": 0,
+                    "total_buyouts_revenue": 0,
                     "rating": None,
                     "impressions": 0,
                     "clicks": 0,
+                    "card_orders_count": 0,
+                    "card_buyouts_count": 0,
+                    "card_returns_count": 0,
+                    "card_orders_revenue": 0,
+                    "card_buyouts_revenue": 0,
+                    "card_cancel_revenue": 0,
+                    "card_impressions": 0,
+                    "card_clicks": 0,
                     "ad_cost": 0,
                     "price": None,
                     "price_discount": None,
                     "tariff": None,
                     "_latest_set": False,
                     "_latest_date": None,
-                    "_latest_entities": {},
-                    "_funnel_days": {},
                     "barcode": r[17] or "",
-                    "barcodes": "",
-                    "size_name": "",
-                    "sizes": [],
+                    "barcodes": ", ".join(barcodes_map.get(eid, [])) or (r[17] or ""),
+                    "size_name": size_map.get(eid, "") if eid else "",
                     "subject_name": subject_map.get(eid, "") if eid else "",
+                    **(dims_map.get(eid, {}) if eid else {}),
                 }
                 order.append(key)
 
             item = grouped[key]
-            item["orders_count"] += safe_int(r[7]) or 0
-            item["buyouts_count"] += safe_int(r[8]) or 0
+            row_orders = safe_int(r[7]) or 0
+            row_buyouts = safe_int(r[8]) or 0
+            row_price_discount = safe_float(r[15]) or 0
+            item["orders_count"] += row_orders
+            item["buyouts_count"] += row_buyouts
             item["returns_count"] += safe_int(r[9]) or 0
-            if r[1] is not None:
-                # WB sales_funnel is nm-level; tech_status stores those values on every size row.
-                # Count each nm/date once so size slots do not multiply funnel metrics.
-                fdate = r[18]
-                if fdate not in item["_funnel_days"]:
-                    item["_funnel_days"][fdate] = {
-                        "impressions": safe_int(r[11]) or 0,
-                        "clicks": safe_int(r[12]) or 0,
-                    }
+            item["total_orders_revenue"] += row_orders * row_price_discount
+            item["total_buyouts_revenue"] += row_buyouts * row_price_discount
             item["ad_cost"] += safe_float(r[13]) or 0
 
             tdate = r[18]
             if item["_latest_date"] is None or tdate > item["_latest_date"]:
                 item["_latest_date"] = tdate
-                item["_latest_entities"] = {}
-                item["stock_qty"] = 0
-                item["stock_fbo_qty"] = 0
                 item["_latest_set"] = False
-
-            if tdate == item["_latest_date"]:
-                entity_key = eid or f"barcode:{r[17] or ''}"
-                if entity_key not in item["_latest_entities"]:
-                    entity_barcodes = barcodes_map.get(eid, []) if eid else ([r[17]] if r[17] else [])
-                    size_info = {
-                        "entity_id": eid or None,
-                        "size_name": size_map.get(eid, "") if eid else "",
-                        "barcode": r[17] or "",
-                        "barcodes": entity_barcodes,
-                        "stock_qty": safe_int(r[5]) or 0,
-                        "stock_fbo_qty": safe_int(r[6]) or 0,
-                        "orders_count": safe_int(r[7]) or 0,
-                        "buyouts_count": safe_int(r[8]) or 0,
-                        "returns_count": safe_int(r[9]) or 0,
-                        **(dims_map.get(eid, {}) if eid else {}),
-                    }
-                    item["_latest_entities"][entity_key] = size_info
-                    item["stock_qty"] += size_info["stock_qty"]
-                    item["stock_fbo_qty"] = max(item["stock_fbo_qty"], size_info["stock_fbo_qty"])
 
             # Query is ordered newest first inside each entity/nm group. Product fields are nm-level;
             # set them once from the latest rows.
             if tdate == item["_latest_date"] and not item["_latest_set"]:
-                item["entity_id"] = eid or None
+                item["stock_qty"] = safe_int(r[5]) or 0
+                item["stock_fbo_qty"] = safe_int(r[6]) or 0
                 item["rating"] = safe_float(r[10])
                 item["price"] = safe_float(r[14])
                 item["price_discount"] = safe_float(r[15])
                 item["tariff"] = safe_float(r[16])
-                item["subject_name"] = subject_map.get(eid, "") if eid else item["subject_name"]
                 item["_latest_set"] = True
 
         products = []
         for key in order:
             item = grouped[key]
-            sizes = sorted(item.pop("_latest_entities", {}).values(), key=_size_sort_key)
-            size_names = [s["size_name"] for s in sizes if s.get("size_name")]
-            barcode_values = []
-            for s in sizes:
-                for bc in s.get("barcodes") or ([s.get("barcode")] if s.get("barcode") else []):
-                    if bc and bc not in barcode_values:
-                        barcode_values.append(bc)
-            item["sizes"] = sizes
-            item["size_name"] = ", ".join(size_names)
-            item["barcode"] = barcode_values[0] if barcode_values else item.get("barcode", "")
-            item["barcodes"] = ", ".join(barcode_values)
-            funnel_daily = item.pop("_funnel_days", {})
-            item["impressions"] = sum(day["impressions"] for day in funnel_daily.values())
-            item["clicks"] = sum(day["clicks"] for day in funnel_daily.values())
             item.pop("_latest_set", None)
             item.pop("_latest_date", None)
             ref = _get_ref(item["entity_id"] or "", item["nm_id"])
@@ -511,14 +471,16 @@ async def get_control_metrics(
                 funnel_item = funnel_products.get(str(item["nm_id"]))
                 if funnel_item:
                     item.update({
-                        "orders_count": funnel_item["orders_count"],
-                        "buyouts_count": funnel_item["buyouts_count"],
-                        "returns_count": funnel_item["returns_count"],
                         "impressions": funnel_item["impressions"],
                         "clicks": funnel_item["clicks"],
-                        "total_orders_revenue": round(funnel_item["total_orders_revenue"], 2),
-                        "total_buyouts_revenue": round(funnel_item["total_buyouts_revenue"], 2),
-                        "total_cancel_revenue": round(funnel_item["total_cancel_revenue"], 2),
+                        "card_orders_count": funnel_item["orders_count"],
+                        "card_buyouts_count": funnel_item["buyouts_count"],
+                        "card_returns_count": funnel_item["returns_count"],
+                        "card_orders_revenue": round(funnel_item["total_orders_revenue"], 2),
+                        "card_buyouts_revenue": round(funnel_item["total_buyouts_revenue"], 2),
+                        "card_cancel_revenue": round(funnel_item["total_cancel_revenue"], 2),
+                        "card_impressions": funnel_item["impressions"],
+                        "card_clicks": funnel_item["clicks"],
                     })
             item.update(_calc_unit(item.get("price_discount"), item.get("ad_cost"), ref, snap))
             products.append(item)
