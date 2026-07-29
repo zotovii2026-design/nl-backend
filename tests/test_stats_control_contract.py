@@ -38,8 +38,13 @@ def test_stats_grid_renders_entity_rows_grouped_by_card():
     assert "Показы карт." in STATS_GRID
     assert "field: 'nm_id_display'" in STATS_GRID
     assert "https://www.wildberries.ru/catalog/" in STATS_GRID
-    assert "p.barcodes || p.barcode || ''" in prepare_block
+    assert "statsBarcodeText(p.barcodes || p.barcode || '')" in prepare_block
+    assert "barcodes_search: statsBarcodeSearchText({barcodes_display: barcodes})" in prepare_block
     assert "barcodes_display" in STATS_GRID
+    assert "headerFilterFunc: statsBarcodeHeaderFilter" in STATS_GRID
+    assert "statsBarcodeMatches(q, row)" in STATS_GRID
+    assert "width: 240" in STATS_GRID
+    assert "stats-barcode-list" in STATS_GRID
     assert "isSizeless ? ('_solo_'" in prepare_block
     assert "price_display: p.price_discount || p.price || p.wb_price_fact || 0" in STATS_GRID
 

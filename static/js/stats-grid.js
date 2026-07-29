@@ -1,7 +1,7 @@
 // Единый стиль табуляторов — эталон Справочника (8px заголовки, 11px ячейки)
 (function(){
     var s = document.createElement('style');
-    s.textContent = '#stats-summary-tabulator .tabulator-col-title,#stats-products-tabulator .tabulator-col-title{font-size:8px!important;line-height:1.1!important;padding:2px 4px!important}#stats-summary-tabulator .tabulator-col .tabulator-col-content,#stats-products-tabulator .tabulator-col .tabulator-col-content{padding:2px 4px!important}#stats-summary-tabulator .tabulator-cell,#stats-products-tabulator .tabulator-cell{font-size:11px!important}';
+    s.textContent = '#stats-summary-tabulator .tabulator-col-title,#stats-products-tabulator .tabulator-col-title{font-size:8px!important;line-height:1.1!important;padding:2px 4px!important}#stats-summary-tabulator .tabulator-col .tabulator-col-content,#stats-products-tabulator .tabulator-col .tabulator-col-content{padding:2px 4px!important}#stats-summary-tabulator .tabulator-cell,#stats-products-tabulator .tabulator-cell{font-size:11px!important}.stats-barcode-list{display:block;white-space:normal;overflow-wrap:anywhere;line-height:1.25}';
     document.head.appendChild(s);
 })();
 
@@ -39,6 +39,26 @@ function statsEscape(value) {
             "'": '&#39;',
         })[ch];
     });
+}
+
+function statsBarcodeText(value) {
+    if (Array.isArray(value)) return value.filter(Boolean).join(', ');
+    return String(value || '');
+}
+
+function statsBarcodeSearchText(row) {
+    if (row && row.barcodes_search) return String(row.barcodes_search).toLowerCase();
+    var value = statsBarcodeText(row.barcodes_display || row.barcodes || row.barcode || '');
+    var compact = value.replace(/\D/g, '');
+    return (value + ' ' + compact).toLowerCase();
+}
+
+function statsBarcodeMatches(query, row) {
+    var q = String(query || '').trim().toLowerCase();
+    if (!q) return true;
+    var compactQ = q.replace(/\D/g, '');
+    var search = statsBarcodeSearchText(row || {});
+    return search.includes(q) || (!!compactQ && search.includes(compactQ));
 }
 
 function statsYesterday() {
@@ -119,8 +139,12 @@ function statsWbArticleFormatter(cell) {
 
 function statsBarcodeFormatter(cell) {
     var row = cell.getRow().getData();
-    var value = row.barcodes_display || row.barcodes || row.barcode || '';
-    return value ? '<span title="' + statsEscape(value) + '">' + statsEscape(value) + '</span>' : '';
+    var value = statsBarcodeText(row.barcodes_display || row.barcodes || row.barcode || '');
+    return value ? '<span class="stats-barcode-list" title="' + statsEscape(value) + '">' + statsEscape(value) + '</span>' : '';
+}
+
+function statsBarcodeHeaderFilter(headerValue, rowValue, rowData) {
+    return statsBarcodeMatches(headerValue, rowData);
 }
 
 function statsStockFormatter(cell) {
@@ -169,7 +193,7 @@ function getStatsProductColumns() {
             return '<span title="' + statsEscape(value) + '">' + statsEscape(value) + '</span>';
         }},
         {title: 'Размер', field: 'size_name', width: 90, headerFilter: 'input'},
-        {title: 'ШК', field: 'barcodes_display', width: 130, headerFilter: 'input', formatter: statsBarcodeFormatter},
+        {title: 'ШК', field: 'barcodes_display', width: 240, headerFilter: 'input', headerFilterFunc: statsBarcodeHeaderFilter, formatter: statsBarcodeFormatter, variableHeight: true},
         {title: 'Остаток', field: 'stock_total', width: 105, hozAlign: 'right', formatter: statsStockFormatter},
         {title: 'Заказы разм.', field: 'orders_count', width: 105, hozAlign: 'right', sorter: 'number'},
         {title: 'Заказы разм. ₽', field: 'total_orders_revenue', width: 120, hozAlign: 'right', sorter: 'number', formatter: statsMoneyFormatter},
@@ -231,12 +255,13 @@ function prepareStatsProducts(products) {
         var clicks = Number(p.clicks || 0);
         var sizeName = p.size_name || '';
         var isSizeless = nmCounts[p.nm_id] === 1 && (!sizeName || sizeName === '0' || sizeName === 'ONE SIZE');
-        var barcodes = p.barcodes || p.barcode || '';
+        var barcodes = statsBarcodeText(p.barcodes || p.barcode || '');
         return Object.assign({}, p, {
             nm_id_display: p.nm_id,
             nm_id: isSizeless ? ('_solo_' + (p.entity_id || (p.nm_id + '_0'))) : p.nm_id,
             _noGroup: isSizeless,
-            barcodes_display: Array.isArray(barcodes) ? barcodes.join(', ') : String(barcodes || ''),
+            barcodes_display: barcodes,
+            barcodes_search: statsBarcodeSearchText({barcodes_display: barcodes}),
             stock_total: Number(p.stock_qty || 0) + Number(p.stock_fbo_qty || 0),
             buyout_pct: orders ? buyouts / orders * 100 : 0,
             ctr: impressions ? clicks / impressions * 100 : 0,
@@ -257,7 +282,7 @@ function applyStatsTopSearch() {
         return String(row.nm_id_display || row.nm_id || '').toLowerCase().includes(q)
             || String(row.vendor_code || '').toLowerCase().includes(q)
             || String(row.product_name || '').toLowerCase().includes(q)
-            || String(row.barcodes_display || row.barcodes || row.barcode || '').toLowerCase().includes(q);
+            || statsBarcodeMatches(q, row);
     });
     updateStatsProductsCount();
 }
