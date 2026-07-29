@@ -24,13 +24,23 @@ def test_stats_grid_renders_entity_rows_grouped_by_card():
     init_block = STATS_GRID.split("function initStatsProductsGrid()", 1)[1].split(
         "function prepareStatsProducts", 1
     )[0]
+    prepare_block = STATS_GRID.split("function prepareStatsProducts(products)", 1)[1].split(
+        "function applyStatsTopSearch", 1
+    )[0]
 
     assert "groupBy: 'nm_id'" in init_block
     assert "card_orders_count" in init_block
+    assert "value.startsWith('_solo_')" in init_block
+    assert "group.getElement" in init_block
     assert "statsSizesFormatter" not in STATS_GRID
     assert "title: 'Размер'" in STATS_GRID
     assert "Заказы разм." in STATS_GRID
     assert "Показы карт." in STATS_GRID
+    assert "field: 'nm_id_display'" in STATS_GRID
+    assert "https://www.wildberries.ru/catalog/" in STATS_GRID
+    assert "p.barcodes || p.barcode || ''" in prepare_block
+    assert "barcodes_display" in STATS_GRID
+    assert "isSizeless ? ('_solo_'" in prepare_block
     assert "price_display: p.price_discount || p.price || p.wb_price_fact || 0" in STATS_GRID
 
 

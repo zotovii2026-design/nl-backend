@@ -29,6 +29,18 @@ function statsPercent(value) {
     return num ? num.toFixed(1) + '%' : '—';
 }
 
+function statsEscape(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) {
+        return ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;',
+        })[ch];
+    });
+}
+
 function statsYesterday() {
     var base = new Date();
     base.setHours(12, 0, 0, 0);
@@ -96,6 +108,21 @@ function statsPercentFormatter(cell) {
     return statsPercent(cell.getValue());
 }
 
+function statsWbArticleFormatter(cell) {
+    var row = cell.getRow().getData();
+    var nmId = row.nm_id_display || cell.getValue();
+    if (!nmId || (typeof nmId === 'string' && nmId.startsWith('_solo_'))) return '';
+    var safeNmId = statsEscape(nmId);
+    var url = 'https://www.wildberries.ru/catalog/' + encodeURIComponent(nmId) + '/detail.aspx';
+    return '<a href="' + url + '" target="_blank" rel="noopener" style="color:#5b4a9e;text-decoration:none;font-weight:700" title="Открыть на Wildberries">' + safeNmId + '</a>';
+}
+
+function statsBarcodeFormatter(cell) {
+    var row = cell.getRow().getData();
+    var value = row.barcodes_display || row.barcodes || row.barcode || '';
+    return value ? '<span title="' + statsEscape(value) + '">' + statsEscape(value) + '</span>' : '';
+}
+
 function statsStockFormatter(cell) {
     var row = cell.getData();
     var fbo = Number(row.stock_fbo_qty || 0);
@@ -136,13 +163,13 @@ function initStatsSummaryGrid() {
 function getStatsProductColumns() {
     return [
         {title: 'Фото', field: 'photo_main', width: 54, headerSort: false, formatter: statsPhotoFormatter},
-        {title: 'Арт WB', field: 'nm_id', width: 105, headerFilter: 'input'},
+        {title: 'Арт WB', field: 'nm_id_display', width: 105, headerFilter: 'input', formatter: statsWbArticleFormatter},
         {title: 'Название', field: 'product_name', minWidth: 220, headerFilter: 'input', formatter: function(cell) {
             var value = cell.getValue() || '';
-            return '<span title="' + esc(value) + '">' + esc(value) + '</span>';
+            return '<span title="' + statsEscape(value) + '">' + statsEscape(value) + '</span>';
         }},
         {title: 'Размер', field: 'size_name', width: 90, headerFilter: 'input'},
-        {title: 'ШК', field: 'barcode', width: 130, headerFilter: 'input'},
+        {title: 'ШК', field: 'barcodes_display', width: 130, headerFilter: 'input', formatter: statsBarcodeFormatter},
         {title: 'Остаток', field: 'stock_total', width: 105, hozAlign: 'right', formatter: statsStockFormatter},
         {title: 'Заказы разм.', field: 'orders_count', width: 105, hozAlign: 'right', sorter: 'number'},
         {title: 'Заказы разм. ₽', field: 'total_orders_revenue', width: 120, hozAlign: 'right', sorter: 'number', formatter: statsMoneyFormatter},
@@ -171,27 +198,45 @@ function initStatsProductsGrid() {
         movableColumns: true,
         headerSortClickElement: 'header',
         groupBy: 'nm_id',
-        groupHeader: function(value, count, data) {
+        groupHeader: function(value, count, data, group) {
+            if (value && typeof value === 'string' && value.startsWith('_solo_')) {
+                var el = group && group.getElement ? group.getElement() : null;
+                if (el) el.style.display = 'none';
+                return '';
+            }
             var first = data && data[0] ? data[0] : {};
+            var nmId = first.nm_id_display || value;
             var title = first.product_name ? ' - ' + first.product_name : '';
             var cardOrders = Number(first.card_orders_count || 0);
             var cardBuyouts = Number(first.card_buyouts_count || 0);
             var suffix = cardOrders || cardBuyouts
                 ? ' | карточка: заказов ' + cardOrders.toLocaleString('ru-RU') + ', выкупов ' + cardBuyouts.toLocaleString('ru-RU')
                 : '';
-            return 'Арт WB ' + value + title + ' (' + count + ' разм.)' + suffix;
+            return 'Арт WB ' + statsEscape(nmId) + statsEscape(title) + ' (' + count + ' разм.)' + statsEscape(suffix);
         },
     });
     statsProductsTabulator.on('dataFiltered', updateStatsProductsCount);
 }
 
 function prepareStatsProducts(products) {
+    var nmCounts = {};
+    (products || []).forEach(function(p) {
+        nmCounts[p.nm_id] = (nmCounts[p.nm_id] || 0) + 1;
+    });
+
     return (products || []).map(function(p) {
         var orders = Number(p.orders_count || 0);
         var buyouts = Number(p.buyouts_count || 0);
         var impressions = Number(p.impressions || 0);
         var clicks = Number(p.clicks || 0);
+        var sizeName = p.size_name || '';
+        var isSizeless = nmCounts[p.nm_id] === 1 && (!sizeName || sizeName === '0' || sizeName === 'ONE SIZE');
+        var barcodes = p.barcodes || p.barcode || '';
         return Object.assign({}, p, {
+            nm_id_display: p.nm_id,
+            nm_id: isSizeless ? ('_solo_' + (p.entity_id || (p.nm_id + '_0'))) : p.nm_id,
+            _noGroup: isSizeless,
+            barcodes_display: Array.isArray(barcodes) ? barcodes.join(', ') : String(barcodes || ''),
             stock_total: Number(p.stock_qty || 0) + Number(p.stock_fbo_qty || 0),
             buyout_pct: orders ? buyouts / orders * 100 : 0,
             ctr: impressions ? clicks / impressions * 100 : 0,
@@ -209,10 +254,10 @@ function applyStatsTopSearch() {
         return;
     }
     statsProductsTabulator.setFilter(function(row) {
-        return String(row.nm_id || '').toLowerCase().includes(q)
+        return String(row.nm_id_display || row.nm_id || '').toLowerCase().includes(q)
             || String(row.vendor_code || '').toLowerCase().includes(q)
             || String(row.product_name || '').toLowerCase().includes(q)
-            || String(row.barcode || '').toLowerCase().includes(q);
+            || String(row.barcodes_display || row.barcodes || row.barcode || '').toLowerCase().includes(q);
     });
     updateStatsProductsCount();
 }
