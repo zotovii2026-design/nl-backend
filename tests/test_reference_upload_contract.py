@@ -41,3 +41,23 @@ def test_reference_template_deduplicates_barcodes():
     assert "string_agg(DISTINCT eb.barcode" in repository
     assert "_dedupe_barcode_string" in REFERENCE_SOURCE
     assert "r[1] not in barcodes_map[eid]" in dashboard
+
+
+def test_reference_top_query_save_queues_off_schedule_seasonality():
+    seasonality_task = Path("tasks/seasonality_sync.py").read_text(encoding="utf-8")
+    calculator = Path("scripts/calculate_product_seasonality.py").read_text(encoding="utf-8")
+
+    assert "TOP_QUERY_FIELDS" in REFERENCE_SOURCE
+    assert "_top_queries_changed" in REFERENCE_SOURCE
+    assert "_queue_reference_seasonality_collect" in REFERENCE_SOURCE
+    assert '"source": "reference_top_query_save"' in REFERENCE_SOURCE
+    assert '"nm_ids": filtered_nm_ids' in REFERENCE_SOURCE
+    assert "seasonality_nm_ids.add" in REFERENCE_SOURCE
+    assert "nm_ids: Optional[list[int]] = None" in seasonality_task
+    assert "await collect_keywords(org_id, test_mode=False, dry_run=False, nm_ids=nm_ids)" in seasonality_task
+    assert "_reset_product_seasonality" in seasonality_task
+    assert "season_jan = 8.33" in seasonality_task
+    assert "await calculate_products(org_id, dry_run=False, nm_ids=nm_ids)" in seasonality_task
+    assert "AND rb.nm_id = ANY(:nm_ids)" in seasonality_task
+    assert "async def calculate_product_seasonality(" in calculator
+    assert "nm_ids: Optional[List[int]] = None" in calculator

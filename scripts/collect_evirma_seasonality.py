@@ -94,7 +94,11 @@ def calculate_seasonality_coefficients(freq_history_monthly: Optional[List[List[
     return coefficients
 
 
-async def get_unique_keywords(org_id: str, nm_id: Optional[int] = None) -> Set[str]:
+async def get_unique_keywords(
+    org_id: str,
+    nm_id: Optional[int] = None,
+    nm_ids: Optional[List[int]] = None,
+) -> Set[str]:
     async with async_session() as db:
         query = """
             SELECT DISTINCT top_query_1, top_query_2, top_query_3
@@ -107,12 +111,15 @@ async def get_unique_keywords(org_id: str, nm_id: Optional[int] = None) -> Set[s
         if nm_id is not None:
             query += " AND nm_id = :nm_id"
             params["nm_id"] = nm_id
+        elif nm_ids:
+            query += " AND nm_id = ANY(:nm_ids)"
+            params["nm_ids"] = nm_ids
         
         result = await db.execute(text(query), params)
         keywords = set()
         for row in result.all():
             keywords.update([k for k in [row[0], row[1], row[2]] if is_valid_keyword(k)])
-        _log.info(f"Found {len(keywords)} keywords for org={org_id} nm_id={nm_id}")
+        _log.info(f"Found {len(keywords)} keywords for org={org_id} nm_id={nm_id} nm_ids={nm_ids}")
         return sorted(keywords)
 
 
@@ -240,19 +247,25 @@ async def save_seasonality(records: List[Dict], dry_run: bool = False) -> int:
         return saved
 
 
-async def collect(org_id: str, test_mode: bool = False, nm_id: Optional[int] = None, dry_run: bool = False):
+async def collect(
+    org_id: str,
+    test_mode: bool = False,
+    nm_id: Optional[int] = None,
+    dry_run: bool = False,
+    nm_ids: Optional[List[int]] = None,
+):
     start = datetime.now()
-    _log.info(f"Starting collection for org={org_id} test={test_mode} nm_id={nm_id} dry_run={dry_run}")
+    _log.info(f"Starting collection for org={org_id} test={test_mode} nm_id={nm_id} nm_ids={nm_ids} dry_run={dry_run}")
     
     if test_mode:
         keywords = ["шахматы", "шахматы деревянные", "шахматы magnetic"]
         keywords = [k for k in keywords if is_valid_keyword(k)]
     else:
-        keywords = await get_unique_keywords(org_id, nm_id)
+        keywords = await get_unique_keywords(org_id, nm_id=nm_id, nm_ids=nm_ids)
     
     if not keywords:
         _log.warning("No keywords to process")
-        return
+        return {"total": 0, "processed": 0, "success": 0}
     
     total = len(keywords)
     processed = 0
@@ -282,6 +295,7 @@ async def collect(org_id: str, test_mode: bool = False, nm_id: Optional[int] = N
     
     duration = (datetime.now() - start).total_seconds()
     _log.info(f"Done: {processed}/{total} processed, {success} saved, {duration:.1f}s")
+    return {"total": total, "processed": processed, "success": success}
 
 
 if __name__ == "__main__":

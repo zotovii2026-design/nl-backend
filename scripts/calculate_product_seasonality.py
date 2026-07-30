@@ -21,10 +21,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 _log = logging.getLogger(__name__)
 
 
-async def get_products_with_keywords(org_id: str) -> List[Dict]:
+async def get_products_with_keywords(org_id: str, nm_ids: Optional[List[int]] = None) -> List[Dict]:
     """Получить товары с их ключевыми словами из reference_book"""
     async with async_session() as db:
-        result = await db.execute(text("""
+        sql = """
             SELECT DISTINCT
                 nm_id,
                 vendor_code,
@@ -35,7 +35,13 @@ async def get_products_with_keywords(org_id: str) -> List[Dict]:
             FROM reference_book
             WHERE organization_id = :org_id
               AND (top_query_1 IS NOT NULL OR top_query_2 IS NOT NULL OR top_query_3 IS NOT NULL)
-        """), {"org_id": org_id})
+        """
+        params = {"org_id": org_id}
+        if nm_ids:
+            sql += " AND nm_id = ANY(:nm_ids)"
+            params["nm_ids"] = nm_ids
+
+        result = await db.execute(text(sql), params)
         
         products = []
         for row in result.all():
@@ -48,7 +54,7 @@ async def get_products_with_keywords(org_id: str) -> List[Dict]:
                     "keywords": keywords
                 })
         
-        _log.info(f"Found {len(products)} products with keywords")
+        _log.info(f"Found {len(products)} products with keywords for nm_ids={nm_ids}")
         return products
 
 
@@ -159,12 +165,16 @@ async def save_product_seasonality(product: Dict, coefficients: Dict[str, float]
             return False
 
 
-async def calculate_product_seasonality(org_id: str, dry_run: bool = False):
+async def calculate_product_seasonality(
+    org_id: str,
+    dry_run: bool = False,
+    nm_ids: Optional[List[int]] = None,
+):
     """Основная функция расчёта товарной сезонности"""
     start = datetime.now()
-    _log.info(f"Starting product seasonality calculation for org={org_id} dry_run={dry_run}")
+    _log.info(f"Starting product seasonality calculation for org={org_id} nm_ids={nm_ids} dry_run={dry_run}")
     
-    products = await get_products_with_keywords(org_id)
+    products = await get_products_with_keywords(org_id, nm_ids=nm_ids)
     if not products:
         _log.warning("No products to process")
         return

@@ -16,7 +16,13 @@ _log = logging.getLogger(__name__)
 
 
 @shared_task(name="seasonality.collect", bind=True)
-def collect_seasonality_task(self, org_id: Optional[str] = None):
+def collect_seasonality_task(
+    self,
+    org_id: Optional[str] = None,
+    nm_id: Optional[int] = None,
+    nm_ids: Optional[list[int]] = None,
+    source: Optional[str] = None,
+):
     """
     Collect seasonality data for all organizations or a specific one.
     
@@ -27,6 +33,7 @@ def collect_seasonality_task(self, org_id: Optional[str] = None):
     
     Args:
         org_id: Optional organization ID. If None, processes all organizations.
+        nm_id/nm_ids: Optional product filters for off-schedule reference updates.
     """
     async def _collect():
         async for db in get_db():
@@ -40,12 +47,18 @@ def collect_seasonality_task(self, org_id: Optional[str] = None):
                     )
                     orgs = [row[0] for row in result.all()]
                 
-                _log.info(f"Starting seasonality collection for {len(orgs)} organization(s)")
+                product_filter = _normalize_nm_ids(nm_id=nm_id, nm_ids=nm_ids)
+                _log.info(
+                    "Starting seasonality collection for %s organization(s), nm_ids=%s, source=%s",
+                    len(orgs),
+                    product_filter,
+                    source,
+                )
                 
                 for org in orgs:
-                    await _collect_for_org(org)
+                    await _collect_for_org(org, nm_ids=product_filter)
                 
-                return {"status": "completed", "organizations": len(orgs)}
+                return {"status": "completed", "organizations": len(orgs), "nm_ids": product_filter}
             except Exception as e:
                 _log.error(f"Seasonality collection failed: {e}")
                 raise
@@ -53,7 +66,20 @@ def collect_seasonality_task(self, org_id: Optional[str] = None):
     return asyncio.run(_collect())
 
 
-async def _collect_for_org(org_id: str):
+def _normalize_nm_ids(
+    nm_id: Optional[int] = None,
+    nm_ids: Optional[list[int]] = None,
+) -> Optional[list[int]]:
+    values = []
+    if nm_id is not None:
+        values.append(nm_id)
+    if nm_ids:
+        values.extend(nm_ids)
+    normalized = sorted({int(value) for value in values if value is not None})
+    return normalized or None
+
+
+async def _collect_for_org(org_id: str, nm_ids: Optional[list[int]] = None):
     """Collect seasonality data for a single organization."""
     import sys
     import os
@@ -63,19 +89,25 @@ async def _collect_for_org(org_id: str):
     from scripts.collect_evirma_seasonality import collect as collect_keywords
     from scripts.calculate_product_seasonality import calculate_product_seasonality as calculate_products
     
-    _log.info(f"Collecting seasonality for org {org_id}")
+    _log.info(f"Collecting seasonality for org {org_id} nm_ids={nm_ids}")
     
     # Step 1: Collect keyword seasonality
     try:
-        await collect_keywords(org_id, test_mode=False, dry_run=False)
+        keyword_result = await collect_keywords(org_id, test_mode=False, dry_run=False, nm_ids=nm_ids)
         _log.info(f"Keyword seasonality collected for org {org_id}")
     except Exception as e:
         _log.error(f"Failed to collect keywords for org {org_id}: {e}")
         return
+
+    if nm_ids:
+        if not keyword_result or keyword_result.get("processed", 0) <= 0:
+            _log.warning("No keywords processed for org %s nm_ids=%s; keeping previous seasonality", org_id, nm_ids)
+            return
+        await _reset_product_seasonality(org_id, nm_ids)
     
     # Step 2: Calculate product seasonality
     try:
-        await calculate_products(org_id, dry_run=False)
+        await calculate_products(org_id, dry_run=False, nm_ids=nm_ids)
         _log.info(f"Product seasonality calculated for org {org_id}")
     except Exception as e:
         _log.error(f"Failed to calculate products for org {org_id}: {e}")
@@ -83,17 +115,17 @@ async def _collect_for_org(org_id: str):
     
     # Step 3: Update reference_book with seasonal coefficients
     try:
-        await _update_reference_book(org_id)
+        await _update_reference_book(org_id, nm_ids=nm_ids)
         _log.info(f"Reference book updated with seasonality for org {org_id}")
     except Exception as e:
         _log.error(f"Failed to update reference book for org {org_id}: {e}")
 
 
-async def _update_reference_book(org_id: str):
+async def _update_reference_book(org_id: str, nm_ids: Optional[list[int]] = None):
     """Update reference_book with seasonality coefficients from product profiles."""
     async for db in get_db():
         # Update reference_book with seasonal coefficients
-        await db.execute(text("""
+        sql = """
             UPDATE reference_book rb
             SET 
                 season_jan = (ps.seasonality_coefficients->>'1')::numeric,
@@ -112,10 +144,46 @@ async def _update_reference_book(org_id: str):
             WHERE rb.nm_id = ps.nm_id
               AND rb.organization_id = :org_id
               AND ps.organization_id = :org_id
-        """), {"org_id": org_id})
+        """
+        params = {"org_id": org_id}
+        if nm_ids:
+            sql += " AND rb.nm_id = ANY(:nm_ids)"
+            params["nm_ids"] = nm_ids
+
+        await db.execute(text(sql), params)
         
         await db.commit()
         _log.info(f"Updated reference_book seasonality fields for org {org_id}")
+
+
+async def _reset_product_seasonality(org_id: str, nm_ids: list[int]):
+    """Clear stale product profiles and put visible fallback coefficients before recalculation."""
+    async for db in get_db():
+        await db.execute(text("""
+            DELETE FROM wb_product_seasonality
+            WHERE organization_id = :org_id
+              AND nm_id = ANY(:nm_ids)
+        """), {"org_id": org_id, "nm_ids": nm_ids})
+        await db.execute(text("""
+            UPDATE reference_book
+            SET
+                season_jan = 8.33,
+                season_feb = 8.33,
+                season_mar = 8.33,
+                season_apr = 8.33,
+                season_may = 8.33,
+                season_jun = 8.33,
+                season_jul = 8.33,
+                season_aug = 8.33,
+                season_sep = 8.33,
+                season_oct = 8.33,
+                season_nov = 8.33,
+                season_dec = 8.33
+            WHERE organization_id = :org_id
+              AND nm_id = ANY(:nm_ids)
+        """), {"org_id": org_id, "nm_ids": nm_ids})
+        await db.commit()
+        _log.info("Reset stale product seasonality for org=%s nm_ids=%s", org_id, nm_ids)
 
 
 @shared_task(name="seasonality.test", bind=True)

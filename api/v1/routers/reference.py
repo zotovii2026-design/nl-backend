@@ -27,6 +27,7 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.sql import func
 
+from core.celery import celery_app
 from core.database import get_db
 from core.security import decrypt_data
 from core.tenant_auth import require_query_organization_access
@@ -42,6 +43,8 @@ from repositories.reference import fetch_reference, fetch_cost_prices
 
 _log = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(require_query_organization_access)])
+
+TOP_QUERY_FIELDS = ("top_query_1", "top_query_2", "top_query_3")
 
 DEFAULT_PRODUCT_STATUSES = [
     "Новинка",
@@ -64,6 +67,75 @@ REFERENCE_TEMPLATE_HEADERS = [
     "% выкупа", "Корр. комиссии %", "Рекл. расходы %", "Скорость достав. дн",
     "Мин партия", "РРЦ", "Мин цена", "Кратность вложения", "Дата правок", "Дата начала",
 ]
+
+
+def _normalize_top_query(value) -> Optional[str]:
+    if value is None:
+        return None
+    text_value = str(value).strip()
+    return text_value or None
+
+
+async def _top_queries_changed(
+    db: AsyncSession,
+    org_id: str,
+    nm_id: int,
+    entity_id: str,
+    valid_from: date,
+    data: dict,
+) -> bool:
+    if not any(field in data for field in TOP_QUERY_FIELDS):
+        return False
+
+    result = await db.execute(text("""
+        SELECT top_query_1, top_query_2, top_query_3
+        FROM reference_book
+        WHERE organization_id = :org_id
+          AND nm_id = :nm_id
+          AND entity_id = :entity_id
+          AND valid_from = :valid_from
+    """), {
+        "org_id": org_id,
+        "nm_id": nm_id,
+        "entity_id": entity_id,
+        "valid_from": valid_from,
+    })
+    row = result.first()
+    current = tuple(_normalize_top_query(row[idx]) for idx in range(3)) if row else (None, None, None)
+    requested = tuple(
+        _normalize_top_query(data[field]) if field in data else current[idx]
+        for idx, field in enumerate(TOP_QUERY_FIELDS)
+    )
+    return requested != current
+
+
+def _queue_reference_seasonality_collect(org_id: str, nm_ids: set[int]) -> None:
+    if not nm_ids:
+        return
+    filtered_nm_ids = sorted({int(nm_id) for nm_id in nm_ids if nm_id})
+    if not filtered_nm_ids:
+        return
+    try:
+        celery_app.send_task(
+            "seasonality.collect",
+            kwargs={
+                "org_id": str(org_id),
+                "nm_ids": filtered_nm_ids,
+                "source": "reference_top_query_save",
+            },
+        )
+        _log.info(
+            "Queued off-schedule seasonality.collect for org=%s nm_ids=%s",
+            org_id,
+            filtered_nm_ids,
+        )
+    except Exception as exc:
+        _log.warning(
+            "Failed to queue off-schedule seasonality.collect for org=%s nm_ids=%s: %s",
+            org_id,
+            filtered_nm_ids,
+            exc,
+        )
 
 
 # ============================================================================
@@ -436,8 +508,11 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         entity_id = await resolve_entity_id(db, org_id, nm_id, None, size_name)
     if not entity_id:
         raise HTTPException(400, "entity_id обязателен для сохранения справочника")
+    queue_seasonality = await _top_queries_changed(db, org_id, nm_id, entity_id, valid_from, data)
     await db.execute(text(_SAVE_COST_PRICE_SQL), _build_save_params(data, org_id, nm_id, entity_id, valid_from))
     await db.commit()
+    if queue_seasonality:
+        _queue_reference_seasonality_collect(org_id, {int(nm_id)})
     return {"ok": True}
 
 
@@ -457,6 +532,7 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
     items = await request.json()
     saved = 0
     errors = 0
+    seasonality_nm_ids: set[int] = set()
     for data in items:
         try:
             nm_id = data.get("nm_id")
@@ -475,12 +551,15 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 errors += 1
                 print(f"[batch] skip nm={nm_id}: entity_id not resolved")
                 continue
+            if await _top_queries_changed(db, org_id, nm_id, entity_id, valid_from, data):
+                seasonality_nm_ids.add(int(nm_id))
             await db.execute(text(_SAVE_COST_PRICE_SQL), _build_save_params(data, org_id, nm_id, entity_id, valid_from))
             saved += 1
         except Exception as e:
             errors += 1
             print(f"[batch] error nm={data.get('nm_id')}: {e}")
     await db.commit()
+    _queue_reference_seasonality_collect(org_id, seasonality_nm_ids)
     return {"ok": True, "saved": saved, "errors": errors}
 
 
@@ -748,6 +827,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
     updated = 0
     skipped = 0
     warnings = []
+    seasonality_nm_ids: set[int] = set()
 
     for idx, row in enumerate(rows, start=2):
         nm_raw = row.get("Арт WB") or row.get("nm_id")
@@ -856,10 +936,18 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "vfrom": pd(row, "Дата начала", "valid_from") or date.today(),
         }
 
+        top_query_data = {
+            "top_query_1": params["tq1"],
+            "top_query_2": params["tq2"],
+            "top_query_3": params["tq3"],
+        }
+        if await _top_queries_changed(db, org_id, nm, eid, params["vfrom"], top_query_data):
+            seasonality_nm_ids.add(nm)
         await db.execute(text(_UPLOAD_SQL), params)
         updated += 1
 
     await db.commit()
+    _queue_reference_seasonality_collect(org_id, seasonality_nm_ids)
     return {"updated": updated, "total": len(rows), "skipped": skipped, "warnings": warnings[:20]}
 
 
