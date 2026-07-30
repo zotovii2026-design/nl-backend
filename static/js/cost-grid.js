@@ -5,6 +5,45 @@
 
 let costTabulator = null;
 let _costEditedIds = new Set();  // entity_id строк с реальными изменениями
+let _costSyncingTopQueries = false;
+
+function costTodayIso() {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    return yyyy + '-' + mm + '-' + dd;
+}
+
+function costNmIdKey(data) {
+    return String(data.nm_id_display || data.nm_id || '').replace('_solo_', '');
+}
+
+function syncCostTopQueriesForNmId(sourceRow) {
+    if (!costTabulator || !sourceRow || _costSyncingTopQueries) return;
+    const source = sourceRow.getData();
+    const nmKey = costNmIdKey(source);
+    if (!nmKey) return;
+    const payload = {
+        top_query_1: source.top_query_1 || '',
+        top_query_2: source.top_query_2 || '',
+        top_query_3: source.top_query_3 || '',
+        change_date: costTodayIso(),
+    };
+    _costSyncingTopQueries = true;
+    const updates = [];
+    costTabulator.getRows().forEach(function(row) {
+        if (row === sourceRow) return;
+        const data = row.getData();
+        if (costNmIdKey(data) !== nmKey) return;
+        const editedId = data.entity_id || data._id;
+        if (editedId) _costEditedIds.add(editedId);
+        updates.push(row.update(payload));
+    });
+    Promise.all(updates).finally(function() {
+        _costSyncingTopQueries = false;
+    });
+}
 
 // Конфигурация колонок справочника
 function getCostColumns() {
@@ -558,14 +597,13 @@ function initCostTabulator(data) {
                 row.update({ 'fbs_warehouse': '' });
             }
         }
+        if (field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3') {
+            syncCostTopQueriesForNmId(row);
+        }
         // Автопростановка даты правок при изменении любой ячейки (кроме самой change_date)
         if (cell.getField() !== 'change_date') {
             _autoUpdatingDate = true;
-            const today = new Date();
-            const yyyy = today.getFullYear();
-            const mm = String(today.getMonth() + 1).padStart(2, '0');
-            const dd = String(today.getDate()).padStart(2, '0');
-            cell.getRow().update({ change_date: yyyy + '-' + mm + '-' + dd });
+            cell.getRow().update({ change_date: costTodayIso() });
             _autoUpdatingDate = false;
         }
     });

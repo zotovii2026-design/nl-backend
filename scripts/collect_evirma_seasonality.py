@@ -63,11 +63,9 @@ def calculate_seasonality_coefficients(freq_history_monthly: Optional[List[List[
         return None
     
     # freq_history_monthly: [[month_num, YYYY-MM-DD, freq], ...]
-    # Берём последние 13 точек и отбрасываем последнюю (текущий месяц)
-    recent = freq_history_monthly[-13:] if len(freq_history_monthly) >= 13 else freq_history_monthly[-12:]
-    
-    # Отбрасываем последнюю точку (неполный месяц)
-    last_12 = recent[:-1]
+    # Если Evirma отдала 13+ точек, последнюю считаем текущим неполным месяцем.
+    # Если точек ровно 12, используем их все: часть запросов в API приходит именно так.
+    last_12 = freq_history_monthly[-13:-1] if len(freq_history_monthly) >= 13 else freq_history_monthly[-12:]
     
     if len(last_12) < 12:
         return None

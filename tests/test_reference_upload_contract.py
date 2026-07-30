@@ -46,12 +46,16 @@ def test_reference_template_deduplicates_barcodes():
 def test_reference_top_query_save_queues_off_schedule_seasonality():
     seasonality_task = Path("tasks/seasonality_sync.py").read_text(encoding="utf-8")
     calculator = Path("scripts/calculate_product_seasonality.py").read_text(encoding="utf-8")
+    collector = Path("scripts/collect_evirma_seasonality.py").read_text(encoding="utf-8")
     api_status = Path("api/v1/routers/api_status.py").read_text(encoding="utf-8")
     seasonality_router = Path("api/v1/routers/seasonality.py").read_text(encoding="utf-8")
+    dashboard = Path("templates/nl_v2.html").read_text(encoding="utf-8")
+    cost_grid = Path("static/js/cost-grid.js").read_text(encoding="utf-8")
 
     assert "TOP_QUERY_FIELDS" in REFERENCE_SOURCE
     assert "_top_queries_changed" in REFERENCE_SOURCE
     assert "_propagate_top_queries_to_nm_id" in REFERENCE_SOURCE
+    assert 'if data.get("change_date"):' in REFERENCE_SOURCE
     assert "WHERE organization_id = :org_id" in REFERENCE_SOURCE
     assert "AND nm_id = :nm_id" in REFERENCE_SOURCE
     assert "top_query_1 = :top_query_1" in REFERENCE_SOURCE
@@ -69,5 +73,9 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "nm_ids: Optional[List[int]] = None" in calculator
     assert "jsonb_typeof(seasonality_coefficients) = 'object'" in calculator
     assert "seasonality_coefficients <> '{}'::jsonb" in calculator
+    assert "len(freq_history_monthly) >= 13 else freq_history_monthly[-12:]" in collector
     assert "jsonb_typeof(seasonality_coefficients) = 'object'" in api_status
     assert "jsonb_typeof(seasonality_coefficients) = 'object'" in seasonality_router
+    assert "syncCostTopQueriesForNmId" in cost_grid
+    assert "field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3'" in cost_grid
+    assert "cost-grid.js?v=20260730-topquery" in dashboard
