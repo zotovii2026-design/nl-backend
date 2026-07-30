@@ -79,6 +79,13 @@ def _normalize_nm_ids(
     return normalized or None
 
 
+def _nm_ids_in_sql(nm_ids: list[int]) -> str:
+    normalized = _normalize_nm_ids(nm_ids=nm_ids)
+    if not normalized:
+        raise ValueError("nm_ids must not be empty")
+    return ", ".join(str(nm_id) for nm_id in normalized)
+
+
 async def _collect_for_org(org_id: str, nm_ids: Optional[list[int]] = None):
     """Collect seasonality data for a single organization."""
     import sys
@@ -147,13 +154,12 @@ async def _update_reference_book(org_id: str, nm_ids: Optional[list[int]] = None
         """
         params = {"org_id": org_id}
         if nm_ids:
-            sql += " AND rb.nm_id = ANY(:nm_ids)"
-            params["nm_ids"] = nm_ids
+            sql += f" AND rb.nm_id IN ({_nm_ids_in_sql(nm_ids)})"
 
-        await db.execute(text(sql), params)
+        result = await db.execute(text(sql), params)
         
         await db.commit()
-        _log.info(f"Updated reference_book seasonality fields for org {org_id}")
+        _log.info("Updated reference_book seasonality fields for org %s rows=%s", org_id, result.rowcount)
 
 
 async def _reset_product_seasonality(org_id: str, nm_ids: list[int]):
@@ -162,9 +168,9 @@ async def _reset_product_seasonality(org_id: str, nm_ids: list[int]):
         await db.execute(text("""
             DELETE FROM wb_product_seasonality
             WHERE organization_id = :org_id
-              AND nm_id = ANY(:nm_ids)
-        """), {"org_id": org_id, "nm_ids": nm_ids})
-        await db.execute(text("""
+              AND nm_id IN (""" + _nm_ids_in_sql(nm_ids) + """)
+        """), {"org_id": org_id})
+        reset_result = await db.execute(text("""
             UPDATE reference_book
             SET
                 season_jan = 8.33,
@@ -180,10 +186,10 @@ async def _reset_product_seasonality(org_id: str, nm_ids: list[int]):
                 season_nov = 8.33,
                 season_dec = 8.33
             WHERE organization_id = :org_id
-              AND nm_id = ANY(:nm_ids)
-        """), {"org_id": org_id, "nm_ids": nm_ids})
+              AND nm_id IN (""" + _nm_ids_in_sql(nm_ids) + """)
+        """), {"org_id": org_id})
         await db.commit()
-        _log.info("Reset stale product seasonality for org=%s nm_ids=%s", org_id, nm_ids)
+        _log.info("Reset stale product seasonality for org=%s nm_ids=%s rows=%s", org_id, nm_ids, reset_result.rowcount)
 
 
 @shared_task(name="seasonality.test", bind=True)

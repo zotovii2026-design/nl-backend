@@ -68,7 +68,9 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "_reset_product_seasonality" in seasonality_task
     assert "season_jan = 8.33" in seasonality_task
     assert "await calculate_products(org_id, dry_run=False, nm_ids=nm_ids)" in seasonality_task
-    assert "AND rb.nm_id = ANY(:nm_ids)" in seasonality_task
+    assert "_nm_ids_in_sql" in seasonality_task
+    assert "AND rb.nm_id IN" in seasonality_task
+    assert "result.rowcount" in seasonality_task
     assert "async def calculate_product_seasonality(" in calculator
     assert "nm_ids: Optional[List[int]] = None" in calculator
     assert "jsonb_typeof(seasonality_coefficients) = 'object'" in calculator
