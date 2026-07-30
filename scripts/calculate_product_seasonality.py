@@ -76,7 +76,8 @@ async def get_keyword_coefficients(org_id: str, keywords: List[str], days_back: 
             FROM wb_keyword_seasonality
             WHERE organization_id = :org_id
               AND LOWER(keyword) = ANY(:keywords)
-              AND seasonality_coefficients IS NOT NULL
+              AND jsonb_typeof(seasonality_coefficients) = 'object'
+              AND seasonality_coefficients <> '{}'::jsonb
               AND collected_at >= :cutoff
             ORDER BY keyword, collected_at DESC
         """), {
@@ -133,6 +134,10 @@ def average_coefficients(coefficients_list: List[Dict[str, float]]) -> Dict[str,
 
 
 async def save_product_seasonality(product: Dict, coefficients: Dict[str, float], source_keywords: List[str], dry_run: bool = False) -> bool:
+    if not coefficients:
+        _log.debug(f"Skip product {product['nm_id']}: no seasonality coefficients")
+        return False
+
     if dry_run:
         _log.info(f"[DRY RUN] Would save product {product['nm_id']} ({product.get('vendor_code')}): {len(coefficients)} months from {len(source_keywords)} keywords")
         return True
@@ -187,9 +192,9 @@ async def calculate_product_seasonality(
         coeffs_dict = await get_keyword_coefficients(org_id, keywords)
         
         # Фильтруем ключевые слова, для которых есть данные
-        valid_keywords_lower = [k.lower() for k in keywords if k.lower() in coeffs_dict]
-        coeffs_list = [coeffs_dict[kl] for kl in valid_keywords_lower if coeffs_dict[kl] is not None]
-        valid_keywords = [k for k in keywords if k.lower() in coeffs_dict]
+        valid_keywords_lower = [k.lower() for k in keywords if k.lower() in coeffs_dict and coeffs_dict[k.lower()]]
+        coeffs_list = [coeffs_dict[kl] for kl in valid_keywords_lower]
+        valid_keywords = [k for k in keywords if k.lower() in valid_keywords_lower]
         
         if not valid_keywords:
             _log.debug(f"No seasonality data for product {product['nm_id']} ({product.get('vendor_code')}) keywords: {keywords}")

@@ -46,6 +46,8 @@ def test_reference_template_deduplicates_barcodes():
 def test_reference_top_query_save_queues_off_schedule_seasonality():
     seasonality_task = Path("tasks/seasonality_sync.py").read_text(encoding="utf-8")
     calculator = Path("scripts/calculate_product_seasonality.py").read_text(encoding="utf-8")
+    api_status = Path("api/v1/routers/api_status.py").read_text(encoding="utf-8")
+    seasonality_router = Path("api/v1/routers/seasonality.py").read_text(encoding="utf-8")
 
     assert "TOP_QUERY_FIELDS" in REFERENCE_SOURCE
     assert "_top_queries_changed" in REFERENCE_SOURCE
@@ -65,3 +67,7 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "AND rb.nm_id = ANY(:nm_ids)" in seasonality_task
     assert "async def calculate_product_seasonality(" in calculator
     assert "nm_ids: Optional[List[int]] = None" in calculator
+    assert "jsonb_typeof(seasonality_coefficients) = 'object'" in calculator
+    assert "seasonality_coefficients <> '{}'::jsonb" in calculator
+    assert "jsonb_typeof(seasonality_coefficients) = 'object'" in api_status
+    assert "jsonb_typeof(seasonality_coefficients) = 'object'" in seasonality_router

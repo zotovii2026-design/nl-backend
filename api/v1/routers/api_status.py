@@ -186,7 +186,8 @@ async def _get_seasonality_status(org_id: str, db: AsyncSession) -> dict[str, An
         SELECT COUNT(DISTINCT keyword)
         FROM wb_keyword_seasonality
         WHERE organization_id = :org_id
-          AND seasonality_coefficients IS NOT NULL
+          AND jsonb_typeof(seasonality_coefficients) = 'object'
+          AND seasonality_coefficients <> '{}'::jsonb
           AND collected_at >= NOW() - INTERVAL '7 days'
     """), {"org_id": org_id})
     collected = collected_result.scalar() or 0

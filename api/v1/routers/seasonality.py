@@ -39,6 +39,8 @@ async def get_seasonality_status(org_id: str, db: AsyncSession = Depends(get_db)
         SELECT COUNT(DISTINCT keyword)
         FROM wb_keyword_seasonality
         WHERE organization_id = :org_id
+          AND jsonb_typeof(seasonality_coefficients) = 'object'
+          AND seasonality_coefficients <> '{}'::jsonb
           AND collected_at >= NOW() - INTERVAL '7 days'
     """), {"org_id": org_id})
     collected = collected_result.scalar()
