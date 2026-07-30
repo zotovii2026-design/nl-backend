@@ -49,6 +49,10 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
 
     assert "TOP_QUERY_FIELDS" in REFERENCE_SOURCE
     assert "_top_queries_changed" in REFERENCE_SOURCE
+    assert "_propagate_top_queries_to_nm_id" in REFERENCE_SOURCE
+    assert "WHERE organization_id = :org_id" in REFERENCE_SOURCE
+    assert "AND nm_id = :nm_id" in REFERENCE_SOURCE
+    assert "top_query_1 = :top_query_1" in REFERENCE_SOURCE
     assert "_queue_reference_seasonality_collect" in REFERENCE_SOURCE
     assert '"source": "reference_top_query_save"' in REFERENCE_SOURCE
     assert '"nm_ids": filtered_nm_ids' in REFERENCE_SOURCE

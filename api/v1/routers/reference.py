@@ -109,6 +109,49 @@ async def _top_queries_changed(
     return requested != current
 
 
+async def _propagate_top_queries_to_nm_id(
+    db: AsyncSession,
+    org_id: str,
+    nm_id: int,
+    entity_id: str,
+    valid_from: date,
+) -> None:
+    result = await db.execute(text("""
+        SELECT top_query_1, top_query_2, top_query_3
+        FROM reference_book
+        WHERE organization_id = :org_id
+          AND nm_id = :nm_id
+          AND entity_id = :entity_id
+          AND valid_from = :valid_from
+    """), {
+        "org_id": org_id,
+        "nm_id": nm_id,
+        "entity_id": entity_id,
+        "valid_from": valid_from,
+    })
+    row = result.first()
+    if not row:
+        return
+
+    await db.execute(text("""
+        UPDATE reference_book
+        SET
+            top_query_1 = :top_query_1,
+            top_query_2 = :top_query_2,
+            top_query_3 = :top_query_3,
+            change_date = CURRENT_DATE
+        WHERE organization_id = :org_id
+          AND nm_id = :nm_id
+          AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+    """), {
+        "org_id": org_id,
+        "nm_id": nm_id,
+        "top_query_1": row[0],
+        "top_query_2": row[1],
+        "top_query_3": row[2],
+    })
+
+
 def _queue_reference_seasonality_collect(org_id: str, nm_ids: set[int]) -> None:
     if not nm_ids:
         return
@@ -510,6 +553,8 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         raise HTTPException(400, "entity_id обязателен для сохранения справочника")
     queue_seasonality = await _top_queries_changed(db, org_id, nm_id, entity_id, valid_from, data)
     await db.execute(text(_SAVE_COST_PRICE_SQL), _build_save_params(data, org_id, nm_id, entity_id, valid_from))
+    if queue_seasonality:
+        await _propagate_top_queries_to_nm_id(db, org_id, nm_id, entity_id, valid_from)
     await db.commit()
     if queue_seasonality:
         _queue_reference_seasonality_collect(org_id, {int(nm_id)})
@@ -551,9 +596,12 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 errors += 1
                 print(f"[batch] skip nm={nm_id}: entity_id not resolved")
                 continue
-            if await _top_queries_changed(db, org_id, nm_id, entity_id, valid_from, data):
+            top_queries_changed = await _top_queries_changed(db, org_id, nm_id, entity_id, valid_from, data)
+            if top_queries_changed:
                 seasonality_nm_ids.add(int(nm_id))
             await db.execute(text(_SAVE_COST_PRICE_SQL), _build_save_params(data, org_id, nm_id, entity_id, valid_from))
+            if top_queries_changed:
+                await _propagate_top_queries_to_nm_id(db, org_id, nm_id, entity_id, valid_from)
             saved += 1
         except Exception as e:
             errors += 1
@@ -941,9 +989,12 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "top_query_2": params["tq2"],
             "top_query_3": params["tq3"],
         }
-        if await _top_queries_changed(db, org_id, nm, eid, params["vfrom"], top_query_data):
+        top_queries_changed = await _top_queries_changed(db, org_id, nm, eid, params["vfrom"], top_query_data)
+        if top_queries_changed:
             seasonality_nm_ids.add(nm)
         await db.execute(text(_UPLOAD_SQL), params)
+        if top_queries_changed:
+            await _propagate_top_queries_to_nm_id(db, org_id, nm, eid, params["vfrom"])
         updated += 1
 
     await db.commit()
