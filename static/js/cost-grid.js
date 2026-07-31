@@ -5,6 +5,7 @@
 
 let costTabulator = null;
 let _costEditedIds = new Set();  // entity_id строк с реальными изменениями
+let _costTopQueryEditedIds = new Set();  // entity_id строк, где меняли top_query_*
 let _costSyncingTopQueries = false;
 
 function costTodayIso() {
@@ -13,6 +14,11 @@ function costTodayIso() {
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const dd = String(today.getDate()).padStart(2, '0');
     return yyyy + '-' + mm + '-' + dd;
+}
+
+function resetCostEditTracking() {
+    _costEditedIds.clear();
+    _costTopQueryEditedIds.clear();
 }
 
 function costNmIdKey(data) {
@@ -38,6 +44,7 @@ function syncCostTopQueriesForNmId(sourceRow) {
         if (costNmIdKey(data) !== nmKey) return;
         const editedId = data.entity_id || data._id;
         if (editedId) _costEditedIds.add(editedId);
+        if (editedId) _costTopQueryEditedIds.add(editedId);
         updates.push(row.update(payload));
     });
     Promise.all(updates).finally(function() {
@@ -414,6 +421,7 @@ function prepareCostData(products) {
  * Инициализировать Tabulator для справочника
  */
 function initCostTabulator(data) {
+    resetCostEditTracking();
     
     // Уничтожаем старый если есть
     if (costTabulator) {
@@ -598,6 +606,7 @@ function initCostTabulator(data) {
             }
         }
         if (field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3') {
+            if (_editedId) _costTopQueryEditedIds.add(_editedId);
             syncCostTopQueriesForNmId(row);
         }
         // Автопростановка даты правок при изменении любой ячейки (кроме самой change_date)
@@ -646,6 +655,9 @@ function getCostDataForSave() {
     const edited = function(data) {
         return _costEditedIds.has(data.entity_id || data._id);
     };
+    const topQueryEdited = function(data) {
+        return _costTopQueryEditedIds.has(data.entity_id || data._id);
+    };
     return rows.map(data => ({
         entity_id: data.entity_id || null,
         size_name: data.size_name || '',
@@ -690,6 +702,7 @@ function getCostDataForSave() {
         plan_weight: numberOrNull(data.plan_weight),
         delivery_days_to_seller: null, delivery_days_to_mp: null,
         top_query_1: textValue(data.top_query_1), top_query_2: textValue(data.top_query_2), top_query_3: textValue(data.top_query_3),
+        _top_query_edited: topQueryEdited(data),
         shipment_method: null, fbs_warehouse: data.fulfillment_model === 'fbs' ? textValue(data.fbs_warehouse) : '',
         transport_pack_qty: Math.max(intOrNull(data.transport_pack_qty) || 1, 1),
         vat_rate: (function(){ var v = data.vat_rate; return (!v || v === 'нет') ? 0 : numberOrNull(v); })(),

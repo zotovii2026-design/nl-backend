@@ -168,7 +168,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/stats-grid.js?v=20260729-entities5"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260721-opiuv4-totals"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260730-topquery"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260731-topquery-save"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
@@ -3197,6 +3197,7 @@ async function saveAllCostPrices() {
             const result = await resp.json();
             if (resp.ok) {
                 _costDirty = false;
+                if (typeof resetCostEditTracking === "function") resetCostEditTracking();
                 showToast("✅ Сохранено: " + (result.saved || 0) + " из " + saveData.length + (result.errors ? " (ошибок: " + result.errors + ")" : ""));
             } else {
                 showToast("❌ Ошибка сохранения: " + (result.detail || resp.status), "error");

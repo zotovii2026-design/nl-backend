@@ -597,11 +597,20 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 print(f"[batch] skip nm={nm_id}: entity_id not resolved")
                 continue
             top_queries_changed = False
-            if data.get("change_date"):
-                top_queries_changed = await _top_queries_changed(db, org_id, nm_id, entity_id, valid_from, data)
+            top_query_edit = (
+                bool(data.get("_top_query_edited"))
+                if "_top_query_edited" in data
+                else bool(data.get("change_date"))
+            )
+            save_data = dict(data)
+            if top_query_edit:
+                top_queries_changed = await _top_queries_changed(db, org_id, nm_id, entity_id, valid_from, save_data)
+            else:
+                for field in TOP_QUERY_FIELDS:
+                    save_data[field] = None
             if top_queries_changed:
                 seasonality_nm_ids.add(int(nm_id))
-            await db.execute(text(_SAVE_COST_PRICE_SQL), _build_save_params(data, org_id, nm_id, entity_id, valid_from))
+            await db.execute(text(_SAVE_COST_PRICE_SQL), _build_save_params(save_data, org_id, nm_id, entity_id, valid_from))
             if top_queries_changed:
                 await _propagate_top_queries_to_nm_id(db, org_id, nm_id, entity_id, valid_from)
             saved += 1

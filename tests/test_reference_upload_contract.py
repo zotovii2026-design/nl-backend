@@ -55,7 +55,10 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "TOP_QUERY_FIELDS" in REFERENCE_SOURCE
     assert "_top_queries_changed" in REFERENCE_SOURCE
     assert "_propagate_top_queries_to_nm_id" in REFERENCE_SOURCE
-    assert 'if data.get("change_date"):' in REFERENCE_SOURCE
+    assert 'data.get("_top_query_edited")' in REFERENCE_SOURCE
+    assert 'if "_top_query_edited" in data' in REFERENCE_SOURCE
+    assert "save_data = dict(data)" in REFERENCE_SOURCE
+    assert "save_data[field] = None" in REFERENCE_SOURCE
     assert "WHERE organization_id = :org_id" in REFERENCE_SOURCE
     assert "AND nm_id = :nm_id" in REFERENCE_SOURCE
     assert "top_query_1 = :top_query_1" in REFERENCE_SOURCE
@@ -79,5 +82,8 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "jsonb_typeof(seasonality_coefficients) = 'object'" in api_status
     assert "jsonb_typeof(seasonality_coefficients) = 'object'" in seasonality_router
     assert "syncCostTopQueriesForNmId" in cost_grid
+    assert "_costTopQueryEditedIds" in cost_grid
+    assert "function resetCostEditTracking()" in cost_grid
+    assert "_top_query_edited: topQueryEdited(data)" in cost_grid
     assert "field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3'" in cost_grid
-    assert "cost-grid.js?v=20260730-topquery" in dashboard
+    assert "cost-grid.js?v=20260731-topquery-save" in dashboard
