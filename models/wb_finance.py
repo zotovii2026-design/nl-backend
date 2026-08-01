@@ -182,6 +182,7 @@ class WbPaidStorageRow(Base):
     )
     storage_date = Column(Date, nullable=False)
     nm_id = Column(BigInteger, nullable=False)
+    barcode = Column(String(100), nullable=False, default="")
     vendor_code = Column(String(200), nullable=True)
     subject_name = Column(String(200), nullable=True)
     brand = Column(String(200), nullable=True)
@@ -196,7 +197,8 @@ class WbPaidStorageRow(Base):
             "organization_id",
             "storage_date",
             "nm_id",
-            name="wb_paid_storage_rows_org_date_nm_key",
+            "barcode",
+            name="wb_paid_storage_rows_org_date_nm_barcode_key",
         ),
         Index(
             "ix_wb_paid_storage_rows_org_date",
@@ -207,6 +209,11 @@ class WbPaidStorageRow(Base):
             "ix_wb_paid_storage_rows_org_nm",
             "organization_id",
             "nm_id",
+        ),
+        Index(
+            "ix_wb_paid_storage_rows_org_entity",
+            "organization_id",
+            "entity_id",
         ),
     )
 

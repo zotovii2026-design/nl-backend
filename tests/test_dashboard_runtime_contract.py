@@ -57,7 +57,7 @@ def test_opiu_v2_columns_match_wb_template_language():
         assert title in OPIU_SOURCE
 
     assert "id=\"opiu-unassigned\"" in DASHBOARD_SOURCE
-    assert "opiu-grid.js?v=20260721-opiuv4-totals" in DASHBOARD_SOURCE
+    assert "opiu-grid.js?v=20260731-storage-entities" in DASHBOARD_SOURCE
 
 
 def test_opiu_finance_rows_fallback_to_product_entity_identity():
@@ -126,6 +126,7 @@ def test_reference_book_visible_columns_contract_is_stable():
         ("min_batch_fbo", "Мин партия"),
         ("rrc_price", "РРЦ"),
         ("min_price", "Мин. цена"),
+        ("transport_pack_qty", "Кратность вложения"),
         ("change_date", "Дата правок"),
         ("valid_from", "Дата начала"),
     ]
@@ -157,7 +158,7 @@ def test_expired_session_is_handled_globally():
 def test_reference_upload_ui_advertises_real_file_types():
     assert "Загрузить CSV/XLSX" in DASHBOARD_SOURCE
     assert 'accept=".xlsx,.csv"' in DASHBOARD_SOURCE
-    assert "Скачать CSV-шаблон" in DASHBOARD_SOURCE
+    assert "Скачать XLSX-шаблон" in DASHBOARD_SOURCE
     assert "encodeURIComponent(orgId)" in DASHBOARD_SOURCE
 
 

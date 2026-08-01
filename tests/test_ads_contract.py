@@ -34,7 +34,9 @@ def test_ads_manual_refresh_uses_nine_day_window():
 
 def test_ads_manual_refresh_passes_selected_org_to_celery():
     source = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
-    assert 'kwargs={"days_back": ADS_REFRESH_DAYS_BACK, "org_id": org_id}' in source
+    assert '"days_back": ADS_REFRESH_DAYS_BACK' in source
+    assert '"org_id": org_id' in source
+    assert '"include_current_day": True' in source
 
 
 def test_ads_campaign_type_label_uses_bid_and_payment_type():
@@ -131,7 +133,6 @@ def test_ads_uses_url_org_and_handles_unauthorized_without_breaking_tabs():
     assert "encodeURIComponent(orgId)" in arts
     assert "if (typeof getCurrentOrgId === 'function') return getCurrentOrgId();" in grid
     assert "adsmodel15" in template
-    assert "adsmodel13" in template
 
 
 def test_ads_has_separate_campaign_and_total_drr_columns():
@@ -169,7 +170,7 @@ def test_ads_campaign_rows_use_product_revenue_for_product_drr():
     assert "drr_product = round(spent / total_revenue_product * 100, 1)" in backend
     assert '"drr_product": drr_product' in backend
     assert "totalRevenueProduct = products.reduce" in grid
-    assert "ads-grid-v12" in grid
+    assert "ads-grid-v14" in grid
     assert "adsmodel15" in template
 
 
@@ -196,10 +197,12 @@ def test_ads_top_chart_uses_cabinet_daily_context():
 def test_ads_by_art_expanded_campaigns_have_daily_charts():
     backend = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
     arts = Path("static/js/ads-arts-grid.js").read_text(encoding="utf-8")
+    template = Path("templates/nl_v2.html").read_text(encoding="utf-8")
 
     assert "sn.stat_date" in backend
     assert '"daily": []' in backend
-    assert '"date": str(r[7])' in backend
+    assert "date_str = str(r[7])" in backend
+    assert '"date": date_str' in backend
     assert '"avg_price": price_by_nm_day.get((nm_id, date_str), 0)' in backend
     assert "renderAdsArtCampaignCharts" in arts
     assert "ads-art-campaign-chart-" in arts
@@ -211,8 +214,8 @@ def test_ads_by_art_expanded_campaigns_have_daily_charts():
     assert "label: 'Цена'" in arts
     assert "label: 'клик / заказ'" in arts
     assert "destroyAdsArtCharts" in arts
-    assert "ads-grid-v13" in Path("static/js/ads-grid.js").read_text(encoding="utf-8")
-    assert "ads-arts-grid-v10" in arts
+    assert "ads-grid-v14" in Path("static/js/ads-grid.js").read_text(encoding="utf-8")
+    assert "ads-arts-grid-v11" in arts
 
 
 def test_ads_org_switch_resets_state_and_ignores_stale_responses():

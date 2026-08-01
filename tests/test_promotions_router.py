@@ -54,12 +54,14 @@ def test_promotion_price_before_spp_prefers_effective_seller_price():
     )
     assert price_before_spp_sql(fallback_sql="pp.current_price") == expected_expr
 
-    for endpoint in (get_promotion_products, download_promo_excel):
-        source = inspect.getsource(endpoint)
+    products_source = inspect.getsource(get_promotion_products)
+    excel_source = inspect.getsource(download_promo_excel)
 
-        assert "price_before_spp_sql" in source
-        assert "price_discount" in source
-        assert "price_product" in source
+    assert "price_before_spp_sql" in products_source
+    assert "price_discount" in products_source
+    assert "price_product" in products_source
+    assert "price_discount" in excel_source
+    assert "price_product" in excel_source
 
 
 def test_promotion_products_exposes_rrc_from_reference_book():

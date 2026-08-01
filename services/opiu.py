@@ -554,11 +554,13 @@ def normalize_paid_storage_row(
     storage_date = _parse_date(
         _pick(item, "date", "storageDate", "reportDate", "dt")
     ) or fallback_date
+    barcode = str(_pick(item, "sku", "barcode", default="") or "").strip()
     return {
         "organization_id": organization_id,
         "entity_id": entity_id,
         "storage_date": storage_date,
         "nm_id": int(nm_id),
+        "barcode": barcode,
         "vendor_code": _pick(item, "vendorCode", "supplierArticle"),
         "subject_name": _pick(item, "subjectName", "subject"),
         "brand": _pick(item, "brandName", "brand"),
@@ -625,6 +627,7 @@ def _aggregate_paid_storage_rows(rows: list[dict]) -> list[dict]:
             row["organization_id"],
             row["storage_date"],
             row["nm_id"],
+            row.get("barcode") or "",
         )
         if key not in aggregated:
             aggregated[key] = row.copy()
@@ -650,9 +653,10 @@ async def _upsert_paid_storage_rows(db: AsyncSession, rows: list[dict]) -> int:
         statement = pg_insert(WbPaidStorageRow).values(chunk)
         excluded = statement.excluded
         statement = statement.on_conflict_do_update(
-            constraint="wb_paid_storage_rows_org_date_nm_key",
+            constraint="wb_paid_storage_rows_org_date_nm_barcode_key",
             set_={
                 "entity_id": excluded.entity_id,
+                "barcode": excluded.barcode,
                 "vendor_code": excluded.vendor_code,
                 "subject_name": excluded.subject_name,
                 "brand": excluded.brand,

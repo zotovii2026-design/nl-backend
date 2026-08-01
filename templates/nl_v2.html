@@ -166,7 +166,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script src="/static/lib/chart.min.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
 <script type="text/javascript" src="/static/js/stats-grid.js?v=20260729-entities5"></script>
-<script type="text/javascript" src="/static/js/opiu-grid.js?v=20260721-opiuv4-totals"></script>
+<script type="text/javascript" src="/static/js/opiu-grid.js?v=20260731-storage-entities"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260731-topquery-save"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
@@ -641,9 +641,9 @@ var _sectionHTML = {
 </div>
 <button id="tax-apply-btn" onclick="applyTaxToAll()" title="Применить налоги ко всем строкам" style="padding:6px 10px;font-size:.85em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px">📋 Применить ко всему</button>
 <button id="tax-lock-btn" onclick="toggleTaxLock()" title="Заблокировать/разблокировать" style="padding:6px 10px;font-size:1.2em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px;transition:all .2s">🔒</button>
-<button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить шаблон</button>
+<button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить CSV/XLSX</button>
 <input type="file" id="cost-file-input" accept=".xlsx,.csv" style="display:none" onchange="uploadCostExcel(this)">
-<button class="btn btn-outline" onclick="downloadReferenceTemplate()" style="padding:6px 14px;font-size:.85em">📥 Сформировать шаблон</button>
+<button class="btn btn-outline" onclick="downloadReferenceTemplate()" style="padding:6px 14px;font-size:.85em">📥 Скачать XLSX-шаблон</button>
 <span style="font-size:.85em;color:#999" id="cost-count"></span>
 <button class="btn" onclick="autoFillReference()" style="padding:5px 12px;font-size:.82em;background:#6c5ce7;color:#fff;border-radius:4px">🔄 Автозаполнение</button>
 <button class="btn" onclick="saveAllCostPrices()" style="padding:7px 16px;font-size:.88em;background:#00b894;color:#fff;font-weight:600;border-radius:6px">СОХРАНИТЬ<br><span style="font-size:.65em;font-weight:400;opacity:.7">отправить на сервер</span></button>

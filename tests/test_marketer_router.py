@@ -38,7 +38,7 @@ async def test_marketer_metric_catalog_keeps_graph_contract():
     assert {"price", "price_spp", "stock_qty", "orders_count", "buyout_pct"}.issubset(
         chart_metrics
     )
-    assert "cv" not in chart_metrics
+    assert {"cv", "cpc", "revenue"}.issubset(chart_metrics)
 
     assert catalog["filter_contract"]["source"] == "top_page_filters"
     assert catalog["filter_contract"]["top_chart"] == {
@@ -59,7 +59,11 @@ def test_marketer_chart_metrics_are_real_backend_metrics():
     assert {"price", "price_spp", "stock_qty", "orders_count", "buyout_pct"}.issubset(
         MARKETER_CHART_METRICS
     )
-    assert _resolve_chart_metrics("price,cv,orders_count,unknown") == ["price", "orders_count"]
+    assert _resolve_chart_metrics("price,cv,orders_count,unknown") == [
+        "price",
+        "cv",
+        "orders_count",
+    ]
     assert _resolve_chart_metrics("") == [
         "orders_count",
         "stock_qty",
@@ -68,4 +72,8 @@ def test_marketer_chart_metrics_are_real_backend_metrics():
         "buyout_pct",
         "views",
         "ctr_total",
+        "drr",
+        "cv",
+        "cpc",
+        "revenue",
     ]

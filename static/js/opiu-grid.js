@@ -11,6 +11,20 @@ let opiuTotalRow = null;
 let opiuUnassignedRows = [];
 let opiuAllocations = [];
 
+const OPIU_SUM_FIELDS = [
+    'sales_qty', 'net_sales_qty', 'retail_sum', 'returns_retail_sum',
+    'retail_net_sum', 'realized_sum', 'marketplace_commission_sum',
+    'acquiring_sum', 'delivery_total', 'penalty', 'storage',
+    'storage_difference_info', 'advertising_api_spend', 'wb_promotion_deduction',
+    'external_ad_spend', 'advertising_difference_info', 'orders_qty',
+    'orders_sum', 'loyalty_compensation', 'loyalty_participation',
+    'loyalty_points', 'acceptance', 'other_expenses', 'finance_net_for_pay',
+    'bank_payment_sum', 'bank_payment_difference', 'net_for_pay',
+    'gross_profit', 'gross_profit_after_ads', 'cost_total', 'vat_tax',
+    'selected_tax', 'net_profit', 'returns_qty', 'returns_rub',
+    'deduction', 'distributed_other_expenses'
+];
+
 function opiuMoney(cell) {
     const value = Number(cell.getValue() || 0);
     return value.toLocaleString('ru-RU', {
@@ -131,6 +145,9 @@ function initOpiuGrid() {
         layout: 'fitDataFill',
         height: '520px',
         index: '_row_id',
+        dataTree: true,
+        dataTreeStartExpanded: false,
+        dataTreeChildIndent: 18,
         movableColumns: true,
         placeholder: 'Нет финансовых данных за выбранный период',
         rowFormatter: function(row) {
@@ -138,6 +155,8 @@ function initOpiuGrid() {
             if (data._is_total) {
                 row.getElement().style.backgroundColor = '#d9ead3';
                 row.getElement().style.fontWeight = '700';
+            } else if (data._is_size) {
+                row.getElement().style.backgroundColor = '#fbfcff';
             } else if (data.vendor_code === '(без артикула)') {
                 row.getElement().style.backgroundColor = '#fff2cc';
             }
@@ -170,6 +189,112 @@ function fillOpiuFilters(rows) {
     fillOpiuSelect('opiu-filter-category', new Set(rows.map(row => row.subject_name)), 'Категория');
 }
 
+function opiuNumber(value) {
+    const number = Number(value || 0);
+    return Number.isFinite(number) ? number : 0;
+}
+
+function opiuFirstNonEmpty(current, next) {
+    return current || next || '';
+}
+
+function opiuArticleGroupKey(row) {
+    if (row.nm_id != null && row.nm_id !== '' && Number(row.nm_id) !== 0) return 'nm:' + row.nm_id;
+    return 'vendor:' + (row.vendor_code || '') + '|barcode:' + (row.barcode || '');
+}
+
+function opiuRecalculateArticleMetrics(row) {
+    const salesQty = opiuNumber(row.sales_qty);
+    const retailSum = opiuNumber(row.retail_sum);
+    const realizedSum = opiuNumber(row.realized_sum);
+    const ordersSum = opiuNumber(row.orders_sum);
+    const costTotal = opiuNumber(row.cost_total);
+    const retailNetSum = opiuNumber(row.retail_net_sum);
+    const loyaltyCost = opiuNumber(row.loyalty_points) + opiuNumber(row.loyalty_participation);
+
+    row.retail_unit = salesQty ? retailSum / salesQty : 0;
+    row.realized_unit = salesQty ? realizedSum / salesQty : 0;
+    row.acquiring_unit = salesQty ? opiuNumber(row.acquiring_sum) / salesQty : 0;
+    row.marketplace_commission_unit = salesQty ? opiuNumber(row.marketplace_commission_sum) / salesQty : 0;
+    row.delivery_unit = salesQty ? opiuNumber(row.delivery_total) / salesQty : 0;
+    row.marketplace_commission_pct = retailSum ? opiuNumber(row.marketplace_commission_sum) / retailSum * 100 : 0;
+    row.acquiring_pct = retailSum ? opiuNumber(row.acquiring_sum) / retailSum * 100 : 0;
+    row.drr = ordersSum ? opiuNumber(row.advertising_api_spend) / ordersSum * 100 : 0;
+    row.cost_unit = salesQty ? costTotal / salesQty : 0;
+    row.gross_margin = realizedSum ? opiuNumber(row.gross_profit_after_ads) / realizedSum * 100 : 0;
+    row.net_margin = realizedSum ? opiuNumber(row.net_profit) / realizedSum * 100 : 0;
+    row.roi = costTotal ? opiuNumber(row.net_profit) / costTotal * 100 : 0;
+    row.markup = costTotal ? realizedSum / costTotal * 100 : 0;
+    row.loyalty_pct = retailNetSum ? loyaltyCost / retailNetSum * 100 : 0;
+    return row;
+}
+
+function opiuBuildArticleRows(rows) {
+    const groups = new Map();
+    rows.forEach((row, index) => {
+        const key = opiuArticleGroupKey(row);
+        if (!groups.has(key)) {
+            groups.set(key, {
+                _row_id: 'article|' + key,
+                _is_article: true,
+                _children: [],
+                entity_id: '',
+                nm_id: row.nm_id,
+                vendor_code: row.vendor_code || '',
+                barcode: '',
+                size_name: '',
+                product_name: row.product_name || '',
+                photo_main: row.photo_main || '',
+                brand: row.brand || '',
+                product_class: row.product_class || '',
+                product_status: row.product_status || '',
+                subject_name: row.subject_name || '',
+            });
+        }
+        const parent = groups.get(key);
+        parent.vendor_code = opiuFirstNonEmpty(parent.vendor_code, row.vendor_code);
+        parent.product_name = opiuFirstNonEmpty(parent.product_name, row.product_name);
+        parent.photo_main = opiuFirstNonEmpty(parent.photo_main, row.photo_main);
+        parent.brand = opiuFirstNonEmpty(parent.brand, row.brand);
+        parent.product_class = opiuFirstNonEmpty(parent.product_class, row.product_class);
+        parent.product_status = opiuFirstNonEmpty(parent.product_status, row.product_status);
+        parent.subject_name = opiuFirstNonEmpty(parent.subject_name, row.subject_name);
+        OPIU_SUM_FIELDS.forEach(field => {
+            parent[field] = opiuNumber(parent[field]) + opiuNumber(row[field]);
+        });
+        parent._children.push({
+            ...row,
+            _is_size: true,
+            _row_id: row._row_id || ('size|' + key + '|' + index),
+        });
+    });
+
+    return Array.from(groups.values()).map(parent => {
+        const children = parent._children;
+        const barcodes = [];
+        const sizes = [];
+        let negativeCount = 0;
+        let worst = null;
+        children.forEach(child => {
+            String(child.barcode || '').split(',').map(value => value.trim()).filter(Boolean).forEach(value => {
+                if (!barcodes.includes(value)) barcodes.push(value);
+            });
+            if (child.size_name && !sizes.includes(child.size_name)) sizes.push(child.size_name);
+            if (opiuNumber(child.net_profit) < 0) {
+                negativeCount += 1;
+                if (!worst || opiuNumber(child.net_profit) < opiuNumber(worst.net_profit)) worst = child;
+            }
+        });
+        parent.barcode = barcodes.join(', ');
+        parent.size_name = sizes.length ? sizes.length + ' разм.' : '';
+        parent.sizes_count = children.length;
+        parent.negative_sizes_count = negativeCount;
+        parent.worst_size_name = worst ? (worst.size_name || worst.barcode || '') : '';
+        parent.worst_size_net_profit = worst ? worst.net_profit : 0;
+        return opiuRecalculateArticleMetrics(parent);
+    });
+}
+
 function applyOpiuFilters() {
     if (!opiuTabulator) return;
     const query = (document.getElementById('opiu-search')?.value || '').trim().toLowerCase();
@@ -184,17 +309,21 @@ function applyOpiuFilters() {
         if (brand && row.brand !== brand) return false;
         if (category && row.subject_name !== category) return false;
         if (query) {
-            const haystack = ((row.product_name || '') + ' ' + (row.brand || '')).toLowerCase();
+            const haystack = [
+                row.product_name, row.brand, row.vendor_code, row.nm_id,
+                row.barcode, row.size_name, row.subject_name,
+            ].join(' ').toLowerCase();
             if (!haystack.includes(query)) return false;
         }
         return true;
     });
 
-    const data = filtered.slice();
+    const articleRows = opiuBuildArticleRows(filtered);
+    const data = articleRows.slice();
     if (opiuTotalRow) data.unshift({...opiuTotalRow, _is_total: true, _row_id: '__total__'});
     opiuTabulator.replaceData(data);
     const count = document.getElementById('opiu-count');
-    if (count) count.textContent = filtered.length + ' из ' + opiuAllRows.length + ' строк';
+    if (count) count.textContent = articleRows.length + ' арт. / ' + filtered.length + ' разм. из ' + opiuAllRows.length;
 }
 
 function resetOpiuFilters() {

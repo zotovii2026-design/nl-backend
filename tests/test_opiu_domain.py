@@ -667,6 +667,7 @@ def test_paid_storage_row_normalization_accepts_wb_field_names():
             "date": "2026-07-13",
             "nmId": 123,
             "vendorCode": "abc",
+            "sku": "4600000000001",
             "brandName": "Brand",
             "subjectName": "Subject",
             "warehousePrice": "42.155",
@@ -679,15 +680,17 @@ def test_paid_storage_row_normalization_accepts_wb_field_names():
     assert row["storage_date"] == date.fromisoformat("2026-07-13")
     assert row["nm_id"] == 123
     assert row["entity_id"] == "entity-id"
+    assert row["barcode"] == "4600000000001"
     assert row["storage_amount"] == Decimal("42.16")
 
 
-def test_paid_storage_rows_aggregate_before_sync_total():
+def test_paid_storage_rows_aggregate_same_barcode_before_sync_total():
     rows = [
         {
             "organization_id": "org-id",
             "storage_date": date.fromisoformat("2026-07-13"),
             "nm_id": 123,
+            "barcode": "4600000000001",
             "entity_id": None,
             "vendor_code": "abc",
             "subject_name": "Subject",
@@ -699,6 +702,7 @@ def test_paid_storage_rows_aggregate_before_sync_total():
             "organization_id": "org-id",
             "storage_date": date.fromisoformat("2026-07-13"),
             "nm_id": 123,
+            "barcode": "4600000000001",
             "entity_id": "entity-id",
             "vendor_code": "abc",
             "subject_name": "Subject",
@@ -712,7 +716,38 @@ def test_paid_storage_rows_aggregate_before_sync_total():
 
     assert len(aggregated) == 1
     assert aggregated[0]["entity_id"] == "entity-id"
+    assert aggregated[0]["barcode"] == "4600000000001"
     assert aggregated[0]["storage_amount"] == Decimal("10.37")
+
+
+def test_paid_storage_rows_keep_barcodes_separate_for_one_article():
+    rows = [
+        {
+            "organization_id": "org-id",
+            "storage_date": date.fromisoformat("2026-07-13"),
+            "nm_id": 123,
+            "barcode": barcode,
+            "entity_id": entity_id,
+            "vendor_code": "abc",
+            "subject_name": "Subject",
+            "brand": "Brand",
+            "storage_amount": amount,
+            "raw_data": {"barcode": barcode},
+        }
+        for barcode, entity_id, amount in (
+            ("4600000000001", "entity-1", Decimal("10.10")),
+            ("4600000000002", "entity-2", Decimal("0.27")),
+        )
+    ]
+
+    aggregated = _aggregate_paid_storage_rows(rows)
+
+    assert len(aggregated) == 2
+    assert {row["barcode"] for row in aggregated} == {
+        "4600000000001",
+        "4600000000002",
+    }
+    assert sum(row["storage_amount"] for row in aggregated) == Decimal("10.37")
 
 
 def test_finance_api_row_normalization_uses_current_field_names():

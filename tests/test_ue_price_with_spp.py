@@ -19,7 +19,10 @@ DATABASE_URL = os.environ.get(
 
 async def _fetch_snapshot_samples():
     """Берёт 10 nm_id, у которых price_with_spp > 0 в snapshot."""
-    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        conn = await asyncpg.connect(DATABASE_URL)
+    except (OSError, asyncpg.PostgresError) as exc:
+        pytest.skip(f"Postgres is not available for integration check: {exc}")
     try:
         rows = await conn.fetch(
             """
