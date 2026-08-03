@@ -49,7 +49,7 @@ function opiuQuantity(cell) {
 function opiuColumns() {
     const moneyColumn = {hozAlign: 'right', formatter: opiuMoney};
     const columns = [
-        {title: 'Фото', field: 'photo_main', width: 58, headerSort: false, formatter: NLGrid.formatters.photo},
+        {title: 'Фото', field: 'photo_main', width: 58, frozen: true, headerSort: false, formatter: NLGrid.formatters.photo},
         {title: 'Артикул поставщика', field: 'vendor_code', width: 165},
         {title: 'Артикул WB', field: 'nm_id', width: 115, hozAlign: 'right'},
         {title: 'Название', field: 'product_name', width: 240, tooltip: true},
@@ -99,11 +99,14 @@ function opiuColumns() {
         {title: 'Бренд', field: 'brand', width: 150},
         {title: 'Категория', field: 'subject_name', width: 180},
     ];
-    const savedOrder = NLGrid.loadColumnOrder('opiu-v4');
+    const savedOrder = NLGrid.loadColumnOrder('opiu-v5');
     if (!savedOrder || !savedOrder.length) return columns;
     const byField = new Map(columns.map(column => [column.field, column]));
-    return savedOrder.map(field => byField.get(field)).filter(Boolean)
-        .concat(columns.filter(column => !savedOrder.includes(column.field)));
+    const orderedColumns = savedOrder
+        .map(field => byField.get(field))
+        .filter(column => column && column.field !== 'photo_main')
+        .concat(columns.filter(column => column.field !== 'photo_main' && !savedOrder.includes(column.field)));
+    return [byField.get('photo_main')].concat(orderedColumns).filter(Boolean);
 }
 
 function ensureOpiuDom() {
@@ -163,7 +166,7 @@ function initOpiuGrid() {
         },
     });
     opiuTabulator.on('columnMoved', function() {
-        NLGrid.saveColumnOrder(opiuTabulator, 'opiu-v4');
+        NLGrid.saveColumnOrder(opiuTabulator, 'opiu-v5');
     });
     return true;
 }
