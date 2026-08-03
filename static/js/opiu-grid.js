@@ -63,9 +63,12 @@ function opiuProductFormatter(cell) {
     const image = thumb
         ? '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover;flex:0 0 auto" loading="lazy">'
         : '<span style="width:32px;height:32px;display:inline-block;flex:0 0 auto"></span>';
+    const summary = row._is_article && row._has_size_breakdown
+        ? '<span style="font-size:10px;color:#5f6368;background:#eef3ff;border:1px solid #d9e4ff;border-radius:4px;padding:1px 5px;margin-left:6px">Итого по артикулу</span>'
+        : '';
     return '<div style="display:flex;align-items:center;gap:8px;min-width:0">'
         + image
-        + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + vendorCode + '</span>'
+        + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + vendorCode + summary + '</span>'
         + '</div>';
 }
 
@@ -182,6 +185,9 @@ function initOpiuGrid() {
                 row.getElement().style.fontWeight = '700';
             } else if (data._is_size) {
                 row.getElement().style.backgroundColor = '#fbfcff';
+            } else if (data._is_article && data._has_size_breakdown) {
+                row.getElement().style.backgroundColor = '#f4f7ff';
+                row.getElement().style.fontWeight = '700';
             } else if (data.vendor_code === '(без артикула)') {
                 row.getElement().style.backgroundColor = '#fff2cc';
             }
@@ -223,12 +229,16 @@ function opiuFirstNonEmpty(current, next) {
     return current || next || '';
 }
 
+function opiuMeaningfulSizeName(value) {
+    const sizeName = String(value || '').trim();
+    return Boolean(sizeName && sizeName !== '0' && sizeName !== 'ONE SIZE' && sizeName !== '—');
+}
+
 function opiuHasSizeIdentity(row) {
-    const sizeName = String(row.size_name || '').trim();
     return Boolean(
         row.entity_id
         || String(row.barcode || '').trim()
-        || (sizeName && sizeName !== '0' && sizeName !== 'ONE SIZE' && sizeName !== '—')
+        || opiuMeaningfulSizeName(row.size_name)
     );
 }
 
@@ -342,20 +352,25 @@ function opiuBuildArticleRows(rows) {
             String(child.barcode || '').split(',').map(value => value.trim()).filter(Boolean).forEach(value => {
                 if (!barcodes.includes(value)) barcodes.push(value);
             });
-            if (child.size_name && !sizes.includes(child.size_name)) sizes.push(child.size_name);
+            if (opiuMeaningfulSizeName(child.size_name) && !sizes.includes(child.size_name)) sizes.push(child.size_name);
             if (opiuNumber(child.net_profit) < 0) {
                 negativeCount += 1;
                 if (!worst || opiuNumber(child.net_profit) < opiuNumber(worst.net_profit)) worst = child;
             }
         });
+        const hasSizeBreakdown = children.length > 1 || sizes.length > 0;
         parent.barcode = barcodes.join(', ');
-        parent.size_name = sizes.length ? sizes.length + ' разм.' : '';
+        parent._has_size_breakdown = hasSizeBreakdown;
+        parent._is_sizeless = !hasSizeBreakdown;
+        parent.size_name = hasSizeBreakdown
+            ? 'Итого / ' + (sizes.length || children.length) + ' разм.'
+            : (children[0]?.size_name || '');
         parent.sizes_count = children.length;
         parent.negative_sizes_count = negativeCount;
         parent.worst_size_name = worst ? (worst.size_name || worst.barcode || '') : '';
         parent.worst_size_net_profit = worst ? worst.net_profit : 0;
         delete parent._article_only_seen;
-        if (!children.length) delete parent._children;
+        if (!hasSizeBreakdown) delete parent._children;
         return opiuRecalculateArticleMetrics(parent);
     });
 }
