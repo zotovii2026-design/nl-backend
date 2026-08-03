@@ -52,10 +52,10 @@ async def _load_report_rows(
             """
             SELECT
                 fr.entity_id,
-                COALESCE(NULLIF(fr.nm_id, 0), pe.nm_id) AS nm_id,
-                COALESCE(NULLIF(fr.vendor_code, ''), pe.vendor_code, '') AS vendor_code,
+                COALESCE(NULLIF(fr.nm_id, 0), pe.nm_id, pe_nm.nm_id) AS nm_id,
+                COALESCE(NULLIF(fr.vendor_code, ''), pe.vendor_code, pe_nm.vendor_code, '') AS vendor_code,
                 fr.barcode,
-                COALESCE(NULLIF(fr.size_name, ''), pe.size_name, '') AS size_name,
+                COALESCE(NULLIF(fr.size_name, ''), pe.size_name, pe_nm.size_name, '') AS size_name,
                 fr.doc_type_name,
                 fr.seller_oper_name,
                 fr.quantity,
@@ -72,14 +72,32 @@ async def _load_report_rows(
                 fr.cashback_amount,
                 fr.cashback_discount,
                 fr.cashback_commission_change,
-                pe.product_name,
-                pe.photo_main,
-                COALESCE(rb.brand, pe.brand, '') AS brand,
+                COALESCE(pe.product_name, pe_nm.product_name, '') AS product_name,
+                COALESCE(pe.photo_main, pe_nm.photo_main, '') AS photo_main,
+                COALESCE(rb.brand, pe.brand, pe_nm.brand, '') AS brand,
                 COALESCE(rb.product_class, '') AS product_class,
                 COALESCE(rb.product_status, '') AS product_status,
-                COALESCE(rb.subject_name, pe.subject_name, '') AS subject_name
+                COALESCE(rb.subject_name, pe.subject_name, pe_nm.subject_name, '') AS subject_name
             FROM wb_finance_rows fr
             LEFT JOIN product_entities pe ON pe.id = fr.entity_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    nm_pe.nm_id,
+                    nm_pe.vendor_code,
+                    nm_pe.size_name,
+                    nm_pe.product_name,
+                    nm_pe.photo_main,
+                    nm_pe.brand,
+                    nm_pe.subject_name
+                FROM product_entities nm_pe
+                WHERE nm_pe.organization_id = fr.organization_id
+                  AND nm_pe.nm_id = NULLIF(fr.nm_id, 0)
+                ORDER BY
+                    CASE WHEN nm_pe.photo_main IS NOT NULL AND nm_pe.photo_main <> '' THEN 0 ELSE 1 END,
+                    nm_pe.updated_at DESC NULLS LAST,
+                    nm_pe.created_at DESC NULLS LAST
+                LIMIT 1
+            ) pe_nm ON TRUE
             LEFT JOIN LATERAL (
                 SELECT
                     ref.brand,
@@ -174,13 +192,13 @@ async def _load_paid_storage_report_rows(
             """
             SELECT
                 ps.entity_id,
-                ps.nm_id,
-                COALESCE(ps.vendor_code, pe.vendor_code, '') AS vendor_code,
+                COALESCE(NULLIF(ps.nm_id, 0), pe.nm_id, pe_nm.nm_id) AS nm_id,
+                COALESCE(ps.vendor_code, pe.vendor_code, pe_nm.vendor_code, '') AS vendor_code,
                 COALESCE(
                     string_agg(DISTINCT NULLIF(ps.barcode, ''), ', ' ORDER BY NULLIF(ps.barcode, '')),
                     ''
                 ) AS barcode,
-                COALESCE(pe.size_name, '') AS size_name,
+                COALESCE(pe.size_name, pe_nm.size_name, '') AS size_name,
                 'Продажа' AS doc_type_name,
                 'Хранение' AS seller_oper_name,
                 0 AS quantity,
@@ -197,14 +215,32 @@ async def _load_paid_storage_report_rows(
                 0 AS cashback_amount,
                 0 AS cashback_discount,
                 0 AS cashback_commission_change,
-                pe.product_name,
-                pe.photo_main,
-                COALESCE(rb.brand, ps.brand, pe.brand, '') AS brand,
+                COALESCE(pe.product_name, pe_nm.product_name, '') AS product_name,
+                COALESCE(pe.photo_main, pe_nm.photo_main, '') AS photo_main,
+                COALESCE(rb.brand, ps.brand, pe.brand, pe_nm.brand, '') AS brand,
                 COALESCE(rb.product_class, '') AS product_class,
                 COALESCE(rb.product_status, '') AS product_status,
-                COALESCE(rb.subject_name, ps.subject_name, pe.subject_name, '') AS subject_name
+                COALESCE(rb.subject_name, ps.subject_name, pe.subject_name, pe_nm.subject_name, '') AS subject_name
             FROM wb_paid_storage_rows ps
             LEFT JOIN product_entities pe ON pe.id = ps.entity_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    nm_pe.nm_id,
+                    nm_pe.vendor_code,
+                    nm_pe.size_name,
+                    nm_pe.product_name,
+                    nm_pe.photo_main,
+                    nm_pe.brand,
+                    nm_pe.subject_name
+                FROM product_entities nm_pe
+                WHERE nm_pe.organization_id = ps.organization_id
+                  AND nm_pe.nm_id = NULLIF(ps.nm_id, 0)
+                ORDER BY
+                    CASE WHEN nm_pe.photo_main IS NOT NULL AND nm_pe.photo_main <> '' THEN 0 ELSE 1 END,
+                    nm_pe.updated_at DESC NULLS LAST,
+                    nm_pe.created_at DESC NULLS LAST
+                LIMIT 1
+            ) pe_nm ON TRUE
             LEFT JOIN LATERAL (
                 SELECT
                     ref.brand,
@@ -231,12 +267,19 @@ async def _load_paid_storage_report_rows(
               AND ps.storage_date BETWEEN :storage_from AND :storage_to
             GROUP BY
                 ps.entity_id,
-                ps.nm_id,
+                COALESCE(NULLIF(ps.nm_id, 0), pe.nm_id, pe_nm.nm_id),
                 ps.vendor_code,
                 pe.size_name,
                 pe.vendor_code,
                 pe.product_name,
                 pe.photo_main,
+                pe_nm.nm_id,
+                pe_nm.vendor_code,
+                pe_nm.size_name,
+                pe_nm.product_name,
+                pe_nm.photo_main,
+                pe_nm.brand,
+                pe_nm.subject_name,
                 ps.brand,
                 ps.subject_name,
                 pe.brand,

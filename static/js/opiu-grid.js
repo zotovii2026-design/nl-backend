@@ -99,7 +99,7 @@ function opiuColumns() {
         {title: 'Бренд', field: 'brand', width: 150},
         {title: 'Категория', field: 'subject_name', width: 180},
     ];
-    const savedOrder = NLGrid.loadColumnOrder('opiu-v3');
+    const savedOrder = NLGrid.loadColumnOrder('opiu-v4');
     if (!savedOrder || !savedOrder.length) return columns;
     const byField = new Map(columns.map(column => [column.field, column]));
     return savedOrder.map(field => byField.get(field)).filter(Boolean)
@@ -163,7 +163,7 @@ function initOpiuGrid() {
         },
     });
     opiuTabulator.on('columnMoved', function() {
-        NLGrid.saveColumnOrder(opiuTabulator, 'opiu-v3');
+        NLGrid.saveColumnOrder(opiuTabulator, 'opiu-v4');
     });
     return true;
 }
