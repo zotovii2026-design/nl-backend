@@ -46,11 +46,27 @@ function opiuQuantity(cell) {
     return value.toLocaleString('ru-RU', {maximumFractionDigits: 3});
 }
 
+function opiuProductFormatter(cell) {
+    const row = cell.getData() || {};
+    const vendorCode = cell.getValue() || '';
+    if (row._is_total) return vendorCode || '';
+    const url = row.photo_main || '';
+    const thumb = url
+        ? String(url).replace('/hq/', '/c246x328/').replace('/big/', '/c246x328/').replace('/tm/', '/c246x328/')
+        : '';
+    const image = thumb
+        ? '<img src="' + thumb + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover;flex:0 0 auto" loading="lazy">'
+        : '<span style="width:32px;height:32px;display:inline-block;flex:0 0 auto"></span>';
+    return '<div style="display:flex;align-items:center;gap:8px;min-width:0">'
+        + image
+        + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + vendorCode + '</span>'
+        + '</div>';
+}
+
 function opiuColumns() {
     const moneyColumn = {hozAlign: 'right', formatter: opiuMoney};
     const columns = [
-        {title: 'Фото', field: 'photo_main', width: 58, frozen: true, headerSort: false, formatter: NLGrid.formatters.photo},
-        {title: 'Артикул поставщика', field: 'vendor_code', width: 165},
+        {title: 'Фото / Артикул поставщика', field: 'vendor_code', width: 205, frozen: true, formatter: opiuProductFormatter},
         {title: 'Артикул WB', field: 'nm_id', width: 115, hozAlign: 'right'},
         {title: 'Название', field: 'product_name', width: 240, tooltip: true},
         {title: 'Кол-во реализовано, шт', field: 'sales_qty', width: 145, hozAlign: 'right', formatter: opiuQuantity},
@@ -99,14 +115,14 @@ function opiuColumns() {
         {title: 'Бренд', field: 'brand', width: 150},
         {title: 'Категория', field: 'subject_name', width: 180},
     ];
-    const savedOrder = NLGrid.loadColumnOrder('opiu-v5');
+    const savedOrder = NLGrid.loadColumnOrder('opiu-v6');
     if (!savedOrder || !savedOrder.length) return columns;
     const byField = new Map(columns.map(column => [column.field, column]));
     const orderedColumns = savedOrder
         .map(field => byField.get(field))
-        .filter(column => column && column.field !== 'photo_main')
-        .concat(columns.filter(column => column.field !== 'photo_main' && !savedOrder.includes(column.field)));
-    return [byField.get('photo_main')].concat(orderedColumns).filter(Boolean);
+        .filter(column => column && column.field !== 'vendor_code')
+        .concat(columns.filter(column => column.field !== 'vendor_code' && !savedOrder.includes(column.field)));
+    return [byField.get('vendor_code')].concat(orderedColumns).filter(Boolean);
 }
 
 function ensureOpiuDom() {
@@ -166,7 +182,7 @@ function initOpiuGrid() {
         },
     });
     opiuTabulator.on('columnMoved', function() {
-        NLGrid.saveColumnOrder(opiuTabulator, 'opiu-v5');
+        NLGrid.saveColumnOrder(opiuTabulator, 'opiu-v6');
     });
     return true;
 }

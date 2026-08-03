@@ -57,15 +57,18 @@ def test_opiu_v2_columns_match_wb_template_language():
         assert title in OPIU_SOURCE
 
     assert "id=\"opiu-unassigned\"" in DASHBOARD_SOURCE
-    assert "opiu-grid.js?v=20260731-storage-entities" in DASHBOARD_SOURCE
+    assert "opiu-grid.js?v=20260803-photo-inline" in DASHBOARD_SOURCE
+    assert "function opiuProductFormatter(cell)" in OPIU_SOURCE
+    assert "NLGrid.loadColumnOrder('opiu-v6')" in OPIU_SOURCE
 
 
 def test_opiu_finance_rows_fallback_to_product_entity_identity():
-    assert "COALESCE(NULLIF(fr.nm_id, 0), pe.nm_id) AS nm_id" in OPIU_ROUTER_SOURCE
+    assert "COALESCE(NULLIF(fr.nm_id, 0), pe.nm_id, pe_nm.nm_id) AS nm_id" in OPIU_ROUTER_SOURCE
     assert (
-        "COALESCE(NULLIF(fr.vendor_code, ''), pe.vendor_code, '') AS vendor_code"
+        "COALESCE(NULLIF(fr.vendor_code, ''), pe.vendor_code, pe_nm.vendor_code, '') AS vendor_code"
         in OPIU_ROUTER_SOURCE
     )
+    assert "COALESCE(pe.photo_main, pe_nm.photo_main, '') AS photo_main" in OPIU_ROUTER_SOURCE
 
 
 def test_reference_book_visible_columns_contract_is_stable():
