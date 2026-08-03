@@ -57,9 +57,11 @@ def test_opiu_v2_columns_match_wb_template_language():
         assert title in OPIU_SOURCE
 
     assert "id=\"opiu-unassigned\"" in DASHBOARD_SOURCE
-    assert "opiu-grid.js?v=20260803-photo-inline" in DASHBOARD_SOURCE
+    assert "opiu-grid.js?v=20260803-article-size-rollup" in DASHBOARD_SOURCE
     assert "function opiuProductFormatter(cell)" in OPIU_SOURCE
     assert "NLGrid.loadColumnOrder('opiu-v6')" in OPIU_SOURCE
+    assert "const OPIU_ARTICLE_ONLY_FIELDS" in OPIU_SOURCE
+    assert "function opiuHasSizeIdentity(row)" in OPIU_SOURCE
 
 
 def test_opiu_finance_rows_fallback_to_product_entity_identity():

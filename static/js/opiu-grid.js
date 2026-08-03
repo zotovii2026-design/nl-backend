@@ -25,6 +25,12 @@ const OPIU_SUM_FIELDS = [
     'deduction', 'distributed_other_expenses'
 ];
 
+const OPIU_ARTICLE_ONLY_FIELDS = [
+    'advertising_api_spend',
+    'orders_qty',
+    'orders_sum',
+];
+
 function opiuMoney(cell) {
     const value = Number(cell.getValue() || 0);
     return value.toLocaleString('ru-RU', {
@@ -217,6 +223,24 @@ function opiuFirstNonEmpty(current, next) {
     return current || next || '';
 }
 
+function opiuHasSizeIdentity(row) {
+    const sizeName = String(row.size_name || '').trim();
+    return Boolean(
+        row.entity_id
+        || String(row.barcode || '').trim()
+        || (sizeName && sizeName !== '0' && sizeName !== 'ONE SIZE' && sizeName !== '—')
+    );
+}
+
+function opiuPrepareSizeChild(row) {
+    const child = {...row};
+    OPIU_ARTICLE_ONLY_FIELDS.forEach(field => {
+        child[field] = 0;
+    });
+    child.drr = 0;
+    return opiuRecalculateArticleMetrics(child);
+}
+
 function opiuArticleGroupKey(row) {
     if (row.nm_id != null && row.nm_id !== '' && Number(row.nm_id) !== 0) return 'nm:' + row.nm_id;
     return 'vendor:' + (row.vendor_code || '') + '|barcode:' + (row.barcode || '');
@@ -230,6 +254,13 @@ function opiuRecalculateArticleMetrics(row) {
     const costTotal = opiuNumber(row.cost_total);
     const retailNetSum = opiuNumber(row.retail_net_sum);
     const loyaltyCost = opiuNumber(row.loyalty_points) + opiuNumber(row.loyalty_participation);
+    const grossProfit = opiuNumber(row.gross_profit);
+    const advertisingSpend = opiuNumber(row.advertising_api_spend);
+    const externalAdSpend = opiuNumber(row.external_ad_spend);
+    const vatTax = opiuNumber(row.vat_tax);
+    const selectedTax = opiuNumber(row.selected_tax);
+    const grossProfitAfterAds = grossProfit - advertisingSpend;
+    const netProfit = grossProfitAfterAds - externalAdSpend - costTotal - vatTax - selectedTax;
 
     row.retail_unit = salesQty ? retailSum / salesQty : 0;
     row.realized_unit = salesQty ? realizedSum / salesQty : 0;
@@ -240,9 +271,11 @@ function opiuRecalculateArticleMetrics(row) {
     row.acquiring_pct = retailSum ? opiuNumber(row.acquiring_sum) / retailSum * 100 : 0;
     row.drr = ordersSum ? opiuNumber(row.advertising_api_spend) / ordersSum * 100 : 0;
     row.cost_unit = salesQty ? costTotal / salesQty : 0;
-    row.gross_margin = realizedSum ? opiuNumber(row.gross_profit_after_ads) / realizedSum * 100 : 0;
-    row.net_margin = realizedSum ? opiuNumber(row.net_profit) / realizedSum * 100 : 0;
-    row.roi = costTotal ? opiuNumber(row.net_profit) / costTotal * 100 : 0;
+    row.gross_profit_after_ads = grossProfitAfterAds;
+    row.net_profit = netProfit;
+    row.gross_margin = realizedSum ? grossProfitAfterAds / realizedSum * 100 : 0;
+    row.net_margin = realizedSum ? netProfit / realizedSum * 100 : 0;
+    row.roi = costTotal ? netProfit / costTotal * 100 : 0;
     row.markup = costTotal ? realizedSum / costTotal * 100 : 0;
     row.loyalty_pct = retailNetSum ? loyaltyCost / retailNetSum * 100 : 0;
     return row;
@@ -268,6 +301,7 @@ function opiuBuildArticleRows(rows) {
                 product_class: row.product_class || '',
                 product_status: row.product_status || '',
                 subject_name: row.subject_name || '',
+                _article_only_seen: {},
             });
         }
         const parent = groups.get(key);
@@ -279,13 +313,23 @@ function opiuBuildArticleRows(rows) {
         parent.product_status = opiuFirstNonEmpty(parent.product_status, row.product_status);
         parent.subject_name = opiuFirstNonEmpty(parent.subject_name, row.subject_name);
         OPIU_SUM_FIELDS.forEach(field => {
+            if (OPIU_ARTICLE_ONLY_FIELDS.includes(field)) {
+                const value = opiuNumber(row[field]);
+                if (!parent._article_only_seen[field] && value) {
+                    parent[field] = opiuNumber(parent[field]) + value;
+                    parent._article_only_seen[field] = true;
+                }
+                return;
+            }
             parent[field] = opiuNumber(parent[field]) + opiuNumber(row[field]);
         });
-        parent._children.push({
-            ...row,
-            _is_size: true,
-            _row_id: row._row_id || ('size|' + key + '|' + index),
-        });
+        if (opiuHasSizeIdentity(row)) {
+            parent._children.push({
+                ...opiuPrepareSizeChild(row),
+                _is_size: true,
+                _row_id: row._row_id || ('size|' + key + '|' + index),
+            });
+        }
     });
 
     return Array.from(groups.values()).map(parent => {
@@ -310,6 +354,8 @@ function opiuBuildArticleRows(rows) {
         parent.negative_sizes_count = negativeCount;
         parent.worst_size_name = worst ? (worst.size_name || worst.barcode || '') : '';
         parent.worst_size_net_profit = worst ? worst.net_profit : 0;
+        delete parent._article_only_seen;
+        if (!children.length) delete parent._children;
         return opiuRecalculateArticleMetrics(parent);
     });
 }
