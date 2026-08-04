@@ -86,7 +86,7 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "function resetCostEditTracking()" in cost_grid
     assert "_top_query_edited: topQueryEdited(data)" in cost_grid
     assert "field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3'" in cost_grid
-    assert "cost-grid.js?v=20260804-tags-tree" in dashboard
+    assert "cost-grid.js?v=20260804-tags-multifilter" in dashboard
 
 
 def test_reference_tags_and_collapsed_article_tree_are_wired():
@@ -103,3 +103,7 @@ def test_reference_tags_and_collapsed_article_tree_are_wired():
     assert "function setCostTreeOpen(open)" in cost_grid
     assert 'id="flt-tags"' in dashboard
     assert "Без статуса" in dashboard
+    assert "costTagsEditor" in cost_grid
+    assert "splitReferenceTags" in dashboard
+    assert "getMultiSelectValues" in dashboard
+    assert 'id="flt-product-status" multiple' in dashboard

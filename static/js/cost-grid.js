@@ -27,6 +27,53 @@ const COST_PARENT_PROPAGATE_FIELDS = [
     'supply_days', 'min_batch_fbo', 'transport_pack_qty', 'rrc_price', 'min_price'
 ];
 
+function costEscapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function costTagList(value) {
+    const seen = new Set();
+    const result = [];
+    String(value || '').split(/[,;\n]/).forEach(function(part) {
+        const clean = part.trim();
+        const key = clean.toLowerCase();
+        if (clean && !seen.has(key)) {
+            seen.add(key);
+            result.push(clean);
+        }
+    });
+    return result;
+}
+
+function costTagsToString(tags) {
+    return costTagList(tags).join(', ');
+}
+
+function costTagsEditor(cell, onRendered, success, cancel) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = costTagsToString(cell.getValue());
+    input.placeholder = 'тег1, тег2';
+    input.style.cssText = 'width:100%;height:100%;box-sizing:border-box;border:1px solid #6c5ce7;padding:3px 5px;font-size:11px';
+    onRendered(function() {
+        input.focus();
+        input.select();
+    });
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') success(costTagsToString(input.value));
+        if (e.key === 'Escape') cancel();
+    });
+    input.addEventListener('blur', function() {
+        success(costTagsToString(input.value));
+    });
+    return input;
+}
+
 function costTodayIso() {
     const today = new Date();
     const yyyy = today.getFullYear();
@@ -202,14 +249,24 @@ function getCostColumns() {
                     },
                 },
                 { title: 'Теги', field: 'tags',
-                    headerTooltip: 'Ручные теги через запятую', width: 120, editor: 'input', headerSort: true, tooltip: true, cssClass: 'truncate-cell',
+                    headerTooltip: 'Ручные теги через запятую. Enter сохраняет ввод в ячейке.', width: 150,
+                    editor: costTagsEditor, headerSort: true, tooltip: true, cssClass: 'truncate-cell',
                     formatter: function(cell) {
-                        const raw = String(cell.getValue() || '').trim();
-                        if (!raw) return '—';
-                        return raw.split(',').map(function(tag) {
-                            const clean = tag.trim();
-                            return clean ? '<span style="display:inline-block;margin:1px 2px 1px 0;padding:1px 5px;background:#eef1f5;border-radius:3px">' + clean + '</span>' : '';
+                        const tags = costTagList(cell.getValue());
+                        if (!tags.length) return '<span style="color:#aaa">+ тег</span>';
+                        return tags.map(function(tag) {
+                            const safe = costEscapeHtml(tag);
+                            return '<span style="display:inline-flex;align-items:center;gap:3px;margin:1px 3px 1px 0;padding:1px 5px;background:#eef1f5;border-radius:3px">' +
+                                safe + '<button type="button" data-tag-remove="' + safe + '" title="Удалить тег" style="border:0;background:transparent;color:#777;cursor:pointer;font-size:10px;line-height:1;padding:0">x</button></span>';
                         }).join('');
+                    },
+                    cellClick: function(e, cell) {
+                        const tag = e.target && e.target.getAttribute && e.target.getAttribute('data-tag-remove');
+                        if (!tag) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const tags = costTagList(cell.getValue()).filter(function(item) { return item !== tag; });
+                        cell.setValue(tags.join(', '), true);
                     }
                 },
                 { title: 'Класс товара', field: 'product_class',

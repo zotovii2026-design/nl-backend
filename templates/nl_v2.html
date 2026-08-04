@@ -168,7 +168,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/stats-grid.js?v=20260729-entities5"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260803-reference-style-tree"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260804-tags-tree"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260804-tags-multifilter"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
@@ -656,10 +656,10 @@ var _sectionHTML = {
 <label style="color:#666;font-weight:600">Фильтры:</label>
 <select id="flt-fulfillment" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
 <select id="flt-tax-system" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Налог. система: все</option><option value="usn">УСН</option><option value="usn_dr">Доходы-Расходы</option><option value="osn">ОСН</option></select>
-<select id="flt-product-class" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option></select>
-<select id="flt-brand" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
-<select id="flt-product-status" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option></select>
-<input type="text" id="flt-tags" placeholder="Тег" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:120px">
+<select id="flt-product-class" multiple onchange="applyCostFilters()" title="Можно выбрать несколько классов" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:92px;height:58px"></select>
+<select id="flt-brand" multiple onchange="applyCostFilters()" title="Можно выбрать несколько брендов" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:130px;height:58px"></select>
+<select id="flt-product-status" multiple onchange="applyCostFilters()" title="Можно выбрать несколько статусов" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:170px;height:58px"></select>
+<select id="flt-tags" multiple onchange="applyCostFilters()" title="Можно выбрать несколько тегов" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:150px;height:58px"></select>
 <button onclick="addReferenceProductStatus()" title="Добавить свой статус товара" style="border:1px solid #ddd;background:#fff;color:#6c5ce7;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">+ Статус</button>
 <select id="flt-has-cost" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
 <input type="text" id="cost-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
@@ -2535,13 +2535,13 @@ function updateReferenceStatusControls() {
     const statuses = getReferenceProductStatuses();
     const statusSelect = document.getElementById('flt-product-status');
     if (statusSelect) {
-        const cur = statusSelect.value;
-        const opts = ['<option value="">Статус: все</option>', '<option value="__empty__">Без статуса</option>'];
+        const selected = getMultiSelectValues(statusSelect);
+        const opts = ['<option value="__empty__">Без статуса</option>'];
         statuses.forEach(function(status) {
             opts.push('<option value="' + esc(status) + '">' + esc(getProductStatusLabel(status)) + '</option>');
         });
         statusSelect.innerHTML = opts.join('');
-        statusSelect.value = cur === '__empty__' || statuses.indexOf(cur) !== -1 ? cur : '';
+        setMultiSelectValues(statusSelect, selected);
     }
     if (typeof costTabulator !== 'undefined' && costTabulator) {
         costTabulator.updateColumnDefinition('product_status', {
@@ -2789,35 +2789,81 @@ async function loadCostPrices() {
 }
 
 function populateCostFilterOptions() {
-    const classes = new Set(), brands = new Set(), statuses = new Set();
+    const classes = new Set(), brands = new Set(), statuses = new Set(), tags = new Set();
     _costProducts.forEach(p => {
         const c = _costMap[p.entity_id] || {};
         if (c.product_class) classes.add(c.product_class);
         if (c.brand) brands.add(c.brand);
         if (c.product_status) statuses.add(c.product_status);
+        splitReferenceTags(c.tags).forEach(function(tag) { tags.add(tag); });
     });
     const fillSel = (id, vals) => {
         const el = document.getElementById(id);
-        if (!el || !el.options.length) return;
-        const cur = el.value;
-        const opts = ['<option value="">' + el.options[0].text + '</option>'];
+        if (!el) return;
+        const selected = getMultiSelectValues(el);
+        const opts = [];
         [...vals].sort().forEach(v => opts.push('<option value="' + esc(v) + '">' + esc(v) + '</option>'));
         el.innerHTML = opts.join('');
-        el.value = cur;
+        setMultiSelectValues(el, selected);
     };
     fillSel('flt-product-class', classes);
     fillSel('flt-brand', brands);
+    fillSel('flt-tags', tags);
     _referenceProductStatuses = uniqReferenceStatuses(_referenceProductStatuses.concat([...statuses]));
     updateReferenceStatusControls();
+}
+
+function getMultiSelectValues(el) {
+    if (!el) return [];
+    return Array.from(el.selectedOptions || []).map(function(opt) { return opt.value; }).filter(Boolean);
+}
+
+function setMultiSelectValues(el, values) {
+    if (!el) return;
+    const selected = new Set(values || []);
+    Array.from(el.options || []).forEach(function(opt) {
+        opt.selected = selected.has(opt.value);
+    });
+}
+
+function clearMultiSelect(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    Array.from(el.options || []).forEach(function(opt) { opt.selected = false; });
+}
+
+function splitReferenceTags(value) {
+    const seen = new Set();
+    const result = [];
+    String(value || '').split(/[,;\n]/).forEach(function(part) {
+        const clean = part.trim();
+        const key = clean.toLowerCase();
+        if (clean && !seen.has(key)) {
+            seen.add(key);
+            result.push(clean);
+        }
+    });
+    return result;
+}
+
+function matchAnySelected(value, selected) {
+    if (!selected || !selected.length) return true;
+    return selected.indexOf(value || '') !== -1;
+}
+
+function matchAnyTag(tags, selectedTags) {
+    if (!selectedTags || !selectedTags.length) return true;
+    const rowTags = splitReferenceTags(tags).map(function(tag) { return tag.toLowerCase(); });
+    return selectedTags.some(function(tag) { return rowTags.indexOf(String(tag).toLowerCase()) !== -1; });
 }
 
 function clearCostFilters() {
     document.getElementById('flt-fulfillment').value = '';
     document.getElementById('flt-tax-system').value = '';
-    document.getElementById('flt-product-class').value = '';
-    document.getElementById('flt-brand').value = '';
-    document.getElementById('flt-product-status').value = '';
-    document.getElementById('flt-tags').value = '';
+    clearMultiSelect('flt-product-class');
+    clearMultiSelect('flt-brand');
+    clearMultiSelect('flt-product-status');
+    clearMultiSelect('flt-tags');
     document.getElementById('flt-has-cost').value = '';
     document.getElementById('cost-search').value = '';
     applyCostFilters();
@@ -2827,10 +2873,10 @@ function applyCostFilters() {
     const search = (document.getElementById('cost-search')?.value || '').toLowerCase();
     const fltFF = document.getElementById('flt-fulfillment')?.value || '';
     const fltTax = document.getElementById('flt-tax-system')?.value || '';
-    const fltClass = document.getElementById('flt-product-class')?.value || '';
-    const fltBrand = document.getElementById('flt-brand')?.value || '';
-    const fltStatus = document.getElementById('flt-product-status')?.value || '';
-    const fltTags = (document.getElementById('flt-tags')?.value || '').toLowerCase().trim();
+    const fltClass = getMultiSelectValues(document.getElementById('flt-product-class'));
+    const fltBrand = getMultiSelectValues(document.getElementById('flt-brand'));
+    const fltStatus = getMultiSelectValues(document.getElementById('flt-product-status'));
+    const fltTags = getMultiSelectValues(document.getElementById('flt-tags'));
     const fltCost = document.getElementById('flt-has-cost')?.value || '';
     
     let products = _costProducts;
@@ -2853,11 +2899,14 @@ function applyCostFilters() {
         const c = _costMap[p.entity_id] || {};
         if (fltFF && !checkMatch(c, 'fulfillment_model', fltFF)) return false;
         if (fltTax && !checkMatch(c, 'tax_system', fltTax)) return false;
-        if (fltClass && !checkMatch(c, 'product_class', fltClass)) return false;
-        if (fltBrand && !checkMatch(c, 'brand', fltBrand)) return false;
-        if (fltStatus === '__empty__' && (c.product_status || '')) return false;
-        if (fltStatus && fltStatus !== '__empty__' && !checkMatch(c, 'product_status', fltStatus)) return false;
-        if (fltTags && !(c.tags || '').toLowerCase().includes(fltTags)) return false;
+        if (!matchAnySelected(c.product_class, fltClass)) return false;
+        if (!matchAnySelected(c.brand, fltBrand)) return false;
+        if (fltStatus.length) {
+            const emptyOk = fltStatus.indexOf('__empty__') !== -1 && !(c.product_status || '');
+            const statusOk = fltStatus.indexOf(c.product_status || '') !== -1;
+            if (!emptyOk && !statusOk) return false;
+        }
+        if (!matchAnyTag(c.tags, fltTags)) return false;
         if (fltCost === 'yes' && !c.cost_price) return false;
         if (fltCost === 'no' && c.cost_price) return false;
         return true;
