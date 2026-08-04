@@ -168,7 +168,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/stats-grid.js?v=20260729-entities5"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260803-reference-style-tree"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260804-tags-multifilter"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260804-filter-ui"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
@@ -640,7 +640,6 @@ var _sectionHTML = {
 </select>
 </div>
 <button id="tax-apply-btn" onclick="applyTaxToAll()" title="Применить налоги ко всем строкам" style="padding:6px 10px;font-size:.85em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px">📋 Применить ко всему</button>
-<button id="tax-lock-btn" onclick="toggleTaxLock()" title="Заблокировать/разблокировать" style="padding:6px 10px;font-size:1.2em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px;transition:all .2s">🔒</button>
 <button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить CSV/XLSX</button>
 <input type="file" id="cost-file-input" accept=".xlsx,.csv" style="display:none" onchange="uploadCostExcel(this)">
 <button class="btn btn-outline" onclick="downloadReferenceTemplate()" style="padding:6px 14px;font-size:.85em">📥 Скачать XLSX-шаблон</button>
@@ -655,16 +654,14 @@ var _sectionHTML = {
 <div id="cost-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
 <label style="color:#666;font-weight:600">Фильтры:</label>
 <select id="flt-fulfillment" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
-<select id="flt-tax-system" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Налог. система: все</option><option value="usn">УСН</option><option value="usn_dr">Доходы-Расходы</option><option value="osn">ОСН</option></select>
 <select id="flt-product-class" multiple onchange="applyCostFilters()" title="Можно выбрать несколько классов" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:92px;height:58px"></select>
 <select id="flt-brand" multiple onchange="applyCostFilters()" title="Можно выбрать несколько брендов" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:130px;height:58px"></select>
 <select id="flt-product-status" multiple onchange="applyCostFilters()" title="Можно выбрать несколько статусов" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:170px;height:58px"></select>
 <select id="flt-tags" multiple onchange="applyCostFilters()" title="Можно выбрать несколько тегов" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:150px;height:58px"></select>
-<button onclick="addReferenceProductStatus()" title="Добавить свой статус товара" style="border:1px solid #ddd;background:#fff;color:#6c5ce7;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">+ Статус</button>
 <select id="flt-has-cost" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
 <input type="text" id="cost-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
-<button onclick="setCostTreeOpen(false)" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Схлопнуть все</button>
-<button onclick="setCostTreeOpen(true)" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Раскрыть все</button>
+<button id="cost-collapse-all-btn" onclick="setCostTreeOpen(false)" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Схлопнуть все</button>
+<button id="cost-expand-all-btn" onclick="setCostTreeOpen(true)" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Раскрыть все</button>
 <button onclick="clearCostFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сбросить</button>
 </div>
 
@@ -2621,12 +2618,6 @@ async function loadTaxSettings() {
             document.getElementById('tax-rate-input').value = _taxSettings.tax_rate != null ? _taxSettings.tax_rate : '';
             document.getElementById('vat-type-select').value = _taxSettings.vat_type || 'нет';
             updateTaxColHeader();
-            // Restore lock state from localStorage
-            const lockKey = 'tax_locked_' + ORG_ID;
-            const isLocked = localStorage.getItem(lockKey);
-            if (isLocked === 'true') {
-                setTaxLock(true);
-            }
         }
     } catch(e) { console.error('loadTaxSettings', e); }
 }
@@ -2664,9 +2655,6 @@ async function saveTaxSettings() {
             updateTaxColHeader();
             // Save to localStorage
             localStorage.setItem('tax_settings_' + ORG_ID, JSON.stringify(_taxSettings));
-            // Auto-lock after save
-            setTaxLock(true);
-            localStorage.setItem('tax_locked_' + ORG_ID, 'true');
             // Update grid with new tax values (only rows without manual override)
             if (costTabulator) {
                 const rows = costTabulator.getData();
@@ -2687,52 +2675,6 @@ async function saveTaxSettings() {
     }
 }
 
-
-function toggleTaxLock() {
-    const lockKey = 'tax_locked_' + ORG_ID;
-    const isLocked = localStorage.getItem(lockKey) === 'true';
-    if (isLocked) {
-        setTaxLock(false);
-        localStorage.setItem(lockKey, 'false');
-    } else {
-        setTaxLock(true);
-        localStorage.setItem(lockKey, 'true');
-    }
-}
-
-function setTaxLock(locked) {
-    var btn = document.getElementById('tax-lock-btn');
-    var sel = document.getElementById('tax-system-select');
-    var inp = document.getElementById('tax-rate-input');
-    var vat = document.getElementById('vat-type-select');
-    if (locked) {
-        btn.textContent = '\U0001f512';
-        btn.style.borderColor = '#6c5ce7';
-        btn.style.background = '#f0edff';
-        sel.disabled = true;
-        inp.disabled = true;
-        vat.disabled = true;
-        _taxLocked = true;
-        if (costTabulator) {
-            costTabulator.updateColumnDefinition('_tax_rate_override', {editable:false});
-            costTabulator.updateColumnDefinition('vat_rate', {editable:false});
-        }
-    } else {
-        btn.textContent = '\U0001f513';
-        btn.style.borderColor = '#ddd';
-        btn.style.background = 'none';
-        sel.disabled = false;
-        inp.disabled = false;
-        vat.disabled = false;
-        _taxLocked = false;
-        if (costTabulator) {
-            costTabulator.updateColumnDefinition('_tax_rate_override', {editable:true});
-            costTabulator.updateColumnDefinition('vat_rate', {editable:true});
-        }
-    }
-}
-
-var _taxLocked = false;
 
 function applyTaxToAll() {
     if (!costTabulator) return;
@@ -2859,7 +2801,6 @@ function matchAnyTag(tags, selectedTags) {
 
 function clearCostFilters() {
     document.getElementById('flt-fulfillment').value = '';
-    document.getElementById('flt-tax-system').value = '';
     clearMultiSelect('flt-product-class');
     clearMultiSelect('flt-brand');
     clearMultiSelect('flt-product-status');
@@ -2872,7 +2813,6 @@ function clearCostFilters() {
 function applyCostFilters() {
     const search = (document.getElementById('cost-search')?.value || '').toLowerCase();
     const fltFF = document.getElementById('flt-fulfillment')?.value || '';
-    const fltTax = document.getElementById('flt-tax-system')?.value || '';
     const fltClass = getMultiSelectValues(document.getElementById('flt-product-class'));
     const fltBrand = getMultiSelectValues(document.getElementById('flt-brand'));
     const fltStatus = getMultiSelectValues(document.getElementById('flt-product-status'));
@@ -2898,7 +2838,6 @@ function applyCostFilters() {
     products = products.filter(p => {
         const c = _costMap[p.entity_id] || {};
         if (fltFF && !checkMatch(c, 'fulfillment_model', fltFF)) return false;
-        if (fltTax && !checkMatch(c, 'tax_system', fltTax)) return false;
         if (!matchAnySelected(c.product_class, fltClass)) return false;
         if (!matchAnySelected(c.brand, fltBrand)) return false;
         if (fltStatus.length) {

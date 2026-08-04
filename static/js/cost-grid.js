@@ -191,12 +191,39 @@ function costPropagateField(row, field, value) {
 
 function setCostTreeOpen(open) {
     if (!costTabulator) return;
-    costTabulator.getRows().forEach(function(row) {
+    const rows = costTabulator.getRows().filter(function(row) {
         const data = row.getData();
-        if (!data._isArticleRow) return;
-        if (open && typeof row.treeExpand === 'function') row.treeExpand();
-        if (!open && typeof row.treeCollapse === 'function') row.treeCollapse();
+        return data && data._isArticleRow;
     });
+    const expandBtn = document.getElementById('cost-expand-all-btn');
+    const collapseBtn = document.getElementById('cost-collapse-all-btn');
+    [expandBtn, collapseBtn].forEach(function(btn) {
+        if (btn) btn.disabled = true;
+    });
+    const batchSize = open ? 25 : 60;
+    let index = 0;
+    function finish() {
+        [expandBtn, collapseBtn].forEach(function(btn) {
+            if (btn) btn.disabled = false;
+        });
+        if (costTabulator && typeof costTabulator.redraw === 'function') costTabulator.redraw(false);
+    }
+    function runBatch() {
+        const end = Math.min(index + batchSize, rows.length);
+        if (costTabulator && typeof costTabulator.blockRedraw === 'function') costTabulator.blockRedraw();
+        for (; index < end; index += 1) {
+            const row = rows[index];
+            if (open && typeof row.treeExpand === 'function') row.treeExpand();
+            if (!open && typeof row.treeCollapse === 'function') row.treeCollapse();
+        }
+        if (costTabulator && typeof costTabulator.restoreRedraw === 'function') costTabulator.restoreRedraw();
+        if (index < rows.length) {
+            window.requestAnimationFrame(runBatch);
+        } else {
+            finish();
+        }
+    }
+    window.requestAnimationFrame(runBatch);
 }
 
 // Конфигурация колонок справочника
