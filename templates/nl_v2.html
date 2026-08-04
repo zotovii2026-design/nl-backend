@@ -168,7 +168,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/stats-grid.js?v=20260729-entities5"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260803-reference-style-tree"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260731-topquery-save"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260804-tags-tree"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
@@ -659,9 +659,12 @@ var _sectionHTML = {
 <select id="flt-product-class" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option></select>
 <select id="flt-brand" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
 <select id="flt-product-status" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option></select>
+<input type="text" id="flt-tags" placeholder="Тег" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:120px">
 <button onclick="addReferenceProductStatus()" title="Добавить свой статус товара" style="border:1px solid #ddd;background:#fff;color:#6c5ce7;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">+ Статус</button>
 <select id="flt-has-cost" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
 <input type="text" id="cost-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
+<button onclick="setCostTreeOpen(false)" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Схлопнуть все</button>
+<button onclick="setCostTreeOpen(true)" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Раскрыть все</button>
 <button onclick="clearCostFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сбросить</button>
 </div>
 
@@ -675,6 +678,7 @@ var _sectionHTML = {
 <option value="">Выберите поле...</option>
 <optgroup label="📌 Основное">
 <option value="product_status">Статус товара</option>
+<option value="tags">Теги</option>
 <option value="product_class">Класс товара</option>
 <option value="brand">Бренд</option>
 </optgroup>
@@ -2532,12 +2536,12 @@ function updateReferenceStatusControls() {
     const statusSelect = document.getElementById('flt-product-status');
     if (statusSelect) {
         const cur = statusSelect.value;
-        const opts = ['<option value="">Статус: все</option>'];
+        const opts = ['<option value="">Статус: все</option>', '<option value="__empty__">Без статуса</option>'];
         statuses.forEach(function(status) {
             opts.push('<option value="' + esc(status) + '">' + esc(getProductStatusLabel(status)) + '</option>');
         });
         statusSelect.innerHTML = opts.join('');
-        statusSelect.value = statuses.indexOf(cur) !== -1 ? cur : '';
+        statusSelect.value = cur === '__empty__' || statuses.indexOf(cur) !== -1 ? cur : '';
     }
     if (typeof costTabulator !== 'undefined' && costTabulator) {
         costTabulator.updateColumnDefinition('product_status', {
@@ -2813,6 +2817,7 @@ function clearCostFilters() {
     document.getElementById('flt-product-class').value = '';
     document.getElementById('flt-brand').value = '';
     document.getElementById('flt-product-status').value = '';
+    document.getElementById('flt-tags').value = '';
     document.getElementById('flt-has-cost').value = '';
     document.getElementById('cost-search').value = '';
     applyCostFilters();
@@ -2825,6 +2830,7 @@ function applyCostFilters() {
     const fltClass = document.getElementById('flt-product-class')?.value || '';
     const fltBrand = document.getElementById('flt-brand')?.value || '';
     const fltStatus = document.getElementById('flt-product-status')?.value || '';
+    const fltTags = (document.getElementById('flt-tags')?.value || '').toLowerCase().trim();
     const fltCost = document.getElementById('flt-has-cost')?.value || '';
     
     let products = _costProducts;
@@ -2849,7 +2855,9 @@ function applyCostFilters() {
         if (fltTax && !checkMatch(c, 'tax_system', fltTax)) return false;
         if (fltClass && !checkMatch(c, 'product_class', fltClass)) return false;
         if (fltBrand && !checkMatch(c, 'brand', fltBrand)) return false;
-        if (fltStatus && !checkMatch(c, 'product_status', fltStatus)) return false;
+        if (fltStatus === '__empty__' && (c.product_status || '')) return false;
+        if (fltStatus && fltStatus !== '__empty__' && !checkMatch(c, 'product_status', fltStatus)) return false;
+        if (fltTags && !(c.tags || '').toLowerCase().includes(fltTags)) return false;
         if (fltCost === 'yes' && !c.cost_price) return false;
         if (fltCost === 'no' && c.cost_price) return false;
         return true;

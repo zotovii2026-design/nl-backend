@@ -7,6 +7,25 @@ let costTabulator = null;
 let _costEditedIds = new Set();  // entity_id строк с реальными изменениями
 let _costTopQueryEditedIds = new Set();  // entity_id строк, где меняли top_query_*
 let _costSyncingTopQueries = false;
+const COST_ARTICLE_ONLY_FIELDS = [
+    'product_status', 'tags',
+    'season_jan', 'season_feb', 'season_mar', 'season_apr',
+    'season_may', 'season_jun', 'season_jul', 'season_aug',
+    'season_sep', 'season_oct', 'season_nov', 'season_dec',
+    'top_query_1', 'top_query_2', 'top_query_3'
+];
+const COST_PARENT_PROPAGATE_FIELDS = [
+    'product_status', 'tags', 'product_class', 'brand',
+    'fulfillment_model', 'fbs_warehouse',
+    'cost_price', 'extra_costs', '_tax_rate_override', 'vat_rate',
+    'plan_length', 'plan_width', 'plan_height', 'plan_volume', 'plan_weight',
+    'season_jan', 'season_feb', 'season_mar', 'season_apr',
+    'season_may', 'season_jun', 'season_jul', 'season_aug',
+    'season_sep', 'season_oct', 'season_nov', 'season_dec',
+    'top_query_1', 'top_query_2', 'top_query_3',
+    'buyout_niche_pct', 'mp_correction_pct', 'ad_plan_rub',
+    'supply_days', 'min_batch_fbo', 'transport_pack_qty', 'rrc_price', 'min_price'
+];
 
 function costTodayIso() {
     const today = new Date();
@@ -49,6 +68,87 @@ function syncCostTopQueriesForNmId(sourceRow) {
     });
     Promise.all(updates).finally(function() {
         _costSyncingTopQueries = false;
+    });
+}
+
+function costBaseNmId(data) {
+    return parseInt(data.nm_id_display) || parseInt(String(data.nm_id || '').replace('_solo_', '')) || null;
+}
+
+function costRowsForSave() {
+    if (!costTabulator) return [];
+    const result = [];
+    costTabulator.getData().forEach(function(row) {
+        if (row._isArticleRow) {
+            (row._children || []).forEach(function(child) { result.push(child); });
+        } else {
+            result.push(row);
+        }
+    });
+    return result;
+}
+
+function costFindChildRows(nmId, skipRow) {
+    const rows = [];
+    if (!costTabulator) return rows;
+    costTabulator.getRows().forEach(function(row) {
+        if (row === skipRow) return;
+        const data = row.getData();
+        if (data._isArticleRow) return;
+        if (costBaseNmId(data) === Number(nmId)) rows.push(row);
+    });
+    return rows;
+}
+
+function costMarkEdited(data, topQueryEdited) {
+    const editedId = data.entity_id || data._id;
+    if (editedId) _costEditedIds.add(editedId);
+    if (topQueryEdited && editedId) _costTopQueryEditedIds.add(editedId);
+}
+
+function costRecalcDerived(data, field, value) {
+    const updates = {};
+    if (field === 'cost_price') {
+        updates._total_cost = ((parseFloat(value)||0) + (parseFloat(data.extra_costs)||0)).toFixed(2);
+    } else if (field === 'extra_costs') {
+        updates._total_cost = ((parseFloat(data.cost_price)||0) + (parseFloat(value)||0)).toFixed(2);
+    }
+    if (field === 'plan_length' || field === 'plan_width' || field === 'plan_height') {
+        const l = (field === 'plan_length') ? parseFloat(value)||0 : parseFloat(data.plan_length)||0;
+        const w = (field === 'plan_width') ? parseFloat(value)||0 : parseFloat(data.plan_width)||0;
+        const h = (field === 'plan_height') ? parseFloat(value)||0 : parseFloat(data.plan_height)||0;
+        updates.plan_volume = (l > 0 && w > 0 && h > 0) ? ((l * w * h) / 1000) : null;
+    }
+    return updates;
+}
+
+function costPropagateField(row, field, value) {
+    const data = row.getData();
+    const nmId = costBaseNmId(data);
+    if (!nmId) return;
+    const shouldPropagate = data._isArticleRow || COST_ARTICLE_ONLY_FIELDS.indexOf(field) !== -1;
+    if (!shouldPropagate || COST_PARENT_PROPAGATE_FIELDS.indexOf(field) === -1) return;
+    const update = {};
+    update[field] = value;
+    (data._children || []).forEach(function(childData) {
+        Object.assign(childData, update, costRecalcDerived(childData, field, value));
+        costMarkEdited(childData, field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3');
+    });
+    costFindChildRows(nmId, row).forEach(function(childRow) {
+        const childData = childRow.getData();
+        const childUpdate = Object.assign({}, update, costRecalcDerived(childData, field, value));
+        costMarkEdited(childData, field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3');
+        childRow.update(childUpdate);
+    });
+}
+
+function setCostTreeOpen(open) {
+    if (!costTabulator) return;
+    costTabulator.getRows().forEach(function(row) {
+        const data = row.getData();
+        if (!data._isArticleRow) return;
+        if (open && typeof row.treeExpand === 'function') row.treeExpand();
+        if (!open && typeof row.treeCollapse === 'function') row.treeCollapse();
     });
 }
 
@@ -100,6 +200,17 @@ function getCostColumns() {
                         const style = (typeof getProductStatusChipStyle === 'function') ? getProductStatusChipStyle(v) : '';
                         return '<span style="' + style + ';padding:2px 6px;border-radius:3px;font-size:.85em">' + (label || '—') + '</span>';
                     },
+                },
+                { title: 'Теги', field: 'tags',
+                    headerTooltip: 'Ручные теги через запятую', width: 120, editor: 'input', headerSort: true, tooltip: true, cssClass: 'truncate-cell',
+                    formatter: function(cell) {
+                        const raw = String(cell.getValue() || '').trim();
+                        if (!raw) return '—';
+                        return raw.split(',').map(function(tag) {
+                            const clean = tag.trim();
+                            return clean ? '<span style="display:inline-block;margin:1px 2px 1px 0;padding:1px 5px;background:#eef1f5;border-radius:3px">' + clean + '</span>' : '';
+                        }).join('');
+                    }
                 },
                 { title: 'Класс товара', field: 'product_class',
                     headerTooltip: 'Класс товара', width: 60, editor: 'list', editorParams: { values: ['A', 'B', 'C'], clearable: true }, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
@@ -347,7 +458,7 @@ function prepareCostData(products) {
     const nmCounts = {};
     products.forEach(p => { nmCounts[p.nm_id] = (nmCounts[p.nm_id] || 0) + 1; });
 
-    return products.map(p => {
+    const rows = products.map(p => {
         const c = _costMap[p.entity_id] || {};
         const isSizeless = nmCounts[p.nm_id] === 1 && (!p.size_name || p.size_name === '0' || p.size_name === 'ONE SIZE');
 
@@ -383,6 +494,7 @@ function prepareCostData(products) {
 
             // Данные себестоимости (из /cost-prices)
             product_status: c.product_status || '',
+            tags: c.tags || '',
             product_class: c.product_class || '',
             brand: c.brand || '',
             fulfillment_model: c.fulfillment_model || 'fbo',
@@ -415,6 +527,37 @@ function prepareCostData(products) {
             valid_from: c.valid_from || new Date().toISOString().split('T')[0],
         };
     });
+    const grouped = {};
+    const ordered = [];
+    rows.forEach(function(row) {
+        const nmId = costBaseNmId(row);
+        if (!grouped[nmId]) {
+            grouped[nmId] = [];
+            ordered.push(nmId);
+        }
+        grouped[nmId].push(row);
+    });
+    const data = [];
+    ordered.forEach(function(nmId) {
+        const children = grouped[nmId];
+        if (!children || children.length <= 1) {
+            data.push(children[0]);
+            return;
+        }
+        const first = Object.assign({}, children[0]);
+        first._id = 'article_' + nmId;
+        first._isArticleRow = true;
+        first._selected = false;
+        first.entity_id = '';
+        first.nm_id = nmId;
+        first.nm_id_display = nmId;
+        first.size_name = '';
+        first._sizeList = children.length + ' разм.';
+        first._barcodes = children.map(function(child) { return child._barcodes; }).filter(Boolean).join(', ');
+        first._children = children;
+        data.push(first);
+    });
+    return data;
 }
 
 /**
@@ -466,28 +609,13 @@ function initCostTabulator(data) {
         virtualDomBuffer: 100,
         placeholder: 'Нет данных',
         columnHeaderSortMulti: true,
+        dataTree: true,
+        dataTreeChildField: '_children',
+        dataTreeStartExpanded: false,
+        dataTreeElementColumn: 'nm_id_display',
         initialSort: [
-            {column: '_sizeList', dir: 'asc'},
+            {column: 'nm_id_display', dir: 'asc'},
         ],
-        // Группировка по nm_id. Безразмерные получили уникальный _solo_ ключ
-        groupBy: 'nm_id',
-        groupStartOpen: true,
-        groupToggleElement: 'header',
-        groupHeader: function(value, count, data, group) {
-            // Скрыть заголовок для соло-товаров (безразмерных)
-            if (value && typeof value === 'string' && value.startsWith('_solo_')) {
-                var el = group.getElement();
-                if (el) el.style.display = 'none';
-                return '';
-            }
-            if (!value) return '';
-            const d = data[0] || {};
-            const name = (d.product_name || '').substring(0, 40);
-            const vc = d.vendor_code || '';
-            const photo = d.photo_main ? d.photo_main.replace('/hq/','/c246x328/').replace('/big/','/c246x328/').replace('/tm/','/c246x328/') : '';
-            const img = photo ? '<img src="' + photo + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:8px">' : '';
-            return '<span style="font-size:6px;line-height:1">' + img + '<b>' + value + '</b> — ' + count + ' ' + (count === 1 ? 'размер' : count < 5 ? 'размера' : 'размеров') + ' &nbsp; <span style="color:#666">' + name + '</span> &nbsp; <span style="color:#999">[' + vc + ']</span></span>';
-        },
 
         // cellEdited handled via table.on event below (Tabulator 6.x)
         cellEdited: function(cell) {
@@ -535,7 +663,7 @@ function initCostTabulator(data) {
                 'fulfillment_model', 'rrc_price', 'min_price'
             ];
 
-            if (syncFields.indexOf(field) !== -1 && data.nm_id && !data._noGroup) {
+            if (syncFields.indexOf(field) !== -1 && data.nm_id && !data._noGroup && COST_ARTICLE_ONLY_FIELDS.indexOf(field) !== -1) {
                 var newVal = cell.getValue();
                 var nmId = data.nm_id;
                 var allRows = costTabulator.getRows();
@@ -572,9 +700,9 @@ function initCostTabulator(data) {
         rowFormatter: function(row) {
             const data = row.getData();
             const el = row.getElement();
-            if (data._hasSizes) {
+            if (data._isArticleRow) {
                 el.style.background = '#f8f9ff';
-                el.style.cursor = 'pointer';
+                el.style.fontWeight = '600';
             }
         },
     });
@@ -594,6 +722,7 @@ function initCostTabulator(data) {
         var field = cell.getField();
         var row = cell.getRow();
         var data = row.getData();
+        costPropagateField(row, field, cell.getValue());
         if (field === 'fulfillment_model') {
             if (data.fulfillment_model === 'fbs') {
                 if (!data.fbs_warehouse || data.fbs_warehouse === '0' || data.fbs_warehouse === '-' || data.fbs_warehouse === '') {
@@ -630,7 +759,7 @@ function updateCostTabulator(filteredProducts) {
     } else {
         initCostTabulator(data);
     }
-    document.getElementById('cost-count').textContent = data.length + ' товаров';
+    document.getElementById('cost-count').textContent = filteredProducts.length + ' товаров';
 }
 
 /**
@@ -638,7 +767,7 @@ function updateCostTabulator(filteredProducts) {
  */
 function getCostDataForSave() {
     if (!costTabulator) return [];
-    const rows = costTabulator.getData();
+    const rows = costRowsForSave();
     const numberOrNull = function(value) {
         if (value === null || value === undefined) return null;
         if (typeof value === 'string' && value.trim() === '') return null;
@@ -683,6 +812,7 @@ function getCostDataForSave() {
         product_class: textValue(data.product_class),
         brand: textValue(data.brand),
         product_status: textValue(data.product_status),
+        tags: textValue(data.tags),
         tax_system: null,
         tax_rate: (function(){
             var o = numberOrNull(data._tax_rate_override);
