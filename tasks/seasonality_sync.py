@@ -146,11 +146,14 @@ async def _update_reference_book(org_id: str, nm_ids: Optional[list[int]] = None
                 season_sep = (ps.seasonality_coefficients->>'9')::numeric,
                 season_oct = (ps.seasonality_coefficients->>'10')::numeric,
                 season_nov = (ps.seasonality_coefficients->>'11')::numeric,
-                season_dec = (ps.seasonality_coefficients->>'12')::numeric
+                season_dec = (ps.seasonality_coefficients->>'12')::numeric,
+                updated_at = NOW()
             FROM wb_product_seasonality ps
             WHERE rb.nm_id = ps.nm_id
               AND rb.organization_id = :org_id
               AND ps.organization_id = :org_id
+              AND jsonb_typeof(ps.seasonality_coefficients) = 'object'
+              AND ps.seasonality_coefficients <> '{}'::jsonb
         """
         params = {"org_id": org_id}
         if nm_ids:

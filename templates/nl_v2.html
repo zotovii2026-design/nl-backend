@@ -168,7 +168,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/stats-grid.js?v=20260729-entities5"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260803-reference-style-tree"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260804-filter-ui"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260805-partial-save"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
@@ -416,6 +416,7 @@ window.fetch = function(input, init) {
 let FBS_WAREHOUSES = [];
 let _taxSettings = {tax_system: '', tax_rate: null, vat_type: 'нет'};
 let _costDirty = false;  // Флаг несохранённых изменений в справочнике
+let _costSaving = false;
 // Защита от потери данных при закрытии/перезагрузке
 window.addEventListener('beforeunload', function(e) {
     if (_costDirty) {
@@ -645,7 +646,7 @@ var _sectionHTML = {
 <button class="btn btn-outline" onclick="downloadReferenceTemplate()" style="padding:6px 14px;font-size:.85em">📥 Скачать XLSX-шаблон</button>
 <span style="font-size:.85em;color:#999" id="cost-count"></span>
 <button class="btn" onclick="autoFillReference()" style="padding:5px 12px;font-size:.82em;background:#6c5ce7;color:#fff;border-radius:4px">🔄 Автозаполнение</button>
-<button class="btn" onclick="saveAllCostPrices()" style="padding:7px 16px;font-size:.88em;background:#00b894;color:#fff;font-weight:600;border-radius:6px">СОХРАНИТЬ<br><span style="font-size:.65em;font-weight:400;opacity:.7">отправить на сервер</span></button>
+<button class="btn" id="cost-save-btn" onclick="saveAllCostPrices()" style="padding:7px 16px;font-size:.88em;background:#00b894;color:#fff;font-weight:600;border-radius:6px">СОХРАНИТЬ<br><span style="font-size:.65em;font-weight:400;opacity:.7">отправить на сервер</span></button>
 <span style="flex:1"></span>
 <span id="cost-selected-info" style="font-size:.85em;color:#6c5ce7;font-weight:600;display:none">☑ Выделено: <span id="cost-selected-count">0</span></span>
 </div>
@@ -3243,27 +3244,56 @@ async function autoFillReference() {
 async function saveAllCostPrices() {
     const orgId = getCurrentOrgId();
     if (!orgId) { showToast("❌ Выберите магазин", "error"); return; }
+    if (_costSaving) return;
+    const saveBtn = document.getElementById("cost-save-btn");
+    const originalSaveHtml = saveBtn ? saveBtn.innerHTML : "";
+    _costSaving = true;
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = "СОХРАНЯЮ...<br><span style=\"font-size:.65em;font-weight:400;opacity:.7\">запрос принят</span>";
+    }
     // Сначала сохраняем налоговые настройки (тихо, без alert)
     try { await saveTaxSettings(); } catch(e) { console.warn("Tax save failed", e); }
 
     // === TABULATOR: batch-сохранение ===
     if (typeof Tabulator !== "undefined" && costTabulator && typeof getCostDataForSave === "function") {
         const saveData = getCostDataForSave();
+        let saveSucceeded = false;
+        if (!saveData.length) {
+            showToast("Нет изменений для сохранения");
+            _costDirty = false;
+            _costSaving = false;
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = originalSaveHtml;
+            }
+            return;
+        }
         try {
             const resp = await fetch("/api/v1/nl/cost-prices/batch?org_id=" + encodeURIComponent(orgId), {
                 method: "POST", headers: {"Content-Type": "application/json"},
                 body: JSON.stringify(saveData)
             });
             const result = await resp.json();
-            if (resp.ok) {
+            if (resp.ok && !result.errors) {
                 _costDirty = false;
                 if (typeof resetCostEditTracking === "function") resetCostEditTracking();
                 showToast("✅ Сохранено: " + (result.saved || 0) + " из " + saveData.length + (result.errors ? " (ошибок: " + result.errors + ")" : ""));
+                saveSucceeded = true;
+            } else if (resp.ok) {
+                showToast("❌ Часть строк не сохранилась: ошибок " + result.errors, "error");
             } else {
                 showToast("❌ Ошибка сохранения: " + (result.detail || resp.status), "error");
             }
         } catch(e) { showToast("❌ Ошибка: " + e.message, "error"); }
-        loadCostPrices();
+        finally {
+            _costSaving = false;
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = originalSaveHtml;
+            }
+        }
+        if (saveSucceeded) await loadCostPrices();
         return;
     }
     // === FALLBACK: диагностика ===
@@ -3272,6 +3302,11 @@ async function saveAllCostPrices() {
     if (typeof costTabulator === "undefined" || !costTabulator) reasons.push("costTabulator не инициализирован");
     if (typeof getCostDataForSave === "undefined") reasons.push("cost-grid.js не загружен");
     showToast("⚠️ Сохранение недоступно: " + reasons.join(", ") + ". Обновите страницу (Ctrl+F5).", "error");
+    _costSaving = false;
+    if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalSaveHtml;
+    }
 }
 
 async function uploadCostExcel(input) {

@@ -45,6 +45,20 @@ _log = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(require_query_organization_access)])
 
 TOP_QUERY_FIELDS = ("top_query_1", "top_query_2", "top_query_3")
+SAVEABLE_COST_PRICE_FIELDS = {
+    "barcode", "vendor_code", "subject_id", "subject_name",
+    "cost_price", "purchase_cost", "logistics_cost", "packaging_cost", "other_costs",
+    "extra_costs", "vat", "min_price", "mp_base_pct", "mp_correction_pct",
+    "fulfillment_model", "storage_pct", "buyout_niche_pct", "price_before_spp_plan",
+    "price_before_spp_change", "wb_club_discount_pct", "ad_plan_rub", "supply_days",
+    "min_batch_fbo", "transport_pack_qty", "product_status", "tags", "product_class",
+    "brand", "tax_system", "tax_rate", "season_jan", "season_feb", "season_mar",
+    "season_apr", "season_may", "season_jun", "season_jul", "season_aug", "season_sep",
+    "season_oct", "season_nov", "season_dec", "plan_length", "plan_width", "plan_height",
+    "plan_volume", "plan_weight", "delivery_days_to_seller", "delivery_days_to_mp",
+    "top_query_1", "top_query_2", "top_query_3", "shipment_method", "fbs_warehouse",
+    "rrc_price", "vat_rate", "notes",
+}
 
 DEFAULT_PRODUCT_STATUSES = [
     "Новинка",
@@ -76,6 +90,26 @@ def _normalize_top_query(value) -> Optional[str]:
     return text_value or None
 
 
+def _requested_save_fields(data: dict) -> Optional[set[str]]:
+    fields = data.get("_fields")
+    if fields is None:
+        return None
+    if not isinstance(fields, list):
+        return set()
+    return {str(field) for field in fields if str(field) in SAVEABLE_COST_PRICE_FIELDS}
+
+
+def _cost_price_save_payload(data: dict) -> dict:
+    fields = _requested_save_fields(data)
+    if fields is None:
+        return dict(data)
+    save_data = dict(data)
+    for field in SAVEABLE_COST_PRICE_FIELDS - fields:
+        save_data[field] = None
+    save_data["_fields"] = sorted(fields)
+    return save_data
+
+
 async def _top_queries_changed(
     db: AsyncSession,
     org_id: str,
@@ -84,7 +118,11 @@ async def _top_queries_changed(
     valid_from: date,
     data: dict,
 ) -> bool:
-    if not any(field in data for field in TOP_QUERY_FIELDS):
+    save_fields = _requested_save_fields(data)
+    if save_fields is not None:
+        if not any(field in save_fields for field in TOP_QUERY_FIELDS):
+            return False
+    elif not any(field in data for field in TOP_QUERY_FIELDS):
         return False
 
     result = await db.execute(text("""
@@ -103,7 +141,9 @@ async def _top_queries_changed(
     row = result.first()
     current = tuple(_normalize_top_query(row[idx]) for idx in range(3)) if row else (None, None, None)
     requested = tuple(
-        _normalize_top_query(data[field]) if field in data else current[idx]
+        _normalize_top_query(data[field])
+        if ((save_fields is None and field in data) or (save_fields is not None and field in save_fields))
+        else current[idx]
         for idx, field in enumerate(TOP_QUERY_FIELDS)
     )
     return requested != current
@@ -552,8 +592,12 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
         entity_id = await resolve_entity_id(db, org_id, nm_id, None, size_name)
     if not entity_id:
         raise HTTPException(400, "entity_id обязателен для сохранения справочника")
-    queue_seasonality = await _top_queries_changed(db, org_id, nm_id, entity_id, valid_from, data)
-    await db.execute(text(_SAVE_COST_PRICE_SQL), _build_save_params(data, org_id, nm_id, entity_id, valid_from))
+    save_data = _cost_price_save_payload(data)
+    save_fields = _requested_save_fields(save_data)
+    if save_fields is not None and not save_fields:
+        return {"ok": True, "saved": 0}
+    queue_seasonality = await _top_queries_changed(db, org_id, nm_id, entity_id, valid_from, save_data)
+    await db.execute(text(_SAVE_COST_PRICE_SQL), _build_save_params(save_data, org_id, nm_id, entity_id, valid_from))
     if queue_seasonality:
         await _propagate_top_queries_to_nm_id(db, org_id, nm_id, entity_id, valid_from)
     await db.commit()
@@ -597,13 +641,16 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
                 errors += 1
                 print(f"[batch] skip nm={nm_id}: entity_id not resolved")
                 continue
+            save_data = _cost_price_save_payload(data)
+            save_fields = _requested_save_fields(save_data)
+            if save_fields is not None and not save_fields:
+                continue
             top_queries_changed = False
             top_query_edit = (
                 bool(data.get("_top_query_edited"))
                 if "_top_query_edited" in data
                 else bool(data.get("change_date"))
             )
-            save_data = dict(data)
             if top_query_edit:
                 top_queries_changed = await _top_queries_changed(db, org_id, nm_id, entity_id, valid_from, save_data)
             else:
@@ -1065,7 +1112,7 @@ _SAVE_COST_PRICE_SQL = (
     "buyout_niche_pct = COALESCE(EXCLUDED.buyout_niche_pct, reference_book.buyout_niche_pct), "
     "price_before_spp_plan = COALESCE(EXCLUDED.price_before_spp_plan, reference_book.price_before_spp_plan), "
     "price_before_spp_change = COALESCE(EXCLUDED.price_before_spp_change, reference_book.price_before_spp_change), "
-    "change_date = COALESCE(EXCLUDED.change_date, reference_book.change_date), "
+    "change_date = CURRENT_DATE, "
     "wb_club_discount_pct = COALESCE(EXCLUDED.wb_club_discount_pct, reference_book.wb_club_discount_pct), "
     "ad_plan_rub = COALESCE(EXCLUDED.ad_plan_rub, reference_book.ad_plan_rub), "
     "supply_days = COALESCE(EXCLUDED.supply_days, reference_book.supply_days), "
@@ -1105,7 +1152,8 @@ _SAVE_COST_PRICE_SQL = (
     "vat_rate = COALESCE(EXCLUDED.vat_rate, reference_book.vat_rate), "
     "subject_id = COALESCE(EXCLUDED.subject_id, reference_book.subject_id), "
     "subject_name = COALESCE(EXCLUDED.subject_name, reference_book.subject_name), "
-    "source = EXCLUDED.source, notes = EXCLUDED.notes"
+    "source = EXCLUDED.source, notes = COALESCE(EXCLUDED.notes, reference_book.notes), "
+    "updated_at = NOW()"
 )
 
 
@@ -1123,11 +1171,11 @@ def _build_save_params(data: dict, org_id: str, nm_id: int, entity_id: str, vali
         "pk": pfloat(data.get("packaging_cost")),
         "oc": pfloat(data.get("other_costs")),
         "ec": pfloat(data.get("extra_costs")),
-        "vat": pfloat(data.get("vat")) or 0,
+        "vat": pfloat(data.get("vat")),
         "minp": pfloat(data.get("min_price")),
         "mpb": pfloat(data.get("mp_base_pct")),
         "mpc": pfloat(data.get("mp_correction_pct")),
-        "ffm": data.get("fulfillment_model", "fbo"),
+        "ffm": data.get("fulfillment_model"),
         "stp": pfloat(data.get("storage_pct")),
         "bnp": pfloat(data.get("buyout_niche_pct")),
         "pspp": pfloat(data.get("price_before_spp_plan")),
@@ -1140,7 +1188,7 @@ def _build_save_params(data: dict, org_id: str, nm_id: int, entity_id: str, vali
         ),
         "sdays": pint(data.get("supply_days")),
         "minb": pint(data.get("min_batch_fbo")),
-        "tpq": max(pint(data.get("transport_pack_qty")) or 1, 1),
+        "tpq": max(pint(data.get("transport_pack_qty")) or 1, 1) if data.get("transport_pack_qty") not in (None, "") else None,
         "pstatus": data.get("product_status"),
         "tags": data.get("tags"),
         "pcls": data.get("product_class"),
@@ -1161,7 +1209,7 @@ def _build_save_params(data: dict, org_id: str, nm_id: int, entity_id: str, vali
         "tq1": data.get("top_query_1"), "tq2": data.get("top_query_2"), "tq3": data.get("top_query_3"),
         "sm": data.get("shipment_method"), "fw": data.get("fbs_warehouse"),
         "rrc": pfloat(data.get("rrc_price")),
-        "vr": pfloat(data.get("vat_rate")) or 0,
+        "vr": pfloat(data.get("vat_rate")),
         "vf": valid_from,
         "src": data.get("source", "manual"),
         "notes": data.get("notes"),
@@ -1241,5 +1289,6 @@ _UPLOAD_SQL = (
     "supply_days = COALESCE(EXCLUDED.supply_days, reference_book.supply_days), "
     "min_batch_fbo = COALESCE(EXCLUDED.min_batch_fbo, reference_book.min_batch_fbo), "
     "transport_pack_qty = COALESCE(EXCLUDED.transport_pack_qty, reference_book.transport_pack_qty), "
-    "change_date = CURRENT_DATE"
+    "change_date = CURRENT_DATE, "
+    "updated_at = NOW()"
 )

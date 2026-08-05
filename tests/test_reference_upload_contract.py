@@ -57,7 +57,9 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "_propagate_top_queries_to_nm_id" in REFERENCE_SOURCE
     assert 'data.get("_top_query_edited")' in REFERENCE_SOURCE
     assert 'if "_top_query_edited" in data' in REFERENCE_SOURCE
-    assert "save_data = dict(data)" in REFERENCE_SOURCE
+    assert "_cost_price_save_payload" in REFERENCE_SOURCE
+    assert "SAVEABLE_COST_PRICE_FIELDS" in REFERENCE_SOURCE
+    assert "save_fields is not None and not save_fields" in REFERENCE_SOURCE
     assert "save_data[field] = None" in REFERENCE_SOURCE
     assert "WHERE organization_id = :org_id" in REFERENCE_SOURCE
     assert "AND nm_id = :nm_id" in REFERENCE_SOURCE
@@ -73,6 +75,8 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "await calculate_products(org_id, dry_run=False, nm_ids=nm_ids)" in seasonality_task
     assert "_nm_ids_in_sql" in seasonality_task
     assert "AND rb.nm_id IN" in seasonality_task
+    assert "jsonb_typeof(ps.seasonality_coefficients) = 'object'" in seasonality_task
+    assert "ps.seasonality_coefficients <> '{}'::jsonb" in seasonality_task
     assert "result.rowcount" in seasonality_task
     assert "async def calculate_product_seasonality(" in calculator
     assert "nm_ids: Optional[List[int]] = None" in calculator
@@ -83,10 +87,16 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "jsonb_typeof(seasonality_coefficients) = 'object'" in seasonality_router
     assert "syncCostTopQueriesForNmId" in cost_grid
     assert "_costTopQueryEditedIds" in cost_grid
+    assert "_costEditedFieldsById" in cost_grid
+    assert "_fields: editedFields(data)" in cost_grid
+    assert "rows.filter(edited).map" in cost_grid
     assert "function resetCostEditTracking()" in cost_grid
     assert "_top_query_edited: topQueryEdited(data)" in cost_grid
     assert "field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3'" in cost_grid
-    assert "cost-grid.js?v=20260804-tags-multifilter" in dashboard
+    assert "cost-grid.js?v=20260805-partial-save" in dashboard
+    assert 'id="cost-save-btn"' in dashboard
+    assert "_costSaving" in dashboard
+    assert "СОХРАНЯЮ..." in dashboard
 
 
 def test_reference_tags_and_collapsed_article_tree_are_wired():

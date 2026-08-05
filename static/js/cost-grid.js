@@ -5,6 +5,7 @@
 
 let costTabulator = null;
 let _costEditedIds = new Set();  // entity_id строк с реальными изменениями
+let _costEditedFieldsById = new Map();  // entity_id -> Set(field)
 let _costTopQueryEditedIds = new Set();  // entity_id строк, где меняли top_query_*
 let _costSyncingTopQueries = false;
 const COST_ARTICLE_ONLY_FIELDS = [
@@ -84,6 +85,7 @@ function costTodayIso() {
 
 function resetCostEditTracking() {
     _costEditedIds.clear();
+    _costEditedFieldsById.clear();
     _costTopQueryEditedIds.clear();
 }
 
@@ -109,8 +111,9 @@ function syncCostTopQueriesForNmId(sourceRow) {
         const data = row.getData();
         if (costNmIdKey(data) !== nmKey) return;
         const editedId = data.entity_id || data._id;
-        if (editedId) _costEditedIds.add(editedId);
-        if (editedId) _costTopQueryEditedIds.add(editedId);
+        ['top_query_1', 'top_query_2', 'top_query_3'].forEach(function(field) {
+            costMarkEdited(data, field, true);
+        });
         updates.push(row.update(payload));
     });
     Promise.all(updates).finally(function() {
@@ -147,9 +150,13 @@ function costFindChildRows(nmId, skipRow) {
     return rows;
 }
 
-function costMarkEdited(data, topQueryEdited) {
+function costMarkEdited(data, field, topQueryEdited) {
     const editedId = data.entity_id || data._id;
     if (editedId) _costEditedIds.add(editedId);
+    if (editedId && field) {
+        if (!_costEditedFieldsById.has(editedId)) _costEditedFieldsById.set(editedId, new Set());
+        _costEditedFieldsById.get(editedId).add(field);
+    }
     if (topQueryEdited && editedId) _costTopQueryEditedIds.add(editedId);
 }
 
@@ -179,12 +186,14 @@ function costPropagateField(row, field, value) {
     update[field] = value;
     (data._children || []).forEach(function(childData) {
         Object.assign(childData, update, costRecalcDerived(childData, field, value));
-        costMarkEdited(childData, field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3');
+        costMarkEdited(childData, field, field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3');
+        if (field === 'plan_length' || field === 'plan_width' || field === 'plan_height') costMarkEdited(childData, 'plan_volume', false);
     });
     costFindChildRows(nmId, row).forEach(function(childRow) {
         const childData = childRow.getData();
         const childUpdate = Object.assign({}, update, costRecalcDerived(childData, field, value));
-        costMarkEdited(childData, field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3');
+        costMarkEdited(childData, field, field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3');
+        if (field === 'plan_length' || field === 'plan_width' || field === 'plan_height') costMarkEdited(childData, 'plan_volume', false);
         childRow.update(childUpdate);
     });
 }
@@ -800,12 +809,11 @@ function initCostTabulator(data) {
     costTabulator.on('cellEdited', function(cell) {
         if (_autoUpdatingDate) return;
         _costDirty = true;
-        var _editedId = cell.getRow().getData().entity_id || cell.getRow().getData()._id; if (_editedId) _costEditedIds.add(_editedId);
-
         // Обработка смены ФБО/ФБС
         var field = cell.getField();
         var row = cell.getRow();
         var data = row.getData();
+        costMarkEdited(data, field, field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3');
         costPropagateField(row, field, cell.getValue());
         if (field === 'fulfillment_model') {
             if (data.fulfillment_model === 'fbs') {
@@ -813,14 +821,18 @@ function initCostTabulator(data) {
                     // Авто: найти Коледино в FBS_WAREHOUSES
                     var _kd = (FBS_WAREHOUSES||[]).find(function(w) { return w.name && w.name.indexOf('\u041a\u043e\u043b\u0435\u0434\u0438\u043d\u043e') !== -1; });
                     row.update({ 'fbs_warehouse': _kd ? _kd.name : '' });
+                    costMarkEdited(data, 'fbs_warehouse', false);
                 }
             } else {
                 row.update({ 'fbs_warehouse': '' });
+                costMarkEdited(data, 'fbs_warehouse', false);
             }
         }
         if (field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3') {
-            if (_editedId) _costTopQueryEditedIds.add(_editedId);
             syncCostTopQueriesForNmId(row);
+        }
+        if (field === 'plan_length' || field === 'plan_width' || field === 'plan_height') {
+            costMarkEdited(data, 'plan_volume', false);
         }
         // Автопростановка даты правок при изменении любой ячейки (кроме самой change_date)
         if (cell.getField() !== 'change_date') {
@@ -871,10 +883,14 @@ function getCostDataForSave() {
     const topQueryEdited = function(data) {
         return _costTopQueryEditedIds.has(data.entity_id || data._id);
     };
-    return rows.map(data => ({
+    const editedFields = function(data) {
+        return Array.from(_costEditedFieldsById.get(data.entity_id || data._id) || []);
+    };
+    return rows.filter(edited).map(data => ({
         entity_id: data.entity_id || null,
         size_name: data.size_name || '',
         nm_id: parseInt(data.nm_id_display) || parseInt(String(data.nm_id).replace('_solo_','')) || null,
+        _fields: editedFields(data),
         barcode: null,
         vendor_code: null,
         purchase_cost: null, logistics_cost: null, packaging_cost: null, other_costs: null,
