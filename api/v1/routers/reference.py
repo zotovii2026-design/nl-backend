@@ -1202,7 +1202,7 @@ _SAVE_COST_PRICE_SQL = (
     "subject_id = COALESCE(EXCLUDED.subject_id, reference_book.subject_id), "
     "subject_name = COALESCE(EXCLUDED.subject_name, reference_book.subject_name), "
     "source = EXCLUDED.source, notes = COALESCE(EXCLUDED.notes, reference_book.notes), "
-    "updated_at = NOW()"
+    "updated_at = CASE WHEN :touch_change_date THEN NOW() ELSE reference_book.updated_at END"
 )
 
 
