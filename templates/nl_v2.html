@@ -662,7 +662,7 @@ var _sectionHTML = {
 <input type="text" id="cost-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
 <button id="cost-collapse-all-btn" onclick="setCostTreeOpen(false)" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Схлопнуть все</button>
 <button id="cost-expand-all-btn" onclick="setCostTreeOpen(true)" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Раскрыть все</button>
-<button onclick="clearCostFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сбросить</button>
+<button id="cost-reset-filters" type="button" onclick="clearCostFilters(event)" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сбросить</button>
 </div>
 
 <!-- Таблица -->
@@ -2772,6 +2772,17 @@ function clearMultiSelect(id) {
     const el = document.getElementById(id);
     if (!el) return;
     Array.from(el.options || []).forEach(function(opt) { opt.selected = false; });
+    el.selectedIndex = -1;
+}
+
+function clearCostFilterValue(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.multiple) {
+        clearMultiSelect(id);
+    } else {
+        el.value = '';
+    }
 }
 
 function splitReferenceTags(value) {
@@ -2799,16 +2810,29 @@ function matchAnyTag(tags, selectedTags) {
     return selectedTags.some(function(tag) { return rowTags.indexOf(String(tag).toLowerCase()) !== -1; });
 }
 
-function clearCostFilters() {
-    document.getElementById('flt-fulfillment').value = '';
-    clearMultiSelect('flt-product-class');
-    clearMultiSelect('flt-brand');
-    clearMultiSelect('flt-product-status');
-    clearMultiSelect('flt-tags');
-    document.getElementById('flt-has-cost').value = '';
-    document.getElementById('cost-search').value = '';
+function clearCostFilters(event) {
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+    [
+        'flt-fulfillment',
+        'flt-product-class',
+        'flt-brand',
+        'flt-product-status',
+        'flt-tags',
+        'flt-has-cost',
+        'cost-search'
+    ].forEach(clearCostFilterValue);
+    if (typeof costTabulator !== 'undefined' && costTabulator && typeof costTabulator.clearFilter === 'function') {
+        costTabulator.clearFilter(true);
+    }
     applyCostFilters();
 }
+
+document.addEventListener('click', function(event) {
+    const btn = event.target && event.target.closest ? event.target.closest('#cost-reset-filters') : null;
+    if (!btn) return;
+    clearCostFilters(event);
+}, true);
 
 function applyCostFilters() {
     const search = (document.getElementById('cost-search')?.value || '').toLowerCase();
