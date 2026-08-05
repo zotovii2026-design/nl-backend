@@ -192,6 +192,30 @@ async def _propagate_top_queries_to_nm_id(
     })
 
 
+async def _active_reference_valid_from(
+    db: AsyncSession,
+    org_id: str,
+    nm_id: int,
+    entity_id: str,
+) -> Optional[date]:
+    result = await db.execute(text("""
+        SELECT valid_from
+        FROM reference_book
+        WHERE organization_id = :org_id
+          AND nm_id = :nm_id
+          AND entity_id = :entity_id
+          AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+        ORDER BY valid_from DESC
+        LIMIT 1
+    """), {
+        "org_id": org_id,
+        "nm_id": nm_id,
+        "entity_id": entity_id,
+    })
+    row = result.first()
+    return row[0] if row else None
+
+
 def _queue_reference_seasonality_collect(org_id: str, nm_ids: set[int]) -> None:
     if not nm_ids:
         return
@@ -596,6 +620,11 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
     save_fields = _requested_save_fields(save_data)
     if save_fields is not None and not save_fields:
         return {"ok": True, "saved": 0}
+    if save_fields is not None:
+        active_valid_from = await _active_reference_valid_from(db, org_id, nm_id, entity_id)
+        if not active_valid_from:
+            raise HTTPException(400, "Активная строка справочника не найдена для partial-save")
+        valid_from = active_valid_from
     queue_seasonality = await _top_queries_changed(db, org_id, nm_id, entity_id, valid_from, save_data)
     await db.execute(text(_SAVE_COST_PRICE_SQL), _build_save_params(save_data, org_id, nm_id, entity_id, valid_from))
     if queue_seasonality:
@@ -645,6 +674,13 @@ async def save_cost_prices_batch(request: Request, org_id: str, db: AsyncSession
             save_fields = _requested_save_fields(save_data)
             if save_fields is not None and not save_fields:
                 continue
+            if save_fields is not None:
+                active_valid_from = await _active_reference_valid_from(db, org_id, nm_id, entity_id)
+                if not active_valid_from:
+                    errors += 1
+                    print(f"[batch] skip nm={nm_id}: active reference row not found")
+                    continue
+                valid_from = active_valid_from
             top_queries_changed = False
             top_query_edit = (
                 bool(data.get("_top_query_edited"))

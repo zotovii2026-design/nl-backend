@@ -59,6 +59,8 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert 'if "_top_query_edited" in data' in REFERENCE_SOURCE
     assert "_cost_price_save_payload" in REFERENCE_SOURCE
     assert "SAVEABLE_COST_PRICE_FIELDS" in REFERENCE_SOURCE
+    assert "_active_reference_valid_from" in REFERENCE_SOURCE
+    assert "Активная строка справочника не найдена для partial-save" in REFERENCE_SOURCE
     assert "save_fields is not None and not save_fields" in REFERENCE_SOURCE
     assert "save_data[field] = None" in REFERENCE_SOURCE
     assert "WHERE organization_id = :org_id" in REFERENCE_SOURCE
