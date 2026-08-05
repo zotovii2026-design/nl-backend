@@ -654,10 +654,10 @@ var _sectionHTML = {
 <div id="cost-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
 <label style="color:#666;font-weight:600">Фильтры:</label>
 <select id="flt-fulfillment" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
-<select id="flt-product-class" multiple onchange="applyCostFilters()" title="Можно выбрать несколько классов" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:92px;height:58px"></select>
-<select id="flt-brand" multiple onchange="applyCostFilters()" title="Можно выбрать несколько брендов" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:130px;height:58px"></select>
-<select id="flt-product-status" multiple onchange="applyCostFilters()" title="Можно выбрать несколько статусов" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:170px;height:58px"></select>
-<select id="flt-tags" multiple onchange="applyCostFilters()" title="Можно выбрать несколько тегов" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:150px;height:58px"></select>
+<select id="flt-product-class" multiple onmousedown="rememberCostMultiSelect(this, event)" onkeydown="rememberCostMultiSelect(this, event)" onchange="handleCostMultiSelectChange(this); applyCostFilters()" title="Обычный клик выбирает одно значение. Ctrl/Shift — несколько." style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:92px;height:58px"></select>
+<select id="flt-brand" multiple onmousedown="rememberCostMultiSelect(this, event)" onkeydown="rememberCostMultiSelect(this, event)" onchange="handleCostMultiSelectChange(this); applyCostFilters()" title="Обычный клик выбирает одно значение. Ctrl/Shift — несколько." style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:130px;height:58px"></select>
+<select id="flt-product-status" multiple onmousedown="rememberCostMultiSelect(this, event)" onkeydown="rememberCostMultiSelect(this, event)" onchange="handleCostMultiSelectChange(this); applyCostFilters()" title="Обычный клик выбирает одно значение. Ctrl/Shift — несколько." style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:170px;height:58px"></select>
+<select id="flt-tags" multiple onmousedown="rememberCostMultiSelect(this, event)" onkeydown="rememberCostMultiSelect(this, event)" onchange="handleCostMultiSelectChange(this); applyCostFilters()" title="Обычный клик выбирает одно значение. Ctrl/Shift — несколько." style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:150px;height:58px"></select>
 <select id="flt-has-cost" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
 <input type="text" id="cost-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
 <button id="cost-collapse-all-btn" onclick="setCostTreeOpen(false)" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Схлопнуть все</button>
@@ -2533,7 +2533,7 @@ function updateReferenceStatusControls() {
     const statusSelect = document.getElementById('flt-product-status');
     if (statusSelect) {
         const selected = getMultiSelectValues(statusSelect);
-        const opts = ['<option value="__empty__">Без статуса</option>'];
+        const opts = ['<option value="">Статус: все</option>', '<option value="__empty__">Без статуса</option>'];
         statuses.forEach(function(status) {
             opts.push('<option value="' + esc(status) + '">' + esc(getProductStatusLabel(status)) + '</option>');
         });
@@ -2739,18 +2739,18 @@ function populateCostFilterOptions() {
         if (c.product_status) statuses.add(c.product_status);
         splitReferenceTags(c.tags).forEach(function(tag) { tags.add(tag); });
     });
-    const fillSel = (id, vals) => {
+    const fillSel = (id, vals, allLabel) => {
         const el = document.getElementById(id);
         if (!el) return;
         const selected = getMultiSelectValues(el);
-        const opts = [];
+        const opts = ['<option value="">' + esc(allLabel || 'Все') + '</option>'];
         [...vals].sort().forEach(v => opts.push('<option value="' + esc(v) + '">' + esc(v) + '</option>'));
         el.innerHTML = opts.join('');
         setMultiSelectValues(el, selected);
     };
-    fillSel('flt-product-class', classes);
-    fillSel('flt-brand', brands);
-    fillSel('flt-tags', tags);
+    fillSel('flt-product-class', classes, 'Класс: все');
+    fillSel('flt-brand', brands, 'Бренд: все');
+    fillSel('flt-tags', tags, 'Теги: все');
     _referenceProductStatuses = uniqReferenceStatuses(_referenceProductStatuses.concat([...statuses]));
     updateReferenceStatusControls();
 }
@@ -2763,16 +2763,56 @@ function getMultiSelectValues(el) {
 function setMultiSelectValues(el, values) {
     if (!el) return;
     const selected = new Set(values || []);
+    let hasSelected = false;
     Array.from(el.options || []).forEach(function(opt) {
         opt.selected = selected.has(opt.value);
+        if (opt.selected) hasSelected = true;
     });
+    if (!hasSelected) selectCostAllOption(el);
+}
+
+function getRawMultiSelectValues(el) {
+    if (!el) return [];
+    return Array.from(el.selectedOptions || []).map(function(opt) { return opt.value; });
+}
+
+function selectCostAllOption(el) {
+    if (!el) return;
+    const allOpt = Array.from(el.options || []).find(function(opt) { return opt.value === ''; });
+    if (allOpt) {
+        Array.from(el.options || []).forEach(function(opt) { opt.selected = false; });
+        allOpt.selected = true;
+    } else {
+        el.selectedIndex = -1;
+    }
+}
+
+function rememberCostMultiSelect(el, event) {
+    if (!el) return;
+    el.dataset.costPrevSelected = JSON.stringify(getMultiSelectValues(el));
+    el.dataset.costMultiMode = event && (event.ctrlKey || event.metaKey || event.shiftKey) ? '1' : '0';
+}
+
+function handleCostMultiSelectChange(el) {
+    if (!el) return;
+    const rawValues = getRawMultiSelectValues(el);
+    if (!rawValues.length || rawValues.indexOf('') !== -1) {
+        selectCostAllOption(el);
+        return;
+    }
+    const values = rawValues.filter(Boolean);
+    let prev = [];
+    try { prev = JSON.parse(el.dataset.costPrevSelected || '[]'); } catch(e) { prev = []; }
+    const added = values.filter(function(value) { return prev.indexOf(value) === -1; });
+    if (el.dataset.costMultiMode !== '1' && values.length > 1) {
+        setMultiSelectValues(el, added.length ? [added[added.length - 1]] : [values[values.length - 1]]);
+    }
 }
 
 function clearMultiSelect(id) {
     const el = document.getElementById(id);
     if (!el) return;
-    Array.from(el.options || []).forEach(function(opt) { opt.selected = false; });
-    el.selectedIndex = -1;
+    selectCostAllOption(el);
 }
 
 function clearCostFilterValue(id) {
