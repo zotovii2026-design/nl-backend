@@ -39,6 +39,7 @@ def test_reference_template_deduplicates_barcodes():
     repository = Path("repositories/reference.py").read_text(encoding="utf-8")
     dashboard = Path("api/v1/routers/dashboard.py").read_text(encoding="utf-8")
     assert "string_agg(DISTINCT eb.barcode" in repository
+    assert "cp.updated_at" in repository
     assert "_dedupe_barcode_string" in REFERENCE_SOURCE
     assert "r[1] not in barcodes_map[eid]" in dashboard
 
@@ -59,6 +60,9 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert 'if "_top_query_edited" in data' in REFERENCE_SOURCE
     assert "_cost_price_save_payload" in REFERENCE_SOURCE
     assert "SAVEABLE_COST_PRICE_FIELDS" in REFERENCE_SOURCE
+    assert "CHANGE_DATE_FIELDS" in REFERENCE_SOURCE
+    assert "_touches_change_date" in REFERENCE_SOURCE
+    assert "CASE WHEN :touch_change_date THEN CURRENT_DATE ELSE reference_book.change_date END" in REFERENCE_SOURCE
     assert "_active_reference_valid_from" in REFERENCE_SOURCE
     assert "Активная строка справочника не найдена для partial-save" in REFERENCE_SOURCE
     assert "save_fields is not None and not save_fields" in REFERENCE_SOURCE
@@ -90,12 +94,15 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "syncCostTopQueriesForNmId" in cost_grid
     assert "_costTopQueryEditedIds" in cost_grid
     assert "_costEditedFieldsById" in cost_grid
+    assert "COST_CHANGE_DATE_FIELDS" in cost_grid
+    assert "COST_SAVE_FIELD_ALIASES" in cost_grid
+    assert "costNowEditDateDisplay" in cost_grid
     assert "_fields: editedFields(data)" in cost_grid
     assert "rows.filter(edited).map" in cost_grid
     assert "function resetCostEditTracking()" in cost_grid
     assert "_top_query_edited: topQueryEdited(data)" in cost_grid
     assert "field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3'" in cost_grid
-    assert "cost-grid.js?v=20260805-partial-save" in dashboard
+    assert "cost-grid.js?v=20260805-edit-date" in dashboard
     assert 'id="cost-save-btn"' in dashboard
     assert "_costSaving" in dashboard
     assert "СОХРАНЯЮ..." in dashboard
@@ -109,6 +116,8 @@ def test_reference_tags_and_collapsed_article_tree_are_wired():
     assert '"Теги"' in REFERENCE_SOURCE
     assert "cp.tags" in repository
     assert '"tags": r[66] or ""' in repository
+    assert '"updated_at": sval(r[67])' in repository
+    assert '"product_name": r[68] or ""' in repository
     assert '"tags": data.get("tags")' in REFERENCE_SOURCE
     assert "dataTree: true" in cost_grid
     assert "dataTreeStartExpanded: false" in cost_grid

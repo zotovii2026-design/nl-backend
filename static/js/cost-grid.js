@@ -27,6 +27,22 @@ const COST_PARENT_PROPAGATE_FIELDS = [
     'buyout_niche_pct', 'mp_correction_pct', 'ad_plan_rub',
     'supply_days', 'min_batch_fbo', 'transport_pack_qty', 'rrc_price', 'min_price'
 ];
+const COST_CHANGE_DATE_FIELDS = [
+    'cost_price', 'extra_costs', '_tax_rate_override', 'vat_rate',
+    'min_price', 'mp_correction_pct', 'fulfillment_model', 'fbs_warehouse',
+    'buyout_niche_pct', 'rrc_price', 'ad_plan_rub', 'product_class', 'brand',
+    'product_status', 'tax_system', 'tax_rate',
+    'season_jan', 'season_feb', 'season_mar', 'season_apr',
+    'season_may', 'season_jun', 'season_jul', 'season_aug',
+    'season_sep', 'season_oct', 'season_nov', 'season_dec',
+    'plan_length', 'plan_width', 'plan_height', 'plan_volume', 'plan_weight',
+    'delivery_days_to_seller', 'delivery_days_to_mp',
+    'top_query_1', 'top_query_2', 'top_query_3',
+    'shipment_method', 'supply_days', 'min_batch_fbo', 'transport_pack_qty'
+];
+const COST_SAVE_FIELD_ALIASES = {
+    '_tax_rate_override': 'tax_rate',
+};
 
 function costEscapeHtml(value) {
     return String(value ?? '')
@@ -83,6 +99,21 @@ function costTodayIso() {
     return yyyy + '-' + mm + '-' + dd;
 }
 
+function costEditDateDisplay(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    return text.length >= 16 ? text.slice(0, 16) : text;
+}
+
+function costNowEditDateDisplay() {
+    const now = new Date();
+    return costTodayIso() + ' ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+}
+
+function costFieldTouchesChangeDate(field) {
+    return COST_CHANGE_DATE_FIELDS.indexOf(field) !== -1;
+}
+
 function resetCostEditTracking() {
     _costEditedIds.clear();
     _costEditedFieldsById.clear();
@@ -102,7 +133,7 @@ function syncCostTopQueriesForNmId(sourceRow) {
         top_query_1: source.top_query_1 || '',
         top_query_2: source.top_query_2 || '',
         top_query_3: source.top_query_3 || '',
-        change_date: costTodayIso(),
+        change_date: costNowEditDateDisplay(),
     };
     _costSyncingTopQueries = true;
     const updates = [];
@@ -184,6 +215,7 @@ function costPropagateField(row, field, value) {
     if (!shouldPropagate || COST_PARENT_PROPAGATE_FIELDS.indexOf(field) === -1) return;
     const update = {};
     update[field] = value;
+    if (costFieldTouchesChangeDate(field)) update.change_date = costNowEditDateDisplay();
     (data._children || []).forEach(function(childData) {
         Object.assign(childData, update, costRecalcDerived(childData, field, value));
         costMarkEdited(childData, field, field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3');
@@ -616,7 +648,7 @@ function prepareCostData(products) {
             transport_pack_qty: c.transport_pack_qty || 1,
             rrc_price: c.rrc_price || '',
             min_price: c.min_price || '',
-            change_date: c.change_date || '',
+            change_date: costEditDateDisplay(c.updated_at || c.change_date || ''),
             valid_from: c.valid_from || new Date().toISOString().split('T')[0],
         };
     });
@@ -834,10 +866,10 @@ function initCostTabulator(data) {
         if (field === 'plan_length' || field === 'plan_width' || field === 'plan_height') {
             costMarkEdited(data, 'plan_volume', false);
         }
-        // Автопростановка даты правок при изменении любой ячейки (кроме самой change_date)
-        if (cell.getField() !== 'change_date') {
+        // Автопростановка даты правок только для существенных управленческих полей.
+        if (costFieldTouchesChangeDate(field)) {
             _autoUpdatingDate = true;
-            cell.getRow().update({ change_date: costTodayIso() });
+            cell.getRow().update({ change_date: costNowEditDateDisplay() });
             _autoUpdatingDate = false;
         }
     });
@@ -884,7 +916,8 @@ function getCostDataForSave() {
         return _costTopQueryEditedIds.has(data.entity_id || data._id);
     };
     const editedFields = function(data) {
-        return Array.from(_costEditedFieldsById.get(data.entity_id || data._id) || []);
+        const fields = Array.from(_costEditedFieldsById.get(data.entity_id || data._id) || []);
+        return fields.map(function(field) { return COST_SAVE_FIELD_ALIASES[field] || field; });
     };
     return rows.filter(edited).map(data => ({
         entity_id: data.entity_id || null,

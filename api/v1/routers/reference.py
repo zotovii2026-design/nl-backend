@@ -59,6 +59,9 @@ SAVEABLE_COST_PRICE_FIELDS = {
     "top_query_1", "top_query_2", "top_query_3", "shipment_method", "fbs_warehouse",
     "rrc_price", "vat_rate", "notes",
 }
+CHANGE_DATE_FIELDS = SAVEABLE_COST_PRICE_FIELDS - {
+    "barcode", "vendor_code", "subject_id", "subject_name", "tags", "notes",
+}
 
 DEFAULT_PRODUCT_STATUSES = [
     "Новинка",
@@ -108,6 +111,13 @@ def _cost_price_save_payload(data: dict) -> dict:
         save_data[field] = None
     save_data["_fields"] = sorted(fields)
     return save_data
+
+
+def _touches_change_date(data: dict) -> bool:
+    fields = _requested_save_fields(data)
+    if fields is None:
+        return True
+    return bool(fields & CHANGE_DATE_FIELDS)
 
 
 async def _top_queries_changed(
@@ -626,7 +636,10 @@ async def save_cost_price(data: dict, org_id: str, db: AsyncSession = Depends(ge
             raise HTTPException(400, "Активная строка справочника не найдена для partial-save")
         valid_from = active_valid_from
     queue_seasonality = await _top_queries_changed(db, org_id, nm_id, entity_id, valid_from, save_data)
-    await db.execute(text(_SAVE_COST_PRICE_SQL), _build_save_params(save_data, org_id, nm_id, entity_id, valid_from))
+    await db.execute(
+        text(_SAVE_COST_PRICE_SQL),
+        _build_save_params(save_data, org_id, nm_id, entity_id, valid_from),
+    )
     if queue_seasonality:
         await _propagate_top_queries_to_nm_id(db, org_id, nm_id, entity_id, valid_from)
     await db.commit()
@@ -1148,7 +1161,7 @@ _SAVE_COST_PRICE_SQL = (
     "buyout_niche_pct = COALESCE(EXCLUDED.buyout_niche_pct, reference_book.buyout_niche_pct), "
     "price_before_spp_plan = COALESCE(EXCLUDED.price_before_spp_plan, reference_book.price_before_spp_plan), "
     "price_before_spp_change = COALESCE(EXCLUDED.price_before_spp_change, reference_book.price_before_spp_change), "
-    "change_date = CURRENT_DATE, "
+    "change_date = CASE WHEN :touch_change_date THEN CURRENT_DATE ELSE reference_book.change_date END, "
     "wb_club_discount_pct = COALESCE(EXCLUDED.wb_club_discount_pct, reference_book.wb_club_discount_pct), "
     "ad_plan_rub = COALESCE(EXCLUDED.ad_plan_rub, reference_book.ad_plan_rub), "
     "supply_days = COALESCE(EXCLUDED.supply_days, reference_book.supply_days), "
@@ -1249,6 +1262,7 @@ def _build_save_params(data: dict, org_id: str, nm_id: int, entity_id: str, vali
         "vf": valid_from,
         "src": data.get("source", "manual"),
         "notes": data.get("notes"),
+        "touch_change_date": _touches_change_date(data),
     }
 
 
