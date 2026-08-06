@@ -585,7 +585,7 @@ async def _do_parse_raw(sf):
                             "product_name": ins.excluded.product_name,
                             "vendor_code": ins.excluded.vendor_code,
                             "barcode": ins.excluded.barcode,
-                            "photo_main": ins.excluded.photo_main,
+                            "photo_main": text("COALESCE(NULLIF(EXCLUDED.photo_main, ''), tech_status.photo_main)"),
                             "orders_count": ins.excluded.orders_count,
                             "buyouts_count": ins.excluded.buyouts_count,
                             "returns_count": ins.excluded.returns_count,

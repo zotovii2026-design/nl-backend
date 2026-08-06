@@ -412,6 +412,19 @@ function costSeasonNumber(value) {
     return Number.isFinite(n) ? n : null;
 }
 
+function costNumber(value) {
+    if (value === null || value === undefined || value === '' || value === '—') return null;
+    const n = parseFloat(String(value).replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+}
+
+function costVolumeDiffers(factValue, planValue) {
+    const fact = costNumber(factValue);
+    const plan = costNumber(planValue);
+    if (fact === null || plan === null) return false;
+    return Math.abs(fact - plan) > 0.01;
+}
+
 function costSeasonValues(data) {
     return COST_SEASON_MONTHS.map(function(month) {
         return costSeasonNumber(data[month[2]]);
@@ -725,7 +738,17 @@ function getCostColumns() {
                 { title: 'Д×Ш×В', field: '_fact_dims',
                     headerTooltip: 'Габариты ФАКТ (Д×Ш×В)', width: 70, tooltip: true, headerSort: false, formatter: 'plaintext' },
                 { title: 'Объём, л', field: '_fact_volume',
-                    headerTooltip: 'Объём ФАКТ, л', width: 55, headerSort: false },
+                    headerTooltip: 'Объём ФАКТ, л', width: 55, headerSort: false,
+                    formatter: function(cell) {
+                        const value = cell.getValue();
+                        if (value === null || value === undefined || value === '' || value === '—') return '—';
+                        const display = parseFloat(value);
+                        const shown = Number.isFinite(display) ? display : value;
+                        const data = cell.getRow().getData();
+                        if (!costVolumeDiffers(value, data.plan_volume)) return shown;
+                        return '<span style="display:inline-block;padding:1px 5px;border-radius:3px;background:#fdeaea;color:#a33;font-weight:600">' + shown + '</span>';
+                    }
+                },
                 { title: 'Вес, кг', field: '_fact_weight',
                     headerTooltip: 'Вес ФАКТ (от ВБ), кг', width: 50, headerSort: false },
             ]

@@ -123,7 +123,7 @@ async def sync_entities_from_raw(db: AsyncSession, org_id: str, today: date = No
                 set_={
                     "vendor_code": ins.excluded.vendor_code,
                     "product_name": ins.excluded.product_name,
-                    "photo_main": ins.excluded.photo_main,
+                    "photo_main": text("COALESCE(NULLIF(EXCLUDED.photo_main, ''), product_entities.photo_main)"),
                     "updated_at": datetime.utcnow(),
                 }
             )
@@ -166,7 +166,8 @@ async def sync_entities_from_raw(db: AsyncSession, org_id: str, today: date = No
                 # Обновляем
                 entity.vendor_code = vendor_code
                 entity.product_name = title
-                entity.photo_main = photo_main
+                if photo_main:
+                    entity.photo_main = photo_main
                 entity.brand = brand or None
                 entity.subject_id = subject_id
                 entity.subject_name = subject_name or None
