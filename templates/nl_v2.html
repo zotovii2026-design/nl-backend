@@ -149,17 +149,17 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 .season-cell{background:#fffde7 !important}
 .topquery-cell{background:#ede7f6 !important}
 .tax-cell{text-align:center;color:#6c5ce7;font-weight:600;background:#f8f7ff !important}
-.cost-filter-native{border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333;height:29px}
-.cost-filter-menu{position:relative;display:inline-block}
-.cost-filter-select{display:none}
-.cost-filter-button{border:1px solid #ddd;background:#fff;color:#333;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 24px 4px 8px;min-width:116px;height:29px;text-align:left;position:relative;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cost-filter-button::after{content:'⌄';position:absolute;right:8px;top:3px;color:#777;font-size:.95em}
-.cost-filter-menu.open .cost-filter-button{border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,231,.12)}
-.cost-filter-panel{display:none;position:absolute;top:34px;left:0;z-index:80;min-width:190px;max-width:280px;max-height:230px;overflow-y:auto;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 8px 22px rgba(0,0,0,.14);padding:6px}
-.cost-filter-menu.open .cost-filter-panel{display:block}
-.cost-filter-option{display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:4px;font-size:.86em;color:#333;cursor:pointer}
-.cost-filter-option:hover{background:#f5f6fb}
-.cost-filter-option input{width:auto;margin:0}
+.nl-filter-native{border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333;height:29px}
+.nl-filter-menu{position:relative;display:inline-block}
+.nl-filter-select{display:none}
+.nl-filter-button{border:1px solid #ddd;background:#fff;color:#333;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 24px 4px 8px;min-width:116px;height:29px;text-align:left;position:relative;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nl-filter-button::after{content:'⌄';position:absolute;right:8px;top:3px;color:#777;font-size:.95em}
+.nl-filter-menu.open .nl-filter-button{border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,231,.12)}
+.nl-filter-panel{display:none;position:absolute;top:34px;left:0;z-index:80;min-width:190px;max-width:280px;max-height:230px;overflow-y:auto;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 8px 22px rgba(0,0,0,.14);padding:6px}
+.nl-filter-menu.open .nl-filter-panel{display:block}
+.nl-filter-option{display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:4px;font-size:.86em;color:#333;cursor:pointer}
+.nl-filter-option:hover{background:#f5f6fb}
+.nl-filter-option input{width:auto;margin:0}
 .cost-tree-toggle{border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px;height:29px}
 .cost-tree-toggle:disabled{opacity:.55;cursor:wait}
 .tabulator .tabulator-footer{background:#f8f9fa;border-top:1px solid #e0e0e0;padding:6px 12px}
@@ -181,7 +181,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/stats-grid.js?v=20260729-entities5"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260803-reference-style-tree"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260806-photo-volume"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260806-filters-refactor"></script>
+<script type="text/javascript" src="/static/js/nl-filters.js?v=1"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
@@ -292,7 +293,6 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 </div>
 
 <div id="page-analytics" class="page-section"></div>
-
 
 
 <div id="page-rnp" class="page-section"></div>
@@ -667,28 +667,28 @@ var _sectionHTML = {
 <!-- Фильтры по столбцам -->
 <div id="cost-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
 <label style="color:#666;font-weight:600">Фильтры:</label>
-<select id="flt-fulfillment" class="cost-filter-native" onchange="applyCostFilters()"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
-<div class="cost-filter-menu" data-filter-id="flt-product-class">
-<select id="flt-product-class" class="cost-filter-select" multiple></select>
-<button type="button" class="cost-filter-button" onclick="toggleCostFilterMenu('flt-product-class')">Класс: все</button>
-<div id="flt-product-class-menu" class="cost-filter-panel"></div>
+<select id="flt-fulfillment" class="nl-filter-native" onchange="applyCostFilters()"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
+<div class="nl-filter-menu" data-filter-id="flt-product-class" data-label="Класс">
+<select id="flt-product-class" class="nl-filter-select" multiple></select>
+<button type="button" class="nl-filter-button" onclick="NLFilters.toggleMenu('flt-product-class')">Класс: все</button>
+<div id="flt-product-class-menu" class="nl-filter-panel"></div>
 </div>
-<div class="cost-filter-menu" data-filter-id="flt-brand">
-<select id="flt-brand" class="cost-filter-select" multiple></select>
-<button type="button" class="cost-filter-button" onclick="toggleCostFilterMenu('flt-brand')">Бренд: все</button>
-<div id="flt-brand-menu" class="cost-filter-panel"></div>
+<div class="nl-filter-menu" data-filter-id="flt-brand" data-label="Бренд">
+<select id="flt-brand" class="nl-filter-select" multiple></select>
+<button type="button" class="nl-filter-button" onclick="NLFilters.toggleMenu('flt-brand')">Бренд: все</button>
+<div id="flt-brand-menu" class="nl-filter-panel"></div>
 </div>
-<div class="cost-filter-menu" data-filter-id="flt-product-status">
-<select id="flt-product-status" class="cost-filter-select" multiple></select>
-<button type="button" class="cost-filter-button" onclick="toggleCostFilterMenu('flt-product-status')">Статус: все</button>
-<div id="flt-product-status-menu" class="cost-filter-panel"></div>
+<div class="nl-filter-menu" data-filter-id="flt-product-status" data-label="Статус">
+<select id="flt-product-status" class="nl-filter-select" multiple></select>
+<button type="button" class="nl-filter-button" onclick="NLFilters.toggleMenu('flt-product-status')">Статус: все</button>
+<div id="flt-product-status-menu" class="nl-filter-panel"></div>
 </div>
-<div class="cost-filter-menu" data-filter-id="flt-tags">
-<select id="flt-tags" class="cost-filter-select" multiple></select>
-<button type="button" class="cost-filter-button" onclick="toggleCostFilterMenu('flt-tags')">Теги: все</button>
-<div id="flt-tags-menu" class="cost-filter-panel"></div>
+<div class="nl-filter-menu" data-filter-id="flt-tags" data-label="Теги">
+<select id="flt-tags" class="nl-filter-select" multiple></select>
+<button type="button" class="nl-filter-button" onclick="NLFilters.toggleMenu('flt-tags')">Теги: все</button>
+<div id="flt-tags-menu" class="nl-filter-panel"></div>
 </div>
-<select id="flt-has-cost" class="cost-filter-native" onchange="applyCostFilters()"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
+<select id="flt-has-cost" class="nl-filter-native" onchange="applyCostFilters()"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
 <input type="text" id="cost-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
 <button id="cost-tree-toggle-btn" class="cost-tree-toggle" type="button" onclick="toggleCostTreeOpen()">Раскрыть по размерам</button>
 <button type="button" onclick="resetCostColumnPreferences()" title="Вернуть порядок колонок по умолчанию, не сбрасывая фильтры" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Колонки по умолчанию</button>
@@ -1713,8 +1713,6 @@ function renderAdsTopChart(points) {
 }
 
 
-
-
 function getAdsDateRange() {
     if (typeof nlGetDateRangeParams === 'function') return nlGetDateRangeParams();
     if (typeof nlGetDateRange === 'function') {
@@ -2569,14 +2567,14 @@ function updateReferenceStatusControls() {
     const statuses = getReferenceProductStatuses();
     const statusSelect = document.getElementById('flt-product-status');
     if (statusSelect) {
-        const selected = getMultiSelectValues(statusSelect);
+        const selected = NLFilters.getValues(statusSelect);
         const opts = ['<option value="">Статус: все</option>', '<option value="__empty__">Без статуса</option>'];
         statuses.forEach(function(status) {
             opts.push('<option value="' + esc(status) + '">' + esc(getProductStatusLabel(status)) + '</option>');
         });
         statusSelect.innerHTML = opts.join('');
-        setMultiSelectValues(statusSelect, selected);
-        renderCostFilterMenu('flt-product-status');
+        NLFilters.setValues(statusSelect, selected);
+        NLFilters.renderMenu('flt-product-status');
     }
     if (typeof costTabulator !== 'undefined' && costTabulator) {
         costTabulator.updateColumnDefinition('product_status', {
@@ -2622,7 +2620,7 @@ function addReferenceProductStatus() {
     }
     updateReferenceStatusControls();
     const statusSelect = document.getElementById('flt-product-status');
-    if (statusSelect) setMultiSelectValues(statusSelect, [status]);
+    if (statusSelect) NLFilters.setValues(statusSelect, [status]);
     const bulkField = document.getElementById('bulk-field');
     if (bulkField && bulkField.value === 'product_status') onBulkFieldChange();
     showToast('✅ Статус добавлен: ' + status);
@@ -2818,12 +2816,12 @@ function populateCostFilterOptions() {
     const fillSel = (id, vals, allLabel) => {
         const el = document.getElementById(id);
         if (!el) return;
-        const selected = getMultiSelectValues(el);
+        const selected = NLFilters.getValues(el);
         const opts = ['<option value="">' + esc(allLabel || 'Все') + '</option>'];
         [...vals].sort().forEach(v => opts.push('<option value="' + esc(v) + '">' + esc(v) + '</option>'));
         el.innerHTML = opts.join('');
-        setMultiSelectValues(el, selected);
-        renderCostFilterMenu(id);
+        NLFilters.setValues(el, selected);
+        NLFilters.renderMenu(id);
     };
     fillSel('flt-product-class', classes, 'Класс: все');
     fillSel('flt-brand', brands, 'Бренд: все');
@@ -2832,22 +2830,6 @@ function populateCostFilterOptions() {
     updateReferenceStatusControls();
 }
 
-function getMultiSelectValues(el) {
-    if (!el) return [];
-    return Array.from(el.selectedOptions || []).map(function(opt) { return opt.value; }).filter(Boolean);
-}
-
-function setMultiSelectValues(el, values) {
-    if (!el) return;
-    const selected = new Set(values || []);
-    let hasSelected = false;
-    Array.from(el.options || []).forEach(function(opt) {
-        opt.selected = selected.has(opt.value);
-        if (opt.selected) hasSelected = true;
-    });
-    if (!hasSelected) selectCostAllOption(el);
-    renderCostFilterMenu(el.id);
-}
 
 function getCostFilterLabel(id) {
     return {
@@ -2858,93 +2840,6 @@ function getCostFilterLabel(id) {
     }[id] || 'Фильтр';
 }
 
-function renderCostFilterMenu(id) {
-    const select = document.getElementById(id);
-    const panel = document.getElementById(id + '-menu');
-    const wrap = document.querySelector('.cost-filter-menu[data-filter-id="' + id + '"]');
-    const btn = wrap ? wrap.querySelector('.cost-filter-button') : null;
-    if (!select || !panel || !btn) return;
-    const label = getCostFilterLabel(id);
-    const selected = getMultiSelectValues(select);
-    const opts = Array.from(select.options || []);
-    btn.textContent = selected.length ? label + ': ' + selected.length : label + ': все';
-    panel.innerHTML = opts.map(function(opt) {
-        const checked = opt.value === '' ? !selected.length : selected.indexOf(opt.value) !== -1;
-        return '<label class="cost-filter-option" title="' + esc(opt.textContent || opt.value) + '">' +
-            '<input type="checkbox" data-filter-option="' + esc(opt.value) + '"' + (checked ? ' checked' : '') + '>' +
-            '<span>' + esc(opt.textContent || opt.value) + '</span>' +
-            '</label>';
-    }).join('');
-}
-
-function toggleCostFilterMenu(id) {
-    const wrap = document.querySelector('.cost-filter-menu[data-filter-id="' + id + '"]');
-    if (!wrap) return;
-    document.querySelectorAll('.cost-filter-menu.open').forEach(function(item) {
-        if (item !== wrap) item.classList.remove('open');
-    });
-    renderCostFilterMenu(id);
-    wrap.classList.toggle('open');
-}
-
-function setCostFilterOption(id, value, checked) {
-    const select = document.getElementById(id);
-    if (!select) return;
-    if (value === '') {
-        selectCostAllOption(select);
-    } else {
-        const values = new Set(getMultiSelectValues(select));
-        if (checked) values.add(value); else values.delete(value);
-        setMultiSelectValues(select, Array.from(values));
-    }
-    renderCostFilterMenu(id);
-    applyCostFilters();
-}
-
-function getRawMultiSelectValues(el) {
-    if (!el) return [];
-    return Array.from(el.selectedOptions || []).map(function(opt) { return opt.value; });
-}
-
-function selectCostAllOption(el) {
-    if (!el) return;
-    const allOpt = Array.from(el.options || []).find(function(opt) { return opt.value === ''; });
-    if (allOpt) {
-        Array.from(el.options || []).forEach(function(opt) { opt.selected = false; });
-        allOpt.selected = true;
-    } else {
-        el.selectedIndex = -1;
-    }
-    renderCostFilterMenu(el.id);
-}
-
-function rememberCostMultiSelect(el, event) {
-    if (!el) return;
-    el.dataset.costPrevSelected = JSON.stringify(getMultiSelectValues(el));
-    el.dataset.costMultiMode = event && (event.ctrlKey || event.metaKey || event.shiftKey) ? '1' : '0';
-}
-
-function handleCostMultiSelectChange(el) {
-    if (!el) return;
-    const rawValues = getRawMultiSelectValues(el);
-    if (!rawValues.length || rawValues.indexOf('') !== -1) {
-        selectCostAllOption(el);
-        return;
-    }
-    const values = rawValues.filter(Boolean);
-    let prev = [];
-    try { prev = JSON.parse(el.dataset.costPrevSelected || '[]'); } catch(e) { prev = []; }
-    const added = values.filter(function(value) { return prev.indexOf(value) === -1; });
-    if (el.dataset.costMultiMode !== '1' && values.length > 1) {
-        setMultiSelectValues(el, added.length ? [added[added.length - 1]] : [values[values.length - 1]]);
-    }
-}
-
-function clearMultiSelect(id) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    selectCostAllOption(el);
-}
 
 function clearCostFilterValue(id) {
     const el = document.getElementById(id);
@@ -2984,10 +2879,10 @@ function matchAnyTag(tags, selectedTags) {
 function getCostFilterState() {
     return {
         fulfillment: document.getElementById('flt-fulfillment')?.value || '',
-        productClass: getMultiSelectValues(document.getElementById('flt-product-class')),
-        brand: getMultiSelectValues(document.getElementById('flt-brand')),
-        productStatus: getMultiSelectValues(document.getElementById('flt-product-status')),
-        tags: getMultiSelectValues(document.getElementById('flt-tags')),
+        productClass: NLFilters.getValues(document.getElementById('flt-product-class')),
+        brand: NLFilters.getValues(document.getElementById('flt-brand')),
+        productStatus: NLFilters.getValues(document.getElementById('flt-product-status')),
+        tags: NLFilters.getValues(document.getElementById('flt-tags')),
         hasCost: document.getElementById('flt-has-cost')?.value || '',
         search: document.getElementById('cost-search')?.value || '',
     };
@@ -3006,8 +2901,8 @@ function setCostMultiFilterValues(id, values) {
     const el = document.getElementById(id);
     if (!el) return;
     const available = new Set(Array.from(el.options || []).map(function(option) { return option.value; }));
-    setMultiSelectValues(el, (values || []).filter(function(value) { return available.has(value); }));
-    renderCostFilterMenu(id);
+    NLFilters.setValues(el, (values || []).filter(function(value) { return available.has(value); }));
+    NLFilters.renderMenu(id);
 }
 
 function saveCostFilterPreferences() {
@@ -3045,37 +2940,21 @@ function clearCostFilters(event, saveState = true) {
     if (typeof costTabulator !== 'undefined' && costTabulator && typeof costTabulator.clearFilter === 'function') {
         costTabulator.clearFilter(true);
     }
-    ['flt-product-class', 'flt-brand', 'flt-product-status', 'flt-tags'].forEach(renderCostFilterMenu);
+    ['flt-product-class', 'flt-brand', 'flt-product-status', 'flt-tags'].forEach(NLFilters.renderMenu);
     if (saveState) saveCostFilterPreferences();
     applyCostFilters();
 }
 
-document.addEventListener('click', function(event) {
-    const btn = event.target && event.target.closest ? event.target.closest('#cost-reset-filters') : null;
-    if (btn) {
-        return;
-    }
-    const option = event.target && event.target.closest ? event.target.closest('[data-filter-option]') : null;
-    if (option) {
-        const wrap = option.closest('.cost-filter-menu');
-        if (!wrap) return;
-        setCostFilterOption(wrap.dataset.filterId, option.getAttribute('data-filter-option'), option.checked);
-        event.stopPropagation();
-        return;
-    }
-    const menu = event.target && event.target.closest ? event.target.closest('.cost-filter-menu') : null;
-    if (!menu) {
-        document.querySelectorAll('.cost-filter-menu.open').forEach(function(item) { item.classList.remove('open'); });
-    }
-});
+// Инициализация общего click-handler для фильтров
+NLFilters.initGlobalClick(applyCostFilters);
 
 function applyCostFilters() {
     const search = (document.getElementById('cost-search')?.value || '').toLowerCase();
     const fltFF = document.getElementById('flt-fulfillment')?.value || '';
-    const fltClass = getMultiSelectValues(document.getElementById('flt-product-class'));
-    const fltBrand = getMultiSelectValues(document.getElementById('flt-brand'));
-    const fltStatus = getMultiSelectValues(document.getElementById('flt-product-status'));
-    const fltTags = getMultiSelectValues(document.getElementById('flt-tags'));
+    const fltClass = NLFilters.getValues(document.getElementById('flt-product-class'));
+    const fltBrand = NLFilters.getValues(document.getElementById('flt-brand'));
+    const fltStatus = NLFilters.getValues(document.getElementById('flt-product-status'));
+    const fltTags = NLFilters.getValues(document.getElementById('flt-tags'));
     const fltCost = document.getElementById('flt-has-cost')?.value || '';
     saveCostFilterPreferences();
     
@@ -3215,7 +3094,6 @@ function showCommCorrInfo(el) {
     div.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:7px">Скорость доставаемости</b><span onclick="this.parentNode.parentNode.remove()" style="cursor:pointer;font-size:9px">✕</span></div><div>От закупа до склада поставщика</div>';
     document.body.appendChild(div);
 }
-
 
 
     popup.id = 'total-cost-info-popup';
@@ -4329,7 +4207,6 @@ async function switchOrg() {
 }
 
 
-
 async function switchAnalyticsStore() {
     const anSel = document.getElementById("analytics-store");
     const newOrgId = anSel.value;
@@ -4615,7 +4492,6 @@ function declShop(n) {
 }
 
 
-
 async function deleteWbKeyBtn(span) {
     if (!confirm('Удалить ключ?')) return;
     const keyId = span.dataset.keyid;
@@ -4816,7 +4692,6 @@ async function deleteWbKey(id, orgId) {
     loadOrgs();
     loadProfile();
 }
-
 
 
 // ─── OPERATIONAL CONTROL ──────────────────────────────────
