@@ -148,12 +148,20 @@ async def _update_reference_book(org_id: str, nm_ids: Optional[list[int]] = None
                 season_nov = (ps.seasonality_coefficients->>'11')::numeric,
                 season_dec = (ps.seasonality_coefficients->>'12')::numeric,
                 updated_at = NOW()
-            FROM wb_product_seasonality ps
+            FROM (
+                SELECT DISTINCT ON (nm_id, organization_id)
+                    nm_id,
+                    organization_id,
+                    seasonality_coefficients
+                FROM wb_product_seasonality
+                WHERE organization_id = :org_id
+                  AND jsonb_typeof(seasonality_coefficients) = 'object'
+                  AND seasonality_coefficients <> '{}'::jsonb
+                ORDER BY nm_id, organization_id, collected_at DESC
+            ) ps
             WHERE rb.nm_id = ps.nm_id
               AND rb.organization_id = :org_id
               AND ps.organization_id = :org_id
-              AND jsonb_typeof(ps.seasonality_coefficients) = 'object'
-              AND ps.seasonality_coefficients <> '{}'::jsonb
         """
         params = {"org_id": org_id}
         if nm_ids:

@@ -81,8 +81,10 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "await calculate_products(org_id, dry_run=False, nm_ids=nm_ids)" in seasonality_task
     assert "_nm_ids_in_sql" in seasonality_task
     assert "AND rb.nm_id IN" in seasonality_task
-    assert "jsonb_typeof(ps.seasonality_coefficients) = 'object'" in seasonality_task
-    assert "ps.seasonality_coefficients <> '{}'::jsonb" in seasonality_task
+    assert "SELECT DISTINCT ON (nm_id, organization_id)" in seasonality_task
+    assert "ORDER BY nm_id, organization_id, collected_at DESC" in seasonality_task
+    assert "jsonb_typeof(seasonality_coefficients) = 'object'" in seasonality_task
+    assert "seasonality_coefficients <> '{}'::jsonb" in seasonality_task
     assert "result.rowcount" in seasonality_task
     assert "async def calculate_product_seasonality(" in calculator
     assert "nm_ids: Optional[List[int]] = None" in calculator
@@ -102,7 +104,7 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "function resetCostEditTracking()" in cost_grid
     assert "_top_query_edited: topQueryEdited(data)" in cost_grid
     assert "field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3'" in cost_grid
-    assert "cost-grid.js?v=20260806-season-spark" in dashboard
+    assert "cost-grid.js?v=20260806-season-scale" in dashboard
     assert "function costSeasonalityFormatter" in cost_grid
     assert "function costOpenSeasonalityEditor" in cost_grid
     assert 'id="cost-save-btn"' in dashboard

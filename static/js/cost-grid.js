@@ -58,7 +58,6 @@ const COST_SEASON_MONTHS = [
     ['nov', 'ноя', 'season_nov'],
     ['dec', 'дек', 'season_dec'],
 ];
-const COST_SEASON_BARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 function costEscapeHtml(value) {
     return String(value ?? '')
@@ -302,15 +301,9 @@ function costSeasonValues(data) {
     });
 }
 
-function costSeasonBar(value) {
-    if (value === null || value <= 0.25) return '▁';
-    if (value <= 0.5) return '▂';
-    if (value <= 0.8) return '▃';
-    if (value <= 1.2) return '▄';
-    if (value <= 1.8) return '▅';
-    if (value <= 2.8) return '▆';
-    if (value <= 4.5) return '▇';
-    return '█';
+function costSeasonBarHeight(value, maxValue) {
+    if (value === null || value <= 0 || !maxValue) return 0;
+    return Math.max(1, Math.min(100, (value / maxValue) * 100));
 }
 
 function costFormatSeasonValue(value) {
@@ -326,8 +319,12 @@ function costSeasonalityFormatter(cell) {
     if (!filled.length) {
         return '<div class="cost-season-spark empty">—</div>';
     }
+    const maxValue = Math.max.apply(null, filled);
     const labels = COST_SEASON_MONTHS.map(function(month) { return '<span>' + month[1] + '</span>'; }).join('');
-    const bars = values.map(function(v) { return '<span>' + costSeasonBar(v) + '</span>'; }).join('');
+    const bars = values.map(function(v) {
+        const height = costSeasonBarHeight(v, maxValue);
+        return '<span class="cost-season-bar-track"><i style="height:' + height.toFixed(1) + '%"></i></span>';
+    }).join('');
     const nums = values.map(function(v) { return '<span>' + costFormatSeasonValue(v) + '</span>'; }).join('');
     return '<div class="cost-season-spark" title="Клик — редактировать коэффициенты сезонности">' +
         '<div class="cost-season-months">' + labels + '</div>' +
@@ -822,7 +819,7 @@ function initCostTabulator(data) {
     if (!document.getElementById('cost-header-style')) {
         const style = document.createElement('style');
         style.id = 'cost-header-style';
-        style.textContent = '.tabulator-col-title { font-size: 8px !important; line-height: 1.1 !important; padding: 2px 4px !important; } .tabulator-col .tabulator-col-content { padding: 2px 4px !important; } .tabulator-cell { font-size: 11px !important; } .truncate-cell .tabulator-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; } .truncate-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; } .season-spark-cell { padding: 3px 6px !important; } .cost-season-spark { min-width: 370px; font-size: 9px; line-height: 1.15; color: #333; cursor: pointer; } .cost-season-spark.empty { color: #999; text-align: center; } .cost-season-months, .cost-season-bars, .cost-season-values { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; text-align: center; white-space: nowrap; } .cost-season-months { color: #777; font-size: 8px; } .cost-season-bars { color: #6c5ce7; font-size: 14px; line-height: 1; margin: 1px 0; } .cost-season-values { color: #222; font-size: 9px; font-variant-numeric: tabular-nums; } .cost-season-editor { position: absolute; z-index: 10020; width: 500px; max-width: calc(100vw - 24px); background: #fff; border: 1px solid #d9dce3; border-radius: 6px; box-shadow: 0 10px 26px rgba(0,0,0,.18); padding: 10px; box-sizing: border-box; } .cost-season-editor-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 12px; } .cost-season-editor-close { border: 0; background: transparent; font-size: 18px; line-height: 1; cursor: pointer; color: #777; } .cost-season-editor-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; } .cost-season-editor-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 10px; color: #666; } .cost-season-editor-grid input { width: 100%; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px; padding: 4px 5px; font-size: 12px; } .cost-season-editor-actions { display: flex; justify-content: flex-end; margin-top: 10px; } .cost-season-apply { border: 1px solid #6c5ce7; background: #6c5ce7; color: #fff; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; }';
+        style.textContent = '.tabulator-col-title { font-size: 8px !important; line-height: 1.1 !important; padding: 2px 4px !important; } .tabulator-col .tabulator-col-content { padding: 2px 4px !important; } .tabulator-cell { font-size: 11px !important; } .truncate-cell .tabulator-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; } .truncate-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; } .season-spark-cell { padding: 3px 6px !important; } .cost-season-spark { min-width: 370px; font-size: 9px; line-height: 1.15; color: #333; cursor: pointer; } .cost-season-spark.empty { color: #999; text-align: center; } .cost-season-months, .cost-season-bars, .cost-season-values { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; text-align: center; white-space: nowrap; } .cost-season-months { color: #777; font-size: 8px; } .cost-season-bars { align-items: end; height: 26px; margin: 1px 0; } .cost-season-bar-track { display: flex; align-items: end; justify-content: center; height: 26px; border-bottom: 1px solid #ddd; } .cost-season-bar-track i { display: block; width: 70%; min-height: 1px; background: #6c5ce7; border-radius: 2px 2px 0 0; } .cost-season-values { color: #222; font-size: 9px; font-variant-numeric: tabular-nums; } .cost-season-editor { position: absolute; z-index: 10020; width: 500px; max-width: calc(100vw - 24px); background: #fff; border: 1px solid #d9dce3; border-radius: 6px; box-shadow: 0 10px 26px rgba(0,0,0,.18); padding: 10px; box-sizing: border-box; } .cost-season-editor-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 12px; } .cost-season-editor-close { border: 0; background: transparent; font-size: 18px; line-height: 1; cursor: pointer; color: #777; } .cost-season-editor-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; } .cost-season-editor-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 10px; color: #666; } .cost-season-editor-grid input { width: 100%; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px; padding: 4px 5px; font-size: 12px; } .cost-season-editor-actions { display: flex; justify-content: flex-end; margin-top: 10px; } .cost-season-apply { border: 1px solid #6c5ce7; background: #6c5ce7; color: #fff; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; }';
         document.head.appendChild(style);
     }
 
