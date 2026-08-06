@@ -181,7 +181,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/stats-grid.js?v=20260729-entities5"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260803-reference-style-tree"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260806-reference-prefs"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260806-column-reset"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
@@ -691,6 +691,7 @@ var _sectionHTML = {
 <select id="flt-has-cost" class="cost-filter-native" onchange="applyCostFilters()"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
 <input type="text" id="cost-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
 <button id="cost-tree-toggle-btn" class="cost-tree-toggle" type="button" onclick="toggleCostTreeOpen()">Раскрыть по размерам</button>
+<button type="button" onclick="resetCostColumnPreferences()" title="Вернуть порядок колонок по умолчанию, не сбрасывая фильтры" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Колонки по умолчанию</button>
 <button type="button" onclick="resetCostViewPreferences()" title="Сбросить сохранённые фильтры и порядок колонок" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Сброс вида</button>
 <button id="cost-reset-filters" type="button" onclick="clearCostFilters(event)" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сброс фильтров</button>
 </div>
