@@ -8,6 +8,7 @@ let _costEditedIds = new Set();  // entity_id строк с реальными �
 let _costEditedFieldsById = new Map();  // entity_id -> Set(field)
 let _costTopQueryEditedIds = new Set();  // entity_id строк, где меняли top_query_*
 let _costSyncingTopQueries = false;
+let _costTreeOpen = false;
 const COST_ARTICLE_ONLY_FIELDS = [
     'product_status', 'tags',
     'season_jan', 'season_feb', 'season_mar', 'season_apr',
@@ -236,17 +237,14 @@ function setCostTreeOpen(open) {
         const data = row.getData();
         return data && data._isArticleRow;
     });
-    const expandBtn = document.getElementById('cost-expand-all-btn');
-    const collapseBtn = document.getElementById('cost-collapse-all-btn');
-    [expandBtn, collapseBtn].forEach(function(btn) {
-        if (btn) btn.disabled = true;
-    });
+    const toggleBtn = document.getElementById('cost-tree-toggle-btn');
+    if (toggleBtn) toggleBtn.disabled = true;
     const batchSize = open ? 25 : 60;
     let index = 0;
     function finish() {
-        [expandBtn, collapseBtn].forEach(function(btn) {
-            if (btn) btn.disabled = false;
-        });
+        _costTreeOpen = !!open;
+        updateCostTreeToggleButton();
+        if (toggleBtn) toggleBtn.disabled = false;
         if (costTabulator && typeof costTabulator.redraw === 'function') costTabulator.redraw(false);
     }
     function runBatch() {
@@ -265,6 +263,16 @@ function setCostTreeOpen(open) {
         }
     }
     window.requestAnimationFrame(runBatch);
+}
+
+function toggleCostTreeOpen() {
+    setCostTreeOpen(!_costTreeOpen);
+}
+
+function updateCostTreeToggleButton() {
+    const toggleBtn = document.getElementById('cost-tree-toggle-btn');
+    if (!toggleBtn) return;
+    toggleBtn.textContent = _costTreeOpen ? 'Скрыть размеры' : 'Раскрыть по размерам';
 }
 
 // Конфигурация колонок справочника
@@ -831,6 +839,8 @@ function initCostTabulator(data) {
             }
         },
     });
+    _costTreeOpen = false;
+    updateCostTreeToggleButton();
 
     // Tabulator 6.x uses events, not config callbacks
     costTabulator.on('cellEditing', function(cell) {
@@ -887,6 +897,8 @@ function updateCostTabulator(filteredProducts) {
     } else {
         initCostTabulator(data);
     }
+    _costTreeOpen = false;
+    updateCostTreeToggleButton();
     document.getElementById('cost-count').textContent = filteredProducts.length + ' товаров';
 }
 

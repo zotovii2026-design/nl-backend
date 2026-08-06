@@ -149,6 +149,19 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 .season-cell{background:#fffde7 !important}
 .topquery-cell{background:#ede7f6 !important}
 .tax-cell{text-align:center;color:#6c5ce7;font-weight:600;background:#f8f7ff !important}
+.cost-filter-native{border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333;height:29px}
+.cost-filter-menu{position:relative;display:inline-block}
+.cost-filter-select{display:none}
+.cost-filter-button{border:1px solid #ddd;background:#fff;color:#333;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 24px 4px 8px;min-width:116px;height:29px;text-align:left;position:relative;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cost-filter-button::after{content:'⌄';position:absolute;right:8px;top:3px;color:#777;font-size:.95em}
+.cost-filter-menu.open .cost-filter-button{border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,231,.12)}
+.cost-filter-panel{display:none;position:absolute;top:34px;left:0;z-index:80;min-width:190px;max-width:280px;max-height:230px;overflow-y:auto;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 8px 22px rgba(0,0,0,.14);padding:6px}
+.cost-filter-menu.open .cost-filter-panel{display:block}
+.cost-filter-option{display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:4px;font-size:.86em;color:#333;cursor:pointer}
+.cost-filter-option:hover{background:#f5f6fb}
+.cost-filter-option input{width:auto;margin:0}
+.cost-tree-toggle{border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px;height:29px}
+.cost-tree-toggle:disabled{opacity:.55;cursor:wait}
 .tabulator .tabulator-footer{background:#f8f9fa;border-top:1px solid #e0e0e0;padding:6px 12px}
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-group{background:#f0f1f5;border-bottom:1px solid #e0e0e0;font-size:11px;color:#333;font-weight:400;padding:4px 8px}
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-group .tabulator-arrow{color:#999;margin-right:4px}
@@ -168,7 +181,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/stats-grid.js?v=20260729-entities5"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260803-reference-style-tree"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260805-edit-date"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260806-ref-filters-vat"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
@@ -654,16 +667,31 @@ var _sectionHTML = {
 <!-- Фильтры по столбцам -->
 <div id="cost-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
 <label style="color:#666;font-weight:600">Фильтры:</label>
-<select id="flt-fulfillment" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
-<select id="flt-product-class" multiple onmousedown="rememberCostMultiSelect(this, event)" onkeydown="rememberCostMultiSelect(this, event)" onchange="handleCostMultiSelectChange(this); applyCostFilters()" title="Обычный клик выбирает одно значение. Ctrl/Shift — несколько." style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:92px;height:58px"></select>
-<select id="flt-brand" multiple onmousedown="rememberCostMultiSelect(this, event)" onkeydown="rememberCostMultiSelect(this, event)" onchange="handleCostMultiSelectChange(this); applyCostFilters()" title="Обычный клик выбирает одно значение. Ctrl/Shift — несколько." style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:130px;height:58px"></select>
-<select id="flt-product-status" multiple onmousedown="rememberCostMultiSelect(this, event)" onkeydown="rememberCostMultiSelect(this, event)" onchange="handleCostMultiSelectChange(this); applyCostFilters()" title="Обычный клик выбирает одно значение. Ctrl/Shift — несколько." style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:170px;height:58px"></select>
-<select id="flt-tags" multiple onmousedown="rememberCostMultiSelect(this, event)" onkeydown="rememberCostMultiSelect(this, event)" onchange="handleCostMultiSelectChange(this); applyCostFilters()" title="Обычный клик выбирает одно значение. Ctrl/Shift — несколько." style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:150px;height:58px"></select>
-<select id="flt-has-cost" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
+<select id="flt-fulfillment" class="cost-filter-native" onchange="applyCostFilters()"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
+<div class="cost-filter-menu" data-filter-id="flt-product-class">
+<select id="flt-product-class" class="cost-filter-select" multiple></select>
+<button type="button" class="cost-filter-button" onclick="toggleCostFilterMenu('flt-product-class')">Класс: все</button>
+<div id="flt-product-class-menu" class="cost-filter-panel"></div>
+</div>
+<div class="cost-filter-menu" data-filter-id="flt-brand">
+<select id="flt-brand" class="cost-filter-select" multiple></select>
+<button type="button" class="cost-filter-button" onclick="toggleCostFilterMenu('flt-brand')">Бренд: все</button>
+<div id="flt-brand-menu" class="cost-filter-panel"></div>
+</div>
+<div class="cost-filter-menu" data-filter-id="flt-product-status">
+<select id="flt-product-status" class="cost-filter-select" multiple></select>
+<button type="button" class="cost-filter-button" onclick="toggleCostFilterMenu('flt-product-status')">Статус: все</button>
+<div id="flt-product-status-menu" class="cost-filter-panel"></div>
+</div>
+<div class="cost-filter-menu" data-filter-id="flt-tags">
+<select id="flt-tags" class="cost-filter-select" multiple></select>
+<button type="button" class="cost-filter-button" onclick="toggleCostFilterMenu('flt-tags')">Теги: все</button>
+<div id="flt-tags-menu" class="cost-filter-panel"></div>
+</div>
+<select id="flt-has-cost" class="cost-filter-native" onchange="applyCostFilters()"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
 <input type="text" id="cost-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
-<button id="cost-collapse-all-btn" onclick="setCostTreeOpen(false)" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Схлопнуть все</button>
-<button id="cost-expand-all-btn" onclick="setCostTreeOpen(true)" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Раскрыть все</button>
-<button id="cost-reset-filters" type="button" onclick="clearCostFilters(event)" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сбросить</button>
+<button id="cost-tree-toggle-btn" class="cost-tree-toggle" type="button" onclick="toggleCostTreeOpen()">Раскрыть по размерам</button>
+<button id="cost-reset-filters" type="button" onclick="clearCostFilters(event)" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сброс фильтров</button>
 </div>
 
 <!-- Таблица -->
@@ -2540,6 +2568,7 @@ function updateReferenceStatusControls() {
         });
         statusSelect.innerHTML = opts.join('');
         setMultiSelectValues(statusSelect, selected);
+        renderCostFilterMenu('flt-product-status');
     }
     if (typeof costTabulator !== 'undefined' && costTabulator) {
         costTabulator.updateColumnDefinition('product_status', {
@@ -2585,7 +2614,7 @@ function addReferenceProductStatus() {
     }
     updateReferenceStatusControls();
     const statusSelect = document.getElementById('flt-product-status');
-    if (statusSelect) statusSelect.value = status;
+    if (statusSelect) setMultiSelectValues(statusSelect, [status]);
     const bulkField = document.getElementById('bulk-field');
     if (bulkField && bulkField.value === 'product_status') onBulkFieldChange();
     showToast('✅ Статус добавлен: ' + status);
@@ -2629,6 +2658,7 @@ function onTaxSystemChange() {
 
 function onTaxSettingsChange() {
     updateTaxColHeader();
+    applyVatTypeToCostRows({silent: true});
 }
 
 function updateTaxColHeader() {
@@ -2682,11 +2712,47 @@ function applyTaxToAll() {
     var taxRate = parseFloat(document.getElementById('tax-rate-input').value) || 0;
     var vatSel = document.getElementById('vat-type-select').value;
     var vatNum = vatSel === '5%' ? 5 : vatSel === '7%' ? 7 : 0;
-    var rows = costTabulator.getData();
-    costTabulator.updateData(rows.map(function(r) {
-        return { _id: r._id, _tax_rate_override: taxRate, vat_rate: vatNum };
-    }));
+    applyTaxToCostRows(taxRate, vatNum);
     showToast('\u041d\u0430\u043b\u043e\u0433 ' + taxRate + '% \u0438 \u041d\u0414\u0421 ' + (vatNum ? vatNum + '%' : '\u043d\u0435\u0442') + ' \u043f\u0440\u0438\u043c\u0435\u043d\u0435\u043d\u044b \u043a\u043e \u0432\u0441\u0435\u043c');
+}
+
+function getVatNumFromSettings() {
+    var vatSel = document.getElementById('vat-type-select')?.value || 'нет';
+    return vatSel === '5%' ? 5 : vatSel === '7%' ? 7 : 0;
+}
+
+function applyVatTypeToCostRows(options) {
+    if (!costTabulator) return;
+    applyTaxToCostRows(null, getVatNumFromSettings(), options);
+}
+
+function applyTaxToCostRows(taxRate, vatNum, options) {
+    if (!costTabulator) return;
+    options = options || {};
+    var topRows = costTabulator.getData();
+    var rowsForSave = (typeof costRowsForSave === 'function') ? costRowsForSave() : topRows;
+    rowsForSave.forEach(function(row) {
+        if (taxRate !== null && taxRate !== undefined) {
+            row._tax_rate_override = taxRate;
+            if (typeof costMarkEdited === 'function') costMarkEdited(row, '_tax_rate_override', false);
+        }
+        row.vat_rate = vatNum;
+        if (typeof costMarkEdited === 'function') costMarkEdited(row, 'vat_rate', false);
+        if (typeof costNowEditDateDisplay === 'function') row.change_date = costNowEditDateDisplay();
+    });
+    topRows.forEach(function(row) {
+        if (taxRate !== null && taxRate !== undefined) row._tax_rate_override = taxRate;
+        row.vat_rate = vatNum;
+        if (row._children) {
+            row._children.forEach(function(child) {
+                if (taxRate !== null && taxRate !== undefined) child._tax_rate_override = taxRate;
+                child.vat_rate = vatNum;
+            });
+        }
+    });
+    _costDirty = true;
+    costTabulator.replaceData(topRows);
+    if (!options.silent) costTabulator.redraw(true);
 }
 
 function showToast(msg, type) {
@@ -2748,6 +2814,7 @@ function populateCostFilterOptions() {
         [...vals].sort().forEach(v => opts.push('<option value="' + esc(v) + '">' + esc(v) + '</option>'));
         el.innerHTML = opts.join('');
         setMultiSelectValues(el, selected);
+        renderCostFilterMenu(id);
     };
     fillSel('flt-product-class', classes, 'Класс: все');
     fillSel('flt-brand', brands, 'Бренд: все');
@@ -2770,6 +2837,59 @@ function setMultiSelectValues(el, values) {
         if (opt.selected) hasSelected = true;
     });
     if (!hasSelected) selectCostAllOption(el);
+    renderCostFilterMenu(el.id);
+}
+
+function getCostFilterLabel(id) {
+    return {
+        'flt-product-class': 'Класс',
+        'flt-brand': 'Бренд',
+        'flt-product-status': 'Статус',
+        'flt-tags': 'Теги'
+    }[id] || 'Фильтр';
+}
+
+function renderCostFilterMenu(id) {
+    const select = document.getElementById(id);
+    const panel = document.getElementById(id + '-menu');
+    const wrap = document.querySelector('.cost-filter-menu[data-filter-id="' + id + '"]');
+    const btn = wrap ? wrap.querySelector('.cost-filter-button') : null;
+    if (!select || !panel || !btn) return;
+    const label = getCostFilterLabel(id);
+    const selected = getMultiSelectValues(select);
+    const opts = Array.from(select.options || []);
+    btn.textContent = selected.length ? label + ': ' + selected.length : label + ': все';
+    panel.innerHTML = opts.map(function(opt) {
+        const checked = opt.value === '' ? !selected.length : selected.indexOf(opt.value) !== -1;
+        return '<label class="cost-filter-option" title="' + esc(opt.textContent || opt.value) + '">' +
+            '<input type="checkbox" data-filter-option="' + esc(opt.value) + '"' + (checked ? ' checked' : '') + '>' +
+            '<span>' + esc(opt.textContent || opt.value) + '</span>' +
+            '</label>';
+    }).join('');
+}
+
+function toggleCostFilterMenu(id) {
+    const wrap = document.querySelector('.cost-filter-menu[data-filter-id="' + id + '"]');
+    if (!wrap) return;
+    document.querySelectorAll('.cost-filter-menu.open').forEach(function(item) {
+        if (item !== wrap) item.classList.remove('open');
+    });
+    renderCostFilterMenu(id);
+    wrap.classList.toggle('open');
+}
+
+function setCostFilterOption(id, value, checked) {
+    const select = document.getElementById(id);
+    if (!select) return;
+    if (value === '') {
+        selectCostAllOption(select);
+    } else {
+        const values = new Set(getMultiSelectValues(select));
+        if (checked) values.add(value); else values.delete(value);
+        setMultiSelectValues(select, Array.from(values));
+    }
+    renderCostFilterMenu(id);
+    applyCostFilters();
 }
 
 function getRawMultiSelectValues(el) {
@@ -2786,6 +2906,7 @@ function selectCostAllOption(el) {
     } else {
         el.selectedIndex = -1;
     }
+    renderCostFilterMenu(el.id);
 }
 
 function rememberCostMultiSelect(el, event) {
@@ -2866,14 +2987,28 @@ function clearCostFilters(event) {
     if (typeof costTabulator !== 'undefined' && costTabulator && typeof costTabulator.clearFilter === 'function') {
         costTabulator.clearFilter(true);
     }
+    ['flt-product-class', 'flt-brand', 'flt-product-status', 'flt-tags'].forEach(renderCostFilterMenu);
     applyCostFilters();
 }
 
 document.addEventListener('click', function(event) {
     const btn = event.target && event.target.closest ? event.target.closest('#cost-reset-filters') : null;
-    if (!btn) return;
-    clearCostFilters(event);
-}, true);
+    if (btn) {
+        return;
+    }
+    const option = event.target && event.target.closest ? event.target.closest('[data-filter-option]') : null;
+    if (option) {
+        const wrap = option.closest('.cost-filter-menu');
+        if (!wrap) return;
+        setCostFilterOption(wrap.dataset.filterId, option.getAttribute('data-filter-option'), option.checked);
+        event.stopPropagation();
+        return;
+    }
+    const menu = event.target && event.target.closest ? event.target.closest('.cost-filter-menu') : null;
+    if (!menu) {
+        document.querySelectorAll('.cost-filter-menu.open').forEach(function(item) { item.classList.remove('open'); });
+    }
+});
 
 function applyCostFilters() {
     const search = (document.getElementById('cost-search')?.value || '').toLowerCase();
