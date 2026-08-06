@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Скрипт сбора сезонности из Evirma API
 
-v2: с расчётом коэффициентов долей и антибаном
+v2: с расчётом коэффициентов к среднему месяцу и антибаном
 """
 import asyncio
 import logging
@@ -48,16 +48,16 @@ def is_valid_keyword(keyword: str) -> bool:
 
 
 def calculate_seasonality_coefficients(freq_history_monthly: Optional[List[List[int]]]) -> Optional[Dict[str, float]]:
-    """Рассчитать коэффициенты сезонности как доли от годовой суммы
+    """Рассчитать коэффициенты сезонности относительно среднего месяца
     
     Логика:
     1. Берём freq_history_monthly из ответа Evirma
     2. Формат: [[month_num, "YYYY-MM-DD", freq], ...]
     3. Отбрасываем последний неполный месяц (текущий месяц - июль 2026)
     4. Берём 12 фактических месяцев
-    5. Суммируем freq по 12 месяцам = годовой объём
-    6. Доля месяца = month_freq / sum_12 × 100 (2 знака)
-    7. Сумма всех 12 долей = ~100%
+    5. Суммируем freq по 12 месяцам и считаем средний месяц
+    6. Коэффициент месяца = month_freq / average_month_freq
+    7. Среднее значение 12 коэффициентов = ~1.0
     """
     if not freq_history_monthly or len(freq_history_monthly) < 12:
         return None
@@ -75,19 +75,23 @@ def calculate_seasonality_coefficients(freq_history_monthly: Optional[List[List[
     if total_freq == 0:
         return None
     
-    # Рассчитываем доли в процентах
+    average_month_freq = total_freq / 12
+    if average_month_freq == 0:
+        return None
+
+    # Рассчитываем коэффициенты относительно среднего месяца: ровный месяц = 1.0
     coefficients = {}
     for point in last_12:
         if len(point) >= 3:
             month_num = point[0]
             freq = point[2]
-            percentage = (freq / total_freq) * 100
-            coefficients[str(month_num)] = round(percentage, 2)
+            coefficient = freq / average_month_freq
+            coefficients[str(month_num)] = round(coefficient, 2)
     
-    # Проверяем, что сумма примерно 100%
-    total_pct = sum(coefficients.values())
-    if abs(total_pct - 100.0) > 1.0:
-        _log.warning(f"Seasonality coefficients sum to {total_pct:.2f}%, expected ~100%")
+    # Проверяем, что сумма примерно 12: средний коэффициент за год около 1.0.
+    total_coeff = sum(coefficients.values())
+    if abs(total_coeff - 12.0) > 1.0:
+        _log.warning(f"Seasonality coefficients sum to {total_coeff:.2f}, expected ~12")
     
     return coefficients
 

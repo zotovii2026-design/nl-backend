@@ -176,18 +176,18 @@ async def _reset_product_seasonality(org_id: str, nm_ids: list[int]):
         reset_result = await db.execute(text("""
             UPDATE reference_book
             SET
-                season_jan = 8.33,
-                season_feb = 8.33,
-                season_mar = 8.33,
-                season_apr = 8.33,
-                season_may = 8.33,
-                season_jun = 8.33,
-                season_jul = 8.33,
-                season_aug = 8.33,
-                season_sep = 8.33,
-                season_oct = 8.33,
-                season_nov = 8.33,
-                season_dec = 8.33
+                season_jan = 1.00,
+                season_feb = 1.00,
+                season_mar = 1.00,
+                season_apr = 1.00,
+                season_may = 1.00,
+                season_jun = 1.00,
+                season_jul = 1.00,
+                season_aug = 1.00,
+                season_sep = 1.00,
+                season_oct = 1.00,
+                season_nov = 1.00,
+                season_dec = 1.00
             WHERE organization_id = :org_id
               AND nm_id IN (""" + _nm_ids_in_sql(nm_ids) + """)
         """), {"org_id": org_id})

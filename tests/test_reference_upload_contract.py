@@ -77,7 +77,7 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "nm_ids: Optional[list[int]] = None" in seasonality_task
     assert "await collect_keywords(org_id, test_mode=False, dry_run=False, nm_ids=nm_ids)" in seasonality_task
     assert "_reset_product_seasonality" in seasonality_task
-    assert "season_jan = 8.33" in seasonality_task
+    assert "season_jan = 1.00" in seasonality_task
     assert "await calculate_products(org_id, dry_run=False, nm_ids=nm_ids)" in seasonality_task
     assert "_nm_ids_in_sql" in seasonality_task
     assert "AND rb.nm_id IN" in seasonality_task
@@ -102,7 +102,9 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "function resetCostEditTracking()" in cost_grid
     assert "_top_query_edited: topQueryEdited(data)" in cost_grid
     assert "field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3'" in cost_grid
-    assert "cost-grid.js?v=20260805-edit-date" in dashboard
+    assert "cost-grid.js?v=20260806-season-spark" in dashboard
+    assert "function costSeasonalityFormatter" in cost_grid
+    assert "function costOpenSeasonalityEditor" in cost_grid
     assert 'id="cost-save-btn"' in dashboard
     assert "_costSaving" in dashboard
     assert "СОХРАНЯЮ..." in dashboard
@@ -127,4 +129,5 @@ def test_reference_tags_and_collapsed_article_tree_are_wired():
     assert "costTagsEditor" in cost_grid
     assert "splitReferenceTags" in dashboard
     assert "getMultiSelectValues" in dashboard
-    assert 'id="flt-product-status" multiple' in dashboard
+    assert 'id="flt-product-status"' in dashboard
+    assert '<select id="flt-product-status" class="cost-filter-select" multiple>' in dashboard

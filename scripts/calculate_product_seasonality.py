@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Скрипт расчёта усреднённой сезонности товаров
+"""Скрипт расчёта взвешенной сезонности товаров
 
-Читает сезонность ключевых слов и считает среднее по каждому товару.
+Читает сезонность ключевых слов и считает профиль по top_query_1..3.
 """
 import asyncio
 import logging
@@ -98,39 +98,67 @@ async def get_keyword_coefficients(org_id: str, keywords: List[str], days_back: 
         return coeffs
 
 
-def average_coefficients(coefficients_list: List[Dict[str, float]]) -> Dict[str, float]:
-    """Усреднить коэффициенты по списку словарей
+def normalize_coefficients(coeffs: Dict[str, float]) -> Dict[str, float]:
+    """Привести коэффициенты к шкале: средний месяц = 1.0.
+
+    Старые записи хранили долю года в процентах и суммировались примерно в 100.
+    Новые записи суммируются примерно в 12. Поддерживаем оба формата, чтобы
+    пересчёт товаров не зависел от полного пересбора ключей.
+    """
+    normalized = {}
+    for month, value in coeffs.items():
+        try:
+            normalized[str(month)] = float(value)
+        except (TypeError, ValueError):
+            continue
+
+    total = sum(normalized.values())
+    if 90 <= total <= 110:
+        return {month: round(value / (100 / 12), 2) for month, value in normalized.items()}
+    return normalized
+
+
+def weights_for_keyword_count(count: int) -> List[float]:
+    if count <= 1:
+        return [1.0]
+    if count == 2:
+        return [0.7, 0.3]
+    return [0.5, 0.3, 0.2]
+
+
+def weighted_coefficients(coefficients_list: List[Dict[str, float]]) -> Dict[str, float]:
+    """Взвесить коэффициенты по порядку запросов в Справочнике
     
     Пример:
-    [{"1": 4.7, "12": 16.0}, {"1": 5.3, "12": 14.2}]
-    -> {"1": 5.0, "12": 15.1}
+    [{"1": 0.1, "12": 6.0}, {"1": 0.2, "12": 5.0}]
+    -> при весах 70/30 {"1": 0.13, "12": 5.7}
     """
     if not coefficients_list:
         return {}
-    
-    # Собираем суммы по каждому месяцу
+
+    normalized_list = [normalize_coefficients(coeffs) for coeffs in coefficients_list]
+    weights = weights_for_keyword_count(len(normalized_list))
     sums = {}
-    counts = {}
-    
-    for coeffs in coefficients_list:
+    weight_sums = {}
+
+    for idx, coeffs in enumerate(normalized_list):
+        weight = weights[idx] if idx < len(weights) else 0
         for month, value in coeffs.items():
             if month not in sums:
                 sums[month] = 0.0
-                counts[month] = 0
-            sums[month] += value
-            counts[month] += 1
-    
-    # Считаем среднее
-    avg = {}
+                weight_sums[month] = 0.0
+            sums[month] += value * weight
+            weight_sums[month] += weight
+
+    result = {}
     for month in sums:
-        avg[month] = round(sums[month] / counts[month], 2)
-    
-    # Проверяем сумму
-    total = sum(avg.values())
-    if abs(total - 100.0) > 2.0:
-        _log.warning(f"Averaged coefficients sum to {total:.2f}%, expected ~100%")
-    
-    return avg
+        result[month] = round(sums[month] / weight_sums[month], 2)
+
+    total = sum(result.values())
+    if abs(total - 12.0) > 2.0:
+        _log.warning(f"Weighted coefficients sum to {total:.2f}, expected ~12")
+
+    return result
 
 
 async def save_product_seasonality(product: Dict, coefficients: Dict[str, float], source_keywords: List[str], dry_run: bool = False) -> bool:
@@ -202,8 +230,8 @@ async def calculate_product_seasonality(
         
         # Берём коэффициенты для каждого ключевого слова
         
-        # Усредняем
-        avg_coeffs = average_coefficients(coeffs_list)
+        # Взвешиваем: первый запрос самый важный, второй/третий уточняют профиль.
+        avg_coeffs = weighted_coefficients(coeffs_list)
         
         # Сохраняем
         if await save_product_seasonality(product, avg_coeffs, valid_keywords, dry_run):

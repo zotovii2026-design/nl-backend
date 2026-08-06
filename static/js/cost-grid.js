@@ -44,6 +44,21 @@ const COST_CHANGE_DATE_FIELDS = [
 const COST_SAVE_FIELD_ALIASES = {
     '_tax_rate_override': 'tax_rate',
 };
+const COST_SEASON_MONTHS = [
+    ['jan', 'янв', 'season_jan'],
+    ['feb', 'фев', 'season_feb'],
+    ['mar', 'мар', 'season_mar'],
+    ['apr', 'апр', 'season_apr'],
+    ['may', 'май', 'season_may'],
+    ['jun', 'июн', 'season_jun'],
+    ['jul', 'июл', 'season_jul'],
+    ['aug', 'авг', 'season_aug'],
+    ['sep', 'сен', 'season_sep'],
+    ['oct', 'окт', 'season_oct'],
+    ['nov', 'ноя', 'season_nov'],
+    ['dec', 'дек', 'season_dec'],
+];
+const COST_SEASON_BARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 function costEscapeHtml(value) {
     return String(value ?? '')
@@ -273,6 +288,100 @@ function updateCostTreeToggleButton() {
     const toggleBtn = document.getElementById('cost-tree-toggle-btn');
     if (!toggleBtn) return;
     toggleBtn.textContent = _costTreeOpen ? 'Скрыть размеры' : 'Раскрыть по размерам';
+}
+
+function costSeasonNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const n = parseFloat(String(value).replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+}
+
+function costSeasonValues(data) {
+    return COST_SEASON_MONTHS.map(function(month) {
+        return costSeasonNumber(data[month[2]]);
+    });
+}
+
+function costSeasonBar(value) {
+    if (value === null || value <= 0.25) return '▁';
+    if (value <= 0.5) return '▂';
+    if (value <= 0.8) return '▃';
+    if (value <= 1.2) return '▄';
+    if (value <= 1.8) return '▅';
+    if (value <= 2.8) return '▆';
+    if (value <= 4.5) return '▇';
+    return '█';
+}
+
+function costFormatSeasonValue(value) {
+    if (value === null) return '—';
+    const rounded = Math.round(value * 10) / 10;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function costSeasonalityFormatter(cell) {
+    const data = cell.getRow().getData();
+    const values = costSeasonValues(data);
+    const filled = values.filter(function(v) { return v !== null; });
+    if (!filled.length) {
+        return '<div class="cost-season-spark empty">—</div>';
+    }
+    const labels = COST_SEASON_MONTHS.map(function(month) { return '<span>' + month[1] + '</span>'; }).join('');
+    const bars = values.map(function(v) { return '<span>' + costSeasonBar(v) + '</span>'; }).join('');
+    const nums = values.map(function(v) { return '<span>' + costFormatSeasonValue(v) + '</span>'; }).join('');
+    return '<div class="cost-season-spark" title="Клик — редактировать коэффициенты сезонности">' +
+        '<div class="cost-season-months">' + labels + '</div>' +
+        '<div class="cost-season-bars">' + bars + '</div>' +
+        '<div class="cost-season-values">' + nums + '</div>' +
+    '</div>';
+}
+
+function costOpenSeasonalityEditor(cell) {
+    const row = cell.getRow();
+    const data = row.getData();
+    const existing = document.querySelector('.cost-season-editor');
+    if (existing) existing.remove();
+
+    const popup = document.createElement('div');
+    popup.className = 'cost-season-editor';
+    popup.innerHTML = '<div class="cost-season-editor-head">' +
+        '<b>Коэффициенты сезонности</b>' +
+        '<button type="button" class="cost-season-editor-close" title="Закрыть">×</button>' +
+        '</div>' +
+        '<div class="cost-season-editor-grid">' +
+        COST_SEASON_MONTHS.map(function(month) {
+            const value = data[month[2]];
+            return '<label><span>' + month[1] + '</span><input type="number" step="0.1" min="0" data-season-field="' + month[2] + '" value="' + (value === null || value === undefined ? '' : value) + '"></label>';
+        }).join('') +
+        '</div>' +
+        '<div class="cost-season-editor-actions">' +
+        '<button type="button" class="cost-season-apply">Применить</button>' +
+        '</div>';
+    document.body.appendChild(popup);
+
+    const rect = cell.getElement().getBoundingClientRect();
+    popup.style.left = Math.min(rect.left + window.scrollX, window.scrollX + window.innerWidth - 520) + 'px';
+    popup.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+
+    const close = function() { popup.remove(); };
+    popup.querySelector('.cost-season-editor-close').addEventListener('click', close);
+    popup.querySelector('.cost-season-apply').addEventListener('click', function() {
+        const update = {};
+        popup.querySelectorAll('[data-season-field]').forEach(function(input) {
+            const field = input.getAttribute('data-season-field');
+            const value = costSeasonNumber(input.value);
+            update[field] = value;
+        });
+        row.update(update).then(function() {
+            Object.keys(update).forEach(function(field) {
+                data[field] = update[field];
+                costMarkEdited(data, field, false);
+                costPropagateField(row, field, update[field]);
+            });
+            _costDirty = true;
+            close();
+        });
+    });
 }
 
 // Конфигурация колонок справочника
@@ -506,30 +615,19 @@ function getCostColumns() {
         {
             title: '📊 Коэффициент сезонности',
             columns: [
-                { title: 'янв', field: 'season_jan',
-                    headerTooltip: 'Коэфф. сезонности — Январь', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'фев', field: 'season_feb',
-                    headerTooltip: 'Коэфф. сезонности — Февраль', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'мар', field: 'season_mar',
-                    headerTooltip: 'Коэфф. сезонности — Март', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'апр', field: 'season_apr',
-                    headerTooltip: 'Коэфф. сезонности — Апрель', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'май', field: 'season_may',
-                    headerTooltip: 'Коэфф. сезонности — Май', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'июн', field: 'season_jun',
-                    headerTooltip: 'Коэфф. сезонности — Июнь', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'июл', field: 'season_jul',
-                    headerTooltip: 'Коэфф. сезонности — Июль', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'авг', field: 'season_aug',
-                    headerTooltip: 'Коэфф. сезонности — Август', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'сен', field: 'season_sep',
-                    headerTooltip: 'Коэфф. сезонности — Сентябрь', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'окт', field: 'season_oct',
-                    headerTooltip: 'Коэфф. сезонности — Октябрь', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'ноя', field: 'season_nov',
-                    headerTooltip: 'Коэфф. сезонности — Ноябрь', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'дек', field: 'season_dec',
-                    headerTooltip: 'Коэфф. сезонности — Декабрь', width: 40, editor: 'number', cssClass: 'season-cell' },
+                {
+                    title: 'график / цифры',
+                    field: '_seasonality_view',
+                    headerTooltip: 'Сезонность: сверху месяцы, ниже график и коэффициенты. Клик — редактировать.',
+                    width: 440,
+                    minWidth: 390,
+                    headerSort: false,
+                    cssClass: 'season-cell season-spark-cell',
+                    formatter: costSeasonalityFormatter,
+                    cellClick: function(e, cell) {
+                        costOpenSeasonalityEditor(cell);
+                    },
+                },
             ]
         },
 
@@ -724,7 +822,7 @@ function initCostTabulator(data) {
     if (!document.getElementById('cost-header-style')) {
         const style = document.createElement('style');
         style.id = 'cost-header-style';
-        style.textContent = '.tabulator-col-title { font-size: 8px !important; line-height: 1.1 !important; padding: 2px 4px !important; } .tabulator-col .tabulator-col-content { padding: 2px 4px !important; } .tabulator-cell { font-size: 11px !important; } .truncate-cell .tabulator-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; } .truncate-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }';
+        style.textContent = '.tabulator-col-title { font-size: 8px !important; line-height: 1.1 !important; padding: 2px 4px !important; } .tabulator-col .tabulator-col-content { padding: 2px 4px !important; } .tabulator-cell { font-size: 11px !important; } .truncate-cell .tabulator-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; } .truncate-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; } .season-spark-cell { padding: 3px 6px !important; } .cost-season-spark { min-width: 370px; font-size: 9px; line-height: 1.15; color: #333; cursor: pointer; } .cost-season-spark.empty { color: #999; text-align: center; } .cost-season-months, .cost-season-bars, .cost-season-values { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; text-align: center; white-space: nowrap; } .cost-season-months { color: #777; font-size: 8px; } .cost-season-bars { color: #6c5ce7; font-size: 14px; line-height: 1; margin: 1px 0; } .cost-season-values { color: #222; font-size: 9px; font-variant-numeric: tabular-nums; } .cost-season-editor { position: absolute; z-index: 10020; width: 500px; max-width: calc(100vw - 24px); background: #fff; border: 1px solid #d9dce3; border-radius: 6px; box-shadow: 0 10px 26px rgba(0,0,0,.18); padding: 10px; box-sizing: border-box; } .cost-season-editor-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 12px; } .cost-season-editor-close { border: 0; background: transparent; font-size: 18px; line-height: 1; cursor: pointer; color: #777; } .cost-season-editor-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; } .cost-season-editor-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 10px; color: #666; } .cost-season-editor-grid input { width: 100%; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px; padding: 4px 5px; font-size: 12px; } .cost-season-editor-actions { display: flex; justify-content: flex-end; margin-top: 10px; } .cost-season-apply { border: 1px solid #6c5ce7; background: #6c5ce7; color: #fff; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; }';
         document.head.appendChild(style);
     }
 
