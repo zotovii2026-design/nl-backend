@@ -738,6 +738,11 @@ var _sectionHTML = {
 
 </optgroup>
 </select>
+<select id="bulk-tags-action" style="display:none;border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;background:#fff;color:#333">
+<option value="add">Добавить тег</option>
+<option value="remove">Удалить тег</option>
+<option value="replace">Заменить теги</option>
+</select>
 <input type="text" id="bulk-value" placeholder="Значение" style="border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:#fff;color:#333">
 <button onclick="applyBulkEdit()" style="background:#00b894;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer;font-weight:600">✅ Применить</button>
 <button onclick="clearBulkSelection()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:.85em;cursor:pointer">Снять выделение</button>
@@ -3273,7 +3278,11 @@ function clearBulkSelection() {
 function onBulkFieldChange() {
     const field = document.getElementById('bulk-field').value;
     const container = document.getElementById('bulk-value');
+    const tagAction = document.getElementById('bulk-tags-action');
     const parentEl = container.parentNode;
+    if (tagAction) tagAction.style.display = field === 'tags' ? '' : 'none';
+    if (field === 'tags') container.placeholder = 'тег1, тег2';
+    else if (container.tagName !== 'SELECT') container.placeholder = 'Значение';
 
     // Values for list-type fields (must match cost-grid.js editorParams)
     const listValues = {
@@ -3301,10 +3310,48 @@ function onBulkFieldChange() {
             const inp = document.createElement('input');
             inp.type = 'text';
             inp.id = 'bulk-value';
-            inp.placeholder = 'Значение';
+            inp.placeholder = field === 'tags' ? 'тег1, тег2' : 'Значение';
             inp.style.cssText = 'border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:4px 8px;font-size:.9em;width:120px;background:#fff;color:#333';
             parentEl.replaceChild(inp, container);
         }
+    }
+}
+
+function normalizeBulkTags(value) {
+    if (typeof costTagsToString === 'function') return costTagsToString(value);
+    return splitReferenceTags(value).join(', ');
+}
+
+function removeBulkTags(existing, removeValue) {
+    const removeSet = new Set(splitReferenceTags(removeValue).map(function(tag) { return tag.toLowerCase(); }));
+    return splitReferenceTags(existing).filter(function(tag) {
+        return !removeSet.has(tag.toLowerCase());
+    }).join(', ');
+}
+
+function addBulkTags(existing, addValue) {
+    const seen = new Set();
+    const result = [];
+    splitReferenceTags(existing).concat(splitReferenceTags(addValue)).forEach(function(tag) {
+        const key = tag.toLowerCase();
+        if (!seen.has(key)) {
+            seen.add(key);
+            result.push(tag);
+        }
+    });
+    return result.join(', ');
+}
+
+function applyBulkValueToRow(row, field, value) {
+    const update = {};
+    update[field] = value;
+    row.update(update);
+    const data = row.getData();
+    if (typeof costMarkEdited === 'function') costMarkEdited(data, field, field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3');
+    if (typeof costPropagateField === 'function') costPropagateField(row, field, value);
+    if (typeof costFieldTouchesChangeDate === 'function' && costFieldTouchesChangeDate(field)) {
+        const changeDate = typeof costNowEditDateDisplay === 'function' ? costNowEditDateDisplay() : null;
+        if (changeDate) row.update({change_date: changeDate});
     }
 }
 
@@ -3323,17 +3370,30 @@ function applyBulkEdit() {
     if (!selectedRows.length) { alert('\u0412\u044b\u0434\u0435\u043b\u0438\u0442\u0435 \u0445\u043e\u0442\u044f \u0431\u044b \u043e\u0434\u043d\u0443 \u0441\u0442\u0440\u043e\u043a\u0443'); return; }
 
     const count = selectedRows.length;
-    if (!confirm('\u0417\u0430\u043f\u0438\u0441\u0430\u0442\u044c \u00ab' + value + '\u00bb \u0432 \u043f\u043e\u043b\u0435 \u00ab' + field + '\u00bb \u0434\u043b\u044f ' + count + ' \u0442\u043e\u0432\u0430\u0440\u043e\u0432?')) return;
+    const tagAction = document.getElementById('bulk-tags-action')?.value || 'add';
+    const actionLabel = field === 'tags'
+        ? (tagAction === 'remove' ? '\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0442\u0435\u0433' : tagAction === 'replace' ? '\u0417\u0430\u043c\u0435\u043d\u0438\u0442\u044c \u0442\u0435\u0433\u0438' : '\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0442\u0435\u0433')
+        : '\u0417\u0430\u043f\u0438\u0441\u0430\u0442\u044c';
+    if (!confirm(actionLabel + ' \u00ab' + value + '\u00bb \u0432 \u043f\u043e\u043b\u0435 \u00ab' + field + '\u00bb \u0434\u043b\u044f ' + count + ' \u0442\u043e\u0432\u0430\u0440\u043e\u0432?')) return;
 
-    // Применяем значение через Tabulator row.update — триггерит cellEdited и синхронизацию
-    const update = {};
-    update[field] = value;
     selectedRows.forEach(row => {
-        row.update(update);
+        let nextValue = value;
+        if (field === 'tags') {
+            const currentTags = row.getData().tags || '';
+            if (tagAction === 'remove') nextValue = removeBulkTags(currentTags, value);
+            else if (tagAction === 'replace') nextValue = normalizeBulkTags(value);
+            else nextValue = addBulkTags(currentTags, value);
+        }
+        applyBulkValueToRow(row, field, nextValue);
     });
 
     document.getElementById('bulk-field').value = '';
     document.getElementById('bulk-value').value = '';
+    const bulkTagsAction = document.getElementById('bulk-tags-action');
+    if (bulkTagsAction) {
+        bulkTagsAction.value = 'add';
+        bulkTagsAction.style.display = 'none';
+    }
 }
 
 
