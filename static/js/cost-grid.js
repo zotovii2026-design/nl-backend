@@ -58,6 +58,107 @@ const COST_SEASON_MONTHS = [
     ['nov', 'ноя', 'season_nov'],
     ['dec', 'дек', 'season_dec'],
 ];
+const COST_PREFS_VERSION = 1;
+
+function getCostPreferencesKey() {
+    let org = 'default';
+    if (typeof getCurrentOrgId === 'function') {
+        org = getCurrentOrgId() || org;
+    } else if (typeof ORG_ID !== 'undefined') {
+        org = ORG_ID || org;
+    }
+    return 'nl:reference:ui-prefs:v' + COST_PREFS_VERSION + ':' + org;
+}
+
+function costReadPreferences() {
+    try {
+        const raw = localStorage.getItem(getCostPreferencesKey());
+        const prefs = raw ? JSON.parse(raw) : {};
+        return prefs && typeof prefs === 'object' ? prefs : {};
+    } catch(e) {
+        console.warn('costReadPreferences', e);
+        return {};
+    }
+}
+
+function costWritePreferences(patch) {
+    try {
+        const prefs = Object.assign({}, costReadPreferences(), patch || {});
+        localStorage.setItem(getCostPreferencesKey(), JSON.stringify(prefs));
+    } catch(e) {
+        console.warn('costWritePreferences', e);
+    }
+}
+
+function costColumnKey(def) {
+    return def.costGroupKey || def.field || def.title || '';
+}
+
+function costApplySavedColumnOrder(columns) {
+    const prefs = costReadPreferences();
+    const saved = prefs.columns || {};
+    const groupOrder = Array.isArray(saved.groupOrder) ? saved.groupOrder : [];
+    const childOrder = saved.childOrder && typeof saved.childOrder === 'object' ? saved.childOrder : {};
+    const byKey = {};
+
+    columns.forEach(function(col) {
+        const key = costColumnKey(col);
+        if (key) byKey[key] = col;
+        if (col.columns && childOrder[key]) {
+            const childByKey = {};
+            col.columns.forEach(function(child) {
+                const childKey = costColumnKey(child);
+                if (childKey) childByKey[childKey] = child;
+            });
+            const orderedChildren = [];
+            childOrder[key].forEach(function(childKey) {
+                if (childByKey[childKey]) orderedChildren.push(childByKey[childKey]);
+            });
+            col.columns.forEach(function(child) {
+                if (orderedChildren.indexOf(child) === -1) orderedChildren.push(child);
+            });
+            col.columns = orderedChildren;
+        }
+    });
+
+    const ordered = [];
+    groupOrder.forEach(function(key) {
+        if (byKey[key]) ordered.push(byKey[key]);
+    });
+    columns.forEach(function(col) {
+        if (ordered.indexOf(col) === -1) ordered.push(col);
+    });
+    return ordered;
+}
+
+function costSaveColumnPreferences() {
+    if (!costTabulator) return;
+    const defs = costTabulator.getColumnDefinitions();
+    const columns = {
+        groupOrder: [],
+        childOrder: {},
+    };
+    defs.forEach(function(def) {
+        const key = costColumnKey(def);
+        if (!key) return;
+        columns.groupOrder.push(key);
+        if (def.columns && def.columns.length) {
+            columns.childOrder[key] = def.columns.map(costColumnKey).filter(Boolean);
+        }
+    });
+    costWritePreferences({ columns: columns });
+}
+
+function resetCostViewPreferences() {
+    try {
+        localStorage.removeItem(getCostPreferencesKey());
+    } catch(e) {
+        console.warn('resetCostViewPreferences', e);
+    }
+    if (typeof clearCostFilters === 'function') clearCostFilters(null, false);
+    else if (typeof applyCostFilters === 'function') applyCostFilters();
+    if (typeof showToast === 'function') showToast('✅ Вид справочника сброшен');
+}
 
 function costEscapeHtml(value) {
     return String(value ?? '')
@@ -387,6 +488,7 @@ function getCostColumns() {
         // === Чекбокс ===
         {
             title: '☑',
+            costGroupKey: '_selected',
             field: '_selected',
             width: 40,
             headerSort: false,
@@ -412,6 +514,7 @@ function getCostColumns() {
         // === 📌 Основное ===
         {
             title: '📌 Основное',
+            costGroupKey: 'main',
             columns: [
                 {
                     title: 'Статус товара', field: 'product_status',
@@ -499,6 +602,7 @@ function getCostColumns() {
         // === 🚚 Логистика ===
         {
             title: '🚚 Логистика',
+            costGroupKey: 'logistics',
             columns: [
                 {
                     title: 'Отгрузка', field: 'fulfillment_model',
@@ -538,6 +642,7 @@ function getCostColumns() {
         // === 💰 Себестоимость ===
         {
             title: '💰 Себестоимость',
+            costGroupKey: 'cost',
             columns: [
                 { title: 'Себестоимость ₽', field: 'cost_price',
                     headerTooltip: 'Себестоимость, ₽', width: 100, editor: 'number', headerSort: true,
@@ -579,6 +684,7 @@ function getCostColumns() {
         // === 📐 Габариты ПЛАН ===
         {
             title: '📐 Габариты ПЛАН',
+            costGroupKey: 'plan_dims',
             columns: [
                 { title: 'Длина', field: 'plan_length',
                     headerTooltip: 'Длина (ПЛАН), см', width: 50, editor: 'number', editorParams: {step:0.1,min:0} },
@@ -598,6 +704,7 @@ function getCostColumns() {
         // === 📐 Габариты ФАКТ ===
         {
             title: '📐 Габариты ФАКТ',
+            costGroupKey: 'fact_dims',
             columns: [
                 { title: 'Д×Ш×В', field: '_fact_dims',
                     headerTooltip: 'Габариты ФАКТ (Д×Ш×В)', width: 70, tooltip: true, headerSort: false, formatter: 'plaintext' },
@@ -611,6 +718,7 @@ function getCostColumns() {
         // === 📊 Сезонность (неделимый блок) ===
         {
             title: '📊 Коэффициент сезонности',
+            costGroupKey: 'seasonality',
             columns: [
                 {
                     title: 'график / цифры',
@@ -631,6 +739,7 @@ function getCostColumns() {
         // === 🔍 ТОП запросы ===
         {
             title: '🔍 ТОП запросы',
+            costGroupKey: 'top_queries',
             columns: [
                 { title: '1', field: 'top_query_1',
                     headerTooltip: 'ТОП запрос #1', width: 70, editor: 'input', tooltip: true, cssClass: 'topquery-cell truncate-cell' },
@@ -644,6 +753,7 @@ function getCostColumns() {
         // === 🎯 Расчёты ===
         {
             title: '🎯 Расчёты',
+            costGroupKey: 'calculations',
             columns: [
                 { title: '% выкупа по кат.', field: 'buyout_niche_pct',
                     headerTooltip: '% выкупа по категории', width: 65, editor: 'number', headerSort: true },
@@ -826,7 +936,7 @@ function initCostTabulator(data) {
     costTabulator = new Tabulator("#cost-tabulator", {
 
         data: data,
-        columns: getCostColumns(),
+        columns: costApplySavedColumnOrder(getCostColumns()),
         layout: "fitDataFill",
         index: "_id",
         movableColumns: true,
@@ -921,7 +1031,10 @@ function initCostTabulator(data) {
 
         // Сохраняем порядок колонок при перемещении
         columnMoved: function(column, columns) {
-            NLGrid.saveColumnOrder(costTabulator, 'costprice');
+            costSaveColumnPreferences();
+            if (typeof NLGrid !== 'undefined' && NLGrid.saveColumnOrder) {
+                NLGrid.saveColumnOrder(costTabulator, 'costprice');
+            }
         },
 
         // Кастомные стили строк

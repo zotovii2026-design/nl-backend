@@ -181,7 +181,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/stats-grid.js?v=20260729-entities5"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260803-reference-style-tree"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260806-season-scale"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260806-reference-prefs"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
@@ -691,6 +691,7 @@ var _sectionHTML = {
 <select id="flt-has-cost" class="cost-filter-native" onchange="applyCostFilters()"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
 <input type="text" id="cost-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
 <button id="cost-tree-toggle-btn" class="cost-tree-toggle" type="button" onclick="toggleCostTreeOpen()">Раскрыть по размерам</button>
+<button type="button" onclick="resetCostViewPreferences()" title="Сбросить сохранённые фильтры и порядок колонок" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Сброс вида</button>
 <button id="cost-reset-filters" type="button" onclick="clearCostFilters(event)" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сброс фильтров</button>
 </div>
 
@@ -2492,6 +2493,7 @@ async function loadAnalytics() {
 let _costProducts = [];
 let _costMap = {};
 let _referenceProductStatuses = ['Новинка', 'Выводим', 'ТОП (А)', 'Двигаем (В)', 'Категория С', 'Планируется к запуску'];
+let _costRestoringFilters = false;
 
 function getReferenceStatusStorageKey() {
     return 'reference_product_statuses_' + (getCurrentOrgId() || ORG_ID || 'default');
@@ -2797,6 +2799,7 @@ async function loadCostPrices() {
         
         // Заполнить фильтры-дропдауны уникальными значениями
         populateCostFilterOptions();
+        restoreCostFilterPreferences();
         console.log("[CP] costMap:", Object.keys(_costMap).length);
         applyCostFilters();
     } catch(e) { console.error('loadCostPrices', e); }
@@ -2977,7 +2980,56 @@ function matchAnyTag(tags, selectedTags) {
     return selectedTags.some(function(tag) { return rowTags.indexOf(String(tag).toLowerCase()) !== -1; });
 }
 
-function clearCostFilters(event) {
+function getCostFilterState() {
+    return {
+        fulfillment: document.getElementById('flt-fulfillment')?.value || '',
+        productClass: getMultiSelectValues(document.getElementById('flt-product-class')),
+        brand: getMultiSelectValues(document.getElementById('flt-brand')),
+        productStatus: getMultiSelectValues(document.getElementById('flt-product-status')),
+        tags: getMultiSelectValues(document.getElementById('flt-tags')),
+        hasCost: document.getElementById('flt-has-cost')?.value || '',
+        search: document.getElementById('cost-search')?.value || '',
+    };
+}
+
+function setCostNativeFilterValue(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const exists = Array.from(el.options || []).some(function(option) {
+        return option.value === value;
+    });
+    el.value = exists ? value : '';
+}
+
+function setCostMultiFilterValues(id, values) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const available = new Set(Array.from(el.options || []).map(function(option) { return option.value; }));
+    setMultiSelectValues(el, (values || []).filter(function(value) { return available.has(value); }));
+    renderCostFilterMenu(id);
+}
+
+function saveCostFilterPreferences() {
+    if (_costRestoringFilters || typeof costWritePreferences !== 'function') return;
+    costWritePreferences({ filters: getCostFilterState() });
+}
+
+function restoreCostFilterPreferences() {
+    if (typeof costReadPreferences !== 'function') return;
+    const filters = costReadPreferences().filters || {};
+    _costRestoringFilters = true;
+    setCostNativeFilterValue('flt-fulfillment', filters.fulfillment || '');
+    setCostMultiFilterValues('flt-product-class', filters.productClass || []);
+    setCostMultiFilterValues('flt-brand', filters.brand || []);
+    setCostMultiFilterValues('flt-product-status', filters.productStatus || []);
+    setCostMultiFilterValues('flt-tags', filters.tags || []);
+    setCostNativeFilterValue('flt-has-cost', filters.hasCost || '');
+    const search = document.getElementById('cost-search');
+    if (search) search.value = filters.search || '';
+    _costRestoringFilters = false;
+}
+
+function clearCostFilters(event, saveState = true) {
     if (event && typeof event.preventDefault === 'function') event.preventDefault();
     if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
     [
@@ -2993,6 +3045,7 @@ function clearCostFilters(event) {
         costTabulator.clearFilter(true);
     }
     ['flt-product-class', 'flt-brand', 'flt-product-status', 'flt-tags'].forEach(renderCostFilterMenu);
+    if (saveState) saveCostFilterPreferences();
     applyCostFilters();
 }
 
@@ -3023,6 +3076,7 @@ function applyCostFilters() {
     const fltStatus = getMultiSelectValues(document.getElementById('flt-product-status'));
     const fltTags = getMultiSelectValues(document.getElementById('flt-tags'));
     const fltCost = document.getElementById('flt-has-cost')?.value || '';
+    saveCostFilterPreferences();
     
     let products = _costProducts;
     
