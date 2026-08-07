@@ -28,10 +28,9 @@ function getOrgId() {
 
 function getAdsProductFilterQuery() {
     var params = new URLSearchParams();
-    var productStatus = NLFilters.getValues(document.getElementById('ads-flt-status'));
-    var productClass = NLFilters.getValues(document.getElementById('ads-flt-class'));
-    var brand = NLFilters.getValues(document.getElementById('ads-flt-brand'));
-    var tags = NLFilters.getValues(document.getElementById('ads-flt-tags'));
+    var productStatus = typeof NLFilters !== 'undefined' ? NLFilters.getValues(document.getElementById('ads-flt-status')) : [];
+    var productClass = typeof NLFilters !== 'undefined' ? NLFilters.getValues(document.getElementById('ads-flt-class')) : [];
+    var brand = typeof NLFilters !== 'undefined' ? NLFilters.getValues(document.getElementById('ads-flt-brand')) : [];
     var search = (document.getElementById('ads-flt-search')?.value || '').trim();
     if (productStatus.length) params.set('product_status', productStatus[0]);
     if (productClass.length) params.set('product_class', productClass[0]);
@@ -421,6 +420,15 @@ function productMatchesAdsFilters(product, search, brands, statuses, productClas
         return tagsArr.some(function(t) { return pTags.indexOf(t) >= 0; });
     })();
     return matchSearch && matchBrand && matchStatus && matchClass && matchTags;
+}
+
+function applyAdsColumnFilters() {
+    if (typeof _adsCurrentView !== 'undefined' && _adsCurrentView === 'art') {
+        if (typeof filterAdsArtsLocally === 'function') filterAdsArtsLocally();
+    } else {
+        applyAdsFilters();
+    }
+    if (typeof saveAdsFilterPreferences === 'function') saveAdsFilterPreferences();
 }
 
 function applyAdsFilters() {
