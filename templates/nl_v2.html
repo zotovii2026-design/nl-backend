@@ -186,8 +186,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/nl-page-prefs.js?v=1"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260807-filters1"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260807-filters1"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260807-fixes2"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260807-fixes2"></script>
 <script type="text/javascript" src="/static/js/strategy-milestones.js?v=20260715a"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
 </head>
@@ -2969,7 +2969,14 @@ function clearCostFilters(event, saveState = true) {
 }
 
 // Инициализация общего click-handler для фильтров
-NLFilters.initGlobalClick(applyCostFilters);
+NLFilters.initGlobalClick(function(filterId) {
+    // Route to the correct page handler based on which filter was changed
+    if (filterId && filterId.indexOf('ads-flt') === 0) {
+        if (typeof applyAdsColumnFilters === 'function') applyAdsColumnFilters();
+    } else if (typeof applyCostFilters === 'function') {
+        applyCostFilters();
+    }
+});
 
 function applyCostFilters() {
     const search = (document.getElementById('cost-search')?.value || '').toLowerCase();

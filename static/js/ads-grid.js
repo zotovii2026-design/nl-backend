@@ -454,18 +454,6 @@ function applyAdsFilters() {
     saveAdsFilterPreferences();
 }
 
-/* ── Применение фильтров (общий entry для обоих режимов) ── */
-
-function applyAdsColumnFilters() {
-    if (typeof applyAdsFilters === 'function') applyAdsFilters();
-    if (typeof filterAdsArtsLocally === 'function') filterAdsArtsLocally();
-    saveAdsFilterPreferences();
-}
-
-function resetAdsColumnFilters() {
-    clearAdsFilters();
-}
-
 /* ── Детализация РК ── */
 
 function showAdsCampaignDetail(campaign) {
