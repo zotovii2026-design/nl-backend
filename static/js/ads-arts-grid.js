@@ -311,9 +311,13 @@ function renderAdsArtsTable(items) {
     if (typeof hasAdsProductFilters !== 'function' || !hasAdsProductFilters()) populateAdsFilterOptions();
 
     container.style.width = '100%';
+    var artsCols = getAdsArtsColumns();
+    if (typeof NLPagePrefs !== 'undefined') {
+        artsCols = NLPagePrefs.applyColumnOrder('ads-art', artsCols);
+    }
     adsArtsTabulator = new Tabulator(container, {
         data: items,
-        columns: getAdsArtsColumns(),
+        columns: artsCols,
         height: '55vh',
         layout: 'fitDataFill',
         renderHorizontal: 'virtual',
@@ -326,6 +330,11 @@ function renderAdsArtsTable(items) {
         persistence: { columns: true, sort: true },
         persistenceID: 'ads-arts-grid-state-v3',
         persistenceMode: 'local',
+        columnMoved: function() {
+            if (typeof NLPagePrefs !== 'undefined' && adsArtsTabulator) {
+                NLPagePrefs.saveColumns('ads-art', adsArtsTabulator);
+            }
+        },
     });
 
     setTimeout(function() { initArtsRowExpand(); }, 500);
@@ -335,10 +344,12 @@ function renderAdsArtsTable(items) {
 var _adsFilterReloadTimer = null;
 
 function filterAdsArtsLocally() {
+    if (typeof NLFilters === 'undefined') return;
     var search = (document.getElementById('ads-flt-search')?.value || '').toLowerCase();
-    var fltStatus = document.getElementById('ads-flt-status')?.value || '';
-    var fltClass = document.getElementById('ads-flt-class')?.value || '';
-    var fltBrand = document.getElementById('ads-flt-brand')?.value || '';
+    var fltStatus = NLFilters.getValues(document.getElementById('ads-flt-status'));
+    var fltClass = NLFilters.getValues(document.getElementById('ads-flt-class'));
+    var fltBrand = NLFilters.getValues(document.getElementById('ads-flt-brand'));
+    var fltTags = NLFilters.getValues(document.getElementById('ads-flt-tags'));
 
     var filtered = _adsAllArtsData;
 
@@ -349,13 +360,18 @@ function filterAdsArtsLocally() {
                    (p.vendor_code || '').toLowerCase().indexOf(search) >= 0;
         });
     }
-    if (fltStatus) filtered = filtered.filter(function(p) { return (p.product_status || '') === fltStatus; });
-    if (fltClass) filtered = filtered.filter(function(p) { return (p.product_class || '') === fltClass; });
-    if (fltBrand) filtered = filtered.filter(function(p) { return (p.brand || '') === fltBrand; });
+    if (fltStatus.length) filtered = filtered.filter(function(p) { return fltStatus.indexOf(p.product_status || '') >= 0; });
+    if (fltClass.length) filtered = filtered.filter(function(p) { return fltClass.indexOf(p.product_class || '') >= 0; });
+    if (fltBrand.length) filtered = filtered.filter(function(p) { return fltBrand.indexOf(p.brand || '') >= 0; });
+    if (fltTags.length) filtered = filtered.filter(function(p) {
+        var pTags = String(p.tags || '').split(',').map(function(t) { return t.trim(); }).filter(Boolean);
+        return fltTags.some(function(t) { return pTags.indexOf(t) >= 0; });
+    });
 
     if (adsArtsTabulator) adsArtsTabulator.replaceData(filtered);
     var countEl = document.getElementById('ads-filter-count');
     if (countEl) countEl.textContent = filtered.length + ' из ' + _adsAllArtsData.length;
+    if (typeof saveAdsFilterPreferences === 'function') saveAdsFilterPreferences();
 }
 
 function applyAdsColumnFilters() {
@@ -364,42 +380,33 @@ function applyAdsColumnFilters() {
     } else {
         filterAdsArtsLocally();
     }
-    clearTimeout(_adsFilterReloadTimer);
-    _adsFilterReloadTimer = setTimeout(function() {
-        if (typeof loadAds === 'function') loadAds();
-        if (_adsCurrentView === 'art') loadAdsArts();
-    }, 250);
 }
 
 function resetAdsColumnFilters() {
-    var el;
-    el = document.getElementById('ads-flt-status'); if (el) el.value = '';
-    el = document.getElementById('ads-flt-class'); if (el) el.value = '';
-    el = document.getElementById('ads-flt-brand'); if (el) el.value = '';
-    el = document.getElementById('ads-flt-search'); if (el) el.value = '';
-    applyAdsColumnFilters();
+    if (typeof clearAdsFilters === 'function') clearAdsFilters();
+    else applyAdsColumnFilters();
 }
 
 function populateAdsFilterOptions() {
     if (!_adsAllArtsData.length) return;
-    var brands = [];
-    var statuses = [];
-    var classes = [];
-    var seen = {};
-    var seenStatus = {};
-    var seenClass = {};
+    var brands = {}, statuses = {}, classes = {}, tags = {};
     _adsAllArtsData.forEach(function(p) {
-        if (p.brand && !seen[p.brand]) { seen[p.brand] = true; brands.push(p.brand); }
-        if (p.product_status && !seenStatus[p.product_status]) { seenStatus[p.product_status] = true; statuses.push(p.product_status); }
-        if (p.product_class && !seenClass[p.product_class]) { seenClass[p.product_class] = true; classes.push(p.product_class); }
+        if (p.brand) brands[p.brand] = true;
+        if (p.product_status) statuses[p.product_status] = true;
+        if (p.product_class) classes[p.product_class] = true;
+        if (p.tags) {
+            String(p.tags).split(',').forEach(function(t) {
+                t = t.trim();
+                if (t) tags[t] = true;
+            });
+        }
     });
-    brands.sort();
-    statuses.sort();
-    classes.sort();
-    if (typeof fillAdsSelect === 'function') {
-        fillAdsSelect('ads-flt-brand', 'Бренд: все', brands);
-        fillAdsSelect('ads-flt-status', 'Статус: все', statuses);
-        fillAdsSelect('ads-flt-class', 'Класс: все', classes);
+    if (typeof fillAdsMultiSelect === 'function') {
+        fillAdsMultiSelect('ads-flt-brand', 'Бренд', Object.keys(brands).sort());
+        fillAdsMultiSelect('ads-flt-status', 'Статус', Object.keys(statuses).sort());
+        fillAdsMultiSelect('ads-flt-class', 'Класс', Object.keys(classes).sort());
+        fillAdsMultiSelect('ads-flt-tags', 'Теги', Object.keys(tags).sort());
+        if (typeof restoreAdsFilterPreferences === 'function') restoreAdsFilterPreferences();
     }
 }
 

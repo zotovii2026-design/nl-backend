@@ -148,7 +148,8 @@ def _ads_product_filter_sql(
                    product_status,
                    product_class,
                    brand,
-                   vendor_code
+                   vendor_code,
+                   tags
             FROM reference_book
             WHERE organization_id = :org
               AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
@@ -157,6 +158,7 @@ def _ads_product_filter_sql(
         LEFT JOIN (
             SELECT DISTINCT ON (nm_id)
                    nm_id,
+                   tags,
                    vendor_code,
                    product_name,
                    brand
@@ -203,7 +205,8 @@ def _ads_total_revenue_filter_sql(
                        product_status,
                        product_class,
                        brand,
-                       vendor_code
+                       vendor_code,
+                       tags
                 FROM reference_book
                 WHERE organization_id = :org
                   AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
@@ -212,6 +215,7 @@ def _ads_total_revenue_filter_sql(
             LEFT JOIN (
                 SELECT DISTINCT ON (nm_id)
                        nm_id,
+                       tags,
                        vendor_code,
                        product_name,
                        brand
@@ -260,7 +264,8 @@ def _ads_tech_status_filter_sql(
                    product_status,
                    product_class,
                    brand,
-                   vendor_code
+                   vendor_code,
+                   tags
             FROM reference_book
             WHERE organization_id = :org
               AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
@@ -269,6 +274,7 @@ def _ads_tech_status_filter_sql(
         LEFT JOIN (
             SELECT DISTINCT ON (nm_id)
                    nm_id,
+                   tags,
                    vendor_code,
                    product_name,
                    brand
@@ -703,7 +709,8 @@ async def get_ad_stats(
                    product_status,
                    product_class,
                    brand,
-                   vendor_code
+                   vendor_code,
+                   tags
             FROM reference_book
             WHERE organization_id = :org
               AND nm_id = ANY(:nm_ids)
@@ -718,6 +725,7 @@ async def get_ad_stats(
             if r[3]:
                 product_by_nm[nm]["brand"] = r[3]
             if r[4] and not product_by_nm[nm].get("vendor_code"):
+            product_by_nm[nm]["tags"] = r[5] or ""
                 product_by_nm[nm]["vendor_code"] = r[4]
 
     products_by_campaign = {}
@@ -1109,7 +1117,8 @@ async def get_ad_stats_by_art(
                    product_status,
                    product_class,
                    brand,
-                   vendor_code
+                   vendor_code,
+                   tags
             FROM reference_book
             WHERE organization_id = :org
               AND nm_id = ANY(:nm_ids)
@@ -1125,6 +1134,7 @@ async def get_ad_stats_by_art(
                 nm_to_info[nm]["brand"] = r[3]
             if r[4] and not nm_to_info[nm].get("vendor_code"):
                 nm_to_info[nm]["vendor_code"] = r[4]
+            nm_to_info[nm]["tags"] = r[5] or ""
 
     for item in items:
         info = nm_to_info.get(item["nm_id"], {})
@@ -1134,6 +1144,7 @@ async def get_ad_stats_by_art(
         item["photo"] = info.get("photo", "")
         item["product_status"] = info.get("product_status", "")
         item["product_class"] = info.get("product_class", "")
+        item["tags"] = info.get("tags", "")
 
     totals = {
         "spent": round(sum(i["spent"] for i in items), 2),

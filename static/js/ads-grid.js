@@ -1,14 +1,16 @@
 /**
  * Ads Grid — Рекламные кампании на Tabulator
- * Паттерн: ue-grid.js / cost-grid.js
+ * v20260807-filters1: NLFilters multiselect + NLPagePrefs persistence
  */
 
 let adsTabulator = null;
-let _adsAllData = [];  // Полные данные до фильтрации
+let _adsAllData = [];
+const ADS_PAGE_KEY = 'ads-rk';
+let _adsRestoringFilters = false;
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ads-grid-v14';
+    const VER = 'ads-grid-v15';
     if (localStorage.getItem('ads-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ads-grid-state-columns');
         localStorage.removeItem('tabulator-ads-grid-state-sort');
@@ -22,15 +24,18 @@ function getOrgId() {
     return urlOrg || (typeof ORG_ID !== 'undefined' ? ORG_ID : localStorage.getItem('nl_org_id'));
 }
 
+/* ── Фильтры: построение query для API ── */
+
 function getAdsProductFilterQuery() {
     var params = new URLSearchParams();
-    var productStatus = document.getElementById('ads-flt-status')?.value || '';
-    var productClass = document.getElementById('ads-flt-class')?.value || '';
-    var brand = document.getElementById('ads-flt-brand')?.value || '';
+    var productStatus = NLFilters.getValues(document.getElementById('ads-flt-status'));
+    var productClass = NLFilters.getValues(document.getElementById('ads-flt-class'));
+    var brand = NLFilters.getValues(document.getElementById('ads-flt-brand'));
+    var tags = NLFilters.getValues(document.getElementById('ads-flt-tags'));
     var search = (document.getElementById('ads-flt-search')?.value || '').trim();
-    if (productStatus) params.set('product_status', productStatus);
-    if (productClass) params.set('product_class', productClass);
-    if (brand) params.set('brand', brand);
+    if (productStatus.length) params.set('product_status', productStatus[0]);
+    if (productClass.length) params.set('product_class', productClass[0]);
+    if (brand.length) params.set('brand', brand[0]);
     if (search) params.set('search', search);
     var qs = params.toString();
     return qs ? '&' + qs : '';
@@ -40,7 +45,8 @@ function hasAdsProductFilters() {
     return !!getAdsProductFilterQuery();
 }
 
-// Маппинги
+/* ── Маппинги ── */
+
 const statusMap = {'-1':'🗑 Удалена','4':'⏳ Готова','7':'☑ Завершена','8':'❌ Отклонена','9':'🟢 Активна','11':'⏸ Пауза'};
 const typeMap = {'4':'Автоматическая','5':'Поиск','6':'Каталог','7':'Таргет','8':'Рек. в рекомендациях','9':'Аукцион'};
 const statusColors = {'-1':'background:#f1f3f5','4':'background:#fff3cd','7':'background:#e2e3e5','8':'background:#f8d7da','9':'background:#d4edda','11':'background:#fff3cd'};
@@ -83,10 +89,10 @@ function campaignDrrTooltip(campaign, mode) {
         + getCampaignProductBreakdown(campaign);
 }
 
-// Конфигурация колонок
+/* ── Конфигурация колонок ── */
+
 function getAdsColumns() {
     return [
-        // === 📌 Основное ===
         {
             title: '📌 Основное',
             columns: [
@@ -116,7 +122,6 @@ function getAdsColumns() {
                 },
             ]
         },
-        // === 📦 Товары ===
         {
             title: '📦 Товары',
             columns: [
@@ -133,7 +138,6 @@ function getAdsColumns() {
                     formatter: function(cell) {
                         const products = cell.getValue();
                         if (!products || !products.length) return '<span style="color:#999;font-size:.8em">—</span>';
-                        // Показываем до 3 фото + "+N"
                         let html = '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">';
                         const show = products.slice(0, 3);
                         show.forEach(function(p) {
@@ -153,7 +157,6 @@ function getAdsColumns() {
                 },
             ]
         },
-        // === 💰 Финансы ===
         {
             title: '💰 Финансы',
             columns: [
@@ -170,9 +173,7 @@ function getAdsColumns() {
                 },
                 {
                     title: 'ДРР по РК %', field: 'drr', headerTooltip: 'Расход / сумма рекламных заказов WB', width: 100, headerSort: true, hozAlign: 'right',
-                    tooltip: function(e, cell) {
-                        return campaignDrrTooltip(cell.getRow().getData(), 'rk');
-                    },
+                    tooltip: function(e, cell) { return campaignDrrTooltip(cell.getRow().getData(), 'rk'); },
                     formatter: function(cell) {
                         const v = parseFloat(cell.getValue()) || 0;
                         if (!v) return '—';
@@ -182,9 +183,7 @@ function getAdsColumns() {
                 },
                 {
                     title: 'ДРР товара %', field: 'drr_product', headerTooltip: 'Расход РК / все заказы товаров РК за период', width: 105, headerSort: true, hozAlign: 'right',
-                    tooltip: function(e, cell) {
-                        return campaignDrrTooltip(cell.getRow().getData(), 'product');
-                    },
+                    tooltip: function(e, cell) { return campaignDrrTooltip(cell.getRow().getData(), 'product'); },
                     formatter: function(cell) {
                         const v = parseFloat(cell.getValue()) || 0;
                         if (!v) return '—';
@@ -205,83 +204,34 @@ function getAdsColumns() {
                 },
             ]
         },
-        // === 📊 Метрики ===
         {
             title: '📊 Метрики',
             columns: [
-                {
-                    title: 'Показы', field: 'views', headerTooltip: 'Количество показов', width: 90, headerSort: true, hozAlign: 'right',
-                    formatter: function(cell) {
-                        const v = cell.getValue() || 0;
-                        return v.toLocaleString('ru-RU');
-                    },
-                    bottomCalc: 'sum', bottomCalcFormatter: function(cell) {
-                        const v = cell.getValue() || 0;
-                        return '<b>' + v.toLocaleString('ru-RU') + '</b>';
-                    }
-                },
-                {
-                    title: 'Клики', field: 'clicks', headerTooltip: 'Количество кликов', width: 80, headerSort: true, hozAlign: 'right',
-                    formatter: function(cell) {
-                        const v = cell.getValue() || 0;
-                        return v.toLocaleString('ru-RU');
-                    },
-                    bottomCalc: 'sum', bottomCalcFormatter: function(cell) {
-                        const v = cell.getValue() || 0;
-                        return '<b>' + v.toLocaleString('ru-RU') + '</b>';
-                    }
-                },
-                {
-                    title: 'CTR %', field: 'ctr', headerTooltip: 'Click-through rate', width: 75, headerSort: true, hozAlign: 'right',
-                    formatter: function(cell) {
-                        const v = parseFloat(cell.getValue()) || 0;
-                        return v ? v.toFixed(2) + '%' : '—';
-                    }
-                },
-                {
-                    title: 'CPC ₽', field: 'cpc', headerTooltip: 'Цена за клик', width: 75, headerSort: true, hozAlign: 'right',
-                    formatter: function(cell) {
-                        const v = parseFloat(cell.getValue()) || 0;
-                        return v ? v.toFixed(2) : '—';
-                    }
-                },
-                {
-                    title: 'Заказы', field: 'orders', headerTooltip: 'Заказы из рекламы', width: 80, headerSort: true, hozAlign: 'right',
-                    bottomCalc: 'sum', bottomCalcFormatter: function(cell) {
-                        const v = cell.getValue() || 0;
-                        return '<b>' + v + '</b>';
-                    }
-                },
-                {
-                    title: 'клик / заказ', field: 'clicks_per_order', headerTooltip: 'Клики / заказы. Показывает, какой клик привел к заказу', width: 95, headerSort: true, hozAlign: 'right',
-                    formatter: function(cell) {
-                        const v = parseFloat(cell.getValue()) || 0;
-                        return v ? v.toFixed(1) : '—';
-                    }
-                },
-                {
-                    title: 'В корз.', field: 'atbs', headerTooltip: 'Добавлений в корзину', width: 75, headerSort: true, hozAlign: 'right',
-                    bottomCalc: 'sum', bottomCalcFormatter: function(cell) {
-                        const v = cell.getValue() || 0;
-                        return '<b>' + v + '</b>';
-                    }
-                },
-                {
-                    title: 'CR %', field: 'cr', headerTooltip: 'Conversion rate', width: 70, headerSort: true, hozAlign: 'right',
-                    formatter: function(cell) {
-                        const v = parseFloat(cell.getValue()) || 0;
-                        return v ? v.toFixed(1) + '%' : '—';
-                    }
-                },
+                { title: 'Показы', field: 'views', headerTooltip: 'Количество показов', width: 90, headerSort: true, hozAlign: 'right',
+                  formatter: function(cell) { const v = cell.getValue() || 0; return v.toLocaleString('ru-RU'); },
+                  bottomCalc: 'sum', bottomCalcFormatter: function(cell) { const v = cell.getValue() || 0; return '<b>' + v.toLocaleString('ru-RU') + '</b>'; } },
+                { title: 'Клики', field: 'clicks', headerTooltip: 'Количество кликов', width: 80, headerSort: true, hozAlign: 'right',
+                  formatter: function(cell) { const v = cell.getValue() || 0; return v.toLocaleString('ru-RU'); },
+                  bottomCalc: 'sum', bottomCalcFormatter: function(cell) { const v = cell.getValue() || 0; return '<b>' + v.toLocaleString('ru-RU') + '</b>'; } },
+                { title: 'CTR %', field: 'ctr', headerTooltip: 'Click-through rate', width: 75, headerSort: true, hozAlign: 'right',
+                  formatter: function(cell) { const v = parseFloat(cell.getValue()) || 0; return v ? v.toFixed(2) + '%' : '—'; } },
+                { title: 'CPC ₽', field: 'cpc', headerTooltip: 'Цена за клик', width: 75, headerSort: true, hozAlign: 'right',
+                  formatter: function(cell) { const v = parseFloat(cell.getValue()) || 0; return v ? v.toFixed(2) : '—'; } },
+                { title: 'Заказы', field: 'orders', headerTooltip: 'Заказы из рекламы', width: 80, headerSort: true, hozAlign: 'right',
+                  bottomCalc: 'sum', bottomCalcFormatter: function(cell) { const v = cell.getValue() || 0; return '<b>' + v + '</b>'; } },
+                { title: 'клик / заказ', field: 'clicks_per_order', headerTooltip: 'Клики / заказы', width: 95, headerSort: true, hozAlign: 'right',
+                  formatter: function(cell) { const v = parseFloat(cell.getValue()) || 0; return v ? v.toFixed(1) : '—'; } },
+                { title: 'В корз.', field: 'atbs', headerTooltip: 'Добавлений в корзину', width: 75, headerSort: true, hozAlign: 'right',
+                  bottomCalc: 'sum', bottomCalcFormatter: function(cell) { const v = cell.getValue() || 0; return '<b>' + v + '</b>'; } },
+                { title: 'CR %', field: 'cr', headerTooltip: 'Conversion rate', width: 70, headerSort: true, hozAlign: 'right',
+                  formatter: function(cell) { const v = parseFloat(cell.getValue()) || 0; return v ? v.toFixed(1) + '%' : '—'; } },
             ]
         },
     ];
 }
 
-/**
- * Инициализация Tabulator
- */
-// Force smaller header font for readability
+/* ── Инициализация Tabulator ── */
+
 (function(){
     var s = document.createElement('style');
     s.textContent = '#ads-campaigns-tabulator .tabulator-col-title{font-size:8px!important;line-height:1.1!important;padding:2px 4px!important}#ads-campaigns-tabulator .tabulator-col .tabulator-col-content{padding:2px 4px!important}#ads-campaigns-tabulator .tabulator-cell{font-size:11px!important}';
@@ -290,14 +240,16 @@ function getAdsColumns() {
 
 function initAdsGrid() {
     if (adsTabulator) return;
-
-    const container = document.getElementById('ads-campaigns-tabulator');
+    var container = document.getElementById('ads-campaigns-tabulator');
     if (!container) return;
-
     container.style.width = '100%';
+
+    var cols = getAdsColumns();
+    cols = NLPagePrefs.applyColumnOrder(ADS_PAGE_KEY, cols);
+
     adsTabulator = new Tabulator(container, {
         data: [],
-        columns: getAdsColumns(),
+        columns: cols,
         height: '60vh',
         layout: 'fitDataFill',
         renderHorizontal: 'virtual',
@@ -306,26 +258,16 @@ function initAdsGrid() {
         sortable: true,
         pagination: false,
         movableColumns: true,
-        persistence: {
-            columns: true,
-            sort: true,
-        },
+        persistence: { columns: true, sort: true },
         persistenceID: 'ads-grid-state',
         persistenceMode: 'local',
         groupBy: false,
-        rowFormatter: function(row) {
-            // Клик по строке — раскрыть состав РК
-            row.getElement().style.cursor = 'pointer';
-        },
-        rowClick: function(e, row) {
-            showAdsCampaignDetail(row.getData());
-        },
+        rowFormatter: function(row) { row.getElement().style.cursor = 'pointer'; },
+        rowClick: function(e, row) { showAdsCampaignDetail(row.getData()); },
+        columnMoved: function() { NLPagePrefs.saveColumns(ADS_PAGE_KEY, adsTabulator); },
     });
 }
 
-/**
- * Обновить данные в Tabulator
- */
 function updateAdsTabulator(campaigns) {
     if (!adsTabulator) initAdsGrid();
     _adsAllData = campaigns || [];
@@ -333,54 +275,35 @@ function updateAdsTabulator(campaigns) {
     applyAdsFilters();
 }
 
-/**
- * Заполнить бренды для вида По РК (из товаров внутри кампаний)
- */
+/* ── Заполнение опций фильтров ── */
+
 function populateAdsFilterOptionsForRK() {
     if (!_adsAllData.length) return;
-    var brands = [];
-    var statuses = [];
-    var classes = [];
-    var seen = {};
-    var seenStatus = {};
-    var seenClass = {};
+    var brands = {}, statuses = {}, classes = {}, tags = {};
     _adsAllData.forEach(function(c) {
         (c.products || []).forEach(function(p) {
-            if (p.brand && !seen[p.brand]) { seen[p.brand] = true; brands.push(p.brand); }
-            if (p.product_status && !seenStatus[p.product_status]) { seenStatus[p.product_status] = true; statuses.push(p.product_status); }
-            if (p.product_class && !seenClass[p.product_class]) { seenClass[p.product_class] = true; classes.push(p.product_class); }
+            if (p.brand) brands[p.brand] = true;
+            if (p.product_status) statuses[p.product_status] = true;
+            if (p.product_class) classes[p.product_class] = true;
+            if (p.tags) {
+                String(p.tags).split(',').forEach(function(t) {
+                    t = t.trim();
+                    if (t) tags[t] = true;
+                });
+            }
         });
     });
-    brands.sort();
-    statuses.sort();
-    classes.sort();
-    fillAdsSelect('ads-flt-brand', 'Бренд: все', brands);
-    fillAdsSelect('ads-flt-status', 'Статус: все', statuses);
-    fillAdsSelect('ads-flt-class', 'Класс: все', classes);
+    fillAdsMultiSelect('ads-flt-brand', 'Бренд', Object.keys(brands).sort());
+    fillAdsMultiSelect('ads-flt-status', 'Статус', Object.keys(statuses).sort());
+    fillAdsMultiSelect('ads-flt-class', 'Класс', Object.keys(classes).sort());
+    fillAdsMultiSelect('ads-flt-tags', 'Теги', Object.keys(tags).sort());
+    restoreAdsFilterPreferences();
 }
 
-function fillAdsSelect(id, emptyLabel, values) {
+function fillAdsMultiSelect(id, label, values) {
     var sel = document.getElementById(id);
     if (!sel) return;
-    var current = sel.value;
-    if (current && values.indexOf(current) < 0) values = values.concat([current]).sort();
-    if (sel.tagName === 'INPUT') {
-        var list = document.getElementById(sel.getAttribute('list'));
-        if (!list) return;
-        list.innerHTML = '';
-        values.forEach(function(v) {
-            if (v == null || v === '') return;
-            var opt = document.createElement('option');
-            opt.value = v;
-            opt.label = v;
-            opt.title = v;
-            list.appendChild(opt);
-        });
-        sel.placeholder = emptyLabel;
-        sel.value = values.indexOf(current) >= 0 ? current : '';
-        return;
-    }
-    sel.innerHTML = '<option value="">' + emptyLabel + '</option>';
+    sel.innerHTML = '';
     values.forEach(function(v) {
         if (v == null || v === '') return;
         var opt = document.createElement('option');
@@ -389,8 +312,76 @@ function fillAdsSelect(id, emptyLabel, values) {
         opt.title = v;
         sel.appendChild(opt);
     });
-    sel.value = values.indexOf(current) >= 0 ? current : '';
+    NLFilters.selectAll(sel);
+    NLFilters.renderMenu(id, label);
 }
+
+/* ── Сохранение/восстановление фильтров ── */
+
+function getAdsFilterState() {
+    return {
+        status: NLFilters.getValues(document.getElementById('ads-flt-status')),
+        productClass: NLFilters.getValues(document.getElementById('ads-flt-class')),
+        brand: NLFilters.getValues(document.getElementById('ads-flt-brand')),
+        tags: NLFilters.getValues(document.getElementById('ads-flt-tags')),
+        search: document.getElementById('ads-flt-search')?.value || '',
+    };
+}
+
+function saveAdsFilterPreferences() {
+    if (_adsRestoringFilters) return;
+    NLPagePrefs.saveFilters(ADS_PAGE_KEY, getAdsFilterState());
+}
+
+function setAdsMultiFilterValues(id, values) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    var available = new Set(Array.from(sel.options || []).map(function(o) { return o.value; }));
+    NLFilters.setValues(sel, (values || []).filter(function(v) { return available.has(v); }));
+    NLFilters.renderMenu(id);
+}
+
+function restoreAdsFilterPreferences() {
+    if (typeof NLPagePrefs === 'undefined') return;
+    var filters = NLPagePrefs.loadFilters(ADS_PAGE_KEY);
+    if (!filters || !Object.keys(filters).length) return;
+    _adsRestoringFilters = true;
+    setAdsMultiFilterValues('ads-flt-status', filters.status || []);
+    setAdsMultiFilterValues('ads-flt-class', filters.productClass || []);
+    setAdsMultiFilterValues('ads-flt-brand', filters.brand || []);
+    setAdsMultiFilterValues('ads-flt-tags', filters.tags || []);
+    var search = document.getElementById('ads-flt-search');
+    if (search) search.value = filters.search || '';
+    _adsRestoringFilters = false;
+}
+
+function clearAdsFilters() {
+    ['ads-flt-status', 'ads-flt-class', 'ads-flt-brand', 'ads-flt-tags'].forEach(function(id) {
+        var sel = document.getElementById(id);
+        if (sel) NLFilters.selectAll(sel);
+    });
+    var search = document.getElementById('ads-flt-search');
+    if (search) search.value = '';
+    saveAdsFilterPreferences();
+    applyAdsFilters();
+}
+
+function resetAdsColumnPreferences() {
+    NLPagePrefs.resetColumns(ADS_PAGE_KEY);
+    if (adsTabulator) { adsTabulator.destroy(); adsTabulator = null; }
+    if (typeof applyAdsFilters === 'function') applyAdsFilters();
+    if (typeof showToast === 'function') showToast('✅ Порядок колонок восстановлен');
+}
+
+function resetAdsViewPreferences() {
+    NLPagePrefs.resetAll(ADS_PAGE_KEY);
+    if (typeof clearAdsFilters === 'function') clearAdsFilters();
+    if (adsTabulator) { adsTabulator.destroy(); adsTabulator = null; }
+    if (typeof applyAdsFilters === 'function') applyAdsFilters();
+    if (typeof showToast === 'function') showToast('✅ Вид раздела сброшен');
+}
+
+/* ── Фильтрация ── */
 
 function buildFilteredCampaign(campaign, products) {
     var spent = products.reduce(function(s, p) { return s + (parseFloat(p.spent_share) || 0); }, 0);
@@ -402,11 +393,7 @@ function buildFilteredCampaign(campaign, products) {
     var totalOrdersProduct = products.reduce(function(s, p) { return s + (parseInt(p.total_orders_product || 0, 10) || 0); }, 0);
     var totalRevenueProduct = products.reduce(function(s, p) { return s + (parseFloat(p.total_revenue_product) || 0); }, 0);
     return Object.assign({}, campaign, {
-        spent: Math.round(spent * 100) / 100,
-        views: views,
-        clicks: clicks,
-        orders: orders,
-        atbs: atbs,
+        spent: Math.round(spent * 100) / 100, views: views, clicks: clicks, orders: orders, atbs: atbs,
         sum_price: Math.round(sumPrice * 100) / 100,
         ctr: views ? Math.round((clicks / views * 100) * 100) / 100 : 0,
         cpc: clicks ? Math.round((spent / clicks) * 100) / 100 : 0,
@@ -417,25 +404,25 @@ function buildFilteredCampaign(campaign, products) {
         drr_total: totalRevenueProduct ? Math.round((spent / totalRevenueProduct * 100) * 10) / 10 : 0,
         total_orders_product: totalOrdersProduct,
         total_revenue_product: Math.round(totalRevenueProduct * 100) / 100,
-        nm_count: products.length,
-        products: products,
+        nm_count: products.length, products: products,
     });
 }
 
-function productMatchesAdsFilters(product, search, brand, status, productClass) {
+function productMatchesAdsFilters(product, search, brands, statuses, productClasses, tagsArr) {
     var matchSearch = !search ||
         (product.name || '').toLowerCase().indexOf(search) >= 0 ||
         String(product.nm_id || '').indexOf(search) >= 0 ||
         (product.vendor_code || '').toLowerCase().indexOf(search) >= 0;
-    var matchBrand = !brand || (product.brand || '') === brand;
-    var matchStatus = !status || (product.product_status || '') === status;
-    var matchClass = !productClass || (product.product_class || '') === productClass;
-    return matchSearch && matchBrand && matchStatus && matchClass;
+    var matchBrand = !brands.length || brands.indexOf(product.brand || '') >= 0;
+    var matchStatus = !statuses.length || statuses.indexOf(product.product_status || '') >= 0;
+    var matchClass = !productClasses.length || productClasses.indexOf(product.product_class || '') >= 0;
+    var matchTags = !tagsArr.length || (function() {
+        var pTags = String(product.tags || '').split(',').map(function(t) { return t.trim(); }).filter(Boolean);
+        return tagsArr.some(function(t) { return pTags.indexOf(t) >= 0; });
+    })();
+    return matchSearch && matchBrand && matchStatus && matchClass && matchTags;
 }
 
-/**
- * Применить фильтры (табы статусов + колонки)
- */
 function applyAdsFilters() {
     if (!adsTabulator) return;
     var activeStatuses = typeof _adsStatusFilters !== 'undefined' ? _adsStatusFilters : ['9', '11'];
@@ -443,16 +430,17 @@ function applyAdsFilters() {
         return activeStatuses.indexOf(c.status) >= 0;
     });
 
-    // Дополнительные фильтры по колонкам (для кампаний — фильтруем по товарам внутри РК)
     var search = (document.getElementById('ads-flt-search')?.value || '').toLowerCase();
-    var fltBrand = document.getElementById('ads-flt-brand')?.value || '';
-    var fltStatus = document.getElementById('ads-flt-status')?.value || '';
-    var fltClass = document.getElementById('ads-flt-class')?.value || '';
-    if (search || fltBrand || fltStatus || fltClass) {
+    var fltBrand = NLFilters.getValues(document.getElementById('ads-flt-brand'));
+    var fltStatus = NLFilters.getValues(document.getElementById('ads-flt-status'));
+    var fltClass = NLFilters.getValues(document.getElementById('ads-flt-class'));
+    var fltTags = NLFilters.getValues(document.getElementById('ads-flt-tags'));
+
+    if (search || fltBrand.length || fltStatus.length || fltClass.length || fltTags.length) {
         filtered = filtered.map(function(c) {
             var prods = c.products || [];
             var matchedProducts = prods.filter(function(p) {
-                return productMatchesAdsFilters(p, search, fltBrand, fltStatus, fltClass);
+                return productMatchesAdsFilters(p, search, fltBrand, fltStatus, fltClass, fltTags);
             });
             return matchedProducts.length ? buildFilteredCampaign(c, matchedProducts) : null;
         }).filter(Boolean);
@@ -461,14 +449,25 @@ function applyAdsFilters() {
     adsTabulator.setData(filtered);
     var cnt = document.getElementById('ads-camp-count');
     if (cnt) cnt.textContent = filtered.length + ' из ' + _adsAllData.length;
-    // Обновляем общий счётчик фильтров
     var fCnt = document.getElementById('ads-filter-count');
     if (fCnt) fCnt.textContent = filtered.length + ' из ' + _adsAllData.length;
+    saveAdsFilterPreferences();
 }
 
-/**
- * Показать детализацию состава РК (модальное или expandable)
- */
+/* ── Применение фильтров (общий entry для обоих режимов) ── */
+
+function applyAdsColumnFilters() {
+    if (typeof applyAdsFilters === 'function') applyAdsFilters();
+    if (typeof filterAdsArtsLocally === 'function') filterAdsArtsLocally();
+    saveAdsFilterPreferences();
+}
+
+function resetAdsColumnFilters() {
+    clearAdsFilters();
+}
+
+/* ── Детализация РК ── */
+
 function showAdsCampaignDetail(campaign) {
     const modal = document.getElementById('ads-detail-modal');
     const content = document.getElementById('ads-detail-content');
@@ -480,7 +479,6 @@ function showAdsCampaignDetail(campaign) {
     html += '<span style="' + (statusColors[campaign.status]||'') + ';padding:2px 8px;border-radius:4px;font-size:.82em">' + (statusMap[campaign.status]||'') + '</span>';
     html += '</div>';
 
-    // Метрики
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:16px">';
     html += '<div style="background:#fff4e6;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">Расход</div><div style="font-weight:700;color:#e17055">' + (campaign.spent||0).toLocaleString('ru-RU',{maximumFractionDigits:0}) + ' ₽</div></div>';
     html += '<div style="background:#e8f8f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">ДРР по РК</div><div style="font-weight:700">' + (campaign.drr||0).toFixed(1) + '%</div></div>';
@@ -489,10 +487,9 @@ function showAdsCampaignDetail(campaign) {
     html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">Клики</div><div style="font-weight:700">' + (campaign.clicks||0).toLocaleString('ru-RU') + '</div></div>';
     html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">CTR</div><div style="font-weight:700">' + (campaign.ctr||0).toFixed(2) + '%</div></div>';
     html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center"><div style="font-size:.75em;color:#999">Заказы</div><div style="font-weight:700">' + (campaign.orders||0) + '</div></div>';
-    html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center" title="Клики / заказы. Показывает, какой клик привел к заказу"><div style="font-size:.75em;color:#999">клик / заказ</div><div style="font-weight:700">' + (campaign.clicks_per_order ? campaign.clicks_per_order.toFixed(1) : '—') + '</div></div>';
+    html += '<div style="background:#f0f1f5;border-radius:6px;padding:8px;text-align:center" title="Клики / заказы"><div style="font-size:.75em;color:#999">клик / заказ</div><div style="font-weight:700">' + (campaign.clicks_per_order ? campaign.clicks_per_order.toFixed(1) : '—') + '</div></div>';
     html += '</div>';
 
-    // Состав РК
     html += '<div style="font-weight:600;margin-bottom:8px;color:#6c5ce7;font-size:.9em">📦 Состав РК (' + (campaign.nm_count||0) + ' товар' + (campaign.nm_count > 1 ? 'ов' : '') + ')</div>';
     if (campaign.products && campaign.products.length) {
         html += '<div style="display:flex;flex-wrap:wrap;gap:8px">';
@@ -525,20 +522,15 @@ function closeAdsDetailModal() {
     if (modal) modal.style.display = 'none';
 }
 
-/**
- * Экспорт в CSV (SheetJS не подключён — используем Blob)
- */
+/* ── Экспорт в CSV ── */
+
 function exportAdsExcel() {
     if (!adsTabulator) return;
     var cols = adsTabulator.getColumnDefinitions();
-    // Плоский список колонок (без групп)
     var flatCols = [];
     cols.forEach(function(c) {
-        if (c.columns && c.columns.length) {
-            c.columns.forEach(function(sub) { flatCols.push(sub); });
-        } else {
-            flatCols.push(c);
-        }
+        if (c.columns && c.columns.length) { c.columns.forEach(function(sub) { flatCols.push(sub); }); }
+        else { flatCols.push(c); }
     });
     var headers = flatCols.map(function(c) { return c.title; });
     var rows = adsTabulator.getData();
@@ -547,8 +539,8 @@ function exportAdsExcel() {
     rows.forEach(function(row) {
         var vals = flatCols.map(function(c) {
             var v = row[c.field];
-            if (c.field === 'status') v = ({'-1':'Удалена','4':'Готова','7':'Завершена','8':'Отклонена','9':'Активна','11':'Пауза'})[v] || v;
-            if (c.field === 'type') v = row.type_label || ({'4':'Авто','5':'Поиск','6':'Каталог','7':'Таргет','8':'Рек.рек.','9':'Аукцион'})[v] || v;
+            if (c.field === 'status') v = (statusMap[v]||{'-1':'Удалена','4':'Готова','7':'Завершена','8':'Отклонена','9':'Активна','11':'Пауза'})[v] || v;
+            if (c.field === 'type') v = row.type_label || typeMap[v] || v;
             return v != null ? v : '';
         });
         lines.push(vals.map(csvEscape).join(';'));
@@ -556,18 +548,13 @@ function exportAdsExcel() {
     var blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
-    a.href = url;
-    a.download = 'ads-campaigns.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    a.href = url; a.download = 'ads-campaigns.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
 }
 
 function csvEscape(v) {
     v = String(v == null ? '' : v);
-    if (v.indexOf(';') >= 0 || v.indexOf('"') >= 0 || v.indexOf('\n') >= 0) {
-        return '"' + v.replace(/"/g, '""') + '"';
-    }
+    if (v.indexOf(';') >= 0 || v.indexOf('"') >= 0 || v.indexOf('\n') >= 0) return '"' + v.replace(/"/g, '""') + '"';
     return v;
 }
