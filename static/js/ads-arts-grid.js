@@ -4,6 +4,7 @@ var adsArtsTabulator = null;
 var _adsStatusFilters = ['9', '11']; // default: active + paused
 var _adsExpandedRow = null; // текущая раскрытая строка
 var _adsAllArtsData = [];  // Полные данные до фильтрации
+var _adsArtsServerTotals = null;
 var _adsArtsLoadSeq = 0;
 var _adsRefreshStatusSeq = 0;
 var _adsArtCharts = [];
@@ -128,7 +129,8 @@ function loadAdsArts() {
         .then(function(d) {
             var currentOrgId = (typeof getCurrentOrgId === 'function') ? getCurrentOrgId() : orgId;
             if (requestSeq !== _adsArtsLoadSeq || orgId !== currentOrgId) return;
-            updateAdsArtsMetrics(d.totals || {});
+            _adsArtsServerTotals = d.totals || {};
+            updateAdsArtsMetrics(_adsArtsServerTotals);
             renderAdsArtsTable(d.items || []);
         })
         .catch(function(e) {
@@ -337,7 +339,10 @@ function renderAdsArtsTable(items) {
         },
     });
 
-    setTimeout(function() { initArtsRowExpand(); }, 500);
+    setTimeout(function() {
+        initArtsRowExpand();
+        if (typeof filterAdsArtsLocally === 'function') filterAdsArtsLocally();
+    }, 500);
 }
 
 // ===== COLUMN FILTERS =====
@@ -372,15 +377,9 @@ function filterAdsArtsLocally() {
     var countEl = document.getElementById('ads-filter-count');
     if (countEl) countEl.textContent = filtered.length + ' из ' + _adsAllArtsData.length;
     if (typeof saveAdsFilterPreferences === 'function') saveAdsFilterPreferences();
+    updateAdsArtsMetricsFromFiltered(filtered);
 }
 
-function applyAdsColumnFilters() {
-    if (_adsCurrentView === 'rk') {
-        if (typeof applyAdsFilters === 'function') applyAdsFilters();
-    } else {
-        filterAdsArtsLocally();
-    }
-}
 
 function resetAdsColumnFilters() {
     if (typeof clearAdsFilters === 'function') clearAdsFilters();
@@ -661,4 +660,50 @@ function renderAdsArtCampaignCharts(nmId, camps) {
         });
         _adsArtCharts.push(chart);
     });
+}
+
+function updateAdsArtsMetricsFromFiltered(filteredItems) {
+    if (!filteredItems || !filteredItems.length) {
+        var el;
+        el = document.getElementById('ad-spent'); if (el) el.textContent = '0 ₽';
+        el = document.getElementById('ad-views'); if (el) el.textContent = '0';
+        el = document.getElementById('ad-clicks'); if (el) el.textContent = '0';
+        el = document.getElementById('ad-ctr'); if (el) el.textContent = '0%';
+        el = document.getElementById('ad-cpc'); if (el) el.textContent = '—';
+        el = document.getElementById('ad-orders'); if (el) el.textContent = '0';
+        el = document.getElementById('ad-cr'); if (el) el.textContent = '0%';
+        el = document.getElementById('ad-clicks-per-order'); if (el) el.textContent = '—';
+        el = document.getElementById('ad-atbs'); if (el) el.textContent = '0';
+        el = document.getElementById('ad-drr'); if (el) el.textContent = '—';
+        el = document.getElementById('ad-drr-total'); if (el) el.textContent = '—';
+        return;
+    }
+
+    var totals = {spent: 0, views: 0, clicks: 0, orders: 0, atbs: 0, sum_price: 0, total_revenue_product: 0};
+    filteredItems.forEach(function(p) {
+        totals.spent += parseFloat(p.spent || 0);
+        totals.views += parseInt(p.views || 0, 10);
+        totals.clicks += parseInt(p.clicks || 0, 10);
+        totals.orders += parseInt(p.orders || 0, 10);
+        totals.atbs += parseInt(p.atbs || 0, 10);
+        totals.sum_price += parseFloat(p.sum_price || p.total_revenue || 0);
+        totals.total_revenue_product += parseFloat(p.total_revenue_product || 0);
+    });
+
+    var el;
+    el = document.getElementById('ad-spent'); if (el) el.textContent = totals.spent.toLocaleString('ru-RU', {maximumFractionDigits: 0}) + ' ₽';
+    el = document.getElementById('ad-views'); if (el) el.textContent = totals.views.toLocaleString('ru-RU');
+    el = document.getElementById('ad-clicks'); if (el) el.textContent = totals.clicks.toLocaleString('ru-RU');
+    el = document.getElementById('ad-ctr'); if (el) el.textContent = totals.views ? ((totals.clicks / totals.views * 100).toFixed(2)) + '%' : '0%';
+    el = document.getElementById('ad-cpc'); if (el) el.textContent = totals.clicks ? (totals.spent / totals.clicks).toFixed(2) + ' ₽' : '—';
+    el = document.getElementById('ad-orders'); if (el) el.textContent = totals.orders;
+    el = document.getElementById('ad-cr'); if (el) el.textContent = totals.clicks ? ((totals.orders / totals.clicks * 100).toFixed(1)) + '%' : '0%';
+    el = document.getElementById('ad-clicks-per-order'); if (el) el.textContent = totals.orders ? (totals.clicks / totals.orders).toFixed(1) : '—';
+    el = document.getElementById('ad-atbs'); if (el) el.textContent = totals.atbs;
+    el = document.getElementById('ad-drr'); if (el) el.textContent = totals.sum_price ? ((totals.spent / totals.sum_price * 100).toFixed(1)) + '%' : '—';
+    el = document.getElementById('ad-drr-total');
+    if (el) {
+        var serverDrrTotal = _adsArtsServerTotals && filteredItems.length === _adsAllArtsData.length ? _adsArtsServerTotals.drr_total : null;
+        el.textContent = serverDrrTotal != null ? serverDrrTotal + '%' : (totals.total_revenue_product ? ((totals.spent / totals.total_revenue_product * 100).toFixed(1)) + '%' : '—');
+    }
 }

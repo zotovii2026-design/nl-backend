@@ -111,6 +111,11 @@ def _ad_type_label(raw_type, bid_type=None, payment_type=None):
         return payment_label
     return AD_TYPE_NAMES.get(str(raw_type) if raw_type is not None else "", str(raw_type) if raw_type else "")
 
+def _split_filter_values(value: Optional[str]):
+    if not value:
+        return []
+    return [v.strip() for v in str(value).split(",") if v.strip()]
+
 
 def _ads_product_filter_sql(
     product_status: Optional[str],
@@ -121,15 +126,18 @@ def _ads_product_filter_sql(
 ):
     """SQL join/where for product-level ads filters over the primary ad_stats_nm rows."""
     filters = []
-    if product_status:
-        params["product_status"] = product_status
-        filters.append("COALESCE(rb.product_status, '') = :product_status")
-    if product_class:
-        params["product_class"] = product_class
-        filters.append("COALESCE(rb.product_class, '') = :product_class")
-    if brand:
-        params["brand"] = brand
-        filters.append("COALESCE(NULLIF(rb.brand, ''), pe.brand, '') = :brand")
+    product_status_values = _split_filter_values(product_status)
+    if product_status_values:
+        params["product_status"] = product_status_values
+        filters.append("COALESCE(rb.product_status, '') = ANY(:product_status)")
+    product_class_values = _split_filter_values(product_class)
+    if product_class_values:
+        params["product_class"] = product_class_values
+        filters.append("COALESCE(rb.product_class, '') = ANY(:product_class)")
+    brand_values = _split_filter_values(brand)
+    if brand_values:
+        params["brand"] = brand_values
+        filters.append("COALESCE(NULLIF(rb.brand, ''), pe.brand, '') = ANY(:brand)")
     if search:
         params["search_like"] = f"%{search.strip()}%"
         filters.append("""(
@@ -158,7 +166,6 @@ def _ads_product_filter_sql(
         LEFT JOIN (
             SELECT DISTINCT ON (nm_id)
                    nm_id,
-                   tags,
                    vendor_code,
                    product_name,
                    brand
@@ -179,15 +186,18 @@ def _ads_total_revenue_filter_sql(
 ):
     """SQL join/where for total cabinet order revenue over raw WB orders."""
     filters = []
-    if product_status:
-        params["total_product_status"] = product_status
-        filters.append("COALESCE(rb_total.product_status, '') = :total_product_status")
-    if product_class:
-        params["total_product_class"] = product_class
-        filters.append("COALESCE(rb_total.product_class, '') = :total_product_class")
-    if brand:
-        params["total_brand"] = brand
-        filters.append("COALESCE(NULLIF(rb_total.brand, ''), pe_total.brand, '') = :total_brand")
+    product_status_values = _split_filter_values(product_status)
+    if product_status_values:
+        params["total_product_status"] = product_status_values
+        filters.append("COALESCE(rb_total.product_status, '') = ANY(:total_product_status)")
+    product_class_values = _split_filter_values(product_class)
+    if product_class_values:
+        params["total_product_class"] = product_class_values
+        filters.append("COALESCE(rb_total.product_class, '') = ANY(:total_product_class)")
+    brand_values = _split_filter_values(brand)
+    if brand_values:
+        params["total_brand"] = brand_values
+        filters.append("COALESCE(NULLIF(rb_total.brand, ''), pe_total.brand, '') = ANY(:total_brand)")
     if search:
         params["total_search_like"] = f"%{search.strip()}%"
         filters.append("""(
@@ -215,7 +225,6 @@ def _ads_total_revenue_filter_sql(
             LEFT JOIN (
                 SELECT DISTINCT ON (nm_id)
                        nm_id,
-                       tags,
                        vendor_code,
                        product_name,
                        brand
@@ -237,15 +246,18 @@ def _ads_tech_status_filter_sql(
 ):
     """SQL join/where for cabinet-level product metrics from tech_status."""
     filters = []
-    if product_status:
-        params["tech_product_status"] = product_status
-        filters.append("COALESCE(rb_tech.product_status, '') = :tech_product_status")
-    if product_class:
-        params["tech_product_class"] = product_class
-        filters.append("COALESCE(rb_tech.product_class, '') = :tech_product_class")
-    if brand:
-        params["tech_brand"] = brand
-        filters.append("COALESCE(NULLIF(rb_tech.brand, ''), pe_tech.brand, '') = :tech_brand")
+    product_status_values = _split_filter_values(product_status)
+    if product_status_values:
+        params["tech_product_status"] = product_status_values
+        filters.append("COALESCE(rb_tech.product_status, '') = ANY(:tech_product_status)")
+    product_class_values = _split_filter_values(product_class)
+    if product_class_values:
+        params["tech_product_class"] = product_class_values
+        filters.append("COALESCE(rb_tech.product_class, '') = ANY(:tech_product_class)")
+    brand_values = _split_filter_values(brand)
+    if brand_values:
+        params["tech_brand"] = brand_values
+        filters.append("COALESCE(NULLIF(rb_tech.brand, ''), pe_tech.brand, '') = ANY(:tech_brand)")
     if search:
         params["tech_search_like"] = f"%{search.strip()}%"
         filters.append("""(
@@ -274,7 +286,6 @@ def _ads_tech_status_filter_sql(
         LEFT JOIN (
             SELECT DISTINCT ON (nm_id)
                    nm_id,
-                   tags,
                    vendor_code,
                    product_name,
                    brand
@@ -725,8 +736,8 @@ async def get_ad_stats(
             if r[3]:
                 product_by_nm[nm]["brand"] = r[3]
             if r[4] and not product_by_nm[nm].get("vendor_code"):
-            product_by_nm[nm]["tags"] = r[5] or ""
                 product_by_nm[nm]["vendor_code"] = r[4]
+            product_by_nm[nm]["tags"] = r[5] or ""
 
     products_by_campaign = {}
     if all_campaign_ids:

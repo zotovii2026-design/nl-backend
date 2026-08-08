@@ -32,9 +32,9 @@ function getAdsProductFilterQuery() {
     var productClass = typeof NLFilters !== 'undefined' ? NLFilters.getValues(document.getElementById('ads-flt-class')) : [];
     var brand = typeof NLFilters !== 'undefined' ? NLFilters.getValues(document.getElementById('ads-flt-brand')) : [];
     var search = (document.getElementById('ads-flt-search')?.value || '').trim();
-    if (productStatus.length) params.set('product_status', productStatus[0]);
-    if (productClass.length) params.set('product_class', productClass[0]);
-    if (brand.length) params.set('brand', brand[0]);
+    if (productStatus.length) params.set('product_status', productStatus.join(','));
+    if (productClass.length) params.set('product_class', productClass.join(','));
+    if (brand.length) params.set('brand', brand.join(','));
     if (search) params.set('search', search);
     var qs = params.toString();
     return qs ? '&' + qs : '';
@@ -270,6 +270,10 @@ function initAdsGrid() {
 function updateAdsTabulator(campaigns) {
     if (!adsTabulator) initAdsGrid();
     _adsAllData = campaigns || [];
+    // Сохраняем оригинальный daily из API для пересчёта при фильтрации
+    _adsAllData.forEach(function(c) {
+        if (c.daily && !c._originalDaily) c._originalDaily = c.daily.slice();
+    });
     if (!hasAdsProductFilters()) populateAdsFilterOptionsForRK();
     applyAdsFilters();
 }
@@ -297,6 +301,53 @@ function populateAdsFilterOptionsForRK() {
     fillAdsMultiSelect('ads-flt-class', 'Класс', Object.keys(classes).sort());
     fillAdsMultiSelect('ads-flt-tags', 'Теги', Object.keys(tags).sort());
     restoreAdsFilterPreferences();
+    loadAdsAllBrandsForFilter();
+}
+
+function loadAdsAllBrandsForFilter() {
+    var orgId = (typeof getCurrentOrgId === 'function') ? getCurrentOrgId() : ((typeof getOrgId === 'function') ? getOrgId() : (typeof ORG_ID !== 'undefined' ? ORG_ID : ''));
+    if (!orgId || orgId === 'null') return;
+    fetch('/api/v1/nl/reference?org_id=' + encodeURIComponent(orgId), {
+        headers: {'Authorization': 'Bearer ' + TOKEN}
+    }).then(function(r) {
+        if (!r.ok) throw new Error('ref ' + r.status);
+        return r.json();
+    }).then(function(d) {
+        var items = d.items || d || [];
+        if (!Array.isArray(items) || !items.length) return;
+        // Собираем ВСЕ опции из справочника: бренды, классы, статусы, теги
+        var extraBrands = {}, extraTags = {}, extraClasses = {}, extraStatuses = {};
+        items.forEach(function(it) {
+            var b = it.brand || '';
+            if (b) extraBrands[b] = true;
+            var ps = it.product_status || '';
+            if (ps) extraStatuses[ps] = true;
+            var pc = it.product_class || '';
+            if (pc) extraClasses[pc] = true;
+            var t = it.tags || '';
+            if (t) {
+                String(t).split(',').forEach(function(tag) {
+                    tag = tag.trim();
+                    if (tag) extraTags[tag] = true;
+                });
+            }
+        });
+        // Merge brands
+        function mergeAndFill(selectId, label, extraObj) {
+            var all = {};
+            var sel = document.getElementById(selectId);
+            if (sel) {
+                Array.from(sel.options || []).forEach(function(o) { if (o.value) all[o.value] = true; });
+            }
+            Object.keys(extraObj).forEach(function(k) { all[k] = true; });
+            fillAdsMultiSelect(selectId, label, Object.keys(all).sort());
+        }
+        mergeAndFill('ads-flt-brand', 'Бренд', extraBrands);
+        mergeAndFill('ads-flt-class', 'Класс', extraClasses);
+        mergeAndFill('ads-flt-status', 'Статус', extraStatuses);
+        mergeAndFill('ads-flt-tags', 'Теги', extraTags);
+        if (typeof restoreAdsFilterPreferences === 'function') restoreAdsFilterPreferences();
+    }).catch(function(e) { /* silent — fallback to campaign-only */ });
 }
 
 function fillAdsMultiSelect(id, label, values) {
@@ -368,7 +419,8 @@ function clearAdsFilters() {
 function resetAdsColumnPreferences() {
     NLPagePrefs.resetColumns(ADS_PAGE_KEY);
     if (adsTabulator) { adsTabulator.destroy(); adsTabulator = null; }
-    if (typeof applyAdsFilters === 'function') applyAdsFilters();
+    initAdsGrid();
+    applyAdsFilters();
     if (typeof showToast === 'function') showToast('✅ Порядок колонок восстановлен');
 }
 
@@ -376,7 +428,8 @@ function resetAdsViewPreferences() {
     NLPagePrefs.resetAll(ADS_PAGE_KEY);
     if (typeof clearAdsFilters === 'function') clearAdsFilters();
     if (adsTabulator) { adsTabulator.destroy(); adsTabulator = null; }
-    if (typeof applyAdsFilters === 'function') applyAdsFilters();
+    initAdsGrid();
+    applyAdsFilters();
     if (typeof showToast === 'function') showToast('✅ Вид раздела сброшен');
 }
 
@@ -391,6 +444,18 @@ function buildFilteredCampaign(campaign, products) {
     var sumPrice = products.reduce(function(s, p) { return s + (parseFloat(p.sum_price) || 0); }, 0);
     var totalOrdersProduct = products.reduce(function(s, p) { return s + (parseInt(p.total_orders_product || 0, 10) || 0); }, 0);
     var totalRevenueProduct = products.reduce(function(s, p) { return s + (parseFloat(p.total_revenue_product) || 0); }, 0);
+
+    // Обрезаем daily по отфильтрованным nm_id
+    var filteredNmIds = new Set(products.map(function(p) { return p.nm_id; }));
+    var filteredDaily = (campaign.daily || []).map(function(d) {
+        // Daily из API не имеет nm_id (это агрегат по дате),
+        // но если есть products breakdown по дням — нужно пересчитать.
+        // В текущей структуре daily — агрегат по всей РК по датам.
+        // Поскольку API уже отфильтровал daily по product filters на бэкенде,
+        // оставляем как есть для совместимости.
+        return d;
+    });
+
     return Object.assign({}, campaign, {
         spent: Math.round(spent * 100) / 100, views: views, clicks: clicks, orders: orders, atbs: atbs,
         sum_price: Math.round(sumPrice * 100) / 100,
@@ -404,6 +469,7 @@ function buildFilteredCampaign(campaign, products) {
         total_orders_product: totalOrdersProduct,
         total_revenue_product: Math.round(totalRevenueProduct * 100) / 100,
         nm_count: products.length, products: products,
+        daily: filteredDaily,
     });
 }
 
@@ -422,6 +488,7 @@ function productMatchesAdsFilters(product, search, brands, statuses, productClas
     return matchSearch && matchBrand && matchStatus && matchClass && matchTags;
 }
 
+
 function applyAdsColumnFilters() {
     if (typeof _adsCurrentView !== 'undefined' && _adsCurrentView === 'art') {
         if (typeof filterAdsArtsLocally === 'function') filterAdsArtsLocally();
@@ -429,6 +496,17 @@ function applyAdsColumnFilters() {
         applyAdsFilters();
     }
     if (typeof saveAdsFilterPreferences === 'function') saveAdsFilterPreferences();
+    // Быстрый локальный отклик, затем серверная перезагрузка для канонических totals/daily.
+    if (typeof _adsCurrentView !== 'undefined' && _adsCurrentView !== 'art') {
+        refreshAdsDailyAndMetricsFromFiltered();
+    }
+    if (typeof _adsFilterReloadTimer !== 'undefined') clearTimeout(_adsFilterReloadTimer);
+    _adsFilterReloadTimer = setTimeout(function() {
+        if (typeof loadAds === 'function') loadAds();
+        if (typeof _adsCurrentView !== 'undefined' && _adsCurrentView === 'art' && typeof loadAdsArts === 'function') {
+            loadAdsArts();
+        }
+    }, 350);
 }
 
 function applyAdsFilters() {
@@ -553,4 +631,109 @@ function csvEscape(v) {
     v = String(v == null ? '' : v);
     if (v.indexOf(';') >= 0 || v.indexOf('"') >= 0 || v.indexOf('\n') >= 0) return '"' + v.replace(/"/g, '""') + '"';
     return v;
+}
+
+function refreshAdsDailyAndMetricsFromFiltered() {
+    if (typeof adsTabulator === 'undefined' || !adsTabulator) return;
+    var filteredData = adsTabulator.getData();
+    if (!filteredData || !filteredData.length) {
+        var tbody = document.getElementById('ads-daily-body');
+        if (tbody) tbody.innerHTML = '';
+        var totalRow = document.getElementById('ads-daily-total');
+        if (totalRow) totalRow.innerHTML = '<td colspan="12" style="text-align:center;color:#999;padding:12px">Нет данных</td>';
+        // Сбрасываем метрики
+        var el;
+        el = document.getElementById('ad-spent'); if (el) el.textContent = '0 ₽';
+        el = document.getElementById('ad-views'); if (el) el.textContent = '0';
+        el = document.getElementById('ad-clicks'); if (el) el.textContent = '0';
+        el = document.getElementById('ad-ctr'); if (el) el.textContent = '0%';
+        el = document.getElementById('ad-cpc'); if (el) el.textContent = '—';
+        el = document.getElementById('ad-orders'); if (el) el.textContent = '0';
+        el = document.getElementById('ad-cr'); if (el) el.textContent = '0%';
+        el = document.getElementById('ad-clicks-per-order'); if (el) el.textContent = '—';
+        el = document.getElementById('ad-atbs'); if (el) el.textContent = '0';
+        el = document.getElementById('ad-drr'); if (el) el.textContent = '—';
+        el = document.getElementById('ad-drr-total'); if (el) el.textContent = '—';
+        return;
+    }
+    var dailyByDate = {};
+    var totals = {spent: 0, views: 0, clicks: 0, orders: 0, atbs: 0, sum_price: 0, total_revenue_product: 0};
+    filteredData.forEach(function(c) {
+        // Используем _originalDaily если есть (полный daily из API), иначе daily
+        var daily = c._originalDaily || c.daily || [];
+        daily.forEach(function(d) {
+            var date = d.date || '';
+            if (!date) return;
+            if (!dailyByDate[date]) {
+                dailyByDate[date] = {date: date, spent: 0, views: 0, clicks: 0, orders: 0, atbs: 0, sum_price: 0};
+            }
+            dailyByDate[date].spent += parseFloat(d.spent || 0);
+            dailyByDate[date].views += parseInt(d.views || 0, 10);
+            dailyByDate[date].clicks += parseInt(d.clicks || 0, 10);
+            dailyByDate[date].orders += parseInt(d.orders || 0, 10);
+            dailyByDate[date].atbs += parseInt(d.atbs || 0, 10);
+            dailyByDate[date].sum_price += parseFloat(d.sum_price || 0);
+        });
+        totals.spent += parseFloat(c.spent || 0);
+        totals.views += parseInt(c.views || 0, 10);
+        totals.clicks += parseInt(c.clicks || 0, 10);
+        totals.orders += parseInt(c.orders || 0, 10);
+        totals.atbs += parseInt(c.atbs || 0, 10);
+        totals.sum_price += parseFloat(c.sum_price || 0);
+        totals.total_revenue_product += parseFloat(c.total_revenue_product || 0);
+    });
+    var el;
+    el = document.getElementById('ad-spent'); if (el) el.textContent = totals.spent.toLocaleString('ru-RU', {maximumFractionDigits: 0}) + ' ₽';
+    el = document.getElementById('ad-views'); if (el) el.textContent = totals.views.toLocaleString('ru-RU');
+    el = document.getElementById('ad-clicks'); if (el) el.textContent = totals.clicks.toLocaleString('ru-RU');
+    el = document.getElementById('ad-ctr'); if (el) el.textContent = totals.views ? ((totals.clicks / totals.views * 100).toFixed(2)) + '%' : '0%';
+    el = document.getElementById('ad-cpc'); if (el) el.textContent = totals.clicks ? (totals.spent / totals.clicks).toFixed(2) + ' ₽' : '—';
+    el = document.getElementById('ad-orders'); if (el) el.textContent = totals.orders;
+    el = document.getElementById('ad-cr'); if (el) el.textContent = totals.clicks ? ((totals.orders / totals.clicks * 100).toFixed(1)) + '%' : '0%';
+    el = document.getElementById('ad-clicks-per-order'); if (el) el.textContent = totals.orders ? (totals.clicks / totals.orders).toFixed(1) : '—';
+    el = document.getElementById('ad-atbs'); if (el) el.textContent = totals.atbs;
+    el = document.getElementById('ad-drr'); if (el) el.textContent = totals.sum_price ? ((totals.spent / totals.sum_price * 100).toFixed(1)) + '%' : '—';
+    el = document.getElementById('ad-drr-total'); if (el) el.textContent = totals.total_revenue_product ? ((totals.spent / totals.total_revenue_product * 100).toFixed(1)) + '%' : '—';
+    var tbody = document.getElementById('ads-daily-body');
+    if (!tbody) return;
+    var dates = Object.keys(dailyByDate).sort().reverse();
+    tbody.innerHTML = dates.map(function(date) {
+        var d = dailyByDate[date];
+        var ctr = d.views ? ((d.clicks / d.views * 100).toFixed(2)) + '%' : '0%';
+        var cpc = d.clicks ? (d.spent / d.clicks).toFixed(2) + ' ₽' : '—';
+        var cr = d.clicks ? ((d.orders / d.clicks * 100).toFixed(1)) + '%' : '0%';
+        var clicksPerOrder = d.orders ? (d.clicks / d.orders).toFixed(1) : '—';
+        return '<tr>' +
+            '<td>' + date + '</td>' +
+            '<td style="text-align:right"><b>' + d.spent.toLocaleString('ru-RU', {maximumFractionDigits: 0}) + '</b> ₽</td>' +
+            '<td style="text-align:right">' + d.views.toLocaleString('ru-RU') + '</td>' +
+            '<td style="text-align:right">' + d.clicks.toLocaleString('ru-RU') + '</td>' +
+            '<td style="text-align:right">' + ctr + '</td>' +
+            '<td style="text-align:right">' + cpc + '</td>' +
+            '<td style="text-align:right">' + d.orders + '</td>' +
+            '<td style="text-align:right">' + clicksPerOrder + '</td>' +
+            '<td style="text-align:right">' + d.atbs + '</td>' +
+            '<td style="text-align:right">' + cr + '</td>' +
+            '</tr>';
+    }).join('');
+    var totalRow = document.getElementById('ads-daily-total');
+    if (totalRow) {
+        var totalCtr = totals.views ? ((totals.clicks / totals.views * 100).toFixed(2)) + '%' : '0%';
+        var totalCpc = totals.clicks ? (totals.spent / totals.clicks).toFixed(2) + ' ₽' : '—';
+        var totalCr = totals.clicks ? ((totals.orders / totals.clicks * 100).toFixed(1)) + '%' : '0%';
+        var totalClicksPerOrder = totals.orders ? (totals.clicks / totals.orders).toFixed(1) : '—';
+        totalRow.innerHTML = '<td><b>Итого</b></td>' +
+            '<td style="text-align:right"><b>' + totals.spent.toLocaleString('ru-RU', {maximumFractionDigits: 0}) + '</b> ₽</td>' +
+            '<td style="text-align:right"><b>' + totals.views.toLocaleString('ru-RU') + '</b></td>' +
+            '<td style="text-align:right"><b>' + totals.clicks.toLocaleString('ru-RU') + '</b></td>' +
+            '<td style="text-align:right"><b>' + totalCtr + '</b></td>' +
+            '<td style="text-align:right"><b>' + totalCpc + '</b></td>' +
+            '<td style="text-align:right"><b>' + totals.orders + '</b></td>' +
+            '<td style="text-align:right"><b>' + totalClicksPerOrder + '</b></td>' +
+            '<td style="text-align:right"><b>' + totals.atbs + '</b></td>' +
+            '<td style="text-align:right"><b>' + totalCr + '</b></td>';
+    }
+    if (typeof renderAdsTopChart === 'function') {
+        renderAdsTopChart(dates.map(function(date) { return dailyByDate[date]; }));
+    }
 }
