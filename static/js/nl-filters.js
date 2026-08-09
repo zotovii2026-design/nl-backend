@@ -108,7 +108,7 @@ var NLFilters = (function() {
             setValues(select, Array.from(values));
         }
         renderMenu(id);
-        if (typeof onChange === 'function') onChange();
+        if (typeof onChange === 'function') onChange(id);
     }
 
     /* ── множественный выбор с Ctrl/Shift ── */
