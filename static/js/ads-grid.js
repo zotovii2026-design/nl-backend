@@ -31,10 +31,12 @@ function getAdsProductFilterQuery() {
     var productStatus = typeof NLFilters !== 'undefined' ? NLFilters.getValues(document.getElementById('ads-flt-status')) : [];
     var productClass = typeof NLFilters !== 'undefined' ? NLFilters.getValues(document.getElementById('ads-flt-class')) : [];
     var brand = typeof NLFilters !== 'undefined' ? NLFilters.getValues(document.getElementById('ads-flt-brand')) : [];
+    var tags = typeof NLFilters !== 'undefined' ? NLFilters.getValues(document.getElementById('ads-flt-tags')) : [];
     var search = (document.getElementById('ads-flt-search')?.value || '').trim();
     if (productStatus.length) params.set('product_status', productStatus.join(','));
     if (productClass.length) params.set('product_class', productClass.join(','));
     if (brand.length) params.set('brand', brand.join(','));
+    if (tags.length) params.set('tags', tags.join(','));
     if (search) params.set('search', search);
     var qs = params.toString();
     return qs ? '&' + qs : '';
@@ -413,14 +415,14 @@ function clearAdsFilters() {
     var search = document.getElementById('ads-flt-search');
     if (search) search.value = '';
     saveAdsFilterPreferences();
-    applyAdsFilters();
+    applyAdsColumnFilters();
 }
 
 function resetAdsColumnPreferences() {
     NLPagePrefs.resetColumns(ADS_PAGE_KEY);
     if (adsTabulator) { adsTabulator.destroy(); adsTabulator = null; }
     initAdsGrid();
-    applyAdsFilters();
+    applyAdsColumnFilters();
     if (typeof showToast === 'function') showToast('✅ Порядок колонок восстановлен');
 }
 
@@ -429,7 +431,7 @@ function resetAdsViewPreferences() {
     if (typeof clearAdsFilters === 'function') clearAdsFilters();
     if (adsTabulator) { adsTabulator.destroy(); adsTabulator = null; }
     initAdsGrid();
-    applyAdsFilters();
+    applyAdsColumnFilters();
     if (typeof showToast === 'function') showToast('✅ Вид раздела сброшен');
 }
 
@@ -497,9 +499,6 @@ function applyAdsColumnFilters() {
     }
     if (typeof saveAdsFilterPreferences === 'function') saveAdsFilterPreferences();
     // Быстрый локальный отклик, затем серверная перезагрузка для канонических totals/daily.
-    if (typeof _adsCurrentView !== 'undefined' && _adsCurrentView !== 'art') {
-        refreshAdsDailyAndMetricsFromFiltered();
-    }
     if (typeof _adsFilterReloadTimer !== 'undefined') clearTimeout(_adsFilterReloadTimer);
     _adsFilterReloadTimer = setTimeout(function() {
         if (typeof loadAds === 'function') loadAds();

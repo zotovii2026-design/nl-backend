@@ -121,6 +121,7 @@ def _ads_product_filter_sql(
     product_status: Optional[str],
     product_class: Optional[str],
     brand: Optional[str],
+    tags: Optional[str],
     search: Optional[str],
     params: dict,
 ):
@@ -138,6 +139,14 @@ def _ads_product_filter_sql(
     if brand_values:
         params["brand"] = brand_values
         filters.append("COALESCE(NULLIF(rb.brand, ''), pe.brand, '') = ANY(:brand)")
+    tag_values = _split_filter_values(tags)
+    if tag_values:
+        params["tags"] = tag_values
+        filters.append("""EXISTS (
+            SELECT 1
+            FROM unnest(string_to_array(COALESCE(rb.tags, ''), ',')) AS tag_value(tag)
+            WHERE btrim(tag_value.tag) = ANY(:tags)
+        )""")
     if search:
         params["search_like"] = f"%{search.strip()}%"
         filters.append("""(
@@ -181,6 +190,7 @@ def _ads_total_revenue_filter_sql(
     product_status: Optional[str],
     product_class: Optional[str],
     brand: Optional[str],
+    tags: Optional[str],
     search: Optional[str],
     params: dict,
 ):
@@ -198,6 +208,14 @@ def _ads_total_revenue_filter_sql(
     if brand_values:
         params["total_brand"] = brand_values
         filters.append("COALESCE(NULLIF(rb_total.brand, ''), pe_total.brand, '') = ANY(:total_brand)")
+    tag_values = _split_filter_values(tags)
+    if tag_values:
+        params["total_tags"] = tag_values
+        filters.append("""EXISTS (
+            SELECT 1
+            FROM unnest(string_to_array(COALESCE(rb_total.tags, ''), ',')) AS tag_value(tag)
+            WHERE btrim(tag_value.tag) = ANY(:total_tags)
+        )""")
     if search:
         params["total_search_like"] = f"%{search.strip()}%"
         filters.append("""(
@@ -241,6 +259,7 @@ def _ads_tech_status_filter_sql(
     product_status: Optional[str],
     product_class: Optional[str],
     brand: Optional[str],
+    tags: Optional[str],
     search: Optional[str],
     params: dict,
 ):
@@ -258,6 +277,14 @@ def _ads_tech_status_filter_sql(
     if brand_values:
         params["tech_brand"] = brand_values
         filters.append("COALESCE(NULLIF(rb_tech.brand, ''), pe_tech.brand, '') = ANY(:tech_brand)")
+    tag_values = _split_filter_values(tags)
+    if tag_values:
+        params["tech_tags"] = tag_values
+        filters.append("""EXISTS (
+            SELECT 1
+            FROM unnest(string_to_array(COALESCE(rb_tech.tags, ''), ',')) AS tag_value(tag)
+            WHERE btrim(tag_value.tag) = ANY(:tech_tags)
+        )""")
     if search:
         params["tech_search_like"] = f"%{search.strip()}%"
         filters.append("""(
@@ -303,12 +330,13 @@ async def _get_total_orders_revenue_by_day(
     product_status: Optional[str],
     product_class: Optional[str],
     brand: Optional[str],
+    tags: Optional[str],
     search: Optional[str],
 ):
     """Total cabinet order revenue by day for overall DRR denominator."""
     total_params = dict(params)
     join_sql, filter_sql = _ads_total_revenue_filter_sql(
-        product_status, product_class, brand, search, total_params
+        product_status, product_class, brand, tags, search, total_params
     )
     rows = await db.execute(text("""
         WITH raw_orders AS (
@@ -538,6 +566,7 @@ async def get_ad_stats(
     product_status: Optional[str] = None,
     product_class: Optional[str] = None,
     brand: Optional[str] = None,
+    tags: Optional[str] = None,
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
@@ -548,14 +577,14 @@ async def get_ad_stats(
     status_cond = "AND (c.wb_campaign_id IS NULL OR c.status = ANY(:statuses))"
     params["statuses"] = status_list
     product_join, product_cond = _ads_product_filter_sql(
-        product_status, product_class, brand, search, params
+        product_status, product_class, brand, tags, search, params
     )
     total_revenue_by_day = await _get_total_orders_revenue_by_day(
-        db, params, product_status, product_class, brand, search
+        db, params, product_status, product_class, brand, tags, search
     )
     total_revenue_period = round(sum(total_revenue_by_day.values()), 2)
     tech_join, tech_cond = _ads_tech_status_filter_sql(
-        product_status, product_class, brand, search, params
+        product_status, product_class, brand, tags, search, params
     )
     tech_rows = await db.execute(text("""
         SELECT ts.target_date,
@@ -894,6 +923,7 @@ async def get_ad_stats_by_art(
     product_status: Optional[str] = None,
     product_class: Optional[str] = None,
     brand: Optional[str] = None,
+    tags: Optional[str] = None,
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
@@ -905,10 +935,10 @@ async def get_ad_stats_by_art(
     status_cond = "AND (c.wb_campaign_id IS NULL OR c.status = ANY(:statuses))"
     params["statuses"] = status_list
     product_join, product_cond = _ads_product_filter_sql(
-        product_status, product_class, brand, search, params
+        product_status, product_class, brand, tags, search, params
     )
     total_revenue_by_day = await _get_total_orders_revenue_by_day(
-        db, params, product_status, product_class, brand, search
+        db, params, product_status, product_class, brand, tags, search
     )
     total_revenue_period = round(sum(total_revenue_by_day.values()), 2)
 
