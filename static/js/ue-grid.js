@@ -7,11 +7,11 @@
 let ueTabulator = null;
 let _ueEditedIds = new Set();
 let _ueAllData = [];  // Полные данные до фильтрации
-let _ueGroupsOpen = false;
+let _ueTreeOpen = false;
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ue-grid-v13-controls-set-columns';
+    const VER = 'ue-grid-v14-data-tree';
     if (localStorage.getItem('ue-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ue-grid-state-columns');
         localStorage.removeItem('tabulator-ue-grid-state-sort');
@@ -103,7 +103,7 @@ function getUEColumns() {
                 },
                 { title: 'Коррекция % МП', field: 'mp_correction_pct',
                     headerTooltip: 'Корректировка комиссии (из справочника)', width: 85, headerSort: false,
-                    editor: 'number', editorParams: { step: 0.1 },
+                    editor: 'number', editorParams: { step: 0.1 }, editable: ueEditableDataCell,
                     formatter: function(cell) { const v = cell.getValue(); return v ? v + '%' : '—'; }
                 },
                 { title: 'Итоговый % МП', field: 'mp_total_pct',
@@ -293,7 +293,7 @@ function getUEColumns() {
                 },
                 { title: 'Цена до СПП план', field: 'price_before_spp_plan',
                     headerTooltip: 'Цена до СПП, план (ручной ввод)', width: 100, headerSort: false,
-                    editor: 'number', editorParams: { step: 1 },
+                    editor: 'number', editorParams: { step: 1 }, editable: ueEditableDataCell,
                     formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
                 },
             ]
@@ -359,17 +359,17 @@ function getUEColumns() {
                 },
                 { title: 'Цена к изм. ₽', field: 'price_before_spp_change',
                     headerTooltip: 'Цена до СПП к изменению', width: 95, headerSort: false,
-                    editor: 'number', editorParams: { step: 1 },
+                    editor: 'number', editorParams: { step: 1 }, editable: ueEditableDataCell,
                     formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
                 },
                 { title: 'Скидка WB к изм.', field: 'wb_club_discount_change',
                     headerTooltip: 'Скидка WB клуба к изменению', width: 100, headerSort: false,
-                    editor: 'number', editorParams: { step: 0.1 },
+                    editor: 'number', editorParams: { step: 0.1 }, editable: ueEditableDataCell,
                     formatter: function(cell) { const v = cell.getValue(); return v ? v + '%' : '—'; }
                 },
                 { title: 'Кэшбэк к изм.', field: 'loyalty_cashback_change',
                     headerTooltip: 'Скидка программ лояльности к изменению', width: 95, headerSort: false,
-                    editor: 'number', editorParams: { step: 0.1 },
+                    editor: 'number', editorParams: { step: 0.1 }, editable: ueEditableDataCell,
                     formatter: function(cell) { const v = cell.getValue(); return v ? v + '%' : '—'; }
                 },
             ]
@@ -396,7 +396,7 @@ function getUEColumns() {
             columns: [
                 { title: 'Дата правок', field: 'change_date',
                     headerTooltip: 'Дата внесения правок', width: 95, headerSort: false,
-                    editor: 'date',
+                    editor: 'date', editable: ueEditableDataCell,
                     formatter: function(cell) { return cell.getValue() || '—'; }
                 },
             ]
@@ -427,7 +427,7 @@ function initUEGrid() {
         columns: getUEColumns(),
         data: [],
         layout: 'fitDataFill',
-        index: 'entity_id',
+        index: '_id',
         movableColumns: true,
         resizable: true,
         sortable: true,
@@ -443,34 +443,20 @@ function initUEGrid() {
             sort: true,
         },
         persistenceID: 'ue-grid-state',
+        dataTree: true,
+        dataTreeChildField: '_children',
+        dataTreeStartExpanded: false,
+        dataTreeElementColumn: 'nm_id_display',
+        initialSort: [
+            {column: 'nm_id_display', dir: 'asc'},
+        ],
 
-        // === Группировка по nm_id (как в Справочнике) ===
-        // Группировка по nm_id. Безразмерные товары получили уникальный _solo_ ключ
-        groupBy: 'nm_id',
-        groupStartOpen: true,
-        groupToggleElement: 'header',
-        groupHeader: function(value, count, data, group) {
-            // Скрыть заголовок для соло-товаров (безразмерных)
-            if (value && typeof value === 'string' && value.startsWith('_solo_')) {
-                var el = group.getElement();
-                if (el) el.style.display = 'none';
-                return '';
-            }
-            const d = data[0] || {};
-            const name = (d.product_name || '').substring(0, 40);
-            const vc = d.vendor_code || '';
-            const photo = d.photo ? d.photo.replace('/hq/','/c246x328/').replace('/big/','/c246x328/') : '';
-            const img = photo ? '<img src="' + photo + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:8px">' : '';
-            return '<span style="font-size:6px;line-height:1">' + img + '<b>' + value + '</b> — ' + count + ' ' + (count === 1 ? 'размер' : count < 5 ? 'размера' : 'размеров') + ' &nbsp; <span style="color:#666">' + name + '</span> &nbsp; <span style="color:#999">[' + vc + ']</span></span>';
-        },
-
-        // Подсветка строк внутри групп (как в Справочнике)
         rowFormatter: function(row) {
             const data = row.getData();
             const el = row.getElement();
-            if (data._hasSizes) {
+            if (data._isArticleRow) {
                 el.style.background = '#f8f9ff';
-                el.style.cursor = 'pointer';
+                el.style.fontWeight = '600';
             }
         },
     });
@@ -479,8 +465,10 @@ function initUEGrid() {
     var _ueAutoDate = false;
     ueTabulator.on('cellEdited', function(cell) {
         if (_ueAutoDate) return;
-        _ueEditedIds.add(cell.getRow().getData().entity_id);
-        cell.getRow().getData()._edited = true;
+        const rowData = cell.getRow().getData();
+        if (rowData._isArticleRow || !rowData.entity_id) return;
+        _ueEditedIds.add(rowData.entity_id);
+        rowData._edited = true;
         if (cell.getField() !== 'change_date') {
             _ueAutoDate = true;
             const today = new Date();
@@ -493,6 +481,109 @@ function initUEGrid() {
     });
 
     console.log('[UE Grid] Tabulator initialized');
+}
+
+function ueNormalizeRow(row) {
+    const normalized = Object.assign({}, row || {});
+    normalized.nm_id_display = normalized.nm_id_display || normalized.nm_id || '';
+    normalized._id = normalized.entity_id || ('ue_' + normalized.nm_id_display + '_' + (normalized.size_name || '0'));
+    normalized._isArticleRow = false;
+    normalized._hasSizes = false;
+    delete normalized._children;
+    return normalized;
+}
+
+function ueBaseNmId(row) {
+    return String((row && (row.nm_id_display || row.nm_id)) || '');
+}
+
+function ueIsSizeless(row, count) {
+    const size = String((row && row.size_name) || '').trim().toUpperCase();
+    return count === 1 && (!size || size === '0' || size === 'ONE SIZE');
+}
+
+function ueSizeLabel(count) {
+    if (count === 1) return '1 размер';
+    if (count > 1 && count < 5) return count + ' размера';
+    return count + ' размеров';
+}
+
+function prepareUEData(rows) {
+    const normalizedRows = (rows || []).map(ueNormalizeRow);
+    const counts = {};
+    normalizedRows.forEach(function(row) {
+        const nmId = ueBaseNmId(row);
+        counts[nmId] = (counts[nmId] || 0) + 1;
+    });
+
+    const grouped = {};
+    const ordered = [];
+    normalizedRows.forEach(function(row) {
+        const nmId = ueBaseNmId(row);
+        row._noGroup = ueIsSizeless(row, counts[nmId]);
+        if (!grouped[nmId]) {
+            grouped[nmId] = [];
+            ordered.push(nmId);
+        }
+        grouped[nmId].push(row);
+    });
+
+    const treeRows = [];
+    ordered.forEach(function(nmId) {
+        const children = grouped[nmId] || [];
+        if (children.length <= 1) {
+            treeRows.push(children[0]);
+            return;
+        }
+
+        const first = Object.assign({}, children[0]);
+        first._id = 'article_' + nmId;
+        first._isArticleRow = true;
+        first._hasSizes = true;
+        first._edited = false;
+        first.entity_id = '';
+        first.nm_id = nmId;
+        first.nm_id_display = nmId;
+        first.size_name = ueSizeLabel(children.length);
+        first.barcode = children.map(function(child) { return child.barcode; }).filter(Boolean).join(', ');
+        first._children = children.map(function(child) {
+            const copy = Object.assign({}, child);
+            copy._hasSizes = true;
+            copy._parent_nm_id = nmId;
+            return copy;
+        });
+        treeRows.push(first);
+    });
+    return treeRows;
+}
+
+function ueFlattenRows(rows) {
+    const flat = [];
+    (rows || []).forEach(function(row) {
+        if (!row) return;
+        if (row._children && row._children.length) {
+            row._children.forEach(function(child) {
+                flat.push(child);
+            });
+        } else if (!row._isArticleRow) {
+            flat.push(row);
+        }
+    });
+    return flat;
+}
+
+function ueRenderRows(rows) {
+    if (!ueTabulator) initUEGrid();
+    if (!ueTabulator) return Promise.resolve();
+    const treeRows = prepareUEData(rows);
+    return ueTabulator.replaceData(treeRows).then(function() {
+        setUETreeOpen(_ueTreeOpen, true);
+    });
+}
+
+function ueEditableDataCell(cell) {
+    const data = cell && cell.getRow ? cell.getRow().getData() : {};
+    return !!(data && !data._isArticleRow && data.entity_id);
 }
 
 /**
@@ -530,29 +621,9 @@ async function loadUEData(loadAll, refresh) {
         const data = Array.isArray(raw) ? raw : (raw.items || []);
         const totalFromApi = raw.total || data.length;
 
-        // Сохраняем оригинальный nm_id для отображения и ссылок
-        data.forEach(p => { p.nm_id_display = p.nm_id; });
-
-        // Помечаем безразмерные товары ПЕРЕД replaceData (для группировки — как в cost-grid.js)
-        const nmCounts = {};
-        data.forEach(p => { nmCounts[p.nm_id] = (nmCounts[p.nm_id] || 0) + 1; });
-        data.forEach(p => {
-            p._noGroup = nmCounts[p.nm_id] === 1 && (!p.size_name || p.size_name === '0' || p.size_name === 'ONE SIZE');
-            p._hasSizes = !p._noGroup;
-            if (p._noGroup) p.nm_id = '_solo_' + p.entity_id;
-        });
-
-        if (ueTabulator) {
-            ueTabulator.replaceData(data).then(() => {
-                setUEGroupsOpen(_ueGroupsOpen, true);
-            });
-        } else {
-            // Если Tabulator не инициализирован — инициализируем
-            initUEGrid();
-            ueTabulator.replaceData(data).then(() => {
-                setUEGroupsOpen(_ueGroupsOpen, true);
-            });
-        }
+        const normalized = data.map(ueNormalizeRow);
+        _ueAllData = normalized;
+        await ueRenderRows(normalized);
 
         const countEl = document.getElementById('ue-count');
         const hasMore = data.length < totalFromApi;
@@ -566,7 +637,6 @@ async function loadUEData(loadAll, refresh) {
             }
         }
 
-        _ueAllData = data;  // Сохраняем полные данные
         populateUEFilterOptions();  // Заполняем фильтры
 
         console.log('[UE Grid] Loaded', data.length, '/', totalFromApi, 'rows');
@@ -586,12 +656,7 @@ function applyUEFilters() {
 
     const filtered = getUEFilteredData();
 
-    // Обновляем таблицу
-    if (ueTabulator) {
-        ueTabulator.replaceData(filtered).then(function() {
-            setUEGroupsOpen(_ueGroupsOpen, true);
-        });
-    }
+    ueRenderRows(filtered);
     const countEl = document.getElementById('ue-count');
     if (countEl) countEl.textContent = filtered.length + ' товаров';
 }
@@ -610,7 +675,7 @@ function getUEFilteredData() {
     if (search) {
         filtered = filtered.filter(p =>
             (p.product_name || '').toLowerCase().includes(search) ||
-            String(p.nm_id).includes(search) ||
+            String(p.nm_id_display || p.nm_id).includes(search) ||
             (p.vendor_code || '').toLowerCase().includes(search) ||
             (p.barcode || '').includes(search)
         );
@@ -640,35 +705,35 @@ function resetUEFilters() {
 }
 
 function toggleUEGroupsOpen() {
-    setUEGroupsOpen(!_ueGroupsOpen);
+    setUETreeOpen(!_ueTreeOpen);
 }
 
-function setUEGroupsOpen(open, silent) {
+function setUETreeOpen(open, silent) {
     if (!ueTabulator) return;
     const toggleBtn = document.getElementById('ue-tree-toggle-btn');
     if (toggleBtn) toggleBtn.disabled = true;
-    const groups = ueTabulator.getGroups ? ueTabulator.getGroups() : [];
-    groups.forEach(function(group) {
-        const key = typeof group.getKey === 'function' ? group.getKey() : '';
-        const isSolo = key && String(key).startsWith('_solo_');
-        if (isSolo || open) {
-            if (typeof group.show === 'function') group.show();
-        } else if (typeof group.hide === 'function') {
-            group.hide();
+    const rows = ueTabulator.getRows ? ueTabulator.getRows() : [];
+    rows.forEach(function(row) {
+        const data = row.getData();
+        if (!data || !data._isArticleRow) return;
+        if (open) {
+            if (typeof row.treeExpand === 'function') row.treeExpand();
+        } else {
+            if (typeof row.treeCollapse === 'function') row.treeCollapse();
         }
     });
-    _ueGroupsOpen = !!open;
-    updateUEGroupsToggleButton();
+    _ueTreeOpen = !!open;
+    updateUETreeToggleButton();
     if (toggleBtn) toggleBtn.disabled = false;
     if (!silent && ueTabulator && typeof ueTabulator.redraw === 'function') {
         ueTabulator.redraw(false);
     }
 }
 
-function updateUEGroupsToggleButton() {
+function updateUETreeToggleButton() {
     const toggleBtn = document.getElementById('ue-tree-toggle-btn');
     if (!toggleBtn) return;
-    toggleBtn.textContent = _ueGroupsOpen ? 'Скрыть размеры' : 'Раскрыть по размерам';
+    toggleBtn.textContent = _ueTreeOpen ? 'Скрыть размеры' : 'Раскрыть по размерам';
 }
 
 function resetUEColumnPreferences() {
@@ -753,23 +818,23 @@ function ueEsc(value) {
  */
 async function saveUEData() {
     if (!ueTabulator) return;
-    const allData = ueTabulator.getData();
-    const edited = allData.filter(r => r._edited);
+    const allData = ueFlattenRows(ueTabulator.getData());
+    const edited = allData.filter(r => r._edited && !r._isArticleRow && r.entity_id);
     if (!edited.length) {
         alert('Нет изменений для сохранения');
         return;
     }
 
-    // Восстанавливаем оригинальный nm_id (для безразмерных он заменён на _solo_)
     const payload = edited.map(r => {
         const row = Object.assign({}, r);
-        if (typeof row.nm_id === 'string' && row.nm_id.startsWith('_solo_')) {
-            row.nm_id = row.nm_id_display || parseInt(row.nm_id.replace('_solo_', ''), 10);
-        }
         // Убираем служебные поля
+        delete row._id;
         delete row._edited;
         delete row._noGroup;
         delete row._hasSizes;
+        delete row._isArticleRow;
+        delete row._parent_nm_id;
+        delete row._children;
         return row;
     });
 
@@ -795,7 +860,8 @@ async function saveUEData() {
             // Снимаем флаг редактирования
             allData.forEach(r => { delete r._edited; });
             _ueEditedIds.clear();
-            ueTabulator.replaceData(allData);
+            _ueAllData = allData.map(ueNormalizeRow);
+            ueRenderRows(_ueAllData);
         } else {
             alert('Ошибка: ' + (result.error || 'неизвестная'));
         }
@@ -809,7 +875,7 @@ async function saveUEData() {
  */
 function exportUEExcel() {
     if (!ueTabulator) return;
-    var data = ueTabulator.getData();
+    var data = ueFlattenRows(ueTabulator.getData());
     if (!data.length) { alert('Нет данных для экспорта'); return; }
 
     // Заголовки колонок
