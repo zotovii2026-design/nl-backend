@@ -11,7 +11,7 @@ let _ueGroupsOpen = false;
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ue-grid-v10-controls';
+    const VER = 'ue-grid-v11-controls-reset';
     if (localStorage.getItem('ue-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ue-grid-state-columns');
         localStorage.removeItem('tabulator-ue-grid-state-sort');
@@ -675,9 +675,13 @@ function resetUEColumnPreferences() {
         ueTabulator.destroy();
         ueTabulator = null;
     }
-    initUEGrid();
-    applyUEFilters();
-    if (typeof showToast === 'function') showToast('✅ Порядок колонок восстановлен');
+    const container = document.getElementById('ue-tabulator');
+    if (container) container.innerHTML = '';
+    window.requestAnimationFrame(function() {
+        initUEGrid();
+        applyUEFilters();
+        if (typeof showToast === 'function') showToast('✅ Порядок колонок восстановлен');
+    });
 }
 
 /**
