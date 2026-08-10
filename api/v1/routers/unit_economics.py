@@ -70,12 +70,13 @@ async def build_unit_economics(
     # ── Налоговые настройки организации (fallback для товаров без tax_system) ──
     from domain.unit_economics import normalize_tax_system
     org_tax = await db.execute(
-        text("SELECT tax_system, tax_rate, vat_type FROM organizations WHERE id = :oid"),
+        text("SELECT tax_system, tax_rate, vat_type, fbo_avg_warehouses FROM organizations WHERE id = :oid"),
         {"oid": org_id},
     )
     org_tax_row = org_tax.fetchone()
     org_tax_system = normalize_tax_system(org_tax_row[0] if org_tax_row else None)
     org_tax_rate = float(org_tax_row[1]) if org_tax_row and org_tax_row[1] else 0
+    org_fbo_warehouses = org_tax_row[3] if org_tax_row and isinstance(org_tax_row[3], list) else None
 
     # ── Обработка единого запроса reference_book ──────────
     # Колонки rb_rows:
@@ -171,7 +172,7 @@ async def build_unit_economics(
                 "commission_fbs_pct": float(r[9]) if r[9] else 0,
             }
 
-    tariff_context = build_box_tariff_context(box_rows)
+    tariff_context = build_box_tariff_context(box_rows, org_fbo_warehouses)
     box_tariffs = tariff_context["tariffs"]
 
     # 8) Собираем результат
@@ -216,7 +217,10 @@ async def build_unit_economics(
 
         # Компактный tooltip (однострочный) + debug dict для фронта
         _meth = _delivery_debug.get("method", "")
+        _warehouses = ", ".join(_delivery_debug.get("warehouses") or tariff_context.get("fbo_warehouses", []))
         _logistics_tooltip = f"{_meth} | {_delivery_to_client:.2f} ₽ | V={_volume_liters:.1f}л"
+        if _fulfillment_model == "fbo" and _warehouses:
+            _logistics_tooltip += f" | склады: {_warehouses}"
 
         # Фильтр поиска
         if search_q and search_q not in str(nm_id) and search_q not in product_name.lower() and search_q not in vendor_code.lower():
@@ -492,7 +496,6 @@ async def save_unit_economics_batch(
     except Exception:
         pass
     return {"ok": True, "saved": saved}
-
 
 
 

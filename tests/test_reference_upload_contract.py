@@ -86,4 +86,4 @@ def test_reference_top_query_save_queues_off_schedule_seasonality():
     assert "function resetCostEditTracking()" in cost_grid
     assert "_top_query_edited: topQueryEdited(data)" in cost_grid
     assert "field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3'" in cost_grid
-    assert "cost-grid.js?v=20260731-topquery-save" in dashboard
+    assert "cost-grid.js?v=20260810-fbo-average" in dashboard

@@ -168,7 +168,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/stats-grid.js?v=20260729-entities5"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260803-reference-style-tree"></script>
 <!-- Cost Grid Module -->
-<script type="text/javascript" src="/static/js/cost-grid.js?v=20260731-topquery-save"></script>
+<script type="text/javascript" src="/static/js/cost-grid.js?v=20260810-fbo-average"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260620-fix"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260701-adsmodel15"></script>
@@ -641,6 +641,14 @@ var _sectionHTML = {
 </div>
 <button id="tax-apply-btn" onclick="applyTaxToAll()" title="Применить налоги ко всем строкам" style="padding:6px 10px;font-size:.85em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px">📋 Применить ко всему</button>
 <button id="tax-lock-btn" onclick="toggleTaxLock()" title="Заблокировать/разблокировать" style="padding:6px 10px;font-size:1.2em;background:none;border:1px solid #ddd;border-radius:6px;cursor:pointer;margin-left:8px;transition:all .2s">🔒</button>
+<div style="display:flex;align-items:center;gap:8px;border-left:1px solid #e5e5e5;padding-left:16px;flex-wrap:wrap">
+<label title="Эти склады нужны для расчёта FBO-логистики в Юнит Экономике. Один выбранный склад считает тариф по нему; несколько складов дают средний тариф. На FBS не влияет." style="font-size:.85em;color:#333;font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:4px">Усреднение FBO <span style="display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border:1px solid #cfd4dc;border-radius:50%;font-size:.78em;color:#777;background:#fff">?</span></label>
+<select id="fbo-average-add-select" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;min-width:160px"><option value="">Склад</option></select>
+<button onclick="addFboAverageWarehouse()" title="Добавить склад" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">+ Склад</button>
+<button onclick="saveFboAverageWarehouses()" title="Сохранить склады FBO" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Сохранить</button>
+<button onclick="resetFboAverageWarehouses()" title="Вернуть склады по умолчанию" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">По умолчанию</button>
+<div id="fbo-average-selected" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap"></div>
+</div>
 <button class="btn" onclick="document.getElementById('cost-file-input').click()" style="padding:6px 14px;font-size:.85em">📤 Загрузить CSV/XLSX</button>
 <input type="file" id="cost-file-input" accept=".xlsx,.csv" style="display:none" onchange="uploadCostExcel(this)">
 <button class="btn btn-outline" onclick="downloadReferenceTemplate()" style="padding:6px 14px;font-size:.85em">📥 Скачать XLSX-шаблон</button>
@@ -1386,7 +1394,7 @@ async function _sectionEnter(name) {
         case 'costprice':
             if (!_costpriceInited) { _lazyInit('costprice'); await loadOrgs(); _costpriceInited = true; }
             else { await loadOrgs(); }
-            loadTaxSettings(); loadCostPrices(); break;
+            loadTaxSettings(); loadFboAverageWarehouses(); loadCostPrices(); break;
         case 'salesplan':
             if (!_salesplanInited) { _lazyInit('salesplan'); loadOrgs(); _salesplanInited = true; }
             loadSalesPlans(); break;
@@ -2607,6 +2615,99 @@ function calcPlanVol(el) {
 
 
 // === Налоговые настройки кабинета ===
+let _fboAverageWarehouses = {available: [], selected: [], effective: [], default: [], is_default: true};
+let _fboAverageDraft = [];
+
+function renderFboAverageWarehouses() {
+    const select = document.getElementById('fbo-average-add-select');
+    const selectedEl = document.getElementById('fbo-average-selected');
+    if (!select || !selectedEl) return;
+
+    const selectedKeys = new Set(_fboAverageDraft.map(function(name) { return String(name).toLowerCase(); }));
+    const options = ['<option value="">Склад</option>'];
+    (_fboAverageWarehouses.available || []).forEach(function(name) {
+        if (!selectedKeys.has(String(name).toLowerCase())) {
+            options.push('<option value="' + esc(name) + '">' + esc(name) + '</option>');
+        }
+    });
+    select.innerHTML = options.join('');
+
+    const visible = _fboAverageDraft.length ? _fboAverageDraft : (_fboAverageWarehouses.effective || []);
+    const chips = visible.map(function(name) {
+        const encodedName = encodeURIComponent(name);
+        const removable = _fboAverageDraft.length
+            ? '<button onclick="removeFboAverageWarehouse(decodeURIComponent(\'' + encodedName + '\'))" title="Убрать склад" style="border:none;background:none;color:#777;cursor:pointer;padding:0 0 0 4px;font-size:12px">×</button>'
+            : '';
+        return '<span style="display:inline-flex;align-items:center;border:1px solid #ddd;background:#fff;border-radius:4px;padding:3px 6px;font-size:.82em;color:#555">' + esc(name) + removable + '</span>';
+    });
+    selectedEl.innerHTML = chips.join('') || '<span style="font-size:.82em;color:#999">—</span>';
+}
+
+async function loadFboAverageWarehouses() {
+    if (!ORG_ID) return;
+    try {
+        const r = await fetch('/api/v1/nl/fbo-average-warehouses?org_id=' + encodeURIComponent(ORG_ID));
+        if (!r.ok) return;
+        _fboAverageWarehouses = await r.json();
+        _fboAverageDraft = (_fboAverageWarehouses.selected || []).slice(0, 5);
+        renderFboAverageWarehouses();
+    } catch(e) {
+        console.error('loadFboAverageWarehouses', e);
+    }
+}
+
+function addFboAverageWarehouse() {
+    const select = document.getElementById('fbo-average-add-select');
+    const name = select ? String(select.value || '').trim() : '';
+    if (!name) return;
+    if (_fboAverageDraft.length >= 5) {
+        showToast('Можно выбрать не больше 5 складов FBO', 'error');
+        return;
+    }
+    const exists = _fboAverageDraft.some(function(item) {
+        return item.toLowerCase() === name.toLowerCase();
+    });
+    if (!exists) _fboAverageDraft.push(name);
+    renderFboAverageWarehouses();
+}
+
+function removeFboAverageWarehouse(name) {
+    const key = String(name || '').toLowerCase();
+    _fboAverageDraft = _fboAverageDraft.filter(function(item) {
+        return item.toLowerCase() !== key;
+    });
+    renderFboAverageWarehouses();
+}
+
+async function saveFboAverageWarehouses() {
+    if (!ORG_ID) return;
+    try {
+        const r = await fetch('/api/v1/nl/fbo-average-warehouses?org_id=' + encodeURIComponent(ORG_ID), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({warehouses: _fboAverageDraft})
+        });
+        if (!r.ok) {
+            const err = await r.json();
+            showToast('Ошибка: ' + (err.detail || r.status), 'error');
+            return;
+        }
+        _fboAverageWarehouses = await r.json();
+        _fboAverageDraft = (_fboAverageWarehouses.selected || []).slice(0, 5);
+        renderFboAverageWarehouses();
+        showToast('✅ Склады FBO сохранены');
+    } catch(e) {
+        console.error('saveFboAverageWarehouses', e);
+        showToast('Ошибка сохранения складов FBO', 'error');
+    }
+}
+
+async function resetFboAverageWarehouses() {
+    _fboAverageDraft = [];
+    renderFboAverageWarehouses();
+    await saveFboAverageWarehouses();
+}
+
 async function loadTaxSettings() {
     if (!ORG_ID) return;
     try {
@@ -3970,7 +4071,7 @@ async function switchOrg() {
     var activeTab = document.querySelector('.page-section.active');
     if (activeTab) {
         var tabName = activeTab.id.replace('page-', '');
-        if (tabName === 'costprice') { loadTaxSettings(); loadCostPrices(); }
+        if (tabName === 'costprice') { loadTaxSettings(); loadFboAverageWarehouses(); loadCostPrices(); }
         else if (tabName === 'unitecon') { if (!ueTabulator) initUEGrid(); loadUEData(); }
         else if (tabName === 'promo') { if (typeof promoTabulator === 'undefined' || !promoTabulator) initPromoGrid(); loadPromoData(); }
         else if (tabName === 'salesplan') loadSalesPlans();
@@ -4029,7 +4130,7 @@ async function switchTopStore() {
         else if (tabName === 'analytics') loadAnalytics();
         else if (tabName === 'rnp') loadRnp();
         else if (tabName === 'opiu') loadOpiu();
-        else if (tabName === 'costprice') { loadTaxSettings(); loadCostPrices(); }
+        else if (tabName === 'costprice') { loadTaxSettings(); loadFboAverageWarehouses(); loadCostPrices(); }
         else if (tabName === 'ads') { loadAds(); if (typeof loadAdsArts === 'function') loadAdsArts(); }
         else if (tabName === 'marketer') loadMarketer();
         else if (tabName === 'strategies') initStrategyMilestonesPage();

@@ -1,6 +1,6 @@
 import enum
 from sqlalchemy import Column, String, Integer, DateTime, func, ForeignKey, Text, Numeric
-from sqlalchemy.dialects.postgresql import UUID, ENUM
+from sqlalchemy.dialects.postgresql import UUID, ENUM, JSONB
 from sqlalchemy.orm import relationship
 from core.database import Base
 import uuid
@@ -50,6 +50,7 @@ class Organization(Base):
     tax_system = Column(String(50), nullable=True)    # УСН Доходы / УСН Доходы-Расходы / ОСНО / АУСН Доходы / АУСН Доходы-Расходы
     tax_rate = Column(Numeric(5, 2), nullable=True)   # % ставки налога
     vat_type = Column(String(10), nullable=True)      # НДС от дохода: нет / 5% / 7%
+    fbo_avg_warehouses = Column(JSONB, nullable=True)  # Склады FBO для усреднения логистики в UE
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

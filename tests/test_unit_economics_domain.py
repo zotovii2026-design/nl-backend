@@ -5,6 +5,7 @@ from domain.unit_economics import (
     build_box_tariff_context,
     calculate_delivery,
     calculate_reverse_delivery,
+    normalize_fbo_average_warehouses,
 )
 
 
@@ -24,6 +25,31 @@ def test_fbo_delivery_keeps_average_warehouse_method():
     assert cost == 43.5
     assert debug["method"] == "ФБО-среднее (сетка <=1л)"
     assert debug["avg_coef"] == 150
+
+
+def test_fbo_delivery_uses_selected_average_warehouses():
+    context = build_box_tariff_context(_tariff_rows(), ["Коледино", "Краснодар"])
+
+    cost, debug = calculate_delivery(2.1, "fbo", None, context)
+
+    assert cost == 129.5
+    assert debug["warehouses"] == ["Коледино", "Краснодар"]
+    assert context["fbo_avg_base"] == 80.5
+    assert context["fbo_avg_liter"] == 24.5
+
+
+def test_fbo_average_warehouses_falls_back_to_default():
+    assert normalize_fbo_average_warehouses([]) == ("Коледино", "Краснодар", "Казань")
+    assert normalize_fbo_average_warehouses(None) == ("Коледино", "Краснодар", "Казань")
+
+
+def test_fbo_delivery_falls_back_when_saved_warehouses_are_missing():
+    context = build_box_tariff_context(_tariff_rows(), ["Неизвестный склад"])
+
+    cost, debug = calculate_delivery(0.5, "fbo", None, context)
+
+    assert cost == 43.5
+    assert debug["warehouses"] == ["Коледино", "Краснодар", "Казань"]
 
 
 def test_fbs_delivery_uses_selected_warehouse_tariff():

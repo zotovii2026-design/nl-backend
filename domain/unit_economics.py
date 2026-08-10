@@ -3,6 +3,7 @@ from typing import Any
 
 
 FBO_WAREHOUSE_NAMES = ("Коледино", "Краснодар", "Казань")
+DEFAULT_FBO_AVERAGE_WAREHOUSES = FBO_WAREHOUSE_NAMES
 WB_TIER_RATES = (
     (0.001, 0.200, 23.0),
     (0.201, 0.400, 26.0),
@@ -14,12 +15,32 @@ WB_BASE_FIRST_LITER = 46.0
 WB_BASE_NEXT_LITER = 14.0
 
 
-def build_box_tariff_context(rows: list[Any]) -> dict[str, Any]:
+def normalize_fbo_average_warehouses(
+    warehouse_names: list[str] | tuple[str, ...] | None,
+) -> tuple[str, ...]:
+    selected = []
+    seen = set()
+    for warehouse_name in warehouse_names or []:
+        clean = str(warehouse_name or "").strip()
+        key = clean.lower()
+        if clean and key not in seen:
+            selected.append(clean)
+            seen.add(key)
+    return tuple(selected[:5]) or DEFAULT_FBO_AVERAGE_WAREHOUSES
+
+
+def build_box_tariff_context(
+    rows: list[Any],
+    fbo_warehouse_names: list[str] | tuple[str, ...] | None = None,
+) -> dict[str, Any]:
     tariffs = {}
     fbo_delivery_sum = 0.0
     fbo_liter_sum = 0.0
     fbo_coef_sum = 0.0
     fbo_count = 0
+    selected_fbo_warehouses = normalize_fbo_average_warehouses(fbo_warehouse_names)
+    selected_fbo_lookup = {name.lower() for name in selected_fbo_warehouses}
+    matched_fbo_warehouses = []
 
     for row in rows:
         warehouse_name = row[0]
@@ -32,7 +53,7 @@ def build_box_tariff_context(rows: list[Any]) -> dict[str, Any]:
             "fbs_coef": float(row[6]) if len(row) > 6 and row[6] else None,
         }
         if (
-            warehouse_name in FBO_WAREHOUSE_NAMES
+            warehouse_name.lower() in selected_fbo_lookup
             and row[1] is not None
             and row[2] is not None
         ):
@@ -40,9 +61,28 @@ def build_box_tariff_context(rows: list[Any]) -> dict[str, Any]:
             fbo_liter_sum += float(row[2])
             fbo_coef_sum += float(row[5]) if len(row) > 5 and row[5] else 0
             fbo_count += 1
+            matched_fbo_warehouses.append(warehouse_name)
+
+    if not fbo_count and selected_fbo_warehouses != DEFAULT_FBO_AVERAGE_WAREHOUSES:
+        default_lookup = {name.lower() for name in DEFAULT_FBO_AVERAGE_WAREHOUSES}
+        for row in rows:
+            warehouse_name = row[0]
+            if (
+                warehouse_name.lower() in default_lookup
+                and row[1] is not None
+                and row[2] is not None
+            ):
+                fbo_delivery_sum += float(row[1])
+                fbo_liter_sum += float(row[2])
+                fbo_coef_sum += float(row[5]) if len(row) > 5 and row[5] else 0
+                fbo_count += 1
+                matched_fbo_warehouses.append(warehouse_name)
+        selected_fbo_warehouses = DEFAULT_FBO_AVERAGE_WAREHOUSES
 
     return {
         "tariffs": tariffs,
+        "fbo_warehouses": list(selected_fbo_warehouses),
+        "fbo_matched_warehouses": matched_fbo_warehouses,
         "fbo_avg_base": round(fbo_delivery_sum / fbo_count, 2) if fbo_count else 0,
         "fbo_avg_liter": round(fbo_liter_sum / fbo_count, 2) if fbo_count else 0,
         "fbo_avg_coef": round(fbo_coef_sum / fbo_count, 2) if fbo_count else 0,
@@ -170,11 +210,10 @@ def calculate_delivery(
                 "vol": volume_liters,
                 "tier_rate": rate,
                 "avg_coef": context["fbo_avg_coef"],
-                "kd_coef": tariffs.get("Коледино", {}).get("fbo_coef", 0),
-                "kr_coef": tariffs.get("Краснодар", {}).get("fbo_coef", 0),
-                "kz_coef": tariffs.get("Казань", {}).get("fbo_coef", 0),
+                "warehouses": context.get("fbo_matched_warehouses", []),
                 "formula": (
-                    f"{rate} × {context['fbo_avg_coef']}% (среднее 3 складов)"
+                    f"{rate} × {context['fbo_avg_coef']}% "
+                    f"(среднее {len(context.get('fbo_matched_warehouses', []))} склад.)"
                 ),
                 "result": cost,
             }
@@ -189,6 +228,7 @@ def calculate_delivery(
                 "vol_ceil": volume_ceil,
                 "avg_base": context["fbo_avg_base"],
                 "avg_liter": context["fbo_avg_liter"],
+                "warehouses": context.get("fbo_matched_warehouses", []),
                 "formula": (
                     f"{context['fbo_avg_base']} + "
                     f"{volume_ceil - 1}×{context['fbo_avg_liter']}"
