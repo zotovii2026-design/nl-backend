@@ -11,7 +11,7 @@ let _ueGroupsOpen = false;
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ue-grid-v12-controls-reset-data';
+    const VER = 'ue-grid-v13-controls-set-columns';
     if (localStorage.getItem('ue-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ue-grid-state-columns');
         localStorage.removeItem('tabulator-ue-grid-state-sort');
@@ -677,24 +677,11 @@ function resetUEColumnPreferences() {
     } catch(e) {
         console.warn('resetUEColumnPreferences', e);
     }
-    if (ueTabulator) {
-        ueTabulator.destroy();
-        ueTabulator = null;
+    if (ueTabulator && typeof ueTabulator.setColumns === 'function') {
+        ueTabulator.setColumns(getUEColumns());
     }
-    const container = document.getElementById('ue-tabulator');
-    if (container) container.innerHTML = '';
-    window.requestAnimationFrame(function() {
-        initUEGrid();
-        const filtered = getUEFilteredData();
-        if (ueTabulator) {
-            ueTabulator.replaceData(filtered).then(function() {
-                setUEGroupsOpen(_ueGroupsOpen, true);
-            });
-        }
-        const countEl = document.getElementById('ue-count');
-        if (countEl) countEl.textContent = filtered.length + ' товаров';
-        if (typeof showToast === 'function') showToast('✅ Порядок колонок восстановлен');
-    });
+    applyUEFilters();
+    if (typeof showToast === 'function') showToast('✅ Порядок колонок восстановлен');
 }
 
 /**
