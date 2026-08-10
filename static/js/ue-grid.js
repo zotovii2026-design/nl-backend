@@ -11,7 +11,7 @@ let _ueGroupsOpen = false;
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ue-grid-v11-controls-reset';
+    const VER = 'ue-grid-v12-controls-reset-data';
     if (localStorage.getItem('ue-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ue-grid-state-columns');
         localStorage.removeItem('tabulator-ue-grid-state-sort');
@@ -584,6 +584,19 @@ async function loadUEData(loadAll, refresh) {
 function applyUEFilters() {
     if (!_ueAllData.length) return;
 
+    const filtered = getUEFilteredData();
+
+    // Обновляем таблицу
+    if (ueTabulator) {
+        ueTabulator.replaceData(filtered).then(function() {
+            setUEGroupsOpen(_ueGroupsOpen, true);
+        });
+    }
+    const countEl = document.getElementById('ue-count');
+    if (countEl) countEl.textContent = filtered.length + ' товаров';
+}
+
+function getUEFilteredData() {
     const search = (document.getElementById('ue-flt-search')?.value || '').toLowerCase();
     const fltStatus = NLFilters.getValues(document.getElementById('ue-flt-status'));
     const fltClass = NLFilters.getValues(document.getElementById('ue-flt-class'));
@@ -610,14 +623,7 @@ function applyUEFilters() {
     if (fltTags.length) filtered = filtered.filter(p => ueMatchAnyTag(p.tags, fltTags));
     if (fltFF) filtered = filtered.filter(p => (p.tariff_type || '') === fltFF);
 
-    // Обновляем таблицу
-    if (ueTabulator) {
-        ueTabulator.replaceData(filtered).then(function() {
-            setUEGroupsOpen(_ueGroupsOpen, true);
-        });
-    }
-    const countEl = document.getElementById('ue-count');
-    if (countEl) countEl.textContent = filtered.length + ' товаров';
+    return filtered;
 }
 
 /**
@@ -679,7 +685,14 @@ function resetUEColumnPreferences() {
     if (container) container.innerHTML = '';
     window.requestAnimationFrame(function() {
         initUEGrid();
-        applyUEFilters();
+        const filtered = getUEFilteredData();
+        if (ueTabulator) {
+            ueTabulator.replaceData(filtered).then(function() {
+                setUEGroupsOpen(_ueGroupsOpen, true);
+            });
+        }
+        const countEl = document.getElementById('ue-count');
+        if (countEl) countEl.textContent = filtered.length + ' товаров';
         if (typeof showToast === 'function') showToast('✅ Порядок колонок восстановлен');
     });
 }
