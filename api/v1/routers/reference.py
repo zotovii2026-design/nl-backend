@@ -57,7 +57,7 @@ DEFAULT_PRODUCT_STATUSES = [
 
 REFERENCE_TEMPLATE_HEADERS = [
     "Арт WB", "Размер",
-    "Статус товара", "Класс", "Бренд", "Категория", "Арт продавца", "Баркод",
+    "Статус товара", "Теги", "Класс", "Бренд", "Категория", "Арт продавца", "Баркод",
     "Отгрузка", "Склад FBS",
     "Себестоимость", "Доп расходы", "Налог %", "НДС от дохода",
     "План длина", "План ширина", "План высота", "План вес",
@@ -383,9 +383,9 @@ async def download_cost_prices_template(org_id: str, db: AsyncSession = Depends(
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
     widths = {
-        "A": 12, "B": 12, "C": 22, "D": 10, "E": 18, "F": 24, "G": 18, "H": 22,
-        "I": 12, "J": 24, "K": 14, "L": 14, "M": 10, "N": 14,
-        "AO": 16, "AP": 14, "AQ": 14,
+        "A": 12, "B": 12, "C": 22, "D": 18, "E": 10, "F": 18, "G": 24, "H": 18,
+        "I": 22, "J": 12, "K": 24, "L": 14, "M": 14, "N": 10, "O": 14,
+        "AP": 16, "AQ": 14, "AR": 14,
     }
     for letter, width in widths.items():
         ws.column_dimensions[letter].width = width
@@ -405,19 +405,19 @@ async def download_cost_prices_template(org_id: str, db: AsyncSession = Depends(
     max_row = max(ws.max_row, 500)
     validations = [
         ("C", _list_formula("A", len(statuses)), "Выберите статус товара из списка или введите новый текст"),
-        ("D", _list_formula("B", 3), "Выберите класс товара"),
-        ("I", _list_formula("C", 2), "Выберите модель отгрузки"),
-        ("N", _list_formula("D", 4), "Выберите НДС от дохода"),
+        ("E", _list_formula("B", 3), "Выберите класс товара"),
+        ("J", _list_formula("C", 2), "Выберите модель отгрузки"),
+        ("O", _list_formula("D", 4), "Выберите НДС от дохода"),
     ]
     if warehouses:
-        validations.append(("J", _list_formula("E", len(warehouses)), "Выберите склад FBS"))
+        validations.append(("K", _list_formula("E", len(warehouses)), "Выберите склад FBS"))
     if brands:
-        validations.append(("E", _list_formula("F", len(brands)), "Выберите бренд из текущих данных или введите новый"))
+        validations.append(("F", _list_formula("F", len(brands)), "Выберите бренд из текущих данных или введите новый"))
     if subjects:
-        validations.append(("F", _list_formula("G", len(subjects)), "Выберите категорию из текущих данных или введите новую"))
+        validations.append(("G", _list_formula("G", len(subjects)), "Выберите категорию из текущих данных или введите новую"))
     for col, formula, prompt in validations:
         dv = DataValidation(type="list", formula1=formula, allow_blank=True)
-        if col in ("C", "E", "F"):
+        if col in ("C", "F", "G"):
             dv.showErrorMessage = False
         dv.promptTitle = "Справочник"
         dv.prompt = prompt
@@ -489,6 +489,7 @@ def _reference_template_row(item: dict) -> list:
         item.get("nm_id") or "",
         item.get("size_name") or "",
         item.get("product_status") or "",
+        item.get("tags") or "",
         item.get("product_class") or "",
         item.get("brand") or "",
         item.get("subject_name") or "",
@@ -974,6 +975,7 @@ async def upload_cost_prices_excel(org_id: str, request: Request, db: AsyncSessi
             "pcls": normalize_product_class(ps(row, "Класс", "Класс товара", "product_class")),
             "brand": ps(row, "Бренд", "brand"),
             "pstatus": ps(row, "Статус товара", "product_status"),
+            "tags": ps(row, "Теги", "tags"),
             "trate": tax_override,
             "vrate": vat_rate,
             "sjan": pf(row, "Сезон янв", "season_jan"), "sfeb": pf(row, "Сезон фев", "season_feb"),
@@ -1024,7 +1026,7 @@ _SAVE_COST_PRICE_SQL = (
     "buyout_niche_pct, "
     "price_before_spp_plan, price_before_spp_change, change_date, "
     "wb_club_discount_pct, ad_plan_rub, supply_days, min_batch_fbo, transport_pack_qty, "
-    "product_status, product_class, brand, tax_system, tax_rate, "
+    "product_status, tags, product_class, brand, tax_system, tax_rate, "
     "season_jan, season_feb, season_mar, season_apr, season_may, season_jun, season_jul, season_aug, season_sep, season_oct, season_nov, season_dec, "
     "plan_length, plan_width, plan_height, plan_volume, plan_weight, "
     "delivery_days_to_seller, delivery_days_to_mp, "
@@ -1038,7 +1040,7 @@ _SAVE_COST_PRICE_SQL = (
     ":bnp, "
     ":pspp, :psppc, :cdate, "
     ":wbcd, :adpr, :sdays, :minb, :tpq, "
-    ":pstatus, :pcls, :brand, :tsys, :tr, "
+    ":pstatus, :tags, :pcls, :brand, :tsys, :tr, "
     ":sjan, :sfeb, :smar, :sapr, :smay, :sjun, :sjul, :saug, :ssep, :soct, :snov, :sdec, "
     ":pl, :pw, :ph, :pv, :pwg, "
     ":dds, :ddm, "
@@ -1070,6 +1072,7 @@ _SAVE_COST_PRICE_SQL = (
     "min_batch_fbo = COALESCE(EXCLUDED.min_batch_fbo, reference_book.min_batch_fbo), "
     "transport_pack_qty = COALESCE(EXCLUDED.transport_pack_qty, reference_book.transport_pack_qty), "
     "product_status = COALESCE(EXCLUDED.product_status, reference_book.product_status), "
+    "tags = COALESCE(EXCLUDED.tags, reference_book.tags), "
     "product_class = COALESCE(EXCLUDED.product_class, reference_book.product_class), "
     "brand = COALESCE(EXCLUDED.brand, reference_book.brand), "
     "tax_system = COALESCE(EXCLUDED.tax_system, reference_book.tax_system), "
@@ -1139,6 +1142,7 @@ def _build_save_params(data: dict, org_id: str, nm_id: int, entity_id: str, vali
         "minb": pint(data.get("min_batch_fbo")),
         "tpq": max(pint(data.get("transport_pack_qty")) or 1, 1),
         "pstatus": data.get("product_status"),
+        "tags": data.get("tags"),
         "pcls": data.get("product_class"),
         "brand": data.get("brand"),
         "tsys": data.get("tax_system"),
@@ -1171,7 +1175,7 @@ _UPLOAD_SQL = (
     "cost_price, extra_costs, vat, min_price, "
     "mp_correction_pct, fulfillment_model, buyout_niche_pct, "
     "rrc_price, ad_plan_rub, "
-    "product_class, brand, product_status, "
+    "product_class, brand, product_status, tags, "
     "tax_rate, vat_rate, "
     "season_jan, season_feb, season_mar, season_apr, season_may, season_jun, "
     "season_jul, season_aug, season_sep, season_oct, season_nov, season_dec, "
@@ -1186,7 +1190,7 @@ _UPLOAD_SQL = (
     ":cp, :ec, :vat, :minp, "
     ":mpc, :ffm, :bnp, "
     ":rrc, :adpr, "
-    ":pcls, :brand, :pstatus, "
+    ":pcls, :brand, :pstatus, :tags, "
     ":trate, :vrate, "
     ":sjan, :sfeb, :smar, :sapr, :smay, :sjun, "
     ":sjul, :saug, :ssep, :soct, :snov, :sdec, "
@@ -1209,6 +1213,7 @@ _UPLOAD_SQL = (
     "product_class = COALESCE(EXCLUDED.product_class, reference_book.product_class), "
     "brand = COALESCE(EXCLUDED.brand, reference_book.brand), "
     "product_status = COALESCE(EXCLUDED.product_status, reference_book.product_status), "
+    "tags = COALESCE(EXCLUDED.tags, reference_book.tags), "
     "tax_rate = COALESCE(EXCLUDED.tax_rate, reference_book.tax_rate), "
     "vat_rate = COALESCE(EXCLUDED.vat_rate, reference_book.vat_rate), "
     "season_jan = COALESCE(EXCLUDED.season_jan, reference_book.season_jan), "

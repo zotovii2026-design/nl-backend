@@ -67,7 +67,7 @@ COST_PRICES_SQL = text(
     "cp.plan_length, cp.plan_width, cp.plan_height, cp.plan_volume, cp.plan_weight, "
     "cp.delivery_days_to_seller, cp.delivery_days_to_mp, "
     "cp.top_query_1, cp.top_query_2, cp.top_query_3, "
-    "cp.shipment_method, cp.fbs_warehouse, cp.rrc_price, cp.vat_rate, "
+    "cp.shipment_method, cp.fbs_warehouse, cp.rrc_price, cp.vat_rate, cp.tags, "
     "ts.product_name "
     "FROM product_entities pe "
     "LEFT JOIN LATERAL (SELECT * FROM reference_book WHERE organization_id = :org AND nm_id = pe.nm_id AND entity_id = pe.id "
@@ -140,6 +140,7 @@ async def fetch_cost_prices(db: AsyncSession, org_id: str) -> List[Dict]:
         "top_query_1": r[59] or "", "top_query_2": r[60] or "", "top_query_3": r[61] or "",
         "shipment_method": r[62] or "", "fbs_warehouse": r[63] or "",
         "rrc_price": fval(r[64]), "vat_rate": fval(r[65]) or 0,
-        "product_name": r[66] or "",
+        "tags": r[66] or "",
+        "product_name": r[67] or "",
         "sizes": [],
     } for r in result.all()]

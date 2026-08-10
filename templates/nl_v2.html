@@ -667,9 +667,13 @@ var _sectionHTML = {
 <select id="flt-product-class" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Класс: все</option></select>
 <select id="flt-brand" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Бренд: все</option></select>
 <select id="flt-product-status" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Статус: все</option></select>
+<input type="text" id="flt-tags" placeholder="Тег" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:120px">
 <button onclick="addReferenceProductStatus()" title="Добавить свой статус товара" style="border:1px solid #ddd;background:#fff;color:#6c5ce7;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">+ Статус</button>
 <select id="flt-has-cost" onchange="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em"><option value="">Себестоимость: все</option><option value="yes">Заполнена</option><option value="no">Не заполнена</option></select>
 <input type="text" id="cost-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyCostFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
+<button onclick="setCostTreeOpen(false)" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Схлопнуть все</button>
+<button onclick="setCostTreeOpen(true)" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Раскрыть все</button>
+<button onclick="resetCostViewPreferences()" title="Сбросить сохранённые фильтры и порядок колонок" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Сброс вида</button>
 <button onclick="clearCostFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сбросить</button>
 </div>
 
@@ -683,6 +687,7 @@ var _sectionHTML = {
 <option value="">Выберите поле...</option>
 <optgroup label="📌 Основное">
 <option value="product_status">Статус товара</option>
+<option value="tags">Теги</option>
 <option value="product_class">Класс товара</option>
 <option value="brand">Бренд</option>
 </optgroup>
@@ -2465,6 +2470,7 @@ async function loadAnalytics() {
 let _costProducts = [];
 let _costMap = {};
 let _referenceProductStatuses = ['Новинка', 'Выводим', 'ТОП (А)', 'Двигаем (В)', 'Категория С', 'Планируется к запуску'];
+let _costRestoringFilters = false;
 
 function getReferenceStatusStorageKey() {
     return 'reference_product_statuses_' + (getCurrentOrgId() || ORG_ID || 'default');
@@ -2540,12 +2546,12 @@ function updateReferenceStatusControls() {
     const statusSelect = document.getElementById('flt-product-status');
     if (statusSelect) {
         const cur = statusSelect.value;
-        const opts = ['<option value="">Статус: все</option>'];
+        const opts = ['<option value="">Статус: все</option>', '<option value="__empty__">Без статуса</option>'];
         statuses.forEach(function(status) {
             opts.push('<option value="' + esc(status) + '">' + esc(getProductStatusLabel(status)) + '</option>');
         });
         statusSelect.innerHTML = opts.join('');
-        statusSelect.value = statuses.indexOf(cur) !== -1 ? cur : '';
+        statusSelect.value = cur === '__empty__' || statuses.indexOf(cur) !== -1 ? cur : '';
     }
     if (typeof costTabulator !== 'undefined' && costTabulator) {
         costTabulator.updateColumnDefinition('product_status', {
@@ -2880,6 +2886,7 @@ async function loadCostPrices() {
         
         // Заполнить фильтры-дропдауны уникальными значениями
         populateCostFilterOptions();
+        restoreCostFilterPreferences();
         console.log("[CP] costMap:", Object.keys(_costMap).length);
         applyCostFilters();
     } catch(e) { console.error('loadCostPrices', e); }
@@ -2908,14 +2915,63 @@ function populateCostFilterOptions() {
     updateReferenceStatusControls();
 }
 
-function clearCostFilters() {
+function getCostFilterState() {
+    return {
+        fulfillment: document.getElementById('flt-fulfillment')?.value || '',
+        taxSystem: document.getElementById('flt-tax-system')?.value || '',
+        productClass: document.getElementById('flt-product-class')?.value || '',
+        brand: document.getElementById('flt-brand')?.value || '',
+        productStatus: document.getElementById('flt-product-status')?.value || '',
+        tags: document.getElementById('flt-tags')?.value || '',
+        hasCost: document.getElementById('flt-has-cost')?.value || '',
+        search: document.getElementById('cost-search')?.value || '',
+    };
+}
+
+function setCostSelectValue(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const exists = Array.from(el.options || []).some(function(option) {
+        return option.value === value;
+    });
+    el.value = exists ? value : '';
+}
+
+function setCostInputValue(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = value || '';
+}
+
+function saveCostFilterPreferences() {
+    if (_costRestoringFilters || typeof costWritePreferences !== 'function') return;
+    costWritePreferences({ filters: getCostFilterState() });
+}
+
+function restoreCostFilterPreferences() {
+    if (typeof costReadPreferences !== 'function') return;
+    const filters = costReadPreferences().filters || {};
+    _costRestoringFilters = true;
+    setCostSelectValue('flt-fulfillment', filters.fulfillment || '');
+    setCostSelectValue('flt-tax-system', filters.taxSystem || '');
+    setCostSelectValue('flt-product-class', filters.productClass || '');
+    setCostSelectValue('flt-brand', filters.brand || '');
+    setCostSelectValue('flt-product-status', filters.productStatus || '');
+    setCostInputValue('flt-tags', filters.tags || '');
+    setCostSelectValue('flt-has-cost', filters.hasCost || '');
+    setCostInputValue('cost-search', filters.search || '');
+    _costRestoringFilters = false;
+}
+
+function clearCostFilters(saveState = true) {
     document.getElementById('flt-fulfillment').value = '';
     document.getElementById('flt-tax-system').value = '';
     document.getElementById('flt-product-class').value = '';
     document.getElementById('flt-brand').value = '';
     document.getElementById('flt-product-status').value = '';
+    document.getElementById('flt-tags').value = '';
     document.getElementById('flt-has-cost').value = '';
     document.getElementById('cost-search').value = '';
+    if (saveState) saveCostFilterPreferences();
     applyCostFilters();
 }
 
@@ -2926,7 +2982,9 @@ function applyCostFilters() {
     const fltClass = document.getElementById('flt-product-class')?.value || '';
     const fltBrand = document.getElementById('flt-brand')?.value || '';
     const fltStatus = document.getElementById('flt-product-status')?.value || '';
+    const fltTags = (document.getElementById('flt-tags')?.value || '').toLowerCase().trim();
     const fltCost = document.getElementById('flt-has-cost')?.value || '';
+    saveCostFilterPreferences();
     
     let products = _costProducts;
     
@@ -2950,7 +3008,9 @@ function applyCostFilters() {
         if (fltTax && !checkMatch(c, 'tax_system', fltTax)) return false;
         if (fltClass && !checkMatch(c, 'product_class', fltClass)) return false;
         if (fltBrand && !checkMatch(c, 'brand', fltBrand)) return false;
-        if (fltStatus && !checkMatch(c, 'product_status', fltStatus)) return false;
+        if (fltStatus === '__empty__' && (c.product_status || '')) return false;
+        if (fltStatus && fltStatus !== '__empty__' && !checkMatch(c, 'product_status', fltStatus)) return false;
+        if (fltTags && !(c.tags || '').toLowerCase().includes(fltTags)) return false;
         if (fltCost === 'yes' && !c.cost_price) return false;
         if (fltCost === 'no' && c.cost_price) return false;
         return true;

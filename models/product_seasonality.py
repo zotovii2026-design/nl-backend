@@ -1,4 +1,4 @@
-"""Модель сезонности товаров WB (усреднённая по ключевым словам)"""
+"""Модель сезонности товаров WB (взвешенная по ключевым словам)"""
 
 import uuid
 from datetime import datetime
@@ -8,11 +8,11 @@ from core.database import Base
 
 
 class WbProductSeasonality(Base):
-    """Сезонность товара (усреднённая по его ключевым словам)
+    """Сезонность товара (взвешенная по его ключевым словам)
     
-    Профиль сезонности товара рассчитывается как среднее арифметическое
-    коэффициентов сезонности всех доступных ключевых слов из reference_book
-    (top_query_1, top_query_2, top_query_3).
+    Профиль сезонности товара рассчитывается по доступным ключевым словам
+    из reference_book (top_query_1, top_query_2, top_query_3). Первый запрос
+    получает больший вес, второй и третий уточняют график.
     """
     __tablename__ = "wb_product_seasonality"
 
@@ -29,7 +29,7 @@ class WbProductSeasonality(Base):
     seasonality_coefficients = Column(
         JSONB,
         nullable=False,
-        comment="Average seasonality coefficients: month_number -> percentage (1-12)"
+        comment="Weighted seasonality coefficients: month_number -> average-month multiplier (1-12)"
     )
     
     source_keywords = Column(

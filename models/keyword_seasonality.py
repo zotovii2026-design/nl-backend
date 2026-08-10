@@ -41,7 +41,7 @@ class WbKeywordSeasonality(Base):
     seasonality_coefficients = Column(
         JSONB,
         nullable=True,
-        comment="Coefficients: month_number -> percentage (1-12)"
+        comment="Coefficients: month_number -> average-month multiplier (1-12)"
     )
     
     source = Column(String(50), default="evirma")

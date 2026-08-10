@@ -7,6 +7,141 @@ let costTabulator = null;
 let _costEditedIds = new Set();  // entity_id строк с реальными изменениями
 let _costTopQueryEditedIds = new Set();  // entity_id строк, где меняли top_query_*
 let _costSyncingTopQueries = false;
+const COST_ARTICLE_ONLY_FIELDS = [
+    'product_status', 'tags',
+    'season_jan', 'season_feb', 'season_mar', 'season_apr',
+    'season_may', 'season_jun', 'season_jul', 'season_aug',
+    'season_sep', 'season_oct', 'season_nov', 'season_dec',
+    'top_query_1', 'top_query_2', 'top_query_3'
+];
+const COST_PARENT_PROPAGATE_FIELDS = [
+    'product_status', 'tags', 'product_class', 'brand',
+    'fulfillment_model', 'fbs_warehouse',
+    'cost_price', 'extra_costs', '_tax_rate_override', 'vat_rate',
+    'plan_length', 'plan_width', 'plan_height', 'plan_volume', 'plan_weight',
+    'season_jan', 'season_feb', 'season_mar', 'season_apr',
+    'season_may', 'season_jun', 'season_jul', 'season_aug',
+    'season_sep', 'season_oct', 'season_nov', 'season_dec',
+    'top_query_1', 'top_query_2', 'top_query_3',
+    'buyout_niche_pct', 'mp_correction_pct', 'ad_plan_rub',
+    'supply_days', 'min_batch_fbo', 'transport_pack_qty', 'rrc_price', 'min_price'
+];
+const COST_SEASON_MONTHS = [
+    ['jan', 'янв', 'season_jan'],
+    ['feb', 'фев', 'season_feb'],
+    ['mar', 'мар', 'season_mar'],
+    ['apr', 'апр', 'season_apr'],
+    ['may', 'май', 'season_may'],
+    ['jun', 'июн', 'season_jun'],
+    ['jul', 'июл', 'season_jul'],
+    ['aug', 'авг', 'season_aug'],
+    ['sep', 'сен', 'season_sep'],
+    ['oct', 'окт', 'season_oct'],
+    ['nov', 'ноя', 'season_nov'],
+    ['dec', 'дек', 'season_dec'],
+];
+const COST_SEASON_BARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+const COST_PREFS_VERSION = 1;
+
+function getCostPreferencesKey() {
+    let org = 'default';
+    if (typeof getCurrentOrgId === 'function') {
+        org = getCurrentOrgId() || org;
+    } else if (typeof ORG_ID !== 'undefined') {
+        org = ORG_ID || org;
+    }
+    return 'nl:reference:ui-prefs:v' + COST_PREFS_VERSION + ':' + org;
+}
+
+function costReadPreferences() {
+    try {
+        const raw = localStorage.getItem(getCostPreferencesKey());
+        const prefs = raw ? JSON.parse(raw) : {};
+        return prefs && typeof prefs === 'object' ? prefs : {};
+    } catch(e) {
+        console.warn('costReadPreferences', e);
+        return {};
+    }
+}
+
+function costWritePreferences(patch) {
+    try {
+        const prefs = Object.assign({}, costReadPreferences(), patch || {});
+        localStorage.setItem(getCostPreferencesKey(), JSON.stringify(prefs));
+    } catch(e) {
+        console.warn('costWritePreferences', e);
+    }
+}
+
+function costColumnKey(def) {
+    return def.costGroupKey || def.field || def.title || '';
+}
+
+function costApplySavedColumnOrder(columns) {
+    const prefs = costReadPreferences();
+    const saved = prefs.columns || {};
+    const groupOrder = Array.isArray(saved.groupOrder) ? saved.groupOrder : [];
+    const childOrder = saved.childOrder && typeof saved.childOrder === 'object' ? saved.childOrder : {};
+
+    const byKey = {};
+    columns.forEach(function(col) {
+        const key = costColumnKey(col);
+        if (key) byKey[key] = col;
+        if (col.columns && childOrder[key]) {
+            const childByKey = {};
+            col.columns.forEach(function(child) {
+                const childKey = costColumnKey(child);
+                if (childKey) childByKey[childKey] = child;
+            });
+            const orderedChildren = [];
+            childOrder[key].forEach(function(childKey) {
+                if (childByKey[childKey]) orderedChildren.push(childByKey[childKey]);
+            });
+            col.columns.forEach(function(child) {
+                if (orderedChildren.indexOf(child) === -1) orderedChildren.push(child);
+            });
+            col.columns = orderedChildren;
+        }
+    });
+
+    const ordered = [];
+    groupOrder.forEach(function(key) {
+        if (byKey[key]) ordered.push(byKey[key]);
+    });
+    columns.forEach(function(col) {
+        if (ordered.indexOf(col) === -1) ordered.push(col);
+    });
+    return ordered;
+}
+
+function costSaveColumnPreferences() {
+    if (!costTabulator) return;
+    const defs = costTabulator.getColumnDefinitions();
+    const columns = {
+        groupOrder: [],
+        childOrder: {},
+    };
+    defs.forEach(function(def) {
+        const key = costColumnKey(def);
+        if (!key) return;
+        columns.groupOrder.push(key);
+        if (def.columns && def.columns.length) {
+            columns.childOrder[key] = def.columns.map(costColumnKey).filter(Boolean);
+        }
+    });
+    costWritePreferences({ columns: columns });
+}
+
+function resetCostViewPreferences() {
+    try {
+        localStorage.removeItem(getCostPreferencesKey());
+    } catch(e) {
+        console.warn('resetCostViewPreferences', e);
+    }
+    if (typeof clearCostFilters === 'function') clearCostFilters(false);
+    else if (typeof applyCostFilters === 'function') applyCostFilters();
+    if (typeof showToast === 'function') showToast('✅ Вид справочника сброшен');
+}
 
 function costTodayIso() {
     const today = new Date();
@@ -52,12 +187,194 @@ function syncCostTopQueriesForNmId(sourceRow) {
     });
 }
 
+function costBaseNmId(data) {
+    return parseInt(data.nm_id_display) || parseInt(String(data.nm_id || '').replace('_solo_', '')) || null;
+}
+
+function costRowsForSave() {
+    if (!costTabulator) return [];
+    const result = [];
+    costTabulator.getData().forEach(function(row) {
+        if (row._isArticleRow) {
+            (row._children || []).forEach(function(child) { result.push(child); });
+        } else {
+            result.push(row);
+        }
+    });
+    return result;
+}
+
+function costFindChildRows(nmId, skipRow) {
+    const rows = [];
+    if (!costTabulator) return rows;
+    costTabulator.getRows().forEach(function(row) {
+        if (row === skipRow) return;
+        const data = row.getData();
+        if (data._isArticleRow) return;
+        if (costBaseNmId(data) === Number(nmId)) rows.push(row);
+    });
+    return rows;
+}
+
+function costMarkEdited(data, topQueryEdited) {
+    const editedId = data.entity_id || data._id;
+    if (editedId) _costEditedIds.add(editedId);
+    if (topQueryEdited && editedId) _costTopQueryEditedIds.add(editedId);
+}
+
+function costRecalcDerived(data, field, value) {
+    const updates = {};
+    if (field === 'cost_price') {
+        updates._total_cost = ((parseFloat(value)||0) + (parseFloat(data.extra_costs)||0)).toFixed(2);
+    } else if (field === 'extra_costs') {
+        updates._total_cost = ((parseFloat(data.cost_price)||0) + (parseFloat(value)||0)).toFixed(2);
+    }
+    if (field === 'plan_length' || field === 'plan_width' || field === 'plan_height') {
+        const l = (field === 'plan_length') ? parseFloat(value)||0 : parseFloat(data.plan_length)||0;
+        const w = (field === 'plan_width') ? parseFloat(value)||0 : parseFloat(data.plan_width)||0;
+        const h = (field === 'plan_height') ? parseFloat(value)||0 : parseFloat(data.plan_height)||0;
+        updates.plan_volume = (l > 0 && w > 0 && h > 0) ? ((l * w * h) / 1000) : null;
+    }
+    return updates;
+}
+
+function costPropagateField(row, field, value) {
+    const data = row.getData();
+    const nmId = costBaseNmId(data);
+    if (!nmId) return;
+    const shouldPropagate = data._isArticleRow || COST_ARTICLE_ONLY_FIELDS.indexOf(field) !== -1;
+    if (!shouldPropagate || COST_PARENT_PROPAGATE_FIELDS.indexOf(field) === -1) return;
+    const update = {};
+    update[field] = value;
+    (data._children || []).forEach(function(childData) {
+        Object.assign(childData, update, costRecalcDerived(childData, field, value));
+        costMarkEdited(childData, field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3');
+    });
+    costFindChildRows(nmId, row).forEach(function(childRow) {
+        const childData = childRow.getData();
+        const childUpdate = Object.assign({}, update, costRecalcDerived(childData, field, value));
+        costMarkEdited(childData, field === 'top_query_1' || field === 'top_query_2' || field === 'top_query_3');
+        childRow.update(childUpdate);
+    });
+}
+
+function setCostTreeOpen(open) {
+    if (!costTabulator) return;
+    costTabulator.getRows().forEach(function(row) {
+        const data = row.getData();
+        if (!data._isArticleRow) return;
+        if (open && typeof row.treeExpand === 'function') row.treeExpand();
+        if (!open && typeof row.treeCollapse === 'function') row.treeCollapse();
+    });
+}
+
+function costSeasonNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const n = parseFloat(String(value).replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+}
+
+function costSeasonValues(data) {
+    return COST_SEASON_MONTHS.map(function(month) {
+        return costSeasonNumber(data[month[2]]);
+    });
+}
+
+function costSeasonBar(value) {
+    if (value === null || value <= 0.25) return '▁';
+    if (value <= 0.5) return '▂';
+    if (value <= 0.8) return '▃';
+    if (value <= 1.2) return '▄';
+    if (value <= 1.8) return '▅';
+    if (value <= 2.8) return '▆';
+    if (value <= 4.5) return '▇';
+    return '█';
+}
+
+function costFormatSeasonValue(value) {
+    if (value === null) return '—';
+    const rounded = Math.round(value * 10) / 10;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function costSeasonalityFormatter(cell) {
+    const data = cell.getRow().getData();
+    const values = costSeasonValues(data);
+    const filled = values.filter(function(v) { return v !== null; });
+    if (!filled.length) {
+        return '<div class="cost-season-spark empty">—</div>';
+    }
+    const labels = COST_SEASON_MONTHS.map(function(month) { return '<span>' + month[1] + '</span>'; }).join('');
+    const bars = values.map(function(v) { return '<span>' + costSeasonBar(v) + '</span>'; }).join('');
+    const nums = values.map(function(v) { return '<span>' + costFormatSeasonValue(v) + '</span>'; }).join('');
+    return '<div class="cost-season-spark" title="Клик — редактировать коэффициенты сезонности">' +
+        '<div class="cost-season-months">' + labels + '</div>' +
+        '<div class="cost-season-bars">' + bars + '</div>' +
+        '<div class="cost-season-values">' + nums + '</div>' +
+    '</div>';
+}
+
+function costOpenSeasonalityEditor(cell) {
+    const row = cell.getRow();
+    const data = row.getData();
+    const existing = document.querySelector('.cost-season-editor');
+    if (existing) existing.remove();
+
+    const popup = document.createElement('div');
+    popup.className = 'cost-season-editor';
+    popup.innerHTML = '<div class="cost-season-editor-head">' +
+        '<b>Коэффициенты сезонности</b>' +
+        '<button type="button" class="cost-season-editor-close" title="Закрыть">×</button>' +
+        '</div>' +
+        '<div class="cost-season-editor-grid">' +
+        COST_SEASON_MONTHS.map(function(month) {
+            const value = data[month[2]];
+            return '<label><span>' + month[1] + '</span><input type="number" step="0.1" min="0" data-season-field="' + month[2] + '" value="' + (value === null || value === undefined ? '' : value) + '"></label>';
+        }).join('') +
+        '</div>' +
+        '<div class="cost-season-editor-actions">' +
+        '<button type="button" class="cost-season-apply">Применить</button>' +
+        '</div>';
+    document.body.appendChild(popup);
+
+    const rect = cell.getElement().getBoundingClientRect();
+    popup.style.left = Math.min(rect.left + window.scrollX, window.scrollX + window.innerWidth - 520) + 'px';
+    popup.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+
+    const close = function() { popup.remove(); };
+    popup.querySelector('.cost-season-editor-close').addEventListener('click', close);
+    popup.querySelector('.cost-season-apply').addEventListener('click', function() {
+        const update = {};
+        const changeDate = costTodayIso();
+        popup.querySelectorAll('[data-season-field]').forEach(function(input) {
+            const field = input.getAttribute('data-season-field');
+            const value = costSeasonNumber(input.value);
+            update[field] = value;
+        });
+        update.change_date = changeDate;
+        row.update(update).then(function() {
+            Object.keys(update).forEach(function(field) {
+                if (field === 'change_date') return;
+                data[field] = update[field];
+                costPropagateField(row, field, update[field]);
+            });
+            costMarkEdited(data, false);
+            (data._children || []).forEach(function(childData) {
+                childData.change_date = changeDate;
+            });
+            _costDirty = true;
+            close();
+        });
+    });
+}
+
 // Конфигурация колонок справочника
 function getCostColumns() {
     return [
         // === Чекбокс ===
         {
             title: '☑',
+            costGroupKey: '_selected',
             field: '_selected',
             width: 40,
             headerSort: false,
@@ -83,6 +400,7 @@ function getCostColumns() {
         // === 📌 Основное ===
         {
             title: '📌 Основное',
+            costGroupKey: 'main',
             columns: [
                 {
                     title: 'Статус товара', field: 'product_status',
@@ -100,6 +418,17 @@ function getCostColumns() {
                         const style = (typeof getProductStatusChipStyle === 'function') ? getProductStatusChipStyle(v) : '';
                         return '<span style="' + style + ';padding:2px 6px;border-radius:3px;font-size:.85em">' + (label || '—') + '</span>';
                     },
+                },
+                { title: 'Теги', field: 'tags',
+                    headerTooltip: 'Ручные теги через запятую', width: 120, editor: 'input', headerSort: true, tooltip: true, cssClass: 'truncate-cell',
+                    formatter: function(cell) {
+                        const raw = String(cell.getValue() || '').trim();
+                        if (!raw) return '—';
+                        return raw.split(',').map(function(tag) {
+                            const clean = tag.trim();
+                            return clean ? '<span style="display:inline-block;margin:1px 2px 1px 0;padding:1px 5px;background:#eef1f5;border-radius:3px">' + clean + '</span>' : '';
+                        }).join('');
+                    }
                 },
                 { title: 'Класс товара', field: 'product_class',
                     headerTooltip: 'Класс товара', width: 60, editor: 'list', editorParams: { values: ['A', 'B', 'C'], clearable: true }, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
@@ -149,6 +478,7 @@ function getCostColumns() {
         // === 🚚 Логистика ===
         {
             title: '🚚 Логистика',
+            costGroupKey: 'logistics',
             columns: [
                 {
                     title: 'Отгрузка', field: 'fulfillment_model',
@@ -188,6 +518,7 @@ function getCostColumns() {
         // === 💰 Себестоимость ===
         {
             title: '💰 Себестоимость',
+            costGroupKey: 'cost',
             columns: [
                 { title: 'Себестоимость ₽', field: 'cost_price',
                     headerTooltip: 'Себестоимость, ₽', width: 100, editor: 'number', headerSort: true,
@@ -229,6 +560,7 @@ function getCostColumns() {
         // === 📐 Габариты ПЛАН ===
         {
             title: '📐 Габариты ПЛАН',
+            costGroupKey: 'plan_dims',
             columns: [
                 { title: 'Длина', field: 'plan_length',
                     headerTooltip: 'Длина (ПЛАН), см', width: 50, editor: 'number', editorParams: {step:0.1,min:0} },
@@ -248,6 +580,7 @@ function getCostColumns() {
         // === 📐 Габариты ФАКТ ===
         {
             title: '📐 Габариты ФАКТ',
+            costGroupKey: 'fact_dims',
             columns: [
                 { title: 'Д×Ш×В', field: '_fact_dims',
                     headerTooltip: 'Габариты ФАКТ (Д×Ш×В)', width: 70, tooltip: true, headerSort: false, formatter: 'plaintext' },
@@ -261,37 +594,29 @@ function getCostColumns() {
         // === 📊 Сезонность (неделимый блок) ===
         {
             title: '📊 Коэффициент сезонности',
+            costGroupKey: 'seasonality',
+            movable: true,
             columns: [
-                { title: 'янв', field: 'season_jan',
-                    headerTooltip: 'Коэфф. сезонности — Январь', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'фев', field: 'season_feb',
-                    headerTooltip: 'Коэфф. сезонности — Февраль', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'мар', field: 'season_mar',
-                    headerTooltip: 'Коэфф. сезонности — Март', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'апр', field: 'season_apr',
-                    headerTooltip: 'Коэфф. сезонности — Апрель', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'май', field: 'season_may',
-                    headerTooltip: 'Коэфф. сезонности — Май', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'июн', field: 'season_jun',
-                    headerTooltip: 'Коэфф. сезонности — Июнь', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'июл', field: 'season_jul',
-                    headerTooltip: 'Коэфф. сезонности — Июль', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'авг', field: 'season_aug',
-                    headerTooltip: 'Коэфф. сезонности — Август', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'сен', field: 'season_sep',
-                    headerTooltip: 'Коэфф. сезонности — Сентябрь', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'окт', field: 'season_oct',
-                    headerTooltip: 'Коэфф. сезонности — Октябрь', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'ноя', field: 'season_nov',
-                    headerTooltip: 'Коэфф. сезонности — Ноябрь', width: 40, editor: 'number', cssClass: 'season-cell' },
-                { title: 'дек', field: 'season_dec',
-                    headerTooltip: 'Коэфф. сезонности — Декабрь', width: 40, editor: 'number', cssClass: 'season-cell' },
+                {
+                    title: 'график / цифры',
+                    field: '_seasonality_view',
+                    headerTooltip: 'Сезонность: сверху месяцы, ниже график и коэффициенты. Клик — редактировать.',
+                    width: 440,
+                    minWidth: 390,
+                    headerSort: false,
+                    cssClass: 'season-cell season-spark-cell',
+                    formatter: costSeasonalityFormatter,
+                    cellClick: function(e, cell) {
+                        costOpenSeasonalityEditor(cell);
+                    },
+                },
             ]
         },
 
         // === 🔍 ТОП запросы ===
         {
             title: '🔍 ТОП запросы',
+            costGroupKey: 'top_queries',
             columns: [
                 { title: '1', field: 'top_query_1',
                     headerTooltip: 'ТОП запрос #1', width: 70, editor: 'input', tooltip: true, cssClass: 'topquery-cell truncate-cell' },
@@ -305,6 +630,7 @@ function getCostColumns() {
         // === 🎯 Расчёты ===
         {
             title: '🎯 Расчёты',
+            costGroupKey: 'calculations',
             columns: [
                 { title: '% выкупа по кат.', field: 'buyout_niche_pct',
                     headerTooltip: '% выкупа по категории', width: 65, editor: 'number', headerSort: true },
@@ -347,7 +673,7 @@ function prepareCostData(products) {
     const nmCounts = {};
     products.forEach(p => { nmCounts[p.nm_id] = (nmCounts[p.nm_id] || 0) + 1; });
 
-    return products.map(p => {
+    const rows = products.map(p => {
         const c = _costMap[p.entity_id] || {};
         const isSizeless = nmCounts[p.nm_id] === 1 && (!p.size_name || p.size_name === '0' || p.size_name === 'ONE SIZE');
 
@@ -383,6 +709,7 @@ function prepareCostData(products) {
 
             // Данные себестоимости (из /cost-prices)
             product_status: c.product_status || '',
+            tags: c.tags || '',
             product_class: c.product_class || '',
             brand: c.brand || '',
             fulfillment_model: c.fulfillment_model || 'fbo',
@@ -415,6 +742,37 @@ function prepareCostData(products) {
             valid_from: c.valid_from || new Date().toISOString().split('T')[0],
         };
     });
+    const grouped = {};
+    const ordered = [];
+    rows.forEach(function(row) {
+        const nmId = costBaseNmId(row);
+        if (!grouped[nmId]) {
+            grouped[nmId] = [];
+            ordered.push(nmId);
+        }
+        grouped[nmId].push(row);
+    });
+    const data = [];
+    ordered.forEach(function(nmId) {
+        const children = grouped[nmId];
+        if (!children || children.length <= 1) {
+            data.push(children[0]);
+            return;
+        }
+        const first = Object.assign({}, children[0]);
+        first._id = 'article_' + nmId;
+        first._isArticleRow = true;
+        first._selected = false;
+        first.entity_id = '';
+        first.nm_id = nmId;
+        first.nm_id_display = nmId;
+        first.size_name = '';
+        first._sizeList = children.length + ' разм.';
+        first._barcodes = children.map(function(child) { return child._barcodes; }).filter(Boolean).join(', ');
+        first._children = children;
+        data.push(first);
+    });
+    return data;
 }
 
 /**
@@ -448,14 +806,14 @@ function initCostTabulator(data) {
     if (!document.getElementById('cost-header-style')) {
         const style = document.createElement('style');
         style.id = 'cost-header-style';
-        style.textContent = '.tabulator-col-title { font-size: 8px !important; line-height: 1.1 !important; padding: 2px 4px !important; } .tabulator-col .tabulator-col-content { padding: 2px 4px !important; } .tabulator-cell { font-size: 11px !important; } .truncate-cell .tabulator-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; } .truncate-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }';
+        style.textContent = '.tabulator-col-title { font-size: 8px !important; line-height: 1.1 !important; padding: 2px 4px !important; } .tabulator-col .tabulator-col-content { padding: 2px 4px !important; } .tabulator-cell { font-size: 11px !important; } .truncate-cell .tabulator-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; } .truncate-cell { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; } .season-spark-cell { padding: 3px 6px !important; } .cost-season-spark { min-width: 370px; font-size: 9px; line-height: 1.15; color: #333; cursor: pointer; } .cost-season-spark.empty { color: #999; text-align: center; } .cost-season-months, .cost-season-bars, .cost-season-values { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; text-align: center; white-space: nowrap; } .cost-season-months { color: #777; font-size: 8px; } .cost-season-bars { color: #6c5ce7; font-size: 14px; line-height: 1; margin: 1px 0; } .cost-season-values { color: #222; font-size: 9px; font-variant-numeric: tabular-nums; } .cost-season-editor { position: absolute; z-index: 10020; width: 500px; max-width: calc(100vw - 24px); background: #fff; border: 1px solid #d9dce3; border-radius: 6px; box-shadow: 0 10px 26px rgba(0,0,0,.18); padding: 10px; box-sizing: border-box; } .cost-season-editor-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 12px; } .cost-season-editor-close { border: 0; background: transparent; font-size: 18px; line-height: 1; cursor: pointer; color: #777; } .cost-season-editor-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; } .cost-season-editor-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 10px; color: #666; } .cost-season-editor-grid input { width: 100%; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px; padding: 4px 5px; font-size: 12px; } .cost-season-editor-actions { display: flex; justify-content: flex-end; margin-top: 10px; } .cost-season-apply { border: 1px solid #6c5ce7; background: #6c5ce7; color: #fff; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; }';
         document.head.appendChild(style);
     }
 
     costTabulator = new Tabulator("#cost-tabulator", {
 
         data: data,
-        columns: getCostColumns(),
+        columns: costApplySavedColumnOrder(getCostColumns()),
         layout: "fitDataFill",
         index: "_id",
         movableColumns: true,
@@ -466,28 +824,13 @@ function initCostTabulator(data) {
         virtualDomBuffer: 100,
         placeholder: 'Нет данных',
         columnHeaderSortMulti: true,
+        dataTree: true,
+        dataTreeChildField: '_children',
+        dataTreeStartExpanded: false,
+        dataTreeElementColumn: 'nm_id_display',
         initialSort: [
-            {column: '_sizeList', dir: 'asc'},
+            {column: 'nm_id_display', dir: 'asc'},
         ],
-        // Группировка по nm_id. Безразмерные получили уникальный _solo_ ключ
-        groupBy: 'nm_id',
-        groupStartOpen: true,
-        groupToggleElement: 'header',
-        groupHeader: function(value, count, data, group) {
-            // Скрыть заголовок для соло-товаров (безразмерных)
-            if (value && typeof value === 'string' && value.startsWith('_solo_')) {
-                var el = group.getElement();
-                if (el) el.style.display = 'none';
-                return '';
-            }
-            if (!value) return '';
-            const d = data[0] || {};
-            const name = (d.product_name || '').substring(0, 40);
-            const vc = d.vendor_code || '';
-            const photo = d.photo_main ? d.photo_main.replace('/hq/','/c246x328/').replace('/big/','/c246x328/').replace('/tm/','/c246x328/') : '';
-            const img = photo ? '<img src="' + photo + '" style="width:32px;height:32px;border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:8px">' : '';
-            return '<span style="font-size:6px;line-height:1">' + img + '<b>' + value + '</b> — ' + count + ' ' + (count === 1 ? 'размер' : count < 5 ? 'размера' : 'размеров') + ' &nbsp; <span style="color:#666">' + name + '</span> &nbsp; <span style="color:#999">[' + vc + ']</span></span>';
-        },
 
         // cellEdited handled via table.on event below (Tabulator 6.x)
         cellEdited: function(cell) {
@@ -535,7 +878,7 @@ function initCostTabulator(data) {
                 'fulfillment_model', 'rrc_price', 'min_price'
             ];
 
-            if (syncFields.indexOf(field) !== -1 && data.nm_id && !data._noGroup) {
+            if (syncFields.indexOf(field) !== -1 && data.nm_id && !data._noGroup && COST_ARTICLE_ONLY_FIELDS.indexOf(field) !== -1) {
                 var newVal = cell.getValue();
                 var nmId = data.nm_id;
                 var allRows = costTabulator.getRows();
@@ -565,16 +908,19 @@ function initCostTabulator(data) {
 
         // Сохраняем порядок колонок при перемещении
         columnMoved: function(column, columns) {
-            NLGrid.saveColumnOrder(costTabulator, 'costprice');
+            costSaveColumnPreferences();
+            if (typeof NLGrid !== 'undefined' && NLGrid.saveColumnOrder) {
+                NLGrid.saveColumnOrder(costTabulator, 'costprice');
+            }
         },
 
         // Кастомные стили строк
         rowFormatter: function(row) {
             const data = row.getData();
             const el = row.getElement();
-            if (data._hasSizes) {
+            if (data._isArticleRow) {
                 el.style.background = '#f8f9ff';
-                el.style.cursor = 'pointer';
+                el.style.fontWeight = '600';
             }
         },
     });
@@ -594,6 +940,7 @@ function initCostTabulator(data) {
         var field = cell.getField();
         var row = cell.getRow();
         var data = row.getData();
+        costPropagateField(row, field, cell.getValue());
         if (field === 'fulfillment_model') {
             if (data.fulfillment_model === 'fbs') {
                 if (!data.fbs_warehouse || data.fbs_warehouse === '0' || data.fbs_warehouse === '-' || data.fbs_warehouse === '') {
@@ -630,7 +977,7 @@ function updateCostTabulator(filteredProducts) {
     } else {
         initCostTabulator(data);
     }
-    document.getElementById('cost-count').textContent = data.length + ' товаров';
+    document.getElementById('cost-count').textContent = filteredProducts.length + ' товаров';
 }
 
 /**
@@ -638,7 +985,7 @@ function updateCostTabulator(filteredProducts) {
  */
 function getCostDataForSave() {
     if (!costTabulator) return [];
-    const rows = costTabulator.getData();
+    const rows = costRowsForSave();
     const numberOrNull = function(value) {
         if (value === null || value === undefined) return null;
         if (typeof value === 'string' && value.trim() === '') return null;
@@ -683,6 +1030,7 @@ function getCostDataForSave() {
         product_class: textValue(data.product_class),
         brand: textValue(data.brand),
         product_status: textValue(data.product_status),
+        tags: textValue(data.tags),
         tax_system: null,
         tax_rate: (function(){
             var o = numberOrNull(data._tax_rate_override);
