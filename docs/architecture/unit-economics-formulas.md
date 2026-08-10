@@ -9,7 +9,12 @@ not duplicate or modify them.
   result in liters.
 - Forward delivery up to 1 liter: WB tier rate multiplied by the warehouse
   coefficient.
-- Forward FBO delivery: average tariff for Kolедино, Краснодар and Казань.
+- Forward FBO delivery: average tariff for the organization's selected FBO
+  warehouses, 1 to 5 warehouses.
+- If the organization has no selected FBO warehouses, the default average uses
+  Kolедино, Краснодар and Казань.
+- If a saved FBO warehouse selection cannot be matched in fresh tariffs, the
+  calculation falls back to the default three warehouses.
 - Forward FBS delivery: tariff of the selected FBS warehouse, with Kolедино as
   the legacy fallback.
 - Reverse delivery: WB base volume tariff without a warehouse coefficient.

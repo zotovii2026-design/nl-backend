@@ -6,6 +6,7 @@ DASHBOARD_SOURCE = Path("templates/nl_v2.html").read_text(encoding="utf-8")
 OPIU_SOURCE = Path("static/js/opiu-grid.js").read_text(encoding="utf-8")
 COST_GRID_SOURCE = Path("static/js/cost-grid.js").read_text(encoding="utf-8")
 OPIU_ROUTER_SOURCE = Path("api/v1/routers/opiu.py").read_text(encoding="utf-8")
+IDENTITY_ROUTER_SOURCE = Path("api/v1/routers/identity.py").read_text(encoding="utf-8")
 
 
 def test_marketer_loader_is_defined():
@@ -143,7 +144,20 @@ def test_top_store_switch_reloads_reference_book():
     )[0]
 
     assert "if (_costDirty && !await confirmDirty()) return;" in switch_top_store
-    assert "else if (tabName === 'costprice') { loadTaxSettings(); loadCostPrices(); }" in switch_top_store
+    assert "else if (tabName === 'costprice') { loadTaxSettings(); loadFboAverageWarehouses(); loadCostPrices(); }" in switch_top_store
+
+
+def test_reference_fbo_average_settings_are_wired():
+    assert "Усреднение FBO" in DASHBOARD_SOURCE
+    assert "cost-grid.js?v=20260810-fbo-average" in DASHBOARD_SOURCE
+    assert 'id="fbo-average-add-select"' in DASHBOARD_SOURCE
+    assert "function loadFboAverageWarehouses()" in DASHBOARD_SOURCE
+    assert "/api/v1/nl/fbo-average-warehouses" in DASHBOARD_SOURCE
+    assert '@router.get("/api/v1/nl/fbo-average-warehouses")' in IDENTITY_ROUTER_SOURCE
+    assert '@router.post("/api/v1/nl/fbo-average-warehouses")' in IDENTITY_ROUTER_SOURCE
+    assert "box_delivery_base IS NOT NULL" in IDENTITY_ROUTER_SOURCE
+    assert "Можно выбрать не больше 5 складов FBO" in IDENTITY_ROUTER_SOURCE
+    assert "ue_cache:{org_id}" in IDENTITY_ROUTER_SOURCE
 
 
 def test_expired_session_is_handled_globally():

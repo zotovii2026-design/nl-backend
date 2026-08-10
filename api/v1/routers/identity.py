@@ -27,6 +27,7 @@ from core.security import (
     decrypt_data,
 )
 from core.tenant_auth import require_query_organization_access
+from domain.unit_economics import DEFAULT_FBO_AVERAGE_WAREHOUSES, normalize_fbo_average_warehouses
 from models.organization import Role
 from models.user import User
 
@@ -306,6 +307,116 @@ async def get_tax_settings(org_id: str, db: AsyncSession = Depends(get_db)):
         "tax_rate": float(org.tax_rate) if org.tax_rate else None,
         "vat_type": org.vat_type or "нет"
     }
+
+
+# ─── FBO average warehouse settings ─────────────────────────
+
+async def _latest_fbo_tariff_warehouses(db: AsyncSession, org_id: str) -> list[str]:
+    from sqlalchemy import text
+
+    result = await db.execute(text("""
+        SELECT warehouse_name
+        FROM wb_box_tariffs
+        WHERE organization_id = :org_id
+          AND box_delivery_base IS NOT NULL
+          AND box_delivery_liter IS NOT NULL
+          AND snapshot_date = (
+              SELECT MAX(snapshot_date)
+              FROM wb_box_tariffs
+              WHERE organization_id = :org_id
+          )
+        ORDER BY warehouse_name
+    """), {"org_id": org_id})
+    return [row[0] for row in result.all() if row[0]]
+
+
+def _clean_selected_fbo_warehouses(raw) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    selected = []
+    seen = set()
+    for item in raw:
+        clean = str(item or "").strip()
+        key = clean.lower()
+        if clean and key not in seen:
+            selected.append(clean)
+            seen.add(key)
+    return selected
+
+
+def _fbo_settings_payload(org, available: list[str]) -> dict:
+    selected = _clean_selected_fbo_warehouses(org.fbo_avg_warehouses)
+    available_by_key = {name.lower(): name for name in available}
+    matched_selected = [
+        available_by_key[name.lower()]
+        for name in selected
+        if name.lower() in available_by_key
+    ]
+    effective_source = matched_selected if available else selected
+    effective = list(normalize_fbo_average_warehouses(effective_source))
+    return {
+        "available": available,
+        "selected": selected,
+        "effective": effective,
+        "default": list(DEFAULT_FBO_AVERAGE_WAREHOUSES),
+        "is_default": not selected,
+    }
+
+
+@router.get("/api/v1/nl/fbo-average-warehouses")
+async def get_fbo_average_warehouses(org_id: str, db: AsyncSession = Depends(get_db)):
+    """Склады FBO, по которым усредняется логистика в Юнит Экономике."""
+    from models.organization import Organization
+
+    result = await db.execute(
+        select(Organization).where(Organization.id == org_id)
+    )
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(404, "Организация не найдена")
+    return _fbo_settings_payload(
+        org,
+        await _latest_fbo_tariff_warehouses(db, org_id),
+    )
+
+
+@router.post("/api/v1/nl/fbo-average-warehouses")
+async def save_fbo_average_warehouses(
+    data: dict,
+    org_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Сохранить склады FBO для усреднения логистики."""
+    from models.organization import Organization
+
+    result = await db.execute(
+        select(Organization).where(Organization.id == org_id)
+    )
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(404, "Организация не найдена")
+
+    selected = _clean_selected_fbo_warehouses(data.get("warehouses"))
+    if len(selected) > 5:
+        raise HTTPException(400, "Можно выбрать не больше 5 складов FBO")
+
+    available = await _latest_fbo_tariff_warehouses(db, org_id)
+    available_by_key = {name.lower(): name for name in available}
+    invalid = [name for name in selected if name.lower() not in available_by_key]
+    if invalid:
+        raise HTTPException(400, "Склад не найден в тарифах WB: " + ", ".join(invalid))
+
+    org.fbo_avg_warehouses = [available_by_key[name.lower()] for name in selected] or None
+    await db.commit()
+
+    try:
+        import redis as _redis_lib
+
+        _redis_lib.from_url("redis://redis:6379/0").delete(f"ue_cache:{org_id}")
+    except Exception as exc:
+        logger.warning("Failed to clear UE cache after FBO settings save org=%s: %s", org_id, exc)
+
+    return _fbo_settings_payload(org, available)
 
 
 @router.post("/api/v1/nl/tax-settings")
