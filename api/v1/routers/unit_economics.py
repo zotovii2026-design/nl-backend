@@ -86,6 +86,7 @@ async def build_unit_economics(
     # 18-24: cost fields (cost_price...vat)
     # 25-28: product_class, brand, tax_system, tax_rate, vat_rate
     # 29: fbs_warehouse
+    # 30: tags
 
     ue_by_entity = {}
     ue_by_nm_bc = {}
@@ -129,6 +130,7 @@ async def build_unit_economics(
             "product_class": r[24], "brand": r[25], "tax_system": r[26],
             "tax_rate": r[27], "vat_rate": r[28],
             "product_status": r[12],
+            "tags": r[30],
         }
         if eid:
             if eid not in cost_by_entity:
@@ -245,6 +247,7 @@ async def build_unit_economics(
             "other_costs": float(cost.get("other_costs") or 0),
             "product_class": cost.get("product_class"),
             "brand": cost.get("brand"),
+            "tags": cost.get("tags") or "",
             "tax_system": cost.get("tax_system") or org_tax_system,
             "tax_rate": float(cost.get("tax_rate") or 0) or org_tax_rate,
             "vat_rate": float(cost.get("vat_rate") or 0),
@@ -492,7 +495,6 @@ async def save_unit_economics_batch(
     except Exception:
         pass
     return {"ok": True, "saved": saved}
-
 
 
 

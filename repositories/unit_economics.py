@@ -48,7 +48,7 @@ REFERENCE_BOOK_SQL = """
            mp_base_pct, wb_price_fact, wb_price_retail, wb_discount_pct,
            wb_prices_updated_at, cost_price, purchase_cost, logistics_cost,
            packaging_cost, other_costs, vat, product_class, brand, tax_system,
-           tax_rate, vat_rate, fbs_warehouse
+           tax_rate, vat_rate, fbs_warehouse, tags
     FROM reference_book
     WHERE organization_id = :org
       AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)

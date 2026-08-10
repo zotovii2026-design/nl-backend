@@ -10,7 +10,7 @@ let _ueAllData = [];  // Полные данные до фильтрации
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ue-grid-v8';
+    const VER = 'ue-grid-v9-tags-filters';
     if (localStorage.getItem('ue-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ue-grid-state-columns');
         localStorage.removeItem('tabulator-ue-grid-state-sort');
@@ -42,6 +42,16 @@ function getUEColumns() {
                     headerTooltip: 'ABC класс товара', width: 55, headerSort: true, tooltip: true },
                 { title: 'Бренд', field: 'brand',
                     headerTooltip: 'Бренд', width: 70, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
+                { title: 'Теги', field: 'tags',
+                    headerTooltip: 'Теги из справочника', width: 95, headerSort: true, tooltip: true, cssClass: 'truncate-cell',
+                    formatter: function(cell) {
+                        const tags = ueSplitTags(cell.getValue());
+                        if (!tags.length) return '—';
+                        return tags.map(function(tag) {
+                            return '<span style="display:inline-block;background:#eef2ff;color:#4b4f8f;border-radius:3px;padding:1px 5px;margin-right:3px;font-size:.82em">' + ueEsc(tag) + '</span>';
+                        }).join('');
+                    }
+                },
                 {
                     title: 'Фото', field: 'photo', width: 66, headerSort: false,
                     formatter: function(cell) {
@@ -576,9 +586,10 @@ function applyUEFilters() {
     if (!_ueAllData.length) return;
 
     const search = (document.getElementById('ue-flt-search')?.value || '').toLowerCase();
-    const fltStatus = document.getElementById('ue-flt-status')?.value || '';
-    const fltClass = document.getElementById('ue-flt-class')?.value || '';
-    const fltBrand = document.getElementById('ue-flt-brand')?.value || '';
+    const fltStatus = NLFilters.getValues(document.getElementById('ue-flt-status'));
+    const fltClass = NLFilters.getValues(document.getElementById('ue-flt-class'));
+    const fltBrand = NLFilters.getValues(document.getElementById('ue-flt-brand'));
+    const fltTags = NLFilters.getValues(document.getElementById('ue-flt-tags'));
     const fltFF = document.getElementById('ue-flt-ff')?.value || '';
 
     let filtered = _ueAllData;
@@ -594,9 +605,10 @@ function applyUEFilters() {
     }
 
     // Фильтры по полям
-    if (fltStatus) filtered = filtered.filter(p => (p.product_status || '') === fltStatus);
-    if (fltClass) filtered = filtered.filter(p => (p.product_class || '') === fltClass);
-    if (fltBrand) filtered = filtered.filter(p => (p.brand || '') === fltBrand);
+    if (fltStatus.length) filtered = filtered.filter(p => ueMatchAnySelected(p.product_status, fltStatus));
+    if (fltClass.length) filtered = filtered.filter(p => ueMatchAnySelected(p.product_class, fltClass));
+    if (fltBrand.length) filtered = filtered.filter(p => ueMatchAnySelected(p.brand, fltBrand));
+    if (fltTags.length) filtered = filtered.filter(p => ueMatchAnyTag(p.tags, fltTags));
     if (fltFF) filtered = filtered.filter(p => (p.tariff_type || '') === fltFF);
 
     // Обновляем таблицу
@@ -609,9 +621,10 @@ function applyUEFilters() {
  * Сброс всех фильтров
  */
 function resetUEFilters() {
-    document.getElementById('ue-flt-status').value = '';
-    document.getElementById('ue-flt-class').value = '';
-    document.getElementById('ue-flt-brand').value = '';
+    ['ue-flt-status', 'ue-flt-class', 'ue-flt-brand', 'ue-flt-tags'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el) NLFilters.selectAll(el);
+    });
     document.getElementById('ue-flt-ff').value = '';
     document.getElementById('ue-flt-search').value = '';
     applyUEFilters();
@@ -623,20 +636,62 @@ function resetUEFilters() {
 function populateUEFilterOptions() {
     if (!_ueAllData.length) return;
 
-    // Бренды
-    const brands = [...new Set(_ueAllData.map(p => p.brand).filter(Boolean))].sort();
-    const brandSel = document.getElementById('ue-flt-brand');
-    if (brandSel) {
-        const current = brandSel.value;
-        brandSel.innerHTML = '<option value="">Бренд: все</option>';
-        brands.forEach(b => {
-            const opt = document.createElement('option');
-            opt.value = b;
-            opt.textContent = b;
-            brandSel.appendChild(opt);
-        });
-        brandSel.value = current;
-    }
+    fillUEMultiSelect('ue-flt-status', 'Статус', uniqueUEValues('product_status'));
+    fillUEMultiSelect('ue-flt-class', 'Класс', uniqueUEValues('product_class'));
+    fillUEMultiSelect('ue-flt-brand', 'Бренд', uniqueUEValues('brand'));
+    fillUEMultiSelect('ue-flt-tags', 'Теги', uniqueUETags());
+}
+
+function uniqueUEValues(field) {
+    return [...new Set(_ueAllData.map(function(p) { return p[field]; }).filter(Boolean))].sort();
+}
+
+function uniqueUETags() {
+    const tags = new Set();
+    _ueAllData.forEach(function(p) {
+        ueSplitTags(p.tags).forEach(function(tag) { tags.add(tag); });
+    });
+    return Array.from(tags).sort();
+}
+
+function fillUEMultiSelect(id, label, values) {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const selected = NLFilters.getValues(sel);
+    sel.innerHTML = '';
+    (values || []).forEach(function(value) {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = value;
+        opt.title = value;
+        sel.appendChild(opt);
+    });
+    const available = new Set(values || []);
+    NLFilters.setValues(sel, selected.filter(function(value) { return available.has(value); }));
+    NLFilters.renderMenu(id, label);
+}
+
+function ueMatchAnySelected(value, selected) {
+    if (!selected || !selected.length) return true;
+    return selected.indexOf(value || '') !== -1;
+}
+
+function ueMatchAnyTag(tags, selectedTags) {
+    if (!selectedTags || !selectedTags.length) return true;
+    const rowTags = ueSplitTags(tags).map(function(tag) { return tag.toLowerCase(); });
+    return selectedTags.some(function(tag) {
+        return rowTags.indexOf(String(tag).toLowerCase()) !== -1;
+    });
+}
+
+function ueSplitTags(value) {
+    return String(value || '').split(/[,;|]/).map(function(tag) {
+        return tag.trim();
+    }).filter(Boolean);
+}
+
+function ueEsc(value) {
+    return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 /**
