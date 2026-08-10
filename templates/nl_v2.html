@@ -183,7 +183,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260806-filters-refactor"></script>
 <script type="text/javascript" src="/static/js/nl-filters.js?v=20260809-filter-id1"></script>
-<script type="text/javascript" src="/static/js/ue-grid.js?v=20260810-tags-filters"></script>
+<script type="text/javascript" src="/static/js/ue-grid.js?v=20260810-ue-controls"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/nl-page-prefs.js?v=2"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260809-daily-filters1"></script>
@@ -1050,7 +1050,9 @@ var _sectionHTML = {
 <div id="ue-flt-tags-menu" class="nl-filter-panel"></div>
 </div>
 <input type="text" id="ue-flt-search" placeholder="🔍 Поиск по названию / артикулу" oninput="applyUEFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
-<button onclick="resetUEFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сброс фильтров</button>
+<button id="ue-tree-toggle-btn" class="cost-tree-toggle" type="button" onclick="toggleUEGroupsOpen()">Раскрыть по размерам</button>
+<button type="button" onclick="resetUEColumnPreferences()" title="Вернуть порядок колонок по умолчанию, не сбрасывая фильтры" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Колонки по умолчанию</button>
+<button id="ue-reset-filters" type="button" onclick="resetUEFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сброс фильтров</button>
 </div>
 
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">

@@ -7,10 +7,11 @@
 let ueTabulator = null;
 let _ueEditedIds = new Set();
 let _ueAllData = [];  // Полные данные до фильтрации
+let _ueGroupsOpen = false;
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    const VER = 'ue-grid-v9-tags-filters';
+    const VER = 'ue-grid-v10-controls';
     if (localStorage.getItem('ue-grid-ver') !== VER) {
         localStorage.removeItem('tabulator-ue-grid-state-columns');
         localStorage.removeItem('tabulator-ue-grid-state-sort');
@@ -543,15 +544,13 @@ async function loadUEData(loadAll, refresh) {
 
         if (ueTabulator) {
             ueTabulator.replaceData(data).then(() => {
-                const groups = ueTabulator.getGroups();
-                groups.forEach(g => g.show());
+                setUEGroupsOpen(_ueGroupsOpen, true);
             });
         } else {
             // Если Tabulator не инициализирован — инициализируем
             initUEGrid();
             ueTabulator.replaceData(data).then(() => {
-                const groups = ueTabulator.getGroups();
-                groups.forEach(g => g.show());
+                setUEGroupsOpen(_ueGroupsOpen, true);
             });
         }
 
@@ -612,7 +611,11 @@ function applyUEFilters() {
     if (fltFF) filtered = filtered.filter(p => (p.tariff_type || '') === fltFF);
 
     // Обновляем таблицу
-    if (ueTabulator) ueTabulator.replaceData(filtered);
+    if (ueTabulator) {
+        ueTabulator.replaceData(filtered).then(function() {
+            setUEGroupsOpen(_ueGroupsOpen, true);
+        });
+    }
     const countEl = document.getElementById('ue-count');
     if (countEl) countEl.textContent = filtered.length + ' товаров';
 }
@@ -628,6 +631,53 @@ function resetUEFilters() {
     document.getElementById('ue-flt-ff').value = '';
     document.getElementById('ue-flt-search').value = '';
     applyUEFilters();
+}
+
+function toggleUEGroupsOpen() {
+    setUEGroupsOpen(!_ueGroupsOpen);
+}
+
+function setUEGroupsOpen(open, silent) {
+    if (!ueTabulator) return;
+    const toggleBtn = document.getElementById('ue-tree-toggle-btn');
+    if (toggleBtn) toggleBtn.disabled = true;
+    const groups = ueTabulator.getGroups ? ueTabulator.getGroups() : [];
+    groups.forEach(function(group) {
+        const key = typeof group.getKey === 'function' ? group.getKey() : '';
+        const isSolo = key && String(key).startsWith('_solo_');
+        if (isSolo || open) {
+            if (typeof group.show === 'function') group.show();
+        } else if (typeof group.hide === 'function') {
+            group.hide();
+        }
+    });
+    _ueGroupsOpen = !!open;
+    updateUEGroupsToggleButton();
+    if (toggleBtn) toggleBtn.disabled = false;
+    if (!silent && ueTabulator && typeof ueTabulator.redraw === 'function') {
+        ueTabulator.redraw(false);
+    }
+}
+
+function updateUEGroupsToggleButton() {
+    const toggleBtn = document.getElementById('ue-tree-toggle-btn');
+    if (!toggleBtn) return;
+    toggleBtn.textContent = _ueGroupsOpen ? 'Скрыть размеры' : 'Раскрыть по размерам';
+}
+
+function resetUEColumnPreferences() {
+    try {
+        localStorage.removeItem('tabulator-ue-grid-state-columns');
+    } catch(e) {
+        console.warn('resetUEColumnPreferences', e);
+    }
+    if (ueTabulator) {
+        ueTabulator.destroy();
+        ueTabulator = null;
+    }
+    initUEGrid();
+    applyUEFilters();
+    if (typeof showToast === 'function') showToast('✅ Порядок колонок восстановлен');
 }
 
 /**
