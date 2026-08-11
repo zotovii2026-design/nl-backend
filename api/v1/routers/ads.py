@@ -57,6 +57,18 @@ def _sf(v):
     return float(v) if not isinstance(v, _dec.Decimal) else float(v)
 
 
+def _drr_percent(spent, revenue):
+    """ДРР с минимальным отображаемым ненулевым значением 0.1%."""
+    revenue_val = _sf(revenue)
+    if revenue_val <= 0:
+        return None
+    spent_val = _sf(spent)
+    if spent_val <= 0:
+        return 0.0
+    rounded = round(spent_val / revenue_val * 100, 1)
+    return max(rounded, 0.1)
+
+
 def _parse_date_range(days: str, date_from: Optional[str], date_to: Optional[str]):
     """Парсинг диапазона дат — общий для обоих маршрутов."""
     if date_from and date_to:
@@ -1075,7 +1087,7 @@ async def get_ad_stats_by_art(
                 "cpc": round(spent_day / clicks_day, 2) if clicks_day else 0,
                 "cr": round(orders_day / clicks_day * 100, 2) if clicks_day else 0,
                 "clicks_per_order": round(clicks_day / orders_day, 1) if orders_day else 0,
-                "drr": round(spent_day / sum_price_day * 100, 1) if sum_price_day else 0,
+                "drr": _drr_percent(spent_day, sum_price_day),
             })
 
     for nm_id, campaigns_by_id in list(nm_campaigns.items()):
@@ -1085,7 +1097,7 @@ async def get_ad_stats_by_art(
             camp["cpc"] = round(camp["spent_share"] / camp["clicks"], 2) if camp["clicks"] else 0
             camp["cr"] = round(camp["orders"] / camp["clicks"] * 100, 2) if camp["clicks"] else 0
             camp["clicks_per_order"] = round(camp["clicks"] / camp["orders"], 1) if camp["orders"] else 0
-            camp["drr"] = round(camp["spent_share"] / camp["sum_price"] * 100, 1) if camp["sum_price"] else 0
+            camp["drr"] = _drr_percent(camp["spent_share"], camp["sum_price"])
             camp["daily"].sort(key=lambda item: item["date"])
             camps.append(camp)
         nm_campaigns[nm_id] = sorted(camps, key=lambda item: item["spent_share"], reverse=True)
@@ -1103,8 +1115,8 @@ async def get_ad_stats_by_art(
         product_orders = product_orders_by_nm.get(nm_id, {"orders_all": 0, "revenue_all": 0})
         total_orders_product = product_orders["orders_all"]
         total_revenue_product = product_orders["revenue_all"]
-        drr_art = round(spent / sum_price_art * 100, 1) if sum_price_art else 0
-        drr_product = round(spent / total_revenue_product * 100, 1) if total_revenue_product else 0
+        drr_art = _drr_percent(spent, sum_price_art)
+        drr_product = _drr_percent(spent, total_revenue_product)
         items.append({
             "nm_id": nm_id,
             "spent": spent,
@@ -1205,9 +1217,15 @@ async def get_ad_stats_by_art(
         "total_revenue_product": round(sum(i["total_revenue_product"] for i in items), 2),
         "total_revenue_period": total_revenue_period,
         "sum_price": round(sum(c.get("sum_price", 0) for i in items for c in i.get("campaigns", [])), 2),
-        "drr": round(sum(i["spent"] for i in items) / max(sum(c.get("sum_price", 0) for i in items for c in i.get("campaigns", [])), 1) * 100, 1),
-        "drr_product": round(sum(i["spent"] for i in items) / max(sum(i["total_revenue_product"] for i in items), 1) * 100, 1),
-        "drr_total": round(sum(i["spent"] for i in items) / total_revenue_period * 100, 1) if total_revenue_period else 0,
+        "drr": _drr_percent(
+            sum(i["spent"] for i in items),
+            sum(c.get("sum_price", 0) for i in items for c in i.get("campaigns", [])),
+        ),
+        "drr_product": _drr_percent(
+            sum(i["spent"] for i in items),
+            sum(i["total_revenue_product"] for i in items),
+        ),
+        "drr_total": _drr_percent(sum(i["spent"] for i in items), total_revenue_period),
         "statuses": status_list,
     }
 

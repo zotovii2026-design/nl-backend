@@ -11,7 +11,7 @@ var _adsArtCharts = [];
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    var VER = 'ads-arts-grid-v11';
+    var VER = 'ads-arts-grid-v12';
     if (localStorage.getItem('ads-arts-grid-ver') !== VER) {
         localStorage.removeItem('ads-arts-grid-state-columns');
         localStorage.removeItem('ads-arts-grid-state-sort');
@@ -22,6 +22,30 @@ var _adsArtCharts = [];
         if (typeof refreshAdsStatusButtons === 'function') refreshAdsStatusButtons();
     }, 100);
 })();
+
+function calcAdsArtsDrr(spent, revenue) {
+    var revenueNum = Number(revenue || 0);
+    if (!revenueNum) return null;
+    var spentNum = Number(spent || 0);
+    if (!spentNum) return 0;
+    var raw = spentNum / revenueNum * 100;
+    var rounded = Math.round(raw * 10) / 10;
+    return raw > 0 && rounded < 0.1 ? 0.1 : rounded;
+}
+
+function formatAdsArtsDrrText(value) {
+    if (value === null || value === undefined || value === '') return '—';
+    var v = Number(value);
+    return Number.isFinite(v) ? v.toFixed(1) + '%' : '—';
+}
+
+function formatAdsArtsDrrCell(value) {
+    if (value === null || value === undefined || value === '') return '—';
+    var v = Number(value);
+    if (!Number.isFinite(v)) return '—';
+    var color = v > 50 ? '#e74c3c' : v > 25 ? '#e17055' : '#00b894';
+    return '<span style="color:' + color + ';font-weight:600">' + v.toFixed(1) + '%</span>';
+}
 
 function switchAdsView(view) {
     _adsCurrentView = view;
@@ -150,8 +174,8 @@ function updateAdsArtsMetrics(totals) {
     el = document.getElementById('ad-cr'); if (el) el.textContent = (totals.cr || 0).toFixed(1) + '%';
     el = document.getElementById('ad-clicks-per-order'); if (el) el.textContent = totals.clicks_per_order ? totals.clicks_per_order : '—';
     el = document.getElementById('ad-atbs'); if (el) el.textContent = totals.atbs || 0;
-    el = document.getElementById('ad-drr'); if (el) el.textContent = totals.drr ? totals.drr + '%' : '—';
-    el = document.getElementById('ad-drr-total'); if (el) el.textContent = totals.drr_total ? totals.drr_total + '%' : '—';
+    el = document.getElementById('ad-drr'); if (el) el.textContent = formatAdsArtsDrrText(totals.drr);
+    el = document.getElementById('ad-drr-total'); if (el) el.textContent = formatAdsArtsDrrText(totals.drr_total);
 }
 
 // ===== Конфигурация колонок — по образцу ads-grid.js =====
@@ -225,10 +249,7 @@ function getAdsArtsColumns() {
                         return tip;
                     },
                     formatter: function(cell) {
-                        var v = parseFloat(cell.getValue())||0;
-                        if (!v) return '—';
-                        var color = v > 50 ? '#e74c3c' : v > 25 ? '#e17055' : '#00b894';
-                        return '<span style="color:' + color + ';font-weight:600">' + v.toFixed(1) + '%</span>';
+                        return formatAdsArtsDrrCell(cell.getValue());
                     },
                 },
                 {
@@ -243,10 +264,7 @@ function getAdsArtsColumns() {
                         return tip;
                     },
                     formatter: function(cell) {
-                        var v = parseFloat(cell.getValue())||0;
-                        if (!v) return '—';
-                        var color = v > 50 ? '#e74c3c' : v > 25 ? '#e17055' : '#00b894';
-                        return '<span style="color:' + color + ';font-weight:600">' + v.toFixed(1) + '%</span>';
+                        return formatAdsArtsDrrCell(cell.getValue());
                     },
                 },
             ]
@@ -700,10 +718,12 @@ function updateAdsArtsMetricsFromFiltered(filteredItems) {
     el = document.getElementById('ad-cr'); if (el) el.textContent = totals.clicks ? ((totals.orders / totals.clicks * 100).toFixed(1)) + '%' : '0%';
     el = document.getElementById('ad-clicks-per-order'); if (el) el.textContent = totals.orders ? (totals.clicks / totals.orders).toFixed(1) : '—';
     el = document.getElementById('ad-atbs'); if (el) el.textContent = totals.atbs;
-    el = document.getElementById('ad-drr'); if (el) el.textContent = totals.sum_price ? ((totals.spent / totals.sum_price * 100).toFixed(1)) + '%' : '—';
+    el = document.getElementById('ad-drr'); if (el) el.textContent = formatAdsArtsDrrText(calcAdsArtsDrr(totals.spent, totals.sum_price));
     el = document.getElementById('ad-drr-total');
     if (el) {
         var serverDrrTotal = _adsArtsServerTotals && filteredItems.length === _adsAllArtsData.length ? _adsArtsServerTotals.drr_total : null;
-        el.textContent = serverDrrTotal != null ? serverDrrTotal + '%' : (totals.total_revenue_product ? ((totals.spent / totals.total_revenue_product * 100).toFixed(1)) + '%' : '—');
+        el.textContent = formatAdsArtsDrrText(
+            serverDrrTotal != null ? serverDrrTotal : calcAdsArtsDrr(totals.spent, totals.total_revenue_product)
+        );
     }
 }

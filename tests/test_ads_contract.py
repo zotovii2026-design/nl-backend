@@ -5,6 +5,7 @@ from api.v1.routers.ads import (
     ADS_REFRESH_DAYS_BACK,
     DEFAULT_AD_STATUSES,
     _ad_type_label,
+    _drr_percent,
     _parse_statuses,
 )
 
@@ -167,11 +168,29 @@ def test_ads_campaign_rows_use_product_revenue_for_product_drr():
     assert "product_orders_by_nm = await _get_total_orders_revenue_by_nm" in backend
     assert '"total_orders_product": product_orders_by_nm.get' in backend
     assert '"total_revenue_product": product_orders_by_nm.get' in backend
-    assert "drr_product = round(spent / total_revenue_product * 100, 1)" in backend
+    assert "drr_product = _drr_percent(spent, total_revenue_product)" in backend
     assert '"drr_product": drr_product' in backend
     assert "totalRevenueProduct = products.reduce" in grid
     assert "ads-grid-v14" in grid
     assert "adsmodel15" in template
+
+
+def test_ads_drr_percent_keeps_null_zero_and_small_values_distinct():
+    assert _drr_percent(10, 0) is None
+    assert _drr_percent(0, 1000) == 0.0
+    assert _drr_percent(0.01, 100000) == 0.1
+    assert _drr_percent(42, 99000) == 0.1
+    assert _drr_percent(500, 10000) == 5.0
+
+
+def test_ads_art_frontend_formats_zero_drr_as_value_not_dash():
+    arts = Path("static/js/ads-arts-grid.js").read_text(encoding="utf-8")
+
+    assert "ads-arts-grid-v12" in arts
+    assert "function formatAdsArtsDrrText" in arts
+    assert "value === null || value === undefined || value === ''" in arts
+    assert "return Number.isFinite(v) ? v.toFixed(1) + '%' : '—';" in arts
+    assert "return formatAdsArtsDrrCell(cell.getValue());" in arts
 
 
 def test_ads_top_chart_uses_cabinet_daily_context():
@@ -215,7 +234,7 @@ def test_ads_by_art_expanded_campaigns_have_daily_charts():
     assert "label: 'клик / заказ'" in arts
     assert "destroyAdsArtCharts" in arts
     assert "ads-grid-v14" in Path("static/js/ads-grid.js").read_text(encoding="utf-8")
-    assert "ads-arts-grid-v11" in arts
+    assert "ads-arts-grid-v12" in arts
 
 
 def test_ads_org_switch_resets_state_and_ignores_stale_responses():
