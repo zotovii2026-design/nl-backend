@@ -100,6 +100,10 @@ th.sortable.asc::after { content: ' ↑'; opacity: 1; }
 th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
 .rnp-wrap{font-size:.78em;background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:hidden;border:1px solid #eee;margin-bottom:10px}
+.rnp-header-scroll{overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:none}
+.rnp-header-scroll::-webkit-scrollbar{display:none}
+.rnp-top-scroll{overflow-x:auto;overflow-y:hidden;max-width:100%;height:18px;margin:-4px 0 8px;background:#fff;border:1px solid #eee;border-radius:8px}
+.rnp-top-scroll-inner{height:1px}
 .rnp-scroll-shell{overflow-x:auto;overflow-y:visible;max-width:100%;padding-bottom:4px}
 .rnp-wide-content{width:max-content;min-width:100%}
 .rnp-table-wrap{overflow:visible}
@@ -3883,8 +3887,9 @@ async function loadRnp() {
             }
         }
 
-        // Рисуем шапку-сводку и карточки в одном горизонтальном scroll-shell.
-        var hhtml = '<div class="rnp-scroll-shell"><div class="rnp-wide-content">';
+        // Рисуем шапку-сводку, верхний scrollbar-зеркало и карточки с общей горизонтальной осью.
+        var rnpWidePx = 480 + (days.length * 92);
+        var hhtml = '<div id="rnp-header-scroll" class="rnp-header-scroll"><div class="rnp-wide-content">';
         hhtml += '<div class="rnp-wrap"><table class="rnp-header-table"><thead><tr>';
         hhtml += '<th class="row-label">Показатель</th>';
         hhtml += '<th class="total-col">Итого</th>';
@@ -3919,10 +3924,11 @@ async function loadRnp() {
             }
             hhtml += '</tr>';
         }
-        hhtml += '</tbody></table></div>';
+        hhtml += '</tbody></table></div></div>';
+        hhtml += '<div id="rnp-top-scroll" class="rnp-top-scroll"><div class="rnp-top-scroll-inner" style="width:' + rnpWidePx + 'px"></div></div>';
 
         // Рисуем карточки (таблица 2)
-        var html = '<div class="rnp-wrap"><div class="rnp-table-wrap"><table class="rnp-table"><thead><tr>';
+        var html = '<div id="rnp-body-scroll" class="rnp-scroll-shell"><div class="rnp-wide-content"><div class="rnp-wrap"><div class="rnp-table-wrap"><table class="rnp-table"><thead><tr>';
         html += '<th class="sticky-col row-label" style="left:0">Карточка</th>';
         html += '<th class="sticky-col period-col" style="left:260px">За период</th>';
         html += '<th class="sticky-col plan-col" style="left:370px">План/Факт</th>';
@@ -4018,10 +4024,11 @@ async function loadRnp() {
             html += '<tr class="card-divider"><td colspan="' + (3 + days.length) + '"></td></tr>';
         }
 
-        html += '</tbody></table></div></div>';
+        html += '</tbody></table></div></div></div></div>';
         header.innerHTML = '';
-        cards.innerHTML = hhtml + html + '</div></div>';
+        cards.innerHTML = hhtml + html;
         updateRnpTreeToggleButton();
+        setupRnpScrollSync();
 
     } catch(e) {
         console.error('loadRnp', e);
@@ -4030,6 +4037,31 @@ async function loadRnp() {
     }
 }
 function fmtR(v) { if (v==null||v===0) return '—'; return Number(v).toLocaleString('ru-RU',{maximumFractionDigits:0}); }
+
+function setupRnpScrollSync() {
+    var header = document.getElementById('rnp-header-scroll');
+    var topScroll = document.getElementById('rnp-top-scroll');
+    var body = document.getElementById('rnp-body-scroll');
+    var topInner = topScroll ? topScroll.querySelector('.rnp-top-scroll-inner') : null;
+    if (!header || !topScroll || !body) return;
+    if (topInner) topInner.style.width = body.scrollWidth + 'px';
+
+    var locked = false;
+    function syncFrom(source) {
+        if (locked) return;
+        locked = true;
+        var left = source.scrollLeft;
+        if (header !== source) header.scrollLeft = left;
+        if (topScroll !== source) topScroll.scrollLeft = left;
+        if (body !== source) body.scrollLeft = left;
+        locked = false;
+    }
+
+    [header, topScroll, body].forEach(function(el) {
+        el.addEventListener('scroll', function() { syncFrom(el); });
+    });
+    syncFrom(body);
+}
 
 function toggleRnpGroupsOpen() {
     _rnpGroupsOpen = !_rnpGroupsOpen;
