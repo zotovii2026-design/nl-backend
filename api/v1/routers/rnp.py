@@ -444,6 +444,130 @@ async def get_rnp(
             "days": day_columns,
         })
 
+    def first_non_empty(rows, field, default=""):
+        for item in rows:
+            value = item.get(field)
+            if value not in (None, ""):
+                return value
+        return default
+
+    def weighted_avg(rows, field, weight_field):
+        total_weight = sum(float(item.get(weight_field) or 0) for item in rows)
+        if not total_weight:
+            values = [float(item.get(field) or 0) for item in rows if item.get(field) not in (None, "")]
+            return round(sum(values) / len(values), 1) if values else 0
+        return round(
+            sum(float(item.get(field) or 0) * float(item.get(weight_field) or 0) for item in rows) / total_weight,
+            1,
+        )
+
+    def sum_fields(rows, *fields):
+        return {field: sum(float(item.get(field) or 0) for item in rows) for field in fields}
+
+    def build_article_parent(rows):
+        rows = sorted(rows, key=lambda item: (str(item.get("size_name") or ""), str(item.get("entity_id") or "")))
+        first = rows[0]
+        totals = sum_fields(
+            rows,
+            "total_orders_revenue", "total_buyouts_revenue", "total_ad_cost",
+            "margin_before_drr", "profit_calc", "margin_with_drr",
+            "cost_of_stock", "plan_value", "daily_norm",
+        )
+        total_orders = sum(int(item.get("total_orders") or 0) for item in rows)
+        total_buyouts = sum(int(item.get("total_buyouts") or 0) for item in rows)
+        current_stock = sum(int(item.get("current_stock") or 0) for item in rows)
+        days_passed = max((len(item.get("days") or []) for item in rows), default=0)
+
+        day_items = []
+        for day in day_list:
+            dk = str(day)
+            child_days = []
+            for item in rows:
+                by_date = {d_item.get("date"): d_item for d_item in item.get("days") or []}
+                child_days.append(by_date.get(dk, {}))
+            day_total = sum_fields(
+                child_days,
+                "orders_revenue", "buyouts_revenue", "ad_cost",
+                "margin_before_drr", "profit_calc", "margin_with_drr",
+            )
+            day_orders = sum(int(item.get("orders_count") or 0) for item in child_days)
+            day_buyouts = sum(int(item.get("buyouts_count") or 0) for item in child_days)
+            day_items.append({
+                "date": dk,
+                "orders_count": day_orders,
+                "orders_revenue": round(day_total["orders_revenue"], 2),
+                "buyouts_count": day_buyouts,
+                "buyouts_revenue": round(day_total["buyouts_revenue"], 2),
+                "ad_cost": round(day_total["ad_cost"], 2),
+                "drr": round(day_total["ad_cost"] / day_total["orders_revenue"] * 100, 2) if day_total["orders_revenue"] else 0,
+                "margin_before_drr": round(day_total["margin_before_drr"], 2),
+                "profit_calc": round(day_total["profit_calc"], 2),
+                "margin_with_drr": round(day_total["margin_with_drr"], 2),
+            })
+
+        tags = sorted({tag for item in rows for tag in split_tag_labels(item.get("tags") or "")})
+        avg_orders_day = total_orders / days_passed if days_passed else 0
+        buyout_pct = weighted_avg(rows, "buyout_pct", "total_orders")
+        effective_demand = avg_orders_day * buyout_pct / 100 if use_buyout_pct and buyout_pct > 0 else avg_orders_day
+        fulfillment_values = {item.get("fulfillment_model") for item in rows if item.get("fulfillment_model")}
+
+        return {
+            "entity_id": None,
+            "nm_id": first.get("nm_id"),
+            "vendor_code": first_non_empty(rows, "vendor_code"),
+            "product_name": first_non_empty(rows, "product_name"),
+            "photo_main": first_non_empty(rows, "photo_main"),
+            "barcode": "",
+            "size_name": f"{len(rows)} размеров" if len(rows) > 1 else first.get("size_name", ""),
+            "brand": first_non_empty(rows, "brand"),
+            "product_status": first_non_empty(rows, "product_status"),
+            "product_class": first_non_empty(rows, "product_class"),
+            "fulfillment_model": first_non_empty(rows, "fulfillment_model", "fbo") if len(fulfillment_values) <= 1 else "mixed",
+            "in_promo": any(bool(item.get("in_promo")) for item in rows),
+            "ad_strategy": first_non_empty(rows, "ad_strategy"),
+            "tags": ", ".join(tags),
+            "rating_reviews": first_non_empty(rows, "rating_reviews", None),
+            "localization_pct": first_non_empty(rows, "localization_pct"),
+            "ad_shows_organic": first_non_empty(rows, "ad_shows_organic", None),
+            "ad_shows_paid": first_non_empty(rows, "ad_shows_paid", None),
+            "price_retail": weighted_avg(rows, "price_retail", "total_orders"),
+            "price_with_spp": weighted_avg(rows, "price_with_spp", "total_orders"),
+            "spp_pct": weighted_avg(rows, "spp_pct", "total_orders"),
+            "buyout_pct": buyout_pct,
+            "cost_price": weighted_avg(rows, "cost_price", "current_stock"),
+            "cost_of_stock": round(totals["cost_of_stock"], 2),
+            "plan_value": round(totals["plan_value"], 2),
+            "daily_norm": round(totals["daily_norm"], 2),
+            "pct_complete": round(totals["total_orders_revenue"] / (totals["daily_norm"] * days_passed) * 100, 1) if totals["daily_norm"] and days_passed else 0,
+            "total_orders": total_orders,
+            "total_orders_revenue": round(totals["total_orders_revenue"], 2),
+            "total_buyouts": total_buyouts,
+            "total_buyouts_revenue": round(totals["total_buyouts_revenue"], 2),
+            "total_ad_cost": round(totals["total_ad_cost"], 2),
+            "drr": round(totals["total_ad_cost"] / totals["total_orders_revenue"] * 100, 2) if totals["total_orders_revenue"] else 0,
+            "margin_before_drr": round(totals["margin_before_drr"], 2),
+            "profit_calc": round(totals["profit_calc"], 2),
+            "margin_with_drr": round(totals["margin_with_drr"], 2),
+            "krrr": round(totals["margin_with_drr"] / totals["margin_before_drr"] * 100, 1) if totals["margin_before_drr"] else 0,
+            "roi": weighted_avg(rows, "roi", "total_buyouts_revenue"),
+            "cpl": round(sum(float(item.get("cpl") or 0) * int(item.get("total_orders") or 0) for item in rows) / total_orders, 2) if total_orders else 0,
+            "ctr": weighted_avg(rows, "ctr", "total_orders"),
+            "enough_days": round(current_stock / effective_demand, 1) if effective_demand > 0 else 999,
+            "current_stock": current_stock,
+            "days": day_items,
+            "children": [{**item, "is_child": True} for item in rows],
+            "is_group": True,
+            "child_count": len(rows),
+        }
+
+    grouped_by_nm = defaultdict(list)
+    for product in products:
+        grouped_by_nm[product["nm_id"]].append(product)
+    products = [
+        build_article_parent(rows) if len(rows) > 1 else rows[0]
+        for rows in grouped_by_nm.values()
+    ]
+
     # Сортировка
     sort_key_map = {
         "orders_revenue": lambda x: x["total_orders_revenue"],
