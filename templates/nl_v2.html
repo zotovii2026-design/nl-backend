@@ -17,9 +17,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .btn-sm{background:#6c5ce7;color:#fff;border:none;width:24px;height:24px;border-radius:50%;cursor:pointer;font-size:1em;display:flex;align-items:center;justify-content:center}
 .btn-sm:hover{background:#5a4bd1}
 .wb-key-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:#fff;border-radius:6px;margin-bottom:6px;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.wb-key-item.active{border:1px solid #00b894;background:#f4fffb}
 .wb-key-item .name{font-weight:500}
 .wb-key-item .date{color:#999;font-size:.8em}
 .wb-key-item .del{margin-left:auto;color:#e74c3c;cursor:pointer;font-size:.8em}
+.wb-key-action{background:none;border:1px solid #ddd;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:.85em;color:#6c5ce7}
+.wb-key-action.danger{color:#e74c3c}
 .user-info{color:#666;font-size:0.85em}
 
 .tabs{display:flex;background:#fff;border-bottom:2px solid #e0e0e0;padding:0 20px}
@@ -1291,7 +1294,8 @@ var _sectionHTML = {
 <div style="display:flex;gap:8px;flex-wrap:wrap">
 <input type="text" id="wb-key-name" placeholder="Название" style="width:150px">
 <input type="text" id="wb-key-value" placeholder="API ключ WB" style="flex:1;min-width:200px">
-<button class="btn" onclick="addWbKey()">Добавить</button>
+<label style="display:flex;align-items:center;gap:6px;font-size:.9em;color:#555"><input type="checkbox" id="wb-key-use-this" checked> Использовать</label>
+<button class="btn" onclick="addWbKey()" id="wb-key-add-btn">Добавить</button>
 </div>
 <p style="color:#999;font-size:.8em;margin-top:8px">Получить ключ: Кабинет WB → Настройки → Доступ к API</p>
 </div>
@@ -4724,14 +4728,22 @@ async function loadProfile() {
         }
         
         shopsEl.innerHTML = data.shops.map(s => {
-            const keysHtml = s.keys.map(k => 
-                '<div style="display:flex;align-items:center;gap:6px;font-size:.85em;padding:3px 0">' +
-                '<span style="color:#00b894">🔑</span>' +
-                '<span>' + k.name + '</span>' +
-                '<span style="color:#999">(' + k.created_at + ')</span>' +
-                '<span style="cursor:pointer;color:#e74c3c;margin-left:4px" onclick="deleteWbKeyBtn(this)" data-keyid="' + k.id + '" data-orgid="' + s.id + '">✕</span>' +
-                '</div>'
-            ).join('');
+            const keysHtml = s.keys.map(k => {
+                const activeLabel = k.is_active ? 'Активен' : 'Использовать';
+                const status = wbKeyStatusText(k);
+                return '<div class="wb-key-item' + (k.is_active ? ' active' : '') + '" style="box-shadow:none;border:' + (k.is_active ? '1px solid #00b894' : '1px solid #eee') + ';font-size:.85em;padding:6px 8px">' +
+                    '<label style="display:flex;align-items:center;gap:5px;color:' + (k.is_active ? '#00875a' : '#666') + ';white-space:nowrap">' +
+                    '<input type="checkbox" ' + (k.is_active ? 'checked' : '') + ' onchange="setWbKeyActive(this)" data-keyid="' + k.id + '" data-orgid="' + s.id + '">' + activeLabel +
+                    '</label>' +
+                    '<span style="color:#00b894">🔑</span>' +
+                    '<span class="name">' + escapeHtml(k.name) + '</span>' +
+                    status +
+                    '<span style="color:#999">(' + escapeHtml(k.created_at || '') + ')</span>' +
+                    '<button class="wb-key-action" onclick="verifyWbKeyBtn(this)" data-keyid="' + k.id + '" data-orgid="' + s.id + '">Проверить</button>' +
+                    '<button class="wb-key-action" onclick="editWbKeyBtn(this)" data-keyid="' + k.id + '" data-orgid="' + s.id + '" data-name="' + escapeHtml(k.name) + '">Редактировать</button>' +
+                    '<button class="wb-key-action danger" onclick="deleteWbKeyBtn(this)" data-keyid="' + k.id + '" data-orgid="' + s.id + '">Удалить</button>' +
+                    '</div>';
+            }).join('');
             
             return '<div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:8px" id="shop-card-' + s.id + '">' +
                 '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
@@ -4782,6 +4794,92 @@ function formatApiDate(value) {
         return d.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
     } catch(e) {
         return escapeHtml(String(value).slice(0, 16));
+    }
+}
+
+function wbKeyStatusText(k) {
+    if (k.token_status === 'valid') return '<span style="color:#00b894;font-size:.85em">✅ Работает</span>';
+    if (k.token_status === 'limited') return '<span style="color:#e17055;font-size:.85em">⚠️ Ограничен</span>';
+    if (k.token_status === 'invalid') return '<span style="color:#e74c3c;font-size:.85em">❌ Ошибка</span>';
+    return '<span style="color:#999;font-size:.85em">⏳ Не проверен</span>';
+}
+
+async function setWbKeyActive(input) {
+    const keyId = input.dataset.keyid;
+    const orgId = input.dataset.orgid || ORG_ID;
+    const checked = input.checked;
+    input.disabled = true;
+    try {
+        const res = await fetch('/api/v1/nl/wb-keys/' + keyId + '?org_id=' + orgId, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({is_active: checked})
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Не удалось сохранить');
+        }
+        await loadOrgs();
+        loadProfile();
+        loadWbKeys();
+    } catch(e) {
+        input.checked = !checked;
+        alert('❌ ' + e.message);
+    } finally {
+        input.disabled = false;
+    }
+}
+
+async function verifyWbKeyBtn(btn) {
+    const orgId = btn.dataset.orgid || ORG_ID;
+    const keyId = btn.dataset.keyid;
+    const oldText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Проверка...';
+    try {
+        const res = await fetch('/api/v1/nl/verify-wb-key', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({org_id: orgId, key_id: keyId})
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Ошибка проверки');
+        showToast(data.token_status === 'valid' ? 'Ключ работает' : data.message);
+        loadProfile();
+        loadWbKeys();
+    } catch(e) {
+        alert('❌ ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = oldText;
+    }
+}
+
+async function editWbKeyBtn(btn) {
+    const orgId = btn.dataset.orgid || ORG_ID;
+    const keyId = btn.dataset.keyid;
+    const currentName = btn.dataset.name || 'WB Key';
+    const name = prompt('Название ключа:', currentName);
+    if (name === null) return;
+    const apiKey = prompt('Новый API ключ WB. Оставьте пустым, если меняете только название:', '');
+    if (apiKey === null) return;
+    const payload = {name: name.trim() || currentName};
+    if (apiKey.trim()) payload.api_key = apiKey.trim();
+    if (apiKey.trim() && confirm('Сделать этот ключ активным для синхронизации?')) payload.is_active = true;
+    try {
+        const res = await fetch('/api/v1/nl/wb-keys/' + keyId + '?org_id=' + orgId, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Не удалось сохранить');
+        showToast(data.message || 'Сохранено');
+        await loadOrgs();
+        loadProfile();
+        loadWbKeys();
+    } catch(e) {
+        alert('❌ ' + e.message);
     }
 }
 
@@ -5050,12 +5148,17 @@ async function loadWbKeys() {
         return;
     }
     el.innerHTML = keys.map(k => {
-        let badge = '';
-        if (k.token_status === 'valid') badge = '<span style="color:#00b894;font-size:.85em">✅ Полный доступ</span>';
-        else if (k.token_status === 'limited') badge = '<span style="color:#e17055;font-size:.85em">⚠️ Ограниченный (acc=1)</span>';
-        else if (k.token_status === 'invalid') badge = '<span style="color:#e74c3c;font-size:.85em">❌ Невалидный</span>';
-        else badge = '<span style="color:#999;font-size:.85em">⏳ Не проверен</span>';
-        return '<div class="wb-key-item"><span class="name">🔑 ' + k.name + '</span>' + badge + '<span class="date">' + (k.created_at||'').substring(0,10) + '</span><span class="del" data-keyid="' + k.id + '" onclick="deleteWbKeyBtn(this)">✕</span></div>';
+        return '<div class="wb-key-item' + (k.is_active ? ' active' : '') + '">' +
+            '<label style="display:flex;align-items:center;gap:5px;color:' + (k.is_active ? '#00875a' : '#666') + ';white-space:nowrap">' +
+            '<input type="checkbox" ' + (k.is_active ? 'checked' : '') + ' onchange="setWbKeyActive(this)" data-keyid="' + k.id + '" data-orgid="' + ORG_ID + '">' + (k.is_active ? 'Активен' : 'Использовать') +
+            '</label>' +
+            '<span class="name">🔑 ' + escapeHtml(k.name) + '</span>' +
+            wbKeyStatusText(k) +
+            '<span class="date">' + (k.created_at||'').substring(0,10) + '</span>' +
+            '<button class="wb-key-action" onclick="verifyWbKeyBtn(this)" data-keyid="' + k.id + '" data-orgid="' + ORG_ID + '">Проверить</button>' +
+            '<button class="wb-key-action" onclick="editWbKeyBtn(this)" data-keyid="' + k.id + '" data-orgid="' + ORG_ID + '" data-name="' + escapeHtml(k.name) + '">Редактировать</button>' +
+            '<span class="del" data-keyid="' + k.id + '" data-orgid="' + ORG_ID + '" onclick="deleteWbKeyBtn(this)">✕</span>' +
+            '</div>';
     }).join('');
 }
 
@@ -5071,12 +5174,14 @@ async function addWbKey() {
     try {
         const res = await fetch('/api/v1/nl/wb-keys?org_id=' + ORG_ID, {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({name, api_key})
+            body: JSON.stringify({name, api_key, is_active: document.getElementById('wb-key-use-this')?.checked !== false})
         });
         if (res.ok) {
             const data = await res.json();
             document.getElementById('wb-key-name').value = '';
             document.getElementById('wb-key-value').value = '';
+            const useThis = document.getElementById('wb-key-use-this');
+            if (useThis) useThis.checked = true;
             loadWbKeys();
             loadOrgs();
             if (data.token_status === 'valid') {

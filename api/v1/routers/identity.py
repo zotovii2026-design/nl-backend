@@ -65,6 +65,32 @@ def _enqueue_wb_initial_tasks(org_id: str):
     return task_ids, warnings
 
 
+def _extract_wb_seller_id(api_key: str) -> Optional[int]:
+    try:
+        parts = api_key.split(".")
+        if len(parts) < 2:
+            return None
+        payload_b64 = parts[1] + "=" * (4 - len(parts[1]) % 4)
+        payload_json = base64.urlsafe_b64decode(payload_b64)
+        payload_data = _json.loads(payload_json)
+        oid_val = payload_data.get("oid")
+        return int(oid_val) if oid_val is not None else None
+    except Exception:
+        return None
+
+
+async def _activate_wb_key(db: AsyncSession, key) -> None:
+    from models.organization import WbApiKey
+
+    result = await db.execute(
+        select(WbApiKey).where(WbApiKey.organization_id == key.organization_id)
+    )
+    for other in result.scalars().all():
+        other.is_active = False
+    await db.flush()
+    key.is_active = True
+
+
 # ─── Pydantic модели ───────────────────────────────────────
 
 class RegisterData(BaseModel):
@@ -166,7 +192,9 @@ async def nl_organizations(
     for m, o in rows:
         # Count WB keys
         keys_result = await db.execute(
-            select(WbApiKey).where(WbApiKey.organization_id == o.id)
+            select(WbApiKey)
+            .where(WbApiKey.organization_id == o.id)
+            .order_by(WbApiKey.is_active.desc(), WbApiKey.created_at.desc().nullslast())
         )
         keys = keys_result.scalars().all()
         orgs.append({
@@ -219,19 +247,7 @@ async def nl_connect_wb(
     if validation["token_status"] in ("invalid", "limited"):
         raise HTTPException(400, validation["message"])
 
-    # Parse JWT to extract seller_id (oid) as integer
-    oid = None
-    try:
-        parts = api_key.split(".")
-        if len(parts) >= 2:
-            payload_b64 = parts[1] + "=" * (4 - len(parts[1]) % 4)
-            payload_json = base64.urlsafe_b64decode(payload_b64)
-            payload_data = _json.loads(payload_json)
-            oid_val = payload_data.get("oid")
-            if oid_val is not None:
-                oid = int(oid_val)
-    except Exception:
-        pass
+    oid = _extract_wb_seller_id(api_key)
 
     # Check if org with this seller_id already exists for this user
     if oid:
@@ -270,6 +286,7 @@ async def nl_connect_wb(
         api_key="unused",
         token_status=validation["token_status"],
         validated_at=datetime.utcnow(),
+        is_active=True,
     )
     db.add(wb_key)
 
@@ -459,19 +476,39 @@ async def nl_wb_keys(org_id: str, db: AsyncSession = Depends(get_db)):
     """Список WB API ключей организации"""
     from models.organization import WbApiKey
     result = await db.execute(
-        select(WbApiKey).where(WbApiKey.organization_id == org_id)
+        select(WbApiKey)
+        .where(WbApiKey.organization_id == org_id)
+        .order_by(WbApiKey.is_active.desc(), WbApiKey.created_at.desc().nullslast())
     )
     keys = result.scalars().all()
-    return [{"id": str(k.id), "name": k.name, "created_at": str(k.created_at), "token_status": k.token_status or "unknown", "validated_at": str(k.validated_at) if k.validated_at else None} for k in keys]
+    return [
+        {
+            "id": str(k.id),
+            "name": k.name,
+            "created_at": str(k.created_at),
+            "token_status": k.token_status or "unknown",
+            "validated_at": str(k.validated_at) if k.validated_at else None,
+            "is_active": bool(k.is_active),
+        }
+        for k in keys
+    ]
 
 
 @router.post("/api/v1/nl/wb-keys")
-async def nl_add_wb_key(data: dict, org_id: str, db: AsyncSession = Depends(get_db)):
+async def nl_add_wb_key(
+    data: dict,
+    org_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Добавить WB API ключ с обязательной валидацией"""
     from models.organization import WbApiKey, Organization
     from services.wb_api.token_validator import validate_wb_token
+    await require_organization_role(org_id, Role.ADMIN, current_user, db)
+
     name = data.get("name", "WB Key")
     api_key = data.get("api_key", "")
+    use_this = bool(data.get("is_active", data.get("use_this", False)))
     if not api_key:
         raise HTTPException(400, "API ключ обязателен")
 
@@ -492,44 +529,134 @@ async def nl_add_wb_key(data: dict, org_id: str, db: AsyncSession = Depends(get_
         validated_at=datetime.utcnow(),
     )
     db.add(key)
-    # Извлекаем wb_seller_id (oid) из JWT payload
-    try:
-        parts = api_key.split(".")
-        if len(parts) >= 2:
-            payload_b64 = parts[1] + "=" * (4 - len(parts[1]) % 4)
-            payload_json = base64.urlsafe_b64decode(payload_b64)
-            payload_data = _json.loads(payload_json)
-            oid = payload_data.get("oid")
-            if oid:
-                result = await db.execute(select(Organization).where(Organization.id == org_id))
-                org = result.scalar_one_or_none()
-                if org:
-                    org.wb_seller_id = oid
-    except Exception:
-        pass  # Не критично если не удалось распарсить
+    await db.flush()
+    result = await db.execute(select(Organization).where(Organization.id == org_id))
+    org = result.scalar_one_or_none()
+    oid = _extract_wb_seller_id(api_key)
+    if oid and org:
+        org.wb_seller_id = oid
+
+    active_result = await db.execute(
+        select(WbApiKey).where(WbApiKey.organization_id == org_id, WbApiKey.is_active.is_(True))
+    )
+    if use_this or active_result.scalar_one_or_none() is None:
+        await _activate_wb_key(db, key)
+
     await db.commit()
     task_ids, task_warnings = _enqueue_wb_initial_tasks(str(org_id))
     return {
         "status": "ok",
         "id": str(key.id),
         "token_status": validation["token_status"],
+        "is_active": bool(key.is_active),
         "message": validation["message"],
         **task_ids,
         **task_warnings,
     }
 
 
-@router.delete("/api/v1/nl/wb-keys/{key_id}")
-async def nl_delete_wb_key(key_id: str, org_id: str, db: AsyncSession = Depends(get_db)):
-    """Удалить WB API ключ"""
-    from models.organization import WbApiKey
+@router.patch("/api/v1/nl/wb-keys/{key_id}")
+async def nl_update_wb_key(
+    key_id: str,
+    data: dict,
+    org_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Редактировать имя/токен WB API ключа и при необходимости сделать его активным."""
+    from models.organization import Organization, WbApiKey
+    from services.wb_api.token_validator import validate_wb_token
+
+    await require_organization_role(org_id, Role.ADMIN, current_user, db)
+
     result = await db.execute(
         select(WbApiKey).where(WbApiKey.id == key_id, WbApiKey.organization_id == org_id)
     )
     key = result.scalar_one_or_none()
     if not key:
         raise HTTPException(404, "Ключ не найден")
+
+    name = data.get("name")
+    if name is not None:
+        name = str(name).strip()
+        if not name:
+            raise HTTPException(400, "Название ключа не может быть пустым")
+        if len(name) > 255:
+            raise HTTPException(400, "Название ключа слишком длинное")
+        key.name = name
+
+    validation = None
+    api_key = str(data.get("api_key") or "").strip()
+    if api_key:
+        validation = await validate_wb_token(api_key)
+        if validation["token_status"] in ("invalid", "limited"):
+            raise HTTPException(400, validation["message"])
+        key.personal_token = encrypt_data(api_key)
+        key.api_key = "unused"
+        key.token_status = validation["token_status"]
+        key.validated_at = datetime.utcnow()
+
+        oid = _extract_wb_seller_id(api_key)
+        if oid:
+            org_result = await db.execute(select(Organization).where(Organization.id == org_id))
+            org = org_result.scalar_one_or_none()
+            if org:
+                org.wb_seller_id = oid
+
+    if "is_active" in data or "use_this" in data:
+        use_this = bool(data.get("is_active", data.get("use_this")))
+        if use_this:
+            if key.token_status != "valid":
+                raise HTTPException(400, "Сначала проверьте ключ: активным можно сделать только валидный ключ")
+            await _activate_wb_key(db, key)
+        else:
+            key.is_active = False
+
+    await db.commit()
+    await db.refresh(key)
+    return {
+        "status": "ok",
+        "id": str(key.id),
+        "name": key.name,
+        "token_status": key.token_status or "unknown",
+        "validated_at": str(key.validated_at) if key.validated_at else None,
+        "is_active": bool(key.is_active),
+        "message": validation["message"] if validation else "Сохранено",
+    }
+
+
+@router.delete("/api/v1/nl/wb-keys/{key_id}")
+async def nl_delete_wb_key(
+    key_id: str,
+    org_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Удалить WB API ключ"""
+    from models.organization import WbApiKey
+    await require_organization_role(org_id, Role.ADMIN, current_user, db)
+
+    result = await db.execute(
+        select(WbApiKey).where(WbApiKey.id == key_id, WbApiKey.organization_id == org_id)
+    )
+    key = result.scalar_one_or_none()
+    if not key:
+        raise HTTPException(404, "Ключ не найден")
+    was_active = bool(key.is_active)
     await db.delete(key)
+    if was_active:
+        fallback_result = await db.execute(
+            select(WbApiKey)
+            .where(
+                WbApiKey.organization_id == org_id,
+                WbApiKey.id != key.id,
+                WbApiKey.token_status == "valid",
+            )
+            .order_by(WbApiKey.validated_at.desc().nullslast(), WbApiKey.created_at.desc().nullslast())
+        )
+        fallback = fallback_result.scalars().first()
+        if fallback:
+            fallback.is_active = True
     await db.commit()
     return {"status": "ok"}
 
@@ -563,6 +690,7 @@ async def nl_profile(
             "created_at": str(k.created_at)[:10] if k.created_at else "",
             "token_status": k.token_status or "unknown",
             "validated_at": str(k.validated_at) if k.validated_at else None,
+            "is_active": bool(k.is_active),
         } for k in keys]
 
         shops.append({
@@ -611,8 +739,16 @@ async def nl_verify_wb_key(
     if not keys:
         return {"status": "error", "message": "Нет API ключей", "products_count": 0}
 
-    key = keys[0]
-    api_token = decrypt_data(key.personal_token)
+    key_id = str(data.get("key_id") or "").strip()
+    if key_id:
+        key = next((k for k in keys if str(k.id) == key_id), None)
+        if not key:
+            raise HTTPException(404, "Ключ не найден")
+    else:
+        key = next((k for k in keys if k.is_active), None) or keys[0]
+    api_token = decrypt_data(key.personal_token or key.api_key)
+    if not api_token:
+        raise HTTPException(400, "Не удалось расшифровать ключ")
     validation = await validate_wb_token(api_token)
 
     # Обновляем статус в БД
@@ -637,7 +773,9 @@ async def nl_verify_wb_key(
     return {
         "status": validation["token_status"],
         "message": validation["message"],
+        "key_id": str(key.id),
         "key_name": key.name,
+        "is_active": bool(key.is_active),
         "products_count": total,
         "token_status": validation["token_status"],
         "acc_level": validation["acc_level"],

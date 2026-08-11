@@ -15,14 +15,17 @@ from models.organization import WbApiKey
 async def get_all_wb_keys(sf: async_sessionmaker, only_valid: bool = True) -> List[Tuple[str, str]]:
     """
     Получить все org_id + рабочие API-ключи.
-    only_valid=True — только ключи с token_status='valid' (прошедшие валидацию).
+    only_valid=True — только активные ключи с token_status='valid' (прошедшие валидацию).
     only_valid=False — все ключи (для backward compat).
     Returns: [(org_id, decrypted_token), ...]
     """
     async with sf() as db:
         if only_valid:
             result = await db.execute(
-                select(WbApiKey).where(WbApiKey.token_status == "valid")
+                select(WbApiKey).where(
+                    WbApiKey.token_status == "valid",
+                    WbApiKey.is_active.is_(True),
+                )
             )
         else:
             result = await db.execute(select(WbApiKey))

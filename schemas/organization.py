@@ -66,6 +66,9 @@ class WbApiKeyResponse(BaseModel):
     id: UUID
     organization_id: UUID
     name: str
+    token_status: str | None = None
+    validated_at: datetime | None = None
+    is_active: bool = False
     created_at: datetime
     updated_at: datetime | None
 

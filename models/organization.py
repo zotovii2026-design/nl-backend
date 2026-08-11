@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, String, Integer, DateTime, func, ForeignKey, Text, Numeric
+from sqlalchemy import Boolean, Column, String, Integer, DateTime, func, ForeignKey, Text, Numeric
 from sqlalchemy.dialects.postgresql import UUID, ENUM, JSONB
 from sqlalchemy.orm import relationship
 from core.database import Base
@@ -108,6 +108,7 @@ class WbApiKey(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     token_status = Column(String(20), nullable=False, default="unknown", server_default="unknown")
     validated_at = Column(DateTime(timezone=True), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=False, server_default="false")
 
     # Отношения
     organization = relationship("Organization", back_populates="wb_api_keys")
