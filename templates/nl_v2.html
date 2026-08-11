@@ -132,6 +132,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 .rnp-card-name{font-weight:600;font-size:.82em;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rnp-card-detail{color:#999;font-size:.78em}
 .rnp-card-krrr{font-weight:700;font-size:.95em}
+.rnp-tip{cursor:help;text-decoration:underline dotted;text-underline-offset:2px}
 .rnp-header-table{border-collapse:collapse;width:max-content;min-width:100%;table-layout:fixed}
 .rnp-header-table th,.rnp-header-table td{border:1px solid #eee;padding:5px 8px;white-space:nowrap;font-size:.8em}
 .rnp-header-table .row-label{color:#888;font-weight:500;width:260px;min-width:260px;max-width:260px;overflow:hidden;text-overflow:ellipsis}
@@ -3814,6 +3815,40 @@ function initRnpMonths() {
         sel.appendChild(opt);
     }
 }
+var RNP_TOOLTIPS = {
+    card: 'Карточка товара. Если у артикула есть размеры, строка артикула показывает общий итог, а размеры раскрываются кнопкой +.',
+    period: 'Итоги по товару за выбранный период. Для артикула с размерами значения суммируются по всем его размерам.',
+    planFact: 'Сравнение факта с планом продаж: план берётся из плана продаж, факт считается за выбранный период.',
+    dayCell: 'Показатели за конкретный день. У строки артикула это сумма по всем размерам, у раскрытого размера — только этот размер.',
+    ordersRevenue: 'Сумма заказов: количество заказанных штук × цена продажи. Это заказы, а не выкупы.',
+    ordersCount: 'Количество заказанных штук за выбранный период или день по данным продаж WB.',
+    buyoutsRevenue: 'Сумма выкупов: количество выкупленных штук × цена продажи.',
+    buyoutsCount: 'Количество выкупленных штук за выбранный период или день.',
+    buyoutPct: '% выкупа: доля выкупленных товаров относительно заказанных. Чем выше, тем меньше возвратов и отказов.',
+    adCost: 'Реклама: фактические расходы на продвижение за выбранный период или день.',
+    drr: 'ДРР: рекламные расходы / сумма заказов × 100%. Показывает, какая доля заказов ушла на рекламу.',
+    marginBeforeDrr: 'Маржа до ДРР: выкупы минус себестоимость, комиссия и логистика. Реклама здесь ещё не вычтена.',
+    marginWithDrr: 'Маржа с ДРР: маржа после вычета рекламных расходов. Отрицательное значение означает минус.',
+    profitCalc: 'Расчётная прибыль: маржа до ДРР минус рекламные расходы. Это быстрая оценка результата.',
+    krrr: 'КРРР: сколько маржи осталось после рекламы. Считается как маржа с ДРР / маржа до ДРР × 100%.',
+    ctrCpl: 'CTR: доля кликов от показов рекламы. CPL: стоимость клика или лида по рекламной статистике.',
+    rating: 'Рейтинг и отзывы товара, если данные доступны.',
+    stock: 'Остаток товара на последнюю дату выбранного периода.',
+    enoughDays: 'Хватит дней: текущий остаток / средние заказы в день. Помогает понять риск обнуления склада.',
+    plan: 'План продаж на выбранный период.',
+    pctComplete: '% выполнения: факт продаж относительно плана за период.',
+    dailyNorm: 'Факт в день или дневная норма: план/факт, пересчитанный на один день.',
+    priceRetail: 'Цена до СПП по последним доступным данным.',
+    priceWithSpp: 'Цена продажи покупателю с учётом СПП.',
+    sppPct: 'СПП%: скидка WB относительно цены до СПП.',
+    promo: 'Признак участия товара в акции.',
+    roi: 'ROI: доходность товара относительно вложений в себестоимость.',
+    costOfStock: 'Себестоимость остатков: себестоимость единицы из Справочника × текущий остаток.'
+};
+function rnpTitle(key) {
+    var text = RNP_TOOLTIPS[key] || '';
+    return text ? ' title="' + esc(text) + '"' : '';
+}
 async function loadRnp() {
     if (!ORG_ID) return;
     var sort = document.getElementById('rnp-sort')?.value || 'orders_revenue';
@@ -3852,15 +3887,15 @@ async function loadRnp() {
 
         // Сводка
         summary.innerHTML =
-            '<div><b>Товаров:</b> ' + s.total_products + '</div>' +
-            '<div><b>Заказы:</b> ' + s.total_orders + ' шт / ' + fmtR(s.total_orders_revenue) + ' ₽</div>' +
-            '<div><b>Выкупы:</b> ' + s.total_buyouts + ' шт / ' + fmtR(s.total_buyouts_revenue) + ' ₽</div>' +
-            '<div><b>Реклама:</b> ' + fmtR(s.total_ad_cost) + ' ₽</div>' +
-            '<div><b>ДРР:</b> ' + s.total_drr + '%</div>' +
-            '<div><b>Маржа до ДРР:</b> ' + fmtR(s.total_margin_before_drr) + ' ₽</div>' +
-            '<div><b>Прибыль расч:</b> ' + fmtR(s.total_profit_calc) + ' ₽</div>' +
-            '<div><b>Маржа с ДРР:</b> ' + fmtR(s.total_margin_with_drr) + ' ₽</div>' +
-            '<div><b>Остатки:</b> ' + s.total_stock + ' шт</div>';
+            '<div class="rnp-tip"' + rnpTitle('card') + '><b>Товаров:</b> ' + s.total_products + '</div>' +
+            '<div class="rnp-tip"' + rnpTitle('ordersRevenue') + '><b>Заказы:</b> ' + s.total_orders + ' шт / ' + fmtR(s.total_orders_revenue) + ' ₽</div>' +
+            '<div class="rnp-tip"' + rnpTitle('buyoutsRevenue') + '><b>Выкупы:</b> ' + s.total_buyouts + ' шт / ' + fmtR(s.total_buyouts_revenue) + ' ₽</div>' +
+            '<div class="rnp-tip"' + rnpTitle('adCost') + '><b>Реклама:</b> ' + fmtR(s.total_ad_cost) + ' ₽</div>' +
+            '<div class="rnp-tip"' + rnpTitle('drr') + '><b>ДРР:</b> ' + s.total_drr + '%</div>' +
+            '<div class="rnp-tip"' + rnpTitle('marginBeforeDrr') + '><b>Маржа до ДРР:</b> ' + fmtR(s.total_margin_before_drr) + ' ₽</div>' +
+            '<div class="rnp-tip"' + rnpTitle('profitCalc') + '><b>Прибыль расч:</b> ' + fmtR(s.total_profit_calc) + ' ₽</div>' +
+            '<div class="rnp-tip"' + rnpTitle('marginWithDrr') + '><b>Маржа с ДРР:</b> ' + fmtR(s.total_margin_with_drr) + ' ₽</div>' +
+            '<div class="rnp-tip"' + rnpTitle('stock') + '><b>Остатки:</b> ' + s.total_stock + ' шт</div>';
         count.textContent = prods.length + ' артикулов | ' + (data.month || '') + ' | ' + days.length + ' дней';
         if (!prods.length) { cards.innerHTML = '<div class="empty">Нет данных</div>'; return; }
 
@@ -3891,36 +3926,36 @@ async function loadRnp() {
         var rnpWidePx = 480 + (days.length * 92);
         var hhtml = '<div id="rnp-header-scroll" class="rnp-header-scroll"><div class="rnp-wide-content">';
         hhtml += '<div class="rnp-wrap"><table class="rnp-header-table"><thead><tr>';
-        hhtml += '<th class="row-label">Показатель</th>';
-        hhtml += '<th class="total-col">Итого</th>';
+        hhtml += '<th class="row-label rnp-tip"' + rnpTitle('period') + '>Показатель</th>';
+        hhtml += '<th class="total-col rnp-tip"' + rnpTitle('period') + '>Итого</th>';
         for (var hi = 0; hi < days.length; hi++) {
             var dShort = days[hi].substring(5);
-            hhtml += '<th class="day-header' + (days[hi] === todayStr ? ' today' : '') + '">' + dShort + '</th>';
+            hhtml += '<th class="day-header rnp-tip' + (days[hi] === todayStr ? ' today' : '') + '"' + rnpTitle('dayCell') + '>' + dShort + '</th>';
         }
         hhtml += '</tr></thead><tbody>';
 
         // Строки шапки
         var hrows = [
-            {label:'Заказы, Σ ₽', key:'orders_revenue', fmt:1},
-            {label:'Заказы, кол', key:'orders_count', fmt:0},
-            {label:'Выкупы, Σ ₽', key:'buyouts_revenue', fmt:1},
-            {label:'Выкупы, кол', key:'buyouts_count', fmt:0},
-            {label:'Рекл. бюджет, ₽', key:'ad_cost', fmt:1},
-            {label:'Маржа до ДРР, ₽', key:'margin_before_drr', fmt:1},
-            {label:'Маржа с ДРР, ₽', key:'margin_with_drr', fmt:1},
-            {label:'Прибыль расчёт, ₽', key:'profit_calc', fmt:1},
+            {label:'Заказы, Σ ₽', key:'orders_revenue', fmt:1, tip:'ordersRevenue'},
+            {label:'Заказы, кол', key:'orders_count', fmt:0, tip:'ordersCount'},
+            {label:'Выкупы, Σ ₽', key:'buyouts_revenue', fmt:1, tip:'buyoutsRevenue'},
+            {label:'Выкупы, кол', key:'buyouts_count', fmt:0, tip:'buyoutsCount'},
+            {label:'Рекл. бюджет, ₽', key:'ad_cost', fmt:1, tip:'adCost'},
+            {label:'Маржа до ДРР, ₽', key:'margin_before_drr', fmt:1, tip:'marginBeforeDrr'},
+            {label:'Маржа с ДРР, ₽', key:'margin_with_drr', fmt:1, tip:'marginWithDrr'},
+            {label:'Прибыль расчёт, ₽', key:'profit_calc', fmt:1, tip:'profitCalc'},
         ];
         for (var ri = 0; ri < hrows.length; ri++) {
             var r = hrows[ri];
-            hhtml += '<tr><td class="row-label">' + r.label + '</td>';
+            hhtml += '<tr><td class="row-label rnp-tip"' + rnpTitle(r.tip) + '>' + r.label + '</td>';
             var totalV = 0;
             for (var tdi = 0; tdi < days.length; tdi++) { totalV += (sumDays[days[tdi]][r.key] || 0); }
-            hhtml += '<td class="total-col" style="text-align:right"><b>' + (r.fmt ? fmtR(totalV) : totalV) + '</b></td>';
+            hhtml += '<td class="total-col rnp-tip" style="text-align:right"' + rnpTitle(r.tip) + '><b>' + (r.fmt ? fmtR(totalV) : totalV) + '</b></td>';
             for (var ci = 0; ci < days.length; ci++) {
                 var cv = sumDays[days[ci]][r.key] || 0;
                 var cls = 'val-cell' + (days[ci] === todayStr ? ' today' : '');
-                var color = r.key === 'margin_with_drr' || r.key === 'profit_calc' || r.key === 'margin_before_drr' ? (cv >= 0 ? ' class="' + cls + '" style="color:#00b894"' : ' class="' + cls + '" style="color:#e74c3c"') : ' class="' + cls + '"';
-                hhtml += '<td' + color + '>' + (r.fmt ? fmtR(cv) : cv) + '</td>';
+                var color = r.key === 'margin_with_drr' || r.key === 'profit_calc' || r.key === 'margin_before_drr' ? (cv >= 0 ? ' class="' + cls + ' rnp-tip" style="color:#00b894"' : ' class="' + cls + ' rnp-tip" style="color:#e74c3c"') : ' class="' + cls + ' rnp-tip"';
+                hhtml += '<td' + color + rnpTitle(r.tip) + '>' + (r.fmt ? fmtR(cv) : cv) + '</td>';
             }
             hhtml += '</tr>';
         }
@@ -3929,12 +3964,12 @@ async function loadRnp() {
 
         // Рисуем карточки (таблица 2)
         var html = '<div id="rnp-body-scroll" class="rnp-scroll-shell"><div class="rnp-wide-content"><div class="rnp-wrap"><div class="rnp-table-wrap"><table class="rnp-table"><thead><tr>';
-        html += '<th class="sticky-col row-label" style="left:0">Карточка</th>';
-        html += '<th class="sticky-col period-col" style="left:260px">За период</th>';
-        html += '<th class="sticky-col plan-col" style="left:370px">План/Факт</th>';
+        html += '<th class="sticky-col row-label rnp-tip" style="left:0"' + rnpTitle('card') + '>Карточка</th>';
+        html += '<th class="sticky-col period-col rnp-tip" style="left:260px"' + rnpTitle('period') + '>За период</th>';
+        html += '<th class="sticky-col plan-col rnp-tip" style="left:370px"' + rnpTitle('planFact') + '>План/Факт</th>';
         for (var dhi = 0; dhi < days.length; dhi++) {
             var dS = days[dhi].substring(5);
-            html += '<th class="day-header' + (days[dhi] === todayStr ? ' today' : '') + '">' + dS + '</th>';
+            html += '<th class="day-header rnp-tip' + (days[dhi] === todayStr ? ' today' : '') + '"' + rnpTitle('dayCell') + '>' + dS + '</th>';
         }
         html += '</tr></thead><tbody>';
 
@@ -3960,34 +3995,34 @@ async function loadRnp() {
             cardInfo += '<div class="rnp-card-detail">' + esc(p.brand||'') + '</div>';
             cardInfo += '<div class="rnp-card-detail">' + esc(p.vendor_code||'') + (p.size_name ? ' / ' + esc(p.size_name) : '') + '</div>';
             cardInfo += '<div class="rnp-card-detail">' + esc(p.tags||'') + '</div>';
-            cardInfo += '<div class="rnp-card-detail">Ост: ' + (p.current_stock||0) + ' (хватит ' + (p.enough_days||0) + 'д)</div>';
-            cardInfo += '<div class="rnp-card-krrr" style="color:' + mc + '">КРРР: ' + (p.krrr||0) + '%</div>';
+            cardInfo += '<div class="rnp-card-detail rnp-tip"' + rnpTitle('stock') + '>Ост: ' + (p.current_stock||0) + ' (хватит ' + (p.enough_days||0) + 'д)</div>';
+            cardInfo += '<div class="rnp-card-krrr rnp-tip" style="color:' + mc + '"' + rnpTitle('krrr') + '>КРРР: ' + (p.krrr||0) + '%</div>';
 
             // За 30 дней
             var m30 = '';
-            m30 += '<div>Зак: <b>' + fmtR(p.total_orders_revenue) + '₽</b></div>';
-            m30 += '<div>     ' + (p.total_orders||0) + ' шт</div>';
-            m30 += '<div>Вык: <b>' + fmtR(p.total_buyouts_revenue) + '₽</b></div>';
-            m30 += '<div>     ' + (p.total_buyouts||0) + ' шт</div>';
-            m30 += '<div>%Вык: ' + (p.buyout_pct||0) + '%</div>';
-            m30 += '<div>М.ДРР: <span style="color:' + mc + '">' + fmtR(p.margin_with_drr) + '₽</span></div>';
-            m30 += '<div>М.до: ' + fmtR(p.margin_before_drr) + '₽</div>';
-            m30 += '<div>Рекл: ' + fmtR(p.total_ad_cost) + '₽</div>';
-            m30 += '<div>ДРР: ' + (p.drr||0) + '%</div>';
-            m30 += '<div>CTR: ' + (p.ctr||0) + '% / CPL: ' + fmtR(p.cpl) + '</div>';
-            m30 += '<div>Рейтинг: ' + (p.rating_reviews != null ? p.rating_reviews : '-') + '</div>';
+            m30 += '<div class="rnp-tip"' + rnpTitle('ordersRevenue') + '>Зак: <b>' + fmtR(p.total_orders_revenue) + '₽</b></div>';
+            m30 += '<div class="rnp-tip"' + rnpTitle('ordersCount') + '>     ' + (p.total_orders||0) + ' шт</div>';
+            m30 += '<div class="rnp-tip"' + rnpTitle('buyoutsRevenue') + '>Вык: <b>' + fmtR(p.total_buyouts_revenue) + '₽</b></div>';
+            m30 += '<div class="rnp-tip"' + rnpTitle('buyoutsCount') + '>     ' + (p.total_buyouts||0) + ' шт</div>';
+            m30 += '<div class="rnp-tip"' + rnpTitle('buyoutPct') + '>%Вык: ' + (p.buyout_pct||0) + '%</div>';
+            m30 += '<div class="rnp-tip"' + rnpTitle('marginWithDrr') + '>М.ДРР: <span style="color:' + mc + '">' + fmtR(p.margin_with_drr) + '₽</span></div>';
+            m30 += '<div class="rnp-tip"' + rnpTitle('marginBeforeDrr') + '>М.до: ' + fmtR(p.margin_before_drr) + '₽</div>';
+            m30 += '<div class="rnp-tip"' + rnpTitle('adCost') + '>Рекл: ' + fmtR(p.total_ad_cost) + '₽</div>';
+            m30 += '<div class="rnp-tip"' + rnpTitle('drr') + '>ДРР: ' + (p.drr||0) + '%</div>';
+            m30 += '<div class="rnp-tip"' + rnpTitle('ctrCpl') + '>CTR: ' + (p.ctr||0) + '% / CPL: ' + fmtR(p.cpl) + '</div>';
+            m30 += '<div class="rnp-tip"' + rnpTitle('rating') + '>Рейтинг: ' + (p.rating_reviews != null ? p.rating_reviews : '-') + '</div>';
 
             // План/Факт
             var pf = '';
-            pf += '<div>План: ' + fmtR(p.plan_value) + '</div>';
-            pf += '<div>%Вып: <span style="color:' + (p.pct_complete >= 100 ? '#00b894' : p.pct_complete >= 70 ? '#fdcb6e' : '#e74c3c') + '">' + (p.pct_complete||0) + '%</span></div>';
-            pf += '<div>Ф/д: ' + fmtR(p.daily_norm) + '</div>';
-            pf += '<div>Ц.СПП: ' + fmtR(p.price_retail) + '₽</div>';
-            pf += '<div>Ц+СПП: ' + fmtR(p.price_with_spp) + '₽</div>';
-            pf += '<div>СПП%: ' + (p.spp_pct||0) + '%</div>';
-            pf += '<div>Акция: ' + (p.in_promo ? '✅' : '-') + '</div>';
-            pf += '<div>ROI: ' + (p.roi||0) + '%</div>';
-            pf += '<div>Сб.ост: ' + fmtR(p.cost_of_stock) + '₽</div>';
+            pf += '<div class="rnp-tip"' + rnpTitle('plan') + '>План: ' + fmtR(p.plan_value) + '</div>';
+            pf += '<div class="rnp-tip"' + rnpTitle('pctComplete') + '>%Вып: <span style="color:' + (p.pct_complete >= 100 ? '#00b894' : p.pct_complete >= 70 ? '#fdcb6e' : '#e74c3c') + '">' + (p.pct_complete||0) + '%</span></div>';
+            pf += '<div class="rnp-tip"' + rnpTitle('dailyNorm') + '>Ф/д: ' + fmtR(p.daily_norm) + '</div>';
+            pf += '<div class="rnp-tip"' + rnpTitle('priceRetail') + '>Ц.СПП: ' + fmtR(p.price_retail) + '₽</div>';
+            pf += '<div class="rnp-tip"' + rnpTitle('priceWithSpp') + '>Ц+СПП: ' + fmtR(p.price_with_spp) + '₽</div>';
+            pf += '<div class="rnp-tip"' + rnpTitle('sppPct') + '>СПП%: ' + (p.spp_pct||0) + '%</div>';
+            pf += '<div class="rnp-tip"' + rnpTitle('promo') + '>Акция: ' + (p.in_promo ? '✅' : '-') + '</div>';
+            pf += '<div class="rnp-tip"' + rnpTitle('roi') + '>ROI: ' + (p.roi||0) + '%</div>';
+            pf += '<div class="rnp-tip"' + rnpTitle('costOfStock') + '>Сб.ост: ' + fmtR(p.cost_of_stock) + '₽</div>';
 
             html += '<tr' + (isChild ? ' class="rnp-child-row"' : '') + '>';
             html += '<td class="sticky-col row-label" style="left:0">' + cardInfo + '</td>';
@@ -3999,13 +4034,13 @@ async function loadRnp() {
                 var dd = daysMap[days[di]] || {};
                 var dmc = (dd.margin_with_drr||0) >= 0 ? '#00b894' : '#e74c3c';
                 var cls = 'val-cell' + (days[di] === todayStr ? ' today' : '');
-                html += '<td class="' + cls + '">';
-                html += '<div>Зак <b>' + fmtR(dd.orders_revenue) + '</b></div>';
-                html += '<div style="color:#aaa">' + (dd.orders_count||0) + ' шт</div>';
-                html += '<div>Вык <b>' + fmtR(dd.buyouts_revenue) + '</b></div>';
-                html += '<div style="color:#aaa">' + (dd.buyouts_count||0) + ' шт</div>';
-                html += '<div>М.ДРР <span style="color:' + dmc + '">' + fmtR(dd.margin_with_drr) + '</span></div>';
-                html += '<div>ДРР ' + (dd.drr||0) + '%</div>';
+                html += '<td class="' + cls + ' rnp-tip"' + rnpTitle('dayCell') + '>';
+                html += '<div class="rnp-tip"' + rnpTitle('ordersRevenue') + '>Зак <b>' + fmtR(dd.orders_revenue) + '</b></div>';
+                html += '<div class="rnp-tip" style="color:#aaa"' + rnpTitle('ordersCount') + '>' + (dd.orders_count||0) + ' шт</div>';
+                html += '<div class="rnp-tip"' + rnpTitle('buyoutsRevenue') + '>Вык <b>' + fmtR(dd.buyouts_revenue) + '</b></div>';
+                html += '<div class="rnp-tip" style="color:#aaa"' + rnpTitle('buyoutsCount') + '>' + (dd.buyouts_count||0) + ' шт</div>';
+                html += '<div class="rnp-tip"' + rnpTitle('marginWithDrr') + '>М.ДРР <span style="color:' + dmc + '">' + fmtR(dd.margin_with_drr) + '</span></div>';
+                html += '<div class="rnp-tip"' + rnpTitle('drr') + '>ДРР ' + (dd.drr||0) + '%</div>';
                 html += '</td>';
             }
             html += '</tr>';
