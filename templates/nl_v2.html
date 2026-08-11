@@ -428,7 +428,7 @@ function renderAdsDailyCount(daysWithSpend, freshness) {
         }
     }
     if (wrapper && selectedDays) {
-        wrapper.style.maxHeight = selectedDays <= 31 ? 'none' : '420px';
+        wrapper.style.maxHeight = '320px';
     }
 }
 
@@ -1398,9 +1398,9 @@ var _sectionHTML = {
 <!-- Статистика по дням -->
 <div style="background:#fff;border-radius:8px;border:1px solid #eee;padding:8px 12px;margin-bottom:8px">
 <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:.78em;font-weight:600;color:#6c5ce7">По дням</span><span style="font-size:.7em;color:#999" id="ads-daily-count"></span></div>
-<div id="ads-daily-wrapper" style="display:block;max-height:420px;overflow-y:auto;font-size:.78em">
+<div id="ads-daily-wrapper" style="display:block;max-height:320px;overflow-y:auto;font-size:.78em;position:relative">
 <table id="ads-daily-table" style="width:100%">
-<thead><tr><th style="padding:2px 6px;text-align:left">Дата</th><th style="padding:2px 6px;text-align:right">Расход ₽</th><th style="padding:2px 6px;text-align:right">Показы</th><th style="padding:2px 6px;text-align:right">Клики</th><th style="padding:2px 6px;text-align:right">CTR</th><th style="padding:2px 6px;text-align:right">CPC ₽</th><th style="padding:2px 6px;text-align:right">Заказы</th><th style="padding:2px 6px;text-align:right">клик / заказ</th><th style="padding:2px 6px;text-align:right">CR</th><th style="padding:2px 6px;text-align:right">В корзину</th><th style="padding:2px 6px;text-align:right">ДРР по РК %</th><th style="padding:2px 6px;text-align:right">ДРР общий %</th></tr></thead>
+<thead><tr><th style="padding:2px 6px;text-align:left;position:sticky;top:0;background:#f8f9fa;z-index:1;box-shadow:0 1px 0 #ddd">Дата</th><th style="padding:2px 6px;text-align:right;position:sticky;top:0;background:#f8f9fa;z-index:1;box-shadow:0 1px 0 #ddd">Расход ₽</th><th style="padding:2px 6px;text-align:right;position:sticky;top:0;background:#f8f9fa;z-index:1;box-shadow:0 1px 0 #ddd">Показы</th><th style="padding:2px 6px;text-align:right;position:sticky;top:0;background:#f8f9fa;z-index:1;box-shadow:0 1px 0 #ddd">Клики</th><th style="padding:2px 6px;text-align:right;position:sticky;top:0;background:#f8f9fa;z-index:1;box-shadow:0 1px 0 #ddd">CTR</th><th style="padding:2px 6px;text-align:right;position:sticky;top:0;background:#f8f9fa;z-index:1;box-shadow:0 1px 0 #ddd">CPC ₽</th><th style="padding:2px 6px;text-align:right;position:sticky;top:0;background:#f8f9fa;z-index:1;box-shadow:0 1px 0 #ddd">Заказы</th><th style="padding:2px 6px;text-align:right;position:sticky;top:0;background:#f8f9fa;z-index:1;box-shadow:0 1px 0 #ddd">клик / заказ</th><th style="padding:2px 6px;text-align:right;position:sticky;top:0;background:#f8f9fa;z-index:1;box-shadow:0 1px 0 #ddd">CR</th><th style="padding:2px 6px;text-align:right;position:sticky;top:0;background:#f8f9fa;z-index:1;box-shadow:0 1px 0 #ddd">В корзину</th><th style="padding:2px 6px;text-align:right;position:sticky;top:0;background:#f8f9fa;z-index:1;box-shadow:0 1px 0 #ddd">ДРР по РК %</th><th style="padding:2px 6px;text-align:right;position:sticky;top:0;background:#f8f9fa;z-index:1;box-shadow:0 1px 0 #ddd">ДРР общий %</th></tr></thead>
 <tbody id="ads-daily-body"><tr><td colspan="12" class="empty" style="padding:4px">Загрузка...</td></tr></tbody>
 <tfoot id="ads-daily-total"></tfoot>
 </table>
