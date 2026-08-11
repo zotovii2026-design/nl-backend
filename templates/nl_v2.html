@@ -1362,6 +1362,31 @@ var _sectionHTML = {
 <input type="text" id="rnp-search" placeholder="🔍 Поиск" style="width:200px" oninput="loadRnp()">
 <button class="btn" onclick="loadRnp()" style="padding:6px 14px;font-size:.85em">🔄</button>
 </div>
+<div id="rnp-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
+<label style="color:#666;font-weight:600">Фильтры:</label>
+<select id="rnp-flt-ff" class="nl-filter-native" onchange="loadRnp()"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
+<div class="nl-filter-menu" data-filter-id="rnp-flt-status" data-label="Статус">
+<select id="rnp-flt-status" class="nl-filter-select" multiple></select>
+<button type="button" class="nl-filter-button" onclick="NLFilters.toggleMenu('rnp-flt-status')">Статус: все</button>
+<div id="rnp-flt-status-menu" class="nl-filter-panel"></div>
+</div>
+<div class="nl-filter-menu" data-filter-id="rnp-flt-class" data-label="Класс">
+<select id="rnp-flt-class" class="nl-filter-select" multiple></select>
+<button type="button" class="nl-filter-button" onclick="NLFilters.toggleMenu('rnp-flt-class')">Класс: все</button>
+<div id="rnp-flt-class-menu" class="nl-filter-panel"></div>
+</div>
+<div class="nl-filter-menu" data-filter-id="rnp-flt-brand" data-label="Бренд">
+<select id="rnp-flt-brand" class="nl-filter-select" multiple></select>
+<button type="button" class="nl-filter-button" onclick="NLFilters.toggleMenu('rnp-flt-brand')">Бренд: все</button>
+<div id="rnp-flt-brand-menu" class="nl-filter-panel"></div>
+</div>
+<div class="nl-filter-menu" data-filter-id="rnp-flt-tags" data-label="Теги">
+<select id="rnp-flt-tags" class="nl-filter-select" multiple></select>
+<button type="button" class="nl-filter-button" onclick="NLFilters.toggleMenu('rnp-flt-tags')">Теги: все</button>
+<div id="rnp-flt-tags-menu" class="nl-filter-panel"></div>
+</div>
+<button id="rnp-reset-filters" type="button" onclick="resetRnpFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сброс фильтров</button>
+</div>
 <div id="rnp-summary" class="rnp-summary-bar"></div>
 <div id="rnp-header-wrap" style="margin-bottom:8px"></div>
 <div id="rnp-cards" style="font-size:.82em"></div>
@@ -1502,6 +1527,11 @@ async function _sectionEnter(name) {
                 var s = document.getElementById('rnp-sort'); if (s) s.value = _rnpState.sort;
                 var q = document.getElementById('rnp-search'); if (q) q.value = _rnpState.search;
                 var b = document.getElementById('rnp-buyout-pct'); if (b) b.checked = _rnpState.buyoutPct;
+                var ff = document.getElementById('rnp-flt-ff'); if (ff) ff.value = _rnpState.fulfillmentModel || '';
+                setRnpMultiFilterValues('rnp-flt-status', _rnpState.status || []);
+                setRnpMultiFilterValues('rnp-flt-class', _rnpState.productClass || []);
+                setRnpMultiFilterValues('rnp-flt-brand', _rnpState.brand || []);
+                setRnpMultiFilterValues('rnp-flt-tags', _rnpState.tags || []);
             }
             loadRnp(); break;
         case 'opiu':
@@ -1565,7 +1595,12 @@ async function _sectionLeave(name) {
             _rnpState = {
                 sort: document.getElementById('rnp-sort')?.value || 'orders_revenue',
                 search: document.getElementById('rnp-search')?.value || '',
-                buyoutPct: document.getElementById('rnp-buyout-pct')?.checked || false
+                buyoutPct: document.getElementById('rnp-buyout-pct')?.checked || false,
+                fulfillmentModel: document.getElementById('rnp-flt-ff')?.value || '',
+                status: getRnpMultiFilterValues('rnp-flt-status'),
+                productClass: getRnpMultiFilterValues('rnp-flt-class'),
+                brand: getRnpMultiFilterValues('rnp-flt-brand'),
+                tags: getRnpMultiFilterValues('rnp-flt-tags')
             };
             _clearSection('page-rnp'); _rnpInited = false; break;
         case 'analytics': _clearSection('page-analytics'); _analyticsInited = false; break;
@@ -3133,6 +3168,8 @@ NLFilters.initGlobalClick(function(filterId) {
     // Route to the correct page handler based on which filter was changed
     if (filterId && filterId.indexOf('ads-flt') === 0) {
         if (typeof applyAdsColumnFilters === 'function') applyAdsColumnFilters();
+    } else if (filterId && filterId.indexOf('rnp-flt') === 0) {
+        if (typeof loadRnp === 'function') loadRnp();
     } else if (filterId && filterId.indexOf('ue-flt') === 0) {
         if (typeof applyUEFilters === 'function') applyUEFilters();
     } else if (typeof applyCostFilters === 'function') {
@@ -3767,6 +3804,11 @@ async function loadRnp() {
     var sort = document.getElementById('rnp-sort')?.value || 'orders_revenue';
     var search = document.getElementById('rnp-search')?.value || '';
     var ubp = document.getElementById('rnp-buyout-pct')?.checked ? '1' : '0';
+    var fltStatus = getRnpMultiFilterValues('rnp-flt-status');
+    var fltClass = getRnpMultiFilterValues('rnp-flt-class');
+    var fltBrand = getRnpMultiFilterValues('rnp-flt-brand');
+    var fltTags = getRnpMultiFilterValues('rnp-flt-tags');
+    var fltFF = document.getElementById('rnp-flt-ff')?.value || '';
     try {
         var url = '/api/v1/nl/rnp?org_id=' + ORG_ID + '&sort_by=' + sort + '&use_buyout_pct=' + ubp;
         // Единый datepicker: date_from + date_to
@@ -3775,6 +3817,11 @@ async function loadRnp() {
             url += '&date_from=' + range.dateFrom + '&date_to=' + range.dateTo;
         }
         if (search) url += '&search=' + encodeURIComponent(search);
+        if (fltStatus.length) url += '&product_status=' + encodeURIComponent(fltStatus.join(','));
+        if (fltClass.length) url += '&product_class=' + encodeURIComponent(fltClass.join(','));
+        if (fltBrand.length) url += '&brand=' + encodeURIComponent(fltBrand.join(','));
+        if (fltTags.length) url += '&tags=' + encodeURIComponent(fltTags.join(','));
+        if (fltFF) url += '&fulfillment_model=' + encodeURIComponent(fltFF);
         var res = await fetch(url);
         var cards = document.getElementById('rnp-cards');
         var summary = document.getElementById('rnp-summary');
@@ -3786,6 +3833,7 @@ async function loadRnp() {
         var prods = data.products || [];
         var days = data.day_list || [];
         var s = data.summary || {};
+        populateRnpFilterOptions(data.filter_options || {});
 
         // Сводка
         summary.innerHTML =
@@ -3964,6 +4012,64 @@ async function loadRnp() {
     }
 }
 function fmtR(v) { if (v==null||v===0) return '—'; return Number(v).toLocaleString('ru-RU',{maximumFractionDigits:0}); }
+
+function getRnpMultiFilterValues(id) {
+    if (typeof NLFilters === 'undefined') return [];
+    return NLFilters.getValues(document.getElementById(id));
+}
+
+function setRnpMultiFilterValues(id, values) {
+    if (typeof NLFilters === 'undefined') return;
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    (values || []).forEach(function(value) {
+        if (!Array.from(sel.options || []).some(function(opt) { return opt.value === value; })) {
+            var opt = document.createElement('option');
+            opt.value = value;
+            opt.textContent = value;
+            opt.title = value;
+            sel.appendChild(opt);
+        }
+    });
+    NLFilters.setValues(sel, values || []);
+}
+
+function populateRnpFilterOptions(options) {
+    fillRnpMultiSelect('rnp-flt-status', 'Статус', options.product_status || []);
+    fillRnpMultiSelect('rnp-flt-class', 'Класс', options.product_class || []);
+    fillRnpMultiSelect('rnp-flt-brand', 'Бренд', options.brand || []);
+    fillRnpMultiSelect('rnp-flt-tags', 'Теги', options.tags || []);
+}
+
+function fillRnpMultiSelect(id, label, values) {
+    if (typeof NLFilters === 'undefined') return;
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    var selected = NLFilters.getValues(sel);
+    sel.innerHTML = '';
+    (values || []).forEach(function(value) {
+        var opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = value;
+        opt.title = value;
+        sel.appendChild(opt);
+    });
+    var available = new Set(values || []);
+    NLFilters.setValues(sel, selected.filter(function(value) { return available.has(value); }));
+    NLFilters.renderMenu(id, label);
+}
+
+function resetRnpFilters() {
+    ['rnp-flt-status', 'rnp-flt-class', 'rnp-flt-brand', 'rnp-flt-tags'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) NLFilters.selectAll(el);
+    });
+    var ff = document.getElementById('rnp-flt-ff');
+    if (ff) ff.value = '';
+    var q = document.getElementById('rnp-search');
+    if (q) q.value = '';
+    loadRnp();
+}
 
 // ─── ПЛАН ПРОДАЖ ─────────────────────────────────────────
 var spData = [];

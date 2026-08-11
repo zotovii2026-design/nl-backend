@@ -32,6 +32,11 @@ async def get_rnp(
     date_to: Optional[str] = None,        # ISO дата конца (от единого datepicker)
     sort_by: Optional[str] = "orders_revenue",  # orders_revenue, roi, buyout_pct
     filter_status: Optional[str] = None,
+    product_status: Optional[str] = None,
+    product_class: Optional[str] = None,
+    brand: Optional[str] = None,
+    tags: Optional[str] = None,
+    fulfillment_model: Optional[str] = None,
     search: Optional[str] = None,
     use_buyout_pct: bool = False,         # чекбокс "Учесть % выкупа"
     db: AsyncSession = Depends(get_db),
@@ -85,7 +90,8 @@ async def get_rnp(
         "packaging_cost, logistics_cost, other_costs, extra_costs, vat, "
         "mp_base_pct, mp_correction_pct, tax_system, tax_rate, vat_rate, "
         "product_class, brand, product_status, subject_id, subject_name, "
-        "in_promo, ad_shows_organic, ad_shows_paid, ad_strategy, tags, rating_reviews, localization_pct "
+        "in_promo, ad_shows_organic, ad_shows_paid, ad_strategy, tags, rating_reviews, localization_pct, "
+        "fulfillment_model "
         "FROM reference_book "
         "WHERE organization_id = :org AND entity_id IS NOT NULL "
         "AND (valid_to IS NULL OR valid_to >= :fd) "
@@ -119,6 +125,7 @@ async def get_rnp(
             "tags": r[23] or "",
             "rating_reviews": float(r[24]) if r[24] else None,
             "localization_pct": r[25] or "",
+            "fulfillment_model": r[26] or "fbo",
         }
         if r[0]:
             ref_map[str(r[0])] = d_item
@@ -133,8 +140,39 @@ async def get_rnp(
             "tax_rate": 0, "vat_rate": 0, "product_class": "", "brand": "",
             "product_status": "", "in_promo": False, "ad_shows_organic": None,
             "ad_shows_paid": None, "ad_strategy": "", "tags": "",
-            "rating_reviews": None, "localization_pct": "",
+            "rating_reviews": None, "localization_pct": "", "fulfillment_model": "fbo",
         }))
+
+    def split_filter_values(raw):
+        if not raw:
+            return set()
+        return {item.strip().lower() for item in str(raw).split(",") if item.strip()}
+
+    def split_tags(raw):
+        if not raw:
+            return set()
+        normalized = str(raw).replace(";", ",").replace("|", ",")
+        return {item.strip().lower() for item in normalized.split(",") if item.strip()}
+
+    def split_tag_labels(raw):
+        if not raw:
+            return set()
+        normalized = str(raw).replace(";", ",").replace("|", ",")
+        return {item.strip() for item in normalized.split(",") if item.strip()}
+
+    status_filter = split_filter_values(product_status or filter_status)
+    class_filter = split_filter_values(product_class)
+    brand_filter = split_filter_values(brand)
+    tags_filter = split_filter_values(tags)
+    ff_filter = split_filter_values(fulfillment_model)
+
+    filter_options = {
+        "product_status": set(),
+        "product_class": set(),
+        "brand": set(),
+        "tags": set(),
+        "fulfillment_model": set(),
+    }
 
     # 4. WB тарифы — последние по nm_id
     snap_result = await db.execute(text(
@@ -225,6 +263,17 @@ async def get_rnp(
         snap = get_snap(nm)
         plan = plan_map.get(eid, {"quantity": 0, "revenue": 0})
 
+        if ref["product_status"]:
+            filter_options["product_status"].add(ref["product_status"])
+        if ref["product_class"]:
+            filter_options["product_class"].add(ref["product_class"])
+        if ref["brand"]:
+            filter_options["brand"].add(ref["brand"])
+        for tag in split_tag_labels(ref["tags"]):
+            filter_options["tags"].add(tag)
+        if ref["fulfillment_model"]:
+            filter_options["fulfillment_model"].add(ref["fulfillment_model"])
+
         # Фильтр поиска
         if search:
             vc = str(last[3] or "")
@@ -232,8 +281,16 @@ async def get_rnp(
             if not (search.lower() in vc.lower() or search.lower() in pn.lower() or (search.isdigit() and int(search) == nm)):
                 continue
 
-        # Фильтр по статусу
-        if filter_status and ref["product_status"] != filter_status:
+        # Стандартные фильтры из Справочника
+        if status_filter and ref["product_status"].lower() not in status_filter:
+            continue
+        if class_filter and ref["product_class"].lower() not in class_filter:
+            continue
+        if brand_filter and ref["brand"].lower() not in brand_filter:
+            continue
+        if tags_filter and not (split_tags(ref["tags"]) & tags_filter):
+            continue
+        if ff_filter and ref["fulfillment_model"].lower() not in ff_filter:
             continue
 
         # Последний сток
@@ -347,6 +404,7 @@ async def get_rnp(
             "brand": ref["brand"],
             "product_status": ref["product_status"],
             "product_class": ref["product_class"],
+            "fulfillment_model": ref["fulfillment_model"],
             "in_promo": ref["in_promo"],
             "ad_strategy": ref["ad_strategy"],
             "tags": ref["tags"],
@@ -418,5 +476,6 @@ async def get_rnp(
         "days_in_month": days_in_month,
         "day_list": [str(d) for d in day_list],
         "summary": summary,
+        "filter_options": {key: sorted(values) for key, values in filter_options.items()},
         "products": products,
     }
