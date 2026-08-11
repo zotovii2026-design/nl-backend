@@ -91,6 +91,34 @@ async def _activate_wb_key(db: AsyncSession, key) -> None:
     key.is_active = True
 
 
+async def _find_user_org_by_seller_id(
+    db: AsyncSession,
+    user_id,
+    seller_id: int,
+):
+    from models.organization import Membership, Organization
+
+    result = await db.execute(
+        select(Organization, Membership)
+        .join(Membership, Membership.organization_id == Organization.id)
+        .where(
+            Organization.wb_seller_id == seller_id,
+            Membership.user_id == user_id,
+        )
+    )
+    return result.first()
+
+
+def _duplicate_shop_detail(org, seller_id: int) -> dict:
+    return {
+        "code": "shop_already_connected",
+        "message": f"Магазин уже подключён: {org.name}, ID {seller_id}. Добавьте ключ в существующий магазин.",
+        "org_id": str(org.id),
+        "org_name": org.name,
+        "wb_seller_id": seller_id,
+    }
+
+
 # ─── Pydantic модели ───────────────────────────────────────
 
 class RegisterData(BaseModel):
@@ -249,19 +277,10 @@ async def nl_connect_wb(
 
     oid = _extract_wb_seller_id(api_key)
 
-    # Check if org with this seller_id already exists for this user
     if oid:
-        result = await db.execute(
-            select(Organization, Membership)
-            .join(Membership, Membership.organization_id == Organization.id)
-            .where(
-                Organization.wb_seller_id == oid,
-                Membership.user_id == current_user.id,
-            )
-        )
-        existing = result.first()
+        existing = await _find_user_org_by_seller_id(db, current_user.id, oid)
         if existing:
-            raise HTTPException(400, f"Магазин с seller_id {oid} уже подключен ({existing[0].name})")
+            raise HTTPException(409, _duplicate_shop_detail(existing[0], oid))
 
     # Create organization
     org = Organization(
@@ -519,6 +538,25 @@ async def nl_add_wb_key(
     if validation["token_status"] == "limited":
         raise HTTPException(400, validation["message"])
 
+    result = await db.execute(select(Organization).where(Organization.id == org_id))
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(404, "Организация не найдена")
+
+    oid = _extract_wb_seller_id(api_key)
+    if not oid:
+        raise HTTPException(400, "Не удалось определить WB ID из API ключа")
+
+    existing = await _find_user_org_by_seller_id(db, current_user.id, oid)
+    if existing and str(existing[0].id) != str(org_id):
+        raise HTTPException(409, _duplicate_shop_detail(existing[0], oid))
+
+    if org.wb_seller_id and int(org.wb_seller_id) != int(oid):
+        raise HTTPException(
+            400,
+            f"Этот ключ относится к WB ID {oid}, а выбранный магазин — {org.wb_seller_id}. Добавьте ключ в правильный магазин.",
+        )
+
     encrypted = encrypt_data(api_key)
     key = WbApiKey(
         organization_id=org_id,
@@ -530,10 +568,7 @@ async def nl_add_wb_key(
     )
     db.add(key)
     await db.flush()
-    result = await db.execute(select(Organization).where(Organization.id == org_id))
-    org = result.scalar_one_or_none()
-    oid = _extract_wb_seller_id(api_key)
-    if oid and org:
+    if not org.wb_seller_id:
         org.wb_seller_id = oid
 
     active_result = await db.execute(
@@ -591,17 +626,32 @@ async def nl_update_wb_key(
         validation = await validate_wb_token(api_key)
         if validation["token_status"] in ("invalid", "limited"):
             raise HTTPException(400, validation["message"])
+
+        oid = _extract_wb_seller_id(api_key)
+        if not oid:
+            raise HTTPException(400, "Не удалось определить WB ID из API ключа")
+
+        org_result = await db.execute(select(Organization).where(Organization.id == org_id))
+        org = org_result.scalar_one_or_none()
+        if not org:
+            raise HTTPException(404, "Организация не найдена")
+
+        existing = await _find_user_org_by_seller_id(db, current_user.id, oid)
+        if existing and str(existing[0].id) != str(org_id):
+            raise HTTPException(409, _duplicate_shop_detail(existing[0], oid))
+
+        if org.wb_seller_id and int(org.wb_seller_id) != int(oid):
+            raise HTTPException(
+                400,
+                f"Этот ключ относится к WB ID {oid}, а выбранный магазин — {org.wb_seller_id}. Добавьте ключ в правильный магазин.",
+            )
+        if not org.wb_seller_id:
+            org.wb_seller_id = oid
+
         key.personal_token = encrypt_data(api_key)
         key.api_key = "unused"
         key.token_status = validation["token_status"]
         key.validated_at = datetime.utcnow()
-
-        oid = _extract_wb_seller_id(api_key)
-        if oid:
-            org_result = await db.execute(select(Organization).where(Organization.id == org_id))
-            org = org_result.scalar_one_or_none()
-            if org:
-                org.wb_seller_id = oid
 
     if "is_active" in data or "use_this" in data:
         use_this = bool(data.get("is_active", data.get("use_this")))

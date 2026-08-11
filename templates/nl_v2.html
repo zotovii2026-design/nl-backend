@@ -4744,18 +4744,23 @@ async function loadProfile() {
                     '<button class="wb-key-action danger" onclick="deleteWbKeyBtn(this)" data-keyid="' + k.id + '" data-orgid="' + s.id + '">Удалить</button>' +
                     '</div>';
             }).join('');
+            const addKeyBtn = '<button class="wb-key-action" onclick="addWbKeyToShop(this)" data-orgid="' + s.id + '" data-orgname="' + escapeHtml(s.name) + '" style="margin-top:6px">Добавить ключ</button>';
+            const noKeysHtml = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:#e17055;font-size:.85em">' +
+                '<span>Ключ не добавлен</span>' +
+                '</div>';
             
             return '<div style="background:#fff;border-radius:8px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:8px" id="shop-card-' + s.id + '">' +
                 '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
                 '<span style="font-size:1.1em">🏪</span>' +
-                '<span style="font-weight:600" id="shop-name-' + s.id + '">' + s.name + '</span>' +
+                '<span style="font-weight:600" id="shop-name-' + s.id + '">' + escapeHtml(s.name) + '</span>' +
                 '<button onclick="startRenameShop(this)" data-orgid="' + s.id + '" style="background:none;border:none;cursor:pointer;font-size:.85em;color:#999;margin-left:4px" title="Rename">&#9998;</button>' +
                 (s.wb_seller_id ? '<span style="font-size:.8em;color:#999;background:#f0f0f0;padding:2px 6px;border-radius:4px">ID ' + s.wb_seller_id + '</span>' : '') +
                 '<span style="margin-left:auto;font-size:.8em;color:#999" id="shop-status-' + s.id + '">не проверен</span>' +
                 '<button onclick="verifyShopKey(this)" data-orgid="' + s.id + '" style="background:none;border:1px solid #ddd;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:.85em;color:#6c5ce7" title="Проверить ключ">🔍 Проверить</button>' +
+                addKeyBtn +
                 '</div>' +
                 '<div style="margin-left:28px">' +
-                (keysHtml || '<span style="color:#e74c3c;font-size:.85em">❌ Нет API ключей</span>') +
+                (keysHtml || noKeysHtml) +
                 '</div>' +
                 '</div>';
         }).join('');
@@ -4784,6 +4789,12 @@ function escapeHtml(v) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+function apiErrorMessage(err, fallback) {
+    const detail = err && err.detail;
+    if (detail && typeof detail === 'object') return detail.message || fallback || 'Ошибка';
+    return detail || fallback || 'Ошибка';
 }
 
 function formatApiDate(value) {
@@ -4873,7 +4884,7 @@ async function editWbKeyBtn(btn) {
             body: JSON.stringify(payload)
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Не удалось сохранить');
+        if (!res.ok) throw new Error(apiErrorMessage(data, 'Не удалось сохранить'));
         showToast(data.message || 'Сохранено');
         await loadOrgs();
         loadProfile();
@@ -5063,7 +5074,13 @@ async function connectNewShop() {
         
         if (!res.ok) {
             const err = await res.json();
-            throw new Error(err.detail || 'Ошибка подключения');
+            if (err.detail && err.detail.code === 'shop_already_connected') {
+                statusEl.innerHTML = '⚠️ ' + escapeHtml(err.detail.message);
+                const card = document.getElementById('shop-card-' + err.detail.org_id);
+                if (card) card.scrollIntoView({behavior:'smooth', block:'center'});
+                return;
+            }
+            throw new Error(apiErrorMessage(err, 'Ошибка подключения'));
         }
         
         const data = await res.json();
@@ -5093,6 +5110,39 @@ async function connectNewShop() {
     } finally {
         btn.disabled = false;
         btn.textContent = 'Подключить';
+    }
+}
+
+async function addWbKeyToShop(btn) {
+    const orgId = btn.dataset.orgid;
+    const orgName = btn.dataset.orgname || 'магазина';
+    const name = prompt('Название ключа для ' + orgName + ':', orgName + ' WB');
+    if (name === null) return;
+    const apiKey = prompt('API ключ WB для ' + orgName + ':', '');
+    if (apiKey === null) return;
+    const cleanKey = apiKey.trim();
+    if (!cleanKey) return;
+    const useThis = confirm('Сделать этот ключ активным для синхронизации?');
+    const oldText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Проверка...';
+    try {
+        const res = await fetch('/api/v1/nl/wb-keys?org_id=' + orgId, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: name.trim() || orgName + ' WB', api_key: cleanKey, is_active: useThis})
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(apiErrorMessage(data, 'Не удалось добавить ключ'));
+        showToast(data.message || 'Ключ добавлен');
+        await loadOrgs();
+        loadProfile();
+        if (ORG_ID === orgId) loadWbKeys();
+    } catch(e) {
+        alert('❌ ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = oldText;
     }
 }
 
@@ -5189,7 +5239,7 @@ async function addWbKey() {
             }
         } else {
             const err = await res.json();
-            alert('❌ ' + (err.detail || 'Ошибка'));
+            alert('❌ ' + apiErrorMessage(err, 'Ошибка'));
         }
     } catch(e) {
         alert('❌ ' + e.message);
