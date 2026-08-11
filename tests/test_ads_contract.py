@@ -187,6 +187,7 @@ def test_ads_art_frontend_formats_zero_drr_as_value_not_dash():
     arts = Path("static/js/ads-arts-grid.js").read_text(encoding="utf-8")
 
     assert "ads-arts-grid-v12" in arts
+    assert "ads-arts-grid.js?v=20260811-drr-min" in Path("templates/nl_v2.html").read_text(encoding="utf-8")
     assert "function formatAdsArtsDrrText" in arts
     assert "value === null || value === undefined || value === ''" in arts
     assert "return Number.isFinite(v) ? v.toFixed(1) + '%' : '—';" in arts
