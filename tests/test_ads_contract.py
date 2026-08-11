@@ -33,6 +33,13 @@ def test_ads_manual_refresh_uses_nine_day_window():
     assert ADS_REFRESH_COOLDOWN_SECONDS == 60 * 60
 
 
+def test_ads_manual_refresh_window_is_rewrite_period_not_history_limit():
+    source = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
+
+    assert "rewrite only" in source
+    assert "older collected rows are kept as final historical facts" in source
+
+
 def test_ads_manual_refresh_passes_selected_org_to_celery():
     source = Path("api/v1/routers/ads.py").read_text(encoding="utf-8")
     assert '"days_back": ADS_REFRESH_DAYS_BACK' in source

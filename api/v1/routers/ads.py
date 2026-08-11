@@ -25,6 +25,8 @@ router = APIRouter(
 
 VALID_AD_STATUSES = ("-1", "4", "7", "8", "9", "11")
 DEFAULT_AD_STATUSES = ["9", "11"]
+# Fresh WB ad stats can be corrected by WB for several days. We rewrite only
+# this rolling window; older collected rows are kept as final historical facts.
 ADS_REFRESH_DAYS_BACK = 9
 ADS_REFRESH_COOLDOWN_SECONDS = 60 * 60
 AD_STATS_LOCK_KEY = "nl:ad-stats:lock"
