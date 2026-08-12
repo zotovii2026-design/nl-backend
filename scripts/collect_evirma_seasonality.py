@@ -308,7 +308,7 @@ async def collect(
     
     duration = (datetime.now() - start).total_seconds()
     _log.info(f"Done: {processed}/{total} processed, {success} saved, {duration:.1f}s")
-    status = "ok" if processed == total and success == processed else "partial"
+    status = "ok" if processed == total and success > 0 else "partial"
     return {"status": status, "total": total, "processed": processed, "success": success}
 
 
