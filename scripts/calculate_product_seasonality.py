@@ -23,7 +23,16 @@ _log = logging.getLogger(__name__)
 
 async def get_products_with_keywords(org_id: str, nm_ids: Optional[List[int]] = None) -> List[Dict]:
     """Получить товары с их ключевыми словами из reference_book"""
-    async with async_session() as db:
+    return await get_products_with_keywords_for_session(async_session, org_id, nm_ids=nm_ids)
+
+
+async def get_products_with_keywords_for_session(
+    session_factory,
+    org_id: str,
+    nm_ids: Optional[List[int]] = None,
+) -> List[Dict]:
+    """Получить товары с их ключевыми словами из reference_book."""
+    async with session_factory() as db:
         sql = """
             SELECT DISTINCT
                 nm_id,
@@ -58,8 +67,21 @@ async def get_products_with_keywords(org_id: str, nm_ids: Optional[List[int]] = 
         return products
 
 
-async def get_keyword_coefficients(org_id: str, keywords: List[str], days_back: int = 7) -> Dict[str, Dict[str, float]]:
+async def get_keyword_coefficients(
+    org_id: str,
+    keywords: List[str],
+    days_back: int = 7,
+) -> Dict[str, Dict[str, float]]:
     """Получить коэффициенты сезонности (case-insensitive matching)"""
+    return await get_keyword_coefficients_for_session(async_session, org_id, keywords, days_back=days_back)
+
+
+async def get_keyword_coefficients_for_session(
+    session_factory,
+    org_id: str,
+    keywords: List[str],
+    days_back: int = 7,
+) -> Dict[str, Dict[str, float]]:
     """Получить коэффициенты сезонности для ключевых слов
     
     Берём последние данные за последние days_back дней.
@@ -67,7 +89,7 @@ async def get_keyword_coefficients(org_id: str, keywords: List[str], days_back: 
     if not keywords:
         return {}
     
-    async with async_session() as db:
+    async with session_factory() as db:
         keywords = [k.lower() for k in keywords]
         cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
         
@@ -161,7 +183,28 @@ def weighted_coefficients(coefficients_list: List[Dict[str, float]]) -> Dict[str
     return result
 
 
-async def save_product_seasonality(product: Dict, coefficients: Dict[str, float], source_keywords: List[str], dry_run: bool = False) -> bool:
+async def save_product_seasonality(
+    product: Dict,
+    coefficients: Dict[str, float],
+    source_keywords: List[str],
+    dry_run: bool = False,
+) -> bool:
+    return await save_product_seasonality_for_session(
+        async_session,
+        product,
+        coefficients,
+        source_keywords,
+        dry_run=dry_run,
+    )
+
+
+async def save_product_seasonality_for_session(
+    session_factory,
+    product: Dict,
+    coefficients: Dict[str, float],
+    source_keywords: List[str],
+    dry_run: bool = False,
+) -> bool:
     if not coefficients:
         _log.debug(f"Skip product {product['nm_id']}: no seasonality coefficients")
         return False
@@ -170,7 +213,7 @@ async def save_product_seasonality(product: Dict, coefficients: Dict[str, float]
         _log.info(f"[DRY RUN] Would save product {product['nm_id']} ({product.get('vendor_code')}): {len(coefficients)} months from {len(source_keywords)} keywords")
         return True
     
-    async with async_session() as db:
+    async with session_factory() as db:
         try:
             # Сначала удаляем старые записи для этого товара
             await db.execute(text("""
@@ -202,22 +245,23 @@ async def calculate_product_seasonality(
     org_id: str,
     dry_run: bool = False,
     nm_ids: Optional[List[int]] = None,
+    session_factory=async_session,
 ):
     """Основная функция расчёта товарной сезонности"""
     start = datetime.now()
     _log.info(f"Starting product seasonality calculation for org={org_id} nm_ids={nm_ids} dry_run={dry_run}")
     
-    products = await get_products_with_keywords(org_id, nm_ids=nm_ids)
+    products = await get_products_with_keywords_for_session(session_factory, org_id, nm_ids=nm_ids)
     if not products:
         _log.warning("No products to process")
-        return
+        return {"status": "skipped", "reason": "no_products", "processed": 0, "success": 0}
     
     processed = 0
     success = 0
     
     for product in products:
         keywords = product["keywords"]
-        coeffs_dict = await get_keyword_coefficients(org_id, keywords)
+        coeffs_dict = await get_keyword_coefficients_for_session(session_factory, org_id, keywords)
         
         # Фильтруем ключевые слова, для которых есть данные
         valid_keywords_lower = [k.lower() for k in keywords if k.lower() in coeffs_dict and coeffs_dict[k.lower()]]
@@ -234,7 +278,13 @@ async def calculate_product_seasonality(
         avg_coeffs = weighted_coefficients(coeffs_list)
         
         # Сохраняем
-        if await save_product_seasonality(product, avg_coeffs, valid_keywords, dry_run):
+        if await save_product_seasonality_for_session(
+            session_factory,
+            product,
+            avg_coeffs,
+            valid_keywords,
+            dry_run,
+        ):
             success += 1
         
         processed += 1
@@ -244,6 +294,19 @@ async def calculate_product_seasonality(
     
     duration = (datetime.now() - start).total_seconds()
     _log.info(f"Done: {processed}/{len(products)} processed, {success} saved, {duration:.1f}s")
+    if success <= 0:
+        status = "skipped"
+        reason = "no_product_coefficients"
+    elif success < processed:
+        status = "partial"
+        reason = "some_products_without_coefficients"
+    else:
+        status = "ok"
+        reason = None
+    result = {"status": status, "processed": processed, "success": success, "products": len(products)}
+    if reason:
+        result["reason"] = reason
+    return result
 
 
 if __name__ == "__main__":

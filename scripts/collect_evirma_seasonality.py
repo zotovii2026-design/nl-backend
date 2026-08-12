@@ -100,8 +100,9 @@ async def get_unique_keywords(
     org_id: str,
     nm_id: Optional[int] = None,
     nm_ids: Optional[List[int]] = None,
+    session_factory=async_session,
 ) -> Set[str]:
-    async with async_session() as db:
+    async with session_factory() as db:
         query = """
             SELECT DISTINCT top_query_1, top_query_2, top_query_3
             FROM reference_book
@@ -189,7 +190,11 @@ def parse_evirma(data: Dict, org_id: str) -> List[Dict]:
     return records
 
 
-async def save_seasonality(records: List[Dict], dry_run: bool = False) -> int:
+async def save_seasonality(
+    records: List[Dict],
+    dry_run: bool = False,
+    session_factory=async_session,
+) -> int:
     if not records:
         return 0
     
@@ -199,7 +204,7 @@ async def save_seasonality(records: List[Dict], dry_run: bool = False) -> int:
             _log.info(f"  - {r['keyword']}: {r.get('seasonality_coefficients')}")
         return len(records)
     
-    async with async_session() as db:
+    async with session_factory() as db:
         saved = 0
         for r in records:
             try:
@@ -255,6 +260,7 @@ async def collect(
     nm_id: Optional[int] = None,
     dry_run: bool = False,
     nm_ids: Optional[List[int]] = None,
+    session_factory=async_session,
 ):
     start = datetime.now()
     _log.info(f"Starting collection for org={org_id} test={test_mode} nm_id={nm_id} nm_ids={nm_ids} dry_run={dry_run}")
@@ -263,7 +269,12 @@ async def collect(
         keywords = ["шахматы", "шахматы деревянные", "шахматы magnetic"]
         keywords = [k for k in keywords if is_valid_keyword(k)]
     else:
-        keywords = await get_unique_keywords(org_id, nm_id=nm_id, nm_ids=nm_ids)
+        keywords = await get_unique_keywords(
+            org_id,
+            nm_id=nm_id,
+            nm_ids=nm_ids,
+            session_factory=session_factory,
+        )
     
     if not keywords:
         _log.warning("No keywords to process")
@@ -285,7 +296,7 @@ async def collect(
             break
         
         records = parse_evirma(data, org_id)
-        saved = await save_seasonality(records, dry_run=dry_run)
+        saved = await save_seasonality(records, dry_run=dry_run, session_factory=session_factory)
         processed += len(batch)
         success += saved
         _log.info(f"Batch {batch_num} done: {saved}/{len(batch)} saved")
@@ -297,7 +308,8 @@ async def collect(
     
     duration = (datetime.now() - start).total_seconds()
     _log.info(f"Done: {processed}/{total} processed, {success} saved, {duration:.1f}s")
-    return {"total": total, "processed": processed, "success": success}
+    status = "ok" if processed == total and success == processed else "partial"
+    return {"status": status, "total": total, "processed": processed, "success": success}
 
 
 if __name__ == "__main__":
