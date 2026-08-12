@@ -420,17 +420,23 @@ function clearAdsFilters() {
 
 function resetAdsColumnPreferences() {
     NLPagePrefs.resetColumns(ADS_PAGE_KEY);
+    NLPagePrefs.resetColumns('ads-art');
     if (adsTabulator) { adsTabulator.destroy(); adsTabulator = null; }
-    initAdsGrid();
+    if (typeof adsArtsTabulator !== 'undefined' && adsArtsTabulator) { adsArtsTabulator.destroy(); adsArtsTabulator = null; }
+    if (typeof _adsCurrentView !== 'undefined' && _adsCurrentView === 'art' && typeof loadAdsArts === 'function') loadAdsArts();
+    else initAdsGrid();
     applyAdsColumnFilters();
     if (typeof showToast === 'function') showToast('✅ Порядок колонок восстановлен');
 }
 
 function resetAdsViewPreferences() {
     NLPagePrefs.resetAll(ADS_PAGE_KEY);
+    NLPagePrefs.resetAll('ads-art');
     if (typeof clearAdsFilters === 'function') clearAdsFilters();
     if (adsTabulator) { adsTabulator.destroy(); adsTabulator = null; }
-    initAdsGrid();
+    if (typeof adsArtsTabulator !== 'undefined' && adsArtsTabulator) { adsArtsTabulator.destroy(); adsArtsTabulator = null; }
+    if (typeof _adsCurrentView !== 'undefined' && _adsCurrentView === 'art' && typeof loadAdsArts === 'function') loadAdsArts();
+    else initAdsGrid();
     applyAdsColumnFilters();
     if (typeof showToast === 'function') showToast('✅ Вид раздела сброшен');
 }
@@ -535,7 +541,7 @@ function applyAdsFilters() {
     var cnt = document.getElementById('ads-camp-count');
     if (cnt) cnt.textContent = filtered.length + ' из ' + _adsAllData.length;
     var fCnt = document.getElementById('ads-filter-count');
-    if (fCnt) fCnt.textContent = filtered.length + ' из ' + _adsAllData.length;
+    if (fCnt) fCnt.textContent = filtered.length === _adsAllData.length ? filtered.length + ' РК' : filtered.length + ' из ' + _adsAllData.length;
     saveAdsFilterPreferences();
 }
 

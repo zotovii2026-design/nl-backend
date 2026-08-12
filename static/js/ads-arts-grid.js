@@ -11,7 +11,7 @@ var _adsArtCharts = [];
 
 // Сброс кэша Tabulator при смене версии колонок
 (function() {
-    var VER = 'ads-arts-grid-v12';
+    var VER = 'ads-arts-grid-v13';
     if (localStorage.getItem('ads-arts-grid-ver') !== VER) {
         localStorage.removeItem('ads-arts-grid-state-columns');
         localStorage.removeItem('ads-arts-grid-state-sort');
@@ -296,8 +296,8 @@ function getAdsArtsColumns() {
                     bottomCalc: 'sum', bottomCalcFormatter: function(cell) { return '<b>' + (cell.getValue()||0) + '</b>'; }
                 },
                 {
-                    title: 'клик / заказ', field: 'clicks_per_order', width: 95, headerSort: true, hozAlign: 'right',
-                    headerTooltip: 'Клики / заказы. Показывает, какой клик привел к заказу',
+                    title: 'Кликов на заказ', field: 'clicks_per_order', width: 105, headerSort: true, hozAlign: 'right',
+                    headerTooltip: 'Клики / заказы. Показывает, сколько кликов в среднем нужно на один заказ',
                     formatter: function(cell) { var v = parseFloat(cell.getValue())||0; return v ? v.toFixed(1) : '—'; }
                 },
                 {
@@ -339,7 +339,7 @@ function renderAdsArtsTable(items) {
         data: items,
         columns: artsCols,
         height: '55vh',
-        layout: 'fitDataFill',
+        layout: 'fitDataTable',
         renderHorizontal: 'virtual',
         placeholder: '<div style="padding:20px;text-align:center;color:#999">📭 Нет данных за период</div>',
         headerSortClickElement: 'header',
@@ -393,7 +393,7 @@ function filterAdsArtsLocally() {
 
     if (adsArtsTabulator) adsArtsTabulator.replaceData(filtered);
     var countEl = document.getElementById('ads-filter-count');
-    if (countEl) countEl.textContent = filtered.length + ' из ' + _adsAllArtsData.length;
+    if (countEl) countEl.textContent = filtered.length === _adsAllArtsData.length ? filtered.length + ' товаров' : filtered.length + ' из ' + _adsAllArtsData.length;
     if (typeof saveAdsFilterPreferences === 'function') saveAdsFilterPreferences();
     updateAdsArtsMetricsFromFiltered(filtered);
 }

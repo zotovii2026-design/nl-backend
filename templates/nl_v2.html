@@ -203,8 +203,8 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260810-ue-tooltips2"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/nl-page-prefs.js?v=2"></script>
-<script type="text/javascript" src="/static/js/ads-grid.js?v=20260811-period-refresh1"></script>
-<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260811-period-refresh1"></script>
+<script type="text/javascript" src="/static/js/ads-grid.js?v=20260812-ads-art-clean1"></script>
+<script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260812-ads-art-clean1"></script>
 <script type="text/javascript" src="/static/js/strategy-milestones.js?v=20260715a"></script>
 <script type="text/javascript" src="/static/js/nl-datepicker.js?v=20260630-calendar3"></script>
 </head>
@@ -404,7 +404,7 @@ function resetAdsUiForOrgChange() {
         if (el) el.textContent = '—';
     });
     var dailyBody = document.getElementById('ads-daily-body');
-    if (dailyBody) dailyBody.innerHTML = '<tr><td colspan="11" class="empty" style="padding:4px">Загрузка...</td></tr>';
+    if (dailyBody) dailyBody.innerHTML = '<tr><td colspan="12" class="empty" style="padding:4px">Загрузка...</td></tr>';
     var dailyTotal = document.getElementById('ads-daily-total');
     if (dailyTotal) dailyTotal.innerHTML = '';
     var dailyCount = document.getElementById('ads-daily-count');
@@ -1483,9 +1483,14 @@ var _sectionHTML = {
 <div id="ads-flt-tags-menu" class="nl-filter-panel"></div>
 </div>
 <input type="text" id="ads-flt-search" placeholder="🔍 Поиск" oninput="applyAdsColumnFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:200px">
-<button type="button" onclick="resetAdsColumnPreferences()" title="Вернуть порядок колонок по умолчанию" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Колонки по умолчанию</button>
-<button type="button" onclick="resetAdsViewPreferences()" title="Сбросить сохранённые фильтры и порядок колонок" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Сброс вида</button>
 <button id="ads-reset-filters" type="button" onclick="clearAdsFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сброс фильтров</button>
+<details id="ads-view-tools" style="position:relative">
+<summary title="Настройки вида таблицы" style="list-style:none;border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Вид</summary>
+<div style="position:absolute;right:0;top:28px;z-index:20;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 8px 22px rgba(0,0,0,.12);padding:6px;display:grid;gap:4px;min-width:190px">
+<button type="button" onclick="resetAdsColumnPreferences();document.getElementById('ads-view-tools').open=false" style="border:none;background:#fff;color:#555;text-align:left;border-radius:4px;cursor:pointer;font-size:.9em;padding:6px 8px">Колонки по умолчанию</button>
+<button type="button" onclick="resetAdsViewPreferences();document.getElementById('ads-view-tools').open=false" style="border:none;background:#fff;color:#555;text-align:left;border-radius:4px;cursor:pointer;font-size:.9em;padding:6px 8px">Сбросить вид</button>
+</div>
+</details>
 <span style="font-size:.8em;color:#999" id="ads-filter-count"></span>
 </div>
 
