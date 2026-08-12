@@ -22,6 +22,7 @@ from domain.unit_economics import (
     calculate_reverse_delivery,
 )
 from repositories.unit_economics import (
+    count_products as count_unit_economics_products,
     get_latest_date as get_unit_economics_latest_date,
     get_products as get_unit_economics_products,
     get_supporting_rows as get_unit_economics_supporting_rows,
@@ -59,11 +60,19 @@ async def build_unit_economics(
                 pass
 
     latest_date = await get_unit_economics_latest_date(db, org_id)
-    if not latest_date:
-        return {"items": [], "total": 0}
-    products = await get_unit_economics_products(db, org_id, latest_date)
+    total_products = await count_unit_economics_products(db, org_id, latest_date, search=search)
+    products = await get_unit_economics_products(
+        db,
+        org_id,
+        latest_date,
+        search=search,
+        limit=limit,
+    )
+    if not products:
+        return {"items": [], "total": total_products}
     rb_rows, tsnap_rows, box_rows = await get_unit_economics_supporting_rows(
         org_id,
+        products=products if limit or search else None,
         db=db,
     )
 
@@ -179,8 +188,7 @@ async def build_unit_economics(
 
     # 8) Собираем результат
     items = []
-    search_q = search.lower() if search else ""
-    
+
     # size_name и subject_name берутся напрямую из product_entities (индексы 10, 11)
     for p in products:
         entity_id = str(p[0]) if p[0] else None
@@ -224,10 +232,6 @@ async def build_unit_economics(
         if _fulfillment_model == "fbo" and _warehouses:
             _logistics_tooltip += f" | склады: {_warehouses}"
 
-        # Фильтр поиска
-        if search_q and search_q not in str(nm_id) and search_q not in product_name.lower() and search_q not in vendor_code.lower():
-            continue
-
         cost = cost_by_nm.get(nm_id, cost_by_entity.get(entity_id, {}))
         ue = ue_by_entity.get(entity_id, ue_by_nm_bc.get((nm_id, main_barcode), ue_by_nm_bc.get((nm_id, ""), {})))
 
@@ -265,6 +269,8 @@ async def build_unit_economics(
             "storage_tariff": snap_by_nm.get(nm_id, {}).get("storage_tariff", 0),
             "storage_actual": 0,  # Будет из финотчётов
             "acceptance_avg": 0,  # Будет из API приёмки
+            "acquiring_pct": 1.5,
+            "acquiring_rub": 0,
             "price_before_spp": float(ue.get("wb_price_fact")) if ue.get("wb_price_fact") else (snap_by_nm.get(nm_id, {}).get("price_retail") or price),
             "spp_pct": (lambda _s=snap_by_nm.get(nm_id, {}): (
                 round((1 - float(_s.get("price_with_spp", 0)) / float(_s.get("price_retail", 0))) * 100, 2)
@@ -276,6 +282,18 @@ async def build_unit_economics(
             "ad_fact_pct": 0,  # заглушка, позже из финотчёта
             "ad_fact_rub": 0,  # заглушка, позже из финотчёта
             "wb_club_discount_pct_api": 0,
+            "localization_idx": None,
+            "sales_dist_idx": None,
+            "logistics_accounted": None,
+            "logistics_finreport": None,
+            "tax_total_pct": None,
+            "other_deductions_finreport": 0,
+            "wb_club_discount_rub": 0,
+            "loyalty_cashback_pct": 0,
+            "loyalty_cashback_rub": 0,
+            "in_promo": None,
+            "wb_club_discount_change": 0,
+            "loyalty_cashback_change": 0,
 
             # Из справочника
             "product_status": ue.get("product_status") or cost.get("product_status", ""),
@@ -301,21 +319,22 @@ async def build_unit_economics(
             "logistics_tooltip": _logistics_tooltip,
         }
 
-        items.append(apply_financial_formulas(item))
+        item = apply_financial_formulas(item)
+        item["acquiring_rub"] = round(item["price_with_spp"] * item["acquiring_pct"] / 100, 2)
+        items.append(item)
 
-    # Сохраняем в Redis-кэш на 30 минут (ПОЛНЫЙ набор)
+    # Сохраняем в Redis-кэш только полный набор: частичный limit не должен становиться полным кэшем.
     _result_full = {"items": items, "total": len(items)}
-    if not search:
+    if not search and not limit:
         try:
             _redis.setex(_cache_key, 3600, _json.dumps(_result_full, ensure_ascii=False, default=str))
         except Exception:
             pass
 
     # Пагинация: total всегда по всем товарам
-    _total_all = len(products)
     if limit and limit > 0:
-        return {"items": items[:limit], "total": _total_all}
-    _result_full["total"] = _total_all
+        return {"items": items, "total": total_products}
+    _result_full["total"] = total_products
     return _result_full
 
 
@@ -499,6 +518,3 @@ async def save_unit_economics_batch(
     except Exception:
         pass
     return {"ok": True, "saved": saved}
-
-
-

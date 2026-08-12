@@ -5,7 +5,6 @@
  */
 
 let ueTabulator = null;
-let _ueEditedIds = new Set();
 let _ueAllData = [];  // Полные данные до фильтрации
 let _ueTreeOpen = false;
 
@@ -542,7 +541,6 @@ function initUEGrid() {
         if (_ueAutoDate) return;
         const rowData = cell.getRow().getData();
         if (rowData._isArticleRow || !rowData.entity_id) return;
-        _ueEditedIds.add(rowData.entity_id);
         rowData._edited = true;
         if (cell.getField() !== 'change_date') {
             _ueAutoDate = true;
@@ -665,12 +663,12 @@ function ueEditableDataCell(cell) {
  * Загрузка данных из API
  */
 async function loadUEData(loadAll, refresh) {
-    const search = document.getElementById('ue-search')?.value || '';
+    const search = (document.getElementById('ue-flt-search')?.value || '').trim();
     let url = '/api/v1/nl/unit-economics?org_id=' + ORG_ID;
     if (search) url += '&search=' + encodeURIComponent(search);
     if (refresh) url += '&refresh=1';
     // Пагинация: первые 50 быстро, потом по кнопке — все
-    if (!loadAll && !search) url += '&limit=50';
+    if (!loadAll) url += '&limit=50';
 
     // Лоадер: показываем что данные загружаются
     const container = document.getElementById('ue-tabulator');
@@ -699,6 +697,7 @@ async function loadUEData(loadAll, refresh) {
         const normalized = data.map(ueNormalizeRow);
         _ueAllData = normalized;
         await ueRenderRows(normalized);
+        updateUESummary(normalized, totalFromApi);
 
         const countEl = document.getElementById('ue-count');
         const hasMore = data.length < totalFromApi;
@@ -732,8 +731,32 @@ function applyUEFilters() {
     const filtered = getUEFilteredData();
 
     ueRenderRows(filtered);
+    updateUESummary(filtered, _ueAllData.length);
     const countEl = document.getElementById('ue-count');
     if (countEl) countEl.textContent = filtered.length + ' товаров';
+}
+
+function updateUESummary(rows, total) {
+    const summaryEl = document.getElementById('ue-summary');
+    if (!summaryEl) return;
+
+    const data = rows || [];
+    const loadedTotal = typeof total === 'number' ? total : _ueAllData.length;
+    const withCost = data.filter(function(row) { return Number(row.cost_price || 0) > 0; }).length;
+    const withPlanPrice = data.filter(function(row) { return Number(row.price_before_spp_plan || 0) > 0; }).length;
+    const withChangePrice = data.filter(function(row) { return Number(row.price_before_spp_change || 0) > 0; }).length;
+    const avgMarginRows = data.filter(function(row) { return Number(row.margin_plan || 0) !== 0; });
+    const avgMargin = avgMarginRows.length
+        ? avgMarginRows.reduce(function(sum, row) { return sum + Number(row.margin_plan || 0); }, 0) / avgMarginRows.length
+        : 0;
+
+    summaryEl.innerHTML = [
+        '<span>Строк: <b>' + data.length + '</b>' + (loadedTotal !== data.length ? ' из ' + loadedTotal : '') + '</span>',
+        '<span>С себестоимостью: <b>' + withCost + '</b></span>',
+        '<span>С плановой ценой: <b>' + withPlanPrice + '</b></span>',
+        '<span>К изменению: <b>' + withChangePrice + '</b></span>',
+        '<span>Маржа план ср.: <b>' + (avgMargin ? avgMargin.toFixed(1) + '%' : '—') + '</b></span>'
+    ].join('');
 }
 
 function getUEFilteredData() {
@@ -774,8 +797,10 @@ function resetUEFilters() {
         const el = document.getElementById(id);
         if (el) NLFilters.selectAll(el);
     });
-    document.getElementById('ue-flt-ff').value = '';
-    document.getElementById('ue-flt-search').value = '';
+    const ffFilter = document.getElementById('ue-flt-ff');
+    const searchFilter = document.getElementById('ue-flt-search');
+    if (ffFilter) ffFilter.value = '';
+    if (searchFilter) searchFilter.value = '';
     applyUEFilters();
 }
 
@@ -934,9 +959,9 @@ async function saveUEData() {
             alert('Сохранено: ' + (result.saved || payload.length) + ' строк');
             // Снимаем флаг редактирования
             allData.forEach(r => { delete r._edited; });
-            _ueEditedIds.clear();
             _ueAllData = allData.map(ueNormalizeRow);
             ueRenderRows(_ueAllData);
+            updateUESummary(_ueAllData, _ueAllData.length);
         } else {
             alert('Ошибка: ' + (result.error || 'неизвестная'));
         }

@@ -15,6 +15,32 @@ LATEST_DATE_SQL = """
     LIMIT 1
 """
 
+PRODUCTS_FROM_SQL = """
+    FROM product_entities pe
+    LEFT JOIN LATERAL (
+        SELECT product_name, photo_main, price, price_discount, tariff, ad_cost
+        FROM tech_status ts
+        WHERE ts.organization_id = :org
+          AND ts.nm_id = pe.nm_id
+          AND ts.target_date = :dt
+        LIMIT 1
+    ) ts ON true
+    WHERE pe.organization_id = :org
+      AND (
+          :search = ''
+          OR LOWER(COALESCE(ts.product_name, pe.product_name, '')) LIKE :search_like
+          OR LOWER(COALESCE(pe.vendor_code, '')) LIKE :search_like
+          OR CAST(pe.nm_id AS TEXT) LIKE :search_like
+          OR EXISTS (
+              SELECT 1
+              FROM entity_barcodes eb_search
+              WHERE eb_search.entity_id = pe.id
+                AND eb_search.is_active = true
+                AND eb_search.barcode LIKE :search_like
+          )
+      )
+"""
+
 PRODUCTS_SQL = """
     SELECT pe.id AS entity_id, pe.nm_id, pe.vendor_code,
            COALESCE(ts.product_name, pe.product_name) AS product_name,
@@ -26,17 +52,14 @@ PRODUCTS_SQL = """
            ) AS barcode,
            ts.price, ts.price_discount, ts.tariff, ts.ad_cost,
            pe.size_name, pe.subject_name, pe.width, pe.height, pe.length
-    FROM product_entities pe
-    LEFT JOIN LATERAL (
-        SELECT product_name, photo_main, price, price_discount, tariff, ad_cost
-        FROM tech_status ts
-        WHERE ts.organization_id = :org
-          AND ts.nm_id = pe.nm_id
-          AND ts.target_date = :dt
-        LIMIT 1
-    ) ts ON true
-    WHERE pe.organization_id = :org
+""" + PRODUCTS_FROM_SQL + """
     ORDER BY pe.nm_id, pe.size_name
+    LIMIT :limit
+"""
+
+PRODUCTS_COUNT_SQL = """
+    SELECT COUNT(*)
+""" + PRODUCTS_FROM_SQL + """
 """
 
 REFERENCE_BOOK_SQL = """
@@ -52,6 +75,7 @@ REFERENCE_BOOK_SQL = """
     FROM reference_book
     WHERE organization_id = :org
       AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+      {product_filter}
     ORDER BY entity_id NULLS LAST, nm_id, valid_from DESC
 """
 
@@ -61,6 +85,7 @@ TARIFF_SNAPSHOT_SQL = """
            spp_pct, commission_fbs_pct
     FROM wb_tariff_snapshot
     WHERE organization_id = :org
+      {product_filter}
     ORDER BY nm_id, target_date DESC
 """
 
@@ -88,12 +113,41 @@ async def get_products(
     db: AsyncSession,
     org_id: str,
     latest_date,
+    search: str | None = None,
+    limit: int | None = None,
 ) -> list[Any]:
+    search_value = (search or "").strip().lower()
     result = await db.execute(
         text(PRODUCTS_SQL),
-        {"org": org_id, "dt": latest_date},
+        {
+            "org": org_id,
+            "dt": latest_date,
+            "search": search_value,
+            "search_like": f"%{search_value}%",
+            "limit": limit if limit and limit > 0 else None,
+        },
     )
     return result.all()
+
+
+async def count_products(
+    db: AsyncSession,
+    org_id: str,
+    latest_date,
+    search: str | None = None,
+) -> int:
+    search_value = (search or "").strip().lower()
+    result = await db.execute(
+        text(PRODUCTS_COUNT_SQL),
+        {
+            "org": org_id,
+            "dt": latest_date,
+            "search": search_value,
+            "search_like": f"%{search_value}%",
+        },
+    )
+    row = result.first()
+    return int(row[0]) if row else 0
 
 
 async def _run_query(
@@ -109,19 +163,55 @@ async def _run_query(
         return result.all()
 
 
+def _product_scope(products: list[Any] | None) -> tuple[list[str], list[int]]:
+    if not products:
+        return [], []
+    entity_ids = []
+    nm_ids = []
+    for product in products:
+        if product[0]:
+            entity_ids.append(str(product[0]))
+        if product[1]:
+            nm_ids.append(int(product[1]))
+    return sorted(set(entity_ids)), sorted(set(nm_ids))
+
+
+def _scoped_reference_query(entity_ids: list[str], nm_ids: list[int]) -> str:
+    if not entity_ids and not nm_ids:
+        return REFERENCE_BOOK_SQL.format(product_filter="")
+    return REFERENCE_BOOK_SQL.format(
+        product_filter=(
+            "AND (entity_id::text = ANY(CAST(:entity_ids AS text[])) "
+            "OR nm_id = ANY(CAST(:nm_ids AS integer[])))"
+        )
+    )
+
+
+def _scoped_snapshot_query(nm_ids: list[int]) -> str:
+    if not nm_ids:
+        return TARIFF_SNAPSHOT_SQL.format(product_filter="")
+    return TARIFF_SNAPSHOT_SQL.format(
+        product_filter="AND nm_id = ANY(CAST(:nm_ids AS integer[]))"
+    )
+
+
 async def get_supporting_rows(
     org_id: str,
+    products: list[Any] | None = None,
     db: AsyncSession | None = None,
 ) -> tuple[list[Any], list[Any], list[Any]]:
-    params = {"org": org_id}
+    entity_ids, nm_ids = _product_scope(products)
+    params = {"org": org_id, "entity_ids": entity_ids, "nm_ids": nm_ids}
+    reference_query = _scoped_reference_query(entity_ids, nm_ids)
+    snapshot_query = _scoped_snapshot_query(nm_ids)
     if db is not None:
         return (
-            await _run_query(REFERENCE_BOOK_SQL, params, db),
-            await _run_query(TARIFF_SNAPSHOT_SQL, params, db),
+            await _run_query(reference_query, params, db),
+            await _run_query(snapshot_query, params, db),
             await _run_query(BOX_TARIFFS_SQL, params, db),
         )
     return await asyncio.gather(
-        _run_query(REFERENCE_BOOK_SQL, params),
-        _run_query(TARIFF_SNAPSHOT_SQL, params),
+        _run_query(reference_query, params),
+        _run_query(snapshot_query, params),
         _run_query(BOX_TARIFFS_SQL, params),
     )
