@@ -162,6 +162,7 @@ async def get_control_metrics(
         "buyouts_revenue": 0.0,
         "cancel_revenue": 0.0,
     }
+    funnel_daily = {}
     funnel_products = {}
     for fdate, raw in funnel_result.all():
         if not isinstance(raw, list):
@@ -219,6 +220,7 @@ async def get_control_metrics(
                 product_totals["total_cancel_revenue"] += cancel_sum
         if date_is_valid:
             funnel_summary["dates"].add(fdate)
+            funnel_daily[fdate] = day_totals
             for key in day_totals:
                 funnel_summary[key] += day_totals[key]
     expected_funnel_dates = set()
@@ -319,11 +321,26 @@ async def get_control_metrics(
 
     # Себестоимость и справочник
     ref_result = await db.execute(text(
-        "SELECT entity_id, nm_id, cost_price, product_class, brand, tax_system, tax_rate, vat_rate, wb_price_fact "
+        "SELECT entity_id, nm_id, cost_price, product_class, brand, tax_system, tax_rate, vat_rate, wb_price_fact, "
+        "product_status, tags, fulfillment_model "
         "FROM reference_book WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
     ), {"org": org_id})
     ref_by_entity = {}
     ref_by_nm = {}
+    filter_options = {
+        "product_status": set(),
+        "product_class": set(),
+        "brand": set(),
+        "tags": set(),
+        "fulfillment_model": set(),
+    }
+
+    def _split_tag_labels(raw):
+        if not raw:
+            return set()
+        normalized = str(raw).replace(";", ",").replace("|", ",")
+        return {item.strip() for item in normalized.split(",") if item.strip()}
+
     for r in ref_result.all():
         d_item = {
             "cost_price": float(r[2]) if r[2] else 0,
@@ -333,7 +350,20 @@ async def get_control_metrics(
             "tax_rate": float(r[6]) if r[6] else 0,
             "vat_rate": float(r[7]) if r[7] else 0,
             "wb_price_fact": float(r[8]) if r[8] else None,
+            "product_status": r[9] or "",
+            "tags": r[10] or "",
+            "fulfillment_model": r[11] or "fbo",
         }
+        if d_item["product_status"]:
+            filter_options["product_status"].add(d_item["product_status"])
+        if d_item["product_class"]:
+            filter_options["product_class"].add(d_item["product_class"])
+        if d_item["brand"]:
+            filter_options["brand"].add(d_item["brand"])
+        for tag in _split_tag_labels(d_item["tags"]):
+            filter_options["tags"].add(tag)
+        if d_item["fulfillment_model"]:
+            filter_options["fulfillment_model"].add(d_item["fulfillment_model"])
         if r[0]:
             ref_by_entity[str(r[0])] = d_item
         if r[1]:
@@ -355,7 +385,18 @@ async def get_control_metrics(
             }
 
     def _get_ref(eid, nm):
-        return ref_by_nm.get(nm, ref_by_entity.get(eid, {"cost_price":0,"product_class":"","brand":"","tax_system":"","tax_rate":0,"vat_rate":0,"wb_price_fact":None}))
+        return ref_by_entity.get(eid) or ref_by_nm.get(nm) or {
+            "cost_price": 0,
+            "product_class": "",
+            "brand": "",
+            "tax_system": "",
+            "tax_rate": 0,
+            "vat_rate": 0,
+            "wb_price_fact": None,
+            "product_status": "",
+            "tags": "",
+            "fulfillment_model": "fbo",
+        }
 
     def _get_snap(nm):
         return snap_by_nm_ts.get(nm, {"logistics_tariff":0,"storage_tariff":0,"commission_pct":0,"buyout_pct_fact":0})
@@ -494,6 +535,65 @@ async def get_control_metrics(
         total_clicks = safe_int(row.total_clicks) or 0
         total_impressions = safe_int(row.total_impressions) or 0
 
+    tech_daily_result = await db.execute(
+        select(
+            TechStatus.target_date,
+            func.sum(TechStatus.orders_count).label("orders_count"),
+            func.sum(TechStatus.buyouts_count).label("buyouts_count"),
+            func.sum(TechStatus.returns_count).label("returns_count"),
+            func.sum(TechStatus.impressions).label("impressions"),
+            func.sum(TechStatus.clicks).label("clicks"),
+            func.sum(TechStatus.ad_cost).label("ad_cost"),
+            func.sum(TechStatus.price_discount * TechStatus.orders_count).label("orders_revenue"),
+            func.sum(TechStatus.price_discount * TechStatus.buyouts_count).label("buyouts_revenue"),
+            func.sum(TechStatus.stock_qty).label("stock_qty"),
+            func.sum(TechStatus.stock_fbo_qty).label("stock_fbo_qty"),
+            func.avg(TechStatus.rating).label("avg_rating"),
+        ).where(
+            TechStatus.organization_id == org_id,
+            TechStatus.target_date >= d_from,
+            TechStatus.target_date <= d_to,
+        )
+        .group_by(TechStatus.target_date)
+        .order_by(TechStatus.target_date)
+    )
+    daily = []
+    for drow in tech_daily_result.all():
+        day = drow[0]
+        orders = safe_int(drow.orders_count) or 0
+        buyouts = safe_int(drow.buyouts_count) or 0
+        returns = safe_int(drow.returns_count) or 0
+        orders_revenue = safe_float(drow.orders_revenue) or 0
+        buyouts_revenue = safe_float(drow.buyouts_revenue) or 0
+        cancel_revenue = 0
+        if has_funnel_summary and day in funnel_daily:
+            fday = funnel_daily[day]
+            orders = int(fday["total_orders"])
+            buyouts = int(fday["total_buyouts"])
+            returns = int(fday["total_returns"])
+            orders_revenue = round(fday["orders_revenue"], 2)
+            buyouts_revenue = round(fday["buyouts_revenue"], 2)
+            cancel_revenue = round(fday["cancel_revenue"], 2)
+        impressions = safe_int(drow.impressions) or 0
+        clicks = safe_int(drow.clicks) or 0
+        daily.append({
+            "date": str(day),
+            "orders_count": orders,
+            "buyouts_count": buyouts,
+            "returns_count": returns,
+            "orders_revenue": orders_revenue,
+            "buyouts_revenue": buyouts_revenue,
+            "cancel_revenue": cancel_revenue,
+            "impressions": impressions,
+            "clicks": clicks,
+            "ctr": round(clicks / impressions * 100, 2) if impressions > 0 else 0,
+            "ad_cost": safe_float(drow.ad_cost) or 0,
+            "stock_qty": safe_int(drow.stock_qty) or 0,
+            "stock_fbo_qty": safe_int(drow.stock_fbo_qty) or 0,
+            "stock_total": (safe_int(drow.stock_qty) or 0) + (safe_int(drow.stock_fbo_qty) or 0),
+            "avg_rating": round(float(drow.avg_rating), 2) if drow.avg_rating else None,
+        })
+
     return {
         "date": str(latest_date),
         "date_from": str(d_from),
@@ -520,5 +620,7 @@ async def get_control_metrics(
             "low_stock_count": safe_int(low_stock.scalar()) or 0,
             "low_rating_count": safe_int(low_rating.scalar()) or 0,
         },
-        "products": build_product_rows(products_detail.all())
+        "daily": daily,
+        "products": build_product_rows(products_detail.all()),
+        "filter_options": {key: sorted(values) for key, values in filter_options.items()},
     }

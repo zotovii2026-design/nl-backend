@@ -195,7 +195,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Chart.js -->
 <script src="/static/lib/chart.min.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
-<script type="text/javascript" src="/static/js/stats-grid.js?v=20260729-entities5"></script>
+<script type="text/javascript" src="/static/js/stats-grid.js?v=20260813-daily-tree-filters1"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260803-reference-style-tree"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260810-fbo-average"></script>
@@ -297,11 +297,47 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
 <div id="stats-alerts" style="margin-bottom:12px"></div>
 
+<div id="stats-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
+<label style="color:#666;font-weight:600">Фильтры:</label>
+<select id="stats-flt-ff" class="nl-filter-native" onchange="applyStatsFilters()"><option value="">Отгрузка: все</option><option value="fbo">ФБО</option><option value="fbs">ФБС</option></select>
+<div class="nl-filter-menu" data-filter-id="stats-flt-status" data-label="Статус">
+<select id="stats-flt-status" class="nl-filter-select" multiple></select>
+<button type="button" class="nl-filter-button" onclick="NLFilters.toggleMenu('stats-flt-status')">Статус: все</button>
+<div id="stats-flt-status-menu" class="nl-filter-panel"></div>
+</div>
+<div class="nl-filter-menu" data-filter-id="stats-flt-class" data-label="Класс">
+<select id="stats-flt-class" class="nl-filter-select" multiple></select>
+<button type="button" class="nl-filter-button" onclick="NLFilters.toggleMenu('stats-flt-class')">Класс: все</button>
+<div id="stats-flt-class-menu" class="nl-filter-panel"></div>
+</div>
+<div class="nl-filter-menu" data-filter-id="stats-flt-brand" data-label="Бренд">
+<select id="stats-flt-brand" class="nl-filter-select" multiple></select>
+<button type="button" class="nl-filter-button" onclick="NLFilters.toggleMenu('stats-flt-brand')">Бренд: все</button>
+<div id="stats-flt-brand-menu" class="nl-filter-panel"></div>
+</div>
+<div class="nl-filter-menu" data-filter-id="stats-flt-tags" data-label="Теги">
+<select id="stats-flt-tags" class="nl-filter-select" multiple></select>
+<button type="button" class="nl-filter-button" onclick="NLFilters.toggleMenu('stats-flt-tags')">Теги: все</button>
+<div id="stats-flt-tags-menu" class="nl-filter-panel"></div>
+</div>
+<input type="text" id="stats-flt-search" placeholder="🔍 Поиск по названию / артикулу / ШК" oninput="applyStatsFilters()" style="border:1px solid #ddd;border-radius:4px;padding:4px 8px;font-size:.9em;width:220px">
+<button id="stats-tree-toggle-btn" type="button" onclick="toggleStatsTreeOpen()" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Раскрыть размеры</button>
+<button type="button" onclick="resetStatsColumnPreferences()" title="Вернуть порядок колонок по умолчанию, не сбрасывая фильтры" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Колонки по умолчанию</button>
+<button type="button" onclick="resetStatsViewPreferences()" title="Сбросить сохранённые фильтры и порядок колонок" style="border:1px solid #ddd;background:#fff;color:#555;border-radius:4px;cursor:pointer;font-size:.9em;padding:4px 8px">Сброс вида</button>
+<button id="stats-reset-filters" type="button" onclick="resetStatsFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сброс фильтров</button>
+</div>
+
 <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px">
 <div style="font-size:1.05em;font-weight:700;color:#333">Итоги за период</div>
 <div style="font-size:.82em;color:#888">агрегировано по выбранным датам</div>
 </div>
 <div id="stats-summary-tabulator" class="stats-grid-pending" style="min-height:120px;width:100%;margin-bottom:18px"></div>
+
+<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px">
+<div style="font-size:1.05em;font-weight:700;color:#333">По дням</div>
+<div id="stats-daily-count" style="font-size:.82em;color:#888"></div>
+</div>
+<div id="stats-daily-tabulator" class="stats-grid-pending" style="min-height:280px;width:100%;margin-bottom:18px"></div>
 
 <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px">
 <div style="font-size:1.05em;font-weight:700;color:#333">Товары</div>
@@ -3193,6 +3229,8 @@ NLFilters.initGlobalClick(function(filterId) {
     // Route to the correct page handler based on which filter was changed
     if (filterId && filterId.indexOf('ads-flt') === 0) {
         if (typeof applyAdsColumnFilters === 'function') applyAdsColumnFilters();
+    } else if (filterId && filterId.indexOf('stats-flt') === 0) {
+        if (typeof applyStatsFilters === 'function') applyStatsFilters();
     } else if (filterId && filterId.indexOf('rnp-flt') === 0) {
         if (typeof loadRnp === 'function') loadRnp();
     } else if (filterId && filterId.indexOf('ue-flt') === 0) {

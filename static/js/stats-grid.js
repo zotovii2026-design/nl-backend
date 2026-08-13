@@ -1,13 +1,18 @@
 // Единый стиль табуляторов — эталон Справочника (8px заголовки, 11px ячейки)
 (function(){
     var s = document.createElement('style');
-    s.textContent = '#stats-summary-tabulator .tabulator-col-title,#stats-products-tabulator .tabulator-col-title{font-size:8px!important;line-height:1.1!important;padding:2px 4px!important}#stats-summary-tabulator .tabulator-col .tabulator-col-content,#stats-products-tabulator .tabulator-col .tabulator-col-content{padding:2px 4px!important}#stats-summary-tabulator .tabulator-cell,#stats-products-tabulator .tabulator-cell{font-size:11px!important}.stats-barcode-list{display:block;white-space:normal;overflow-wrap:anywhere;line-height:1.25}';
+    s.textContent = '#stats-summary-tabulator .tabulator-col-title,#stats-daily-tabulator .tabulator-col-title,#stats-products-tabulator .tabulator-col-title{font-size:8px!important;line-height:1.1!important;padding:2px 4px!important}#stats-summary-tabulator .tabulator-col .tabulator-col-content,#stats-daily-tabulator .tabulator-col .tabulator-col-content,#stats-products-tabulator .tabulator-col .tabulator-col-content{padding:2px 4px!important}#stats-summary-tabulator .tabulator-cell,#stats-daily-tabulator .tabulator-cell,#stats-products-tabulator .tabulator-cell{font-size:11px!important}.stats-barcode-list{display:block;white-space:normal;overflow-wrap:anywhere;line-height:1.25}.stats-article-row{background:#f8f9ff!important;font-weight:600}.stats-grid-pending{opacity:.45;pointer-events:none}';
     document.head.appendChild(s);
 })();
 
+var STATS_PAGE_KEY = 'stats';
 var statsSummaryTabulator = null;
+var statsDailyTabulator = null;
 var statsProductsTabulator = null;
 var statsAllProducts = [];
+var statsVisibleProducts = [];
+var statsTreeOpen = false;
+var statsRestoringFilters = false;
 
 function statsIsoDate(value) {
     return value.toISOString().slice(0, 10);
@@ -128,6 +133,10 @@ function statsPercentFormatter(cell) {
     return statsPercent(cell.getValue());
 }
 
+function statsTextHas(value, query) {
+    return String(value || '').toLowerCase().includes(query);
+}
+
 function statsWbArticleFormatter(cell) {
     var row = cell.getRow().getData();
     var nmId = row.nm_id_display || cell.getValue();
@@ -184,8 +193,40 @@ function initStatsSummaryGrid() {
     });
 }
 
+function initStatsDailyGrid() {
+    if (statsDailyTabulator || !document.getElementById('stats-daily-tabulator')) return;
+    var columns = [
+        {title: 'Дата', field: 'date', width: 110, headerSort: true},
+        {title: 'Заказы ₽', field: 'orders_revenue', width: 120, hozAlign: 'right', formatter: statsMoneyFormatter, bottomCalc: 'sum', bottomCalcFormatter: function(cell) { return statsMoney(cell.getValue()); }},
+        {title: 'Заказы', field: 'orders_count', width: 90, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
+        {title: 'Выкупы ₽', field: 'buyouts_revenue', width: 120, hozAlign: 'right', formatter: statsMoneyFormatter, bottomCalc: 'sum', bottomCalcFormatter: function(cell) { return statsMoney(cell.getValue()); }},
+        {title: 'Выкупы', field: 'buyouts_count', width: 90, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
+        {title: 'Возвраты', field: 'returns_count', width: 95, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
+        {title: '% выкупа', field: 'buyout_pct', width: 90, hozAlign: 'right', formatter: statsPercentFormatter},
+        {title: 'Реклама', field: 'ad_cost', width: 110, hozAlign: 'right', formatter: statsMoneyFormatter, bottomCalc: 'sum', bottomCalcFormatter: function(cell) { return statsMoney(cell.getValue()); }},
+        {title: 'Показы', field: 'impressions', width: 105, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
+        {title: 'Клики', field: 'clicks', width: 90, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
+        {title: 'CTR', field: 'ctr', width: 80, hozAlign: 'right', formatter: statsPercentFormatter},
+        {title: 'Остаток', field: 'stock_total', width: 100, hozAlign: 'right', formatter: statsNumberFormatter},
+        {title: 'Рейтинг', field: 'avg_rating', width: 85, hozAlign: 'right', formatter: statsNumberFormatter},
+    ];
+    if (typeof NLPagePrefs !== 'undefined') columns = NLPagePrefs.applyColumnOrder(STATS_PAGE_KEY + '-daily', columns);
+    statsDailyTabulator = new Tabulator('#stats-daily-tabulator', {
+        data: [],
+        layout: 'fitDataFill',
+        height: 280,
+        placeholder: 'Нет данных',
+        movableColumns: true,
+        headerSortClickElement: 'header',
+        columns: columns,
+    });
+    statsDailyTabulator.on('columnMoved', function() {
+        if (typeof NLPagePrefs !== 'undefined') NLPagePrefs.saveColumns(STATS_PAGE_KEY + '-daily', statsDailyTabulator);
+    });
+}
+
 function getStatsProductColumns() {
-    return [
+    var columns = [
         {title: 'Фото', field: 'photo_main', width: 54, headerSort: false, formatter: statsPhotoFormatter},
         {title: 'Арт WB', field: 'nm_id_display', width: 105, headerFilter: 'input', formatter: statsWbArticleFormatter},
         {title: 'Название', field: 'product_name', minWidth: 220, headerFilter: 'input', formatter: function(cell) {
@@ -200,6 +241,10 @@ function getStatsProductColumns() {
         {title: 'Выкупы разм.', field: 'buyouts_count', width: 105, hozAlign: 'right', sorter: 'number'},
         {title: 'Выкупы разм. ₽', field: 'total_buyouts_revenue', width: 120, hozAlign: 'right', sorter: 'number', formatter: statsMoneyFormatter},
         {title: 'Возвраты разм.', field: 'returns_count', width: 110, hozAlign: 'right', sorter: 'number'},
+        {title: 'Заказы карт.', field: 'card_orders_count', width: 105, hozAlign: 'right', sorter: 'number', formatter: statsNumberFormatter},
+        {title: 'Заказы карт. ₽', field: 'card_orders_revenue', width: 120, hozAlign: 'right', sorter: 'number', formatter: statsMoneyFormatter},
+        {title: 'Выкупы карт.', field: 'card_buyouts_count', width: 105, hozAlign: 'right', sorter: 'number', formatter: statsNumberFormatter},
+        {title: 'Выкупы карт. ₽', field: 'card_buyouts_revenue', width: 120, hozAlign: 'right', sorter: 'number', formatter: statsMoneyFormatter},
         {title: '% выкупа', field: 'buyout_pct', width: 90, hozAlign: 'right', sorter: 'number', formatter: statsPercentFormatter},
         {title: 'Рейтинг', field: 'rating', width: 85, hozAlign: 'right', sorter: 'number', formatter: statsNumberFormatter},
         {title: 'Показы карт.', field: 'impressions', width: 105, hozAlign: 'right', sorter: 'number'},
@@ -208,6 +253,8 @@ function getStatsProductColumns() {
         {title: 'Реклама', field: 'ad_cost', width: 105, hozAlign: 'right', sorter: 'number', formatter: statsMoneyFormatter},
         {title: 'Цена', field: 'price_display', width: 100, hozAlign: 'right', sorter: 'number', formatter: statsMoneyFormatter},
     ];
+    if (typeof NLPagePrefs !== 'undefined') columns = NLPagePrefs.applyColumnOrder(STATS_PAGE_KEY + '-products', columns);
+    return columns;
 }
 
 function initStatsProductsGrid() {
@@ -221,25 +268,19 @@ function initStatsProductsGrid() {
         placeholder: 'Нет данных',
         movableColumns: true,
         headerSortClickElement: 'header',
-        groupBy: 'nm_id',
-        groupHeader: function(value, count, data, group) {
-            if (value && typeof value === 'string' && value.startsWith('_solo_')) {
-                var el = group && group.getElement ? group.getElement() : null;
-                if (el) el.style.display = 'none';
-                return '';
-            }
-            var first = data && data[0] ? data[0] : {};
-            var nmId = first.nm_id_display || value;
-            var title = first.product_name ? ' - ' + first.product_name : '';
-            var cardOrders = Number(first.card_orders_count || 0);
-            var cardBuyouts = Number(first.card_buyouts_count || 0);
-            var suffix = cardOrders || cardBuyouts
-                ? ' | карточка: заказов ' + cardOrders.toLocaleString('ru-RU') + ', выкупов ' + cardBuyouts.toLocaleString('ru-RU')
-                : '';
-            return 'Арт WB ' + statsEscape(nmId) + statsEscape(title) + ' (' + count + ' разм.)' + statsEscape(suffix);
+        dataTree: true,
+        dataTreeChildField: '_children',
+        dataTreeStartExpanded: false,
+        dataTreeElementColumn: 'nm_id_display',
+        rowFormatter: function(row) {
+            var data = row.getData();
+            if (data && data._isArticleRow) row.getElement().classList.add('stats-article-row');
         },
     });
     statsProductsTabulator.on('dataFiltered', updateStatsProductsCount);
+    statsProductsTabulator.on('columnMoved', function() {
+        if (typeof NLPagePrefs !== 'undefined') NLPagePrefs.saveColumns(STATS_PAGE_KEY + '-products', statsProductsTabulator);
+    });
 }
 
 function prepareStatsProducts(products) {
@@ -248,7 +289,7 @@ function prepareStatsProducts(products) {
         nmCounts[p.nm_id] = (nmCounts[p.nm_id] || 0) + 1;
     });
 
-    return (products || []).map(function(p) {
+    var rows = (products || []).map(function(p) {
         var orders = Number(p.orders_count || 0);
         var buyouts = Number(p.buyouts_count || 0);
         var impressions = Number(p.impressions || 0);
@@ -257,9 +298,10 @@ function prepareStatsProducts(products) {
         var isSizeless = nmCounts[p.nm_id] === 1 && (!sizeName || sizeName === '0' || sizeName === 'ONE SIZE');
         var barcodes = statsBarcodeText(p.barcodes || p.barcode || '');
         return Object.assign({}, p, {
+            _id: p.entity_id || ('stats_' + p.nm_id + '_' + (p.size_name || '0')),
             nm_id_display: p.nm_id,
-            nm_id: isSizeless ? ('_solo_' + (p.entity_id || (p.nm_id + '_0'))) : p.nm_id,
             _noGroup: isSizeless,
+            _isArticleRow: false,
             barcodes_display: barcodes,
             barcodes_search: statsBarcodeSearchText({barcodes_display: barcodes}),
             stock_total: Number(p.stock_qty || 0) + Number(p.stock_fbo_qty || 0),
@@ -268,42 +310,258 @@ function prepareStatsProducts(products) {
             price_display: p.price_discount || p.price || p.wb_price_fact || 0,
         });
     });
+
+    var grouped = {};
+    var order = [];
+    rows.forEach(function(row) {
+        var nmId = String(row.nm_id_display || row.nm_id || '');
+        if (!grouped[nmId]) {
+            grouped[nmId] = [];
+            order.push(nmId);
+        }
+        grouped[nmId].push(row);
+    });
+
+    return order.map(function(nmId) {
+        var children = grouped[nmId] || [];
+        if (children.length <= 1 || children[0]._noGroup) return children[0];
+        var first = Object.assign({}, children[0]);
+        var parent = Object.assign({}, first, {
+            _id: 'article_' + nmId,
+            _isArticleRow: true,
+            _hasSizes: true,
+            entity_id: '',
+            nm_id: nmId,
+            nm_id_display: nmId,
+            size_name: children.length + (children.length > 1 && children.length < 5 ? ' размера' : ' размеров'),
+            barcodes_display: children.map(function(child) { return child.barcodes_display; }).filter(Boolean).join(', '),
+            barcodes_search: children.map(function(child) { return child.barcodes_search; }).filter(Boolean).join(' '),
+            stock_qty: 0,
+            stock_fbo_qty: 0,
+            stock_total: 0,
+            orders_count: 0,
+            buyouts_count: 0,
+            returns_count: 0,
+            total_orders_revenue: 0,
+            total_buyouts_revenue: 0,
+            ad_cost: 0,
+            _children: [],
+        });
+        children.forEach(function(child) {
+            parent.stock_qty += Number(child.stock_qty || 0);
+            parent.stock_fbo_qty += Number(child.stock_fbo_qty || 0);
+            parent.stock_total += Number(child.stock_total || 0);
+            parent.orders_count += Number(child.orders_count || 0);
+            parent.buyouts_count += Number(child.buyouts_count || 0);
+            parent.returns_count += Number(child.returns_count || 0);
+            parent.total_orders_revenue += Number(child.total_orders_revenue || 0);
+            parent.total_buyouts_revenue += Number(child.total_buyouts_revenue || 0);
+            parent.ad_cost += Number(child.ad_cost || 0);
+            var copy = Object.assign({}, child, {
+                _hasSizes: true,
+                _parent_nm_id: nmId,
+                impressions: 0,
+                clicks: 0,
+                ctr: 0,
+                card_orders_count: 0,
+                card_buyouts_count: 0,
+                card_returns_count: 0,
+                card_orders_revenue: 0,
+                card_buyouts_revenue: 0,
+                card_cancel_revenue: 0,
+            });
+            parent._children.push(copy);
+        });
+        parent.impressions = Number(first.card_impressions || first.impressions || 0);
+        parent.clicks = Number(first.card_clicks || first.clicks || 0);
+        parent.ctr = parent.impressions ? parent.clicks / parent.impressions * 100 : 0;
+        parent.card_orders_count = Number(first.card_orders_count || 0);
+        parent.card_buyouts_count = Number(first.card_buyouts_count || 0);
+        parent.card_returns_count = Number(first.card_returns_count || 0);
+        parent.card_orders_revenue = Number(first.card_orders_revenue || 0);
+        parent.card_buyouts_revenue = Number(first.card_buyouts_revenue || 0);
+        parent.card_cancel_revenue = Number(first.card_cancel_revenue || 0);
+        parent.buyout_pct = parent.orders_count ? parent.buyouts_count / parent.orders_count * 100 : 0;
+        return parent;
+    });
 }
 
 function applyStatsTopSearch() {
-    if (!statsProductsTabulator) return;
-    var q = (document.getElementById('filter-article')?.value || '').trim().toLowerCase();
-    if (!q) {
-        statsProductsTabulator.clearFilter(true);
-        updateStatsProductsCount();
-        return;
-    }
-    statsProductsTabulator.setFilter(function(row) {
-        return String(row.nm_id_display || row.nm_id || '').toLowerCase().includes(q)
-            || String(row.vendor_code || '').toLowerCase().includes(q)
-            || String(row.product_name || '').toLowerCase().includes(q)
-            || statsBarcodeMatches(q, row);
+    applyStatsFilters();
+}
+
+function statsMatchSelected(value, selected) {
+    if (!selected || !selected.length) return true;
+    return selected.indexOf(String(value || '')) !== -1;
+}
+
+function statsMatchTags(value, selected) {
+    if (!selected || !selected.length) return true;
+    var tags = String(value || '').replace(/;/g, ',').replace(/\|/g, ',').split(',').map(function(v) { return v.trim(); });
+    return tags.some(function(tag) { return selected.indexOf(tag) !== -1; });
+}
+
+function getStatsFilterState() {
+    return {
+        fulfillmentModel: document.getElementById('stats-flt-ff')?.value || '',
+        status: typeof NLFilters !== 'undefined' ? NLFilters.getValues(document.getElementById('stats-flt-status')) : [],
+        productClass: typeof NLFilters !== 'undefined' ? NLFilters.getValues(document.getElementById('stats-flt-class')) : [],
+        brand: typeof NLFilters !== 'undefined' ? NLFilters.getValues(document.getElementById('stats-flt-brand')) : [],
+        tags: typeof NLFilters !== 'undefined' ? NLFilters.getValues(document.getElementById('stats-flt-tags')) : [],
+        search: document.getElementById('stats-flt-search')?.value || '',
+        topSearch: document.getElementById('filter-article')?.value || '',
+        treeOpen: statsTreeOpen,
+    };
+}
+
+function saveStatsFilterPreferences() {
+    if (statsRestoringFilters || typeof NLPagePrefs === 'undefined') return;
+    NLPagePrefs.saveFilters(STATS_PAGE_KEY, getStatsFilterState());
+}
+
+function setStatsMultiFilterValues(id, values) {
+    if (typeof NLFilters === 'undefined') return;
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    var available = new Set(Array.from(sel.options || []).map(function(o) { return o.value; }));
+    NLFilters.setValues(sel, (values || []).filter(function(v) { return available.has(v); }));
+    NLFilters.renderMenu(id);
+}
+
+function restoreStatsFilterPreferences() {
+    if (typeof NLPagePrefs === 'undefined') return;
+    var filters = NLPagePrefs.loadFilters(STATS_PAGE_KEY);
+    if (!filters || !Object.keys(filters).length) return;
+    statsRestoringFilters = true;
+    var ff = document.getElementById('stats-flt-ff');
+    var search = document.getElementById('stats-flt-search');
+    if (ff) ff.value = filters.fulfillmentModel || '';
+    if (search) search.value = filters.search || '';
+    setStatsMultiFilterValues('stats-flt-status', filters.status || []);
+    setStatsMultiFilterValues('stats-flt-class', filters.productClass || []);
+    setStatsMultiFilterValues('stats-flt-brand', filters.brand || []);
+    setStatsMultiFilterValues('stats-flt-tags', filters.tags || []);
+    statsTreeOpen = !!filters.treeOpen;
+    statsRestoringFilters = false;
+}
+
+function fillStatsMultiSelect(id, label, values) {
+    var sel = document.getElementById(id);
+    if (!sel || typeof NLFilters === 'undefined') return;
+    sel.innerHTML = '';
+    (values || []).forEach(function(v) {
+        if (v == null || v === '') return;
+        var opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        opt.title = v;
+        sel.appendChild(opt);
     });
-    updateStatsProductsCount();
+    NLFilters.selectAll(sel);
+    NLFilters.renderMenu(id, label);
+}
+
+function renderStatsFilterOptions(options) {
+    options = options || {};
+    fillStatsMultiSelect('stats-flt-status', 'Статус', options.product_status || []);
+    fillStatsMultiSelect('stats-flt-class', 'Класс', options.product_class || []);
+    fillStatsMultiSelect('stats-flt-brand', 'Бренд', options.brand || []);
+    fillStatsMultiSelect('stats-flt-tags', 'Теги', options.tags || []);
+    restoreStatsFilterPreferences();
+}
+
+function applyStatsFilters() {
+    if (!statsProductsTabulator) return;
+    var state = getStatsFilterState();
+    var q = String((state.search || '') + ' ' + (state.topSearch || '')).trim().toLowerCase();
+    statsVisibleProducts = (statsAllProducts || []).filter(function(row) {
+        if (state.fulfillmentModel && String(row.fulfillment_model || '').toLowerCase() !== state.fulfillmentModel.toLowerCase()) return false;
+        if (!statsMatchSelected(row.product_status, state.status)) return false;
+        if (!statsMatchSelected(row.product_class, state.productClass)) return false;
+        if (!statsMatchSelected(row.brand, state.brand)) return false;
+        if (!statsMatchTags(row.tags, state.tags)) return false;
+        if (q) {
+            return statsTextHas(row.nm_id_display || row.nm_id, q)
+                || statsTextHas(row.vendor_code, q)
+                || statsTextHas(row.product_name, q)
+                || statsBarcodeMatches(q, row);
+        }
+        return true;
+    });
+    statsProductsTabulator.setData(prepareStatsProducts(statsVisibleProducts)).then(function() {
+        setStatsTreeOpen(statsTreeOpen, true);
+        updateStatsProductsCount();
+    });
+    saveStatsFilterPreferences();
+}
+
+function resetStatsFilters() {
+    ['stats-flt-status', 'stats-flt-class', 'stats-flt-brand', 'stats-flt-tags'].forEach(function(id) {
+        var sel = document.getElementById(id);
+        if (sel && typeof NLFilters !== 'undefined') NLFilters.selectAll(sel);
+    });
+    var ff = document.getElementById('stats-flt-ff');
+    var search = document.getElementById('stats-flt-search');
+    if (ff) ff.value = '';
+    if (search) search.value = '';
+    applyStatsFilters();
+}
+
+function resetStatsColumnPreferences() {
+    if (typeof NLPagePrefs !== 'undefined') {
+        NLPagePrefs.resetColumns(STATS_PAGE_KEY + '-daily');
+        NLPagePrefs.resetColumns(STATS_PAGE_KEY + '-products');
+    }
+    if (statsDailyTabulator) { statsDailyTabulator.destroy(); statsDailyTabulator = null; }
+    if (statsProductsTabulator) { statsProductsTabulator.destroy(); statsProductsTabulator = null; }
+    initStatsDailyGrid();
+    initStatsProductsGrid();
+    applyStatsFilters();
+    if (typeof showToast === 'function') showToast('Порядок колонок восстановлен');
+}
+
+function resetStatsViewPreferences() {
+    if (typeof NLPagePrefs !== 'undefined') {
+        NLPagePrefs.resetAll(STATS_PAGE_KEY);
+        NLPagePrefs.resetAll(STATS_PAGE_KEY + '-daily');
+        NLPagePrefs.resetAll(STATS_PAGE_KEY + '-products');
+    }
+    resetStatsFilters();
+    resetStatsColumnPreferences();
+}
+
+function toggleStatsTreeOpen() {
+    setStatsTreeOpen(!statsTreeOpen);
+}
+
+function setStatsTreeOpen(open, silent) {
+    if (!statsProductsTabulator) return;
+    var rows = statsProductsTabulator.getRows ? statsProductsTabulator.getRows() : [];
+    rows.forEach(function(row) {
+        var data = row.getData();
+        if (!data || !data._isArticleRow) return;
+        if (open && typeof row.treeExpand === 'function') row.treeExpand();
+        if (!open && typeof row.treeCollapse === 'function') row.treeCollapse();
+    });
+    statsTreeOpen = !!open;
+    var btn = document.getElementById('stats-tree-toggle-btn');
+    if (btn) btn.textContent = statsTreeOpen ? 'Свернуть размеры' : 'Раскрыть размеры';
+    if (!silent && statsProductsTabulator.redraw) statsProductsTabulator.redraw(false);
+    saveStatsFilterPreferences();
 }
 
 function updateStatsProductsCount() {
     var count = document.getElementById('stats-products-count');
     if (!count || !statsProductsTabulator) return;
     var total = statsAllProducts.length;
-    var active = total;
-    try {
-        active = statsProductsTabulator.getData('active').length;
-    } catch (e) {
-        active = total;
-    }
+    var active = Array.isArray(statsVisibleProducts) ? statsVisibleProducts.length : total;
     count.textContent = active === total
         ? total.toLocaleString('ru-RU') + ' строк'
         : active.toLocaleString('ru-RU') + ' из ' + total.toLocaleString('ru-RU') + ' строк';
 }
 
 function setStatsGridPending(isPending) {
-    ['stats-summary-tabulator', 'stats-products-tabulator'].forEach(function(id) {
+    ['stats-summary-tabulator', 'stats-daily-tabulator', 'stats-products-tabulator'].forEach(function(id) {
         var el = document.getElementById(id);
         if (!el) return;
         el.classList.toggle('stats-grid-pending', !!isPending);
@@ -322,6 +580,7 @@ async function loadStatsGrid() {
     if (!ORG_ID) return;
     setStatsGridPending(true);
     initStatsSummaryGrid();
+    initStatsDailyGrid();
     initStatsProductsGrid();
 
     var range = getStatsDateRange();
@@ -362,18 +621,40 @@ async function loadStatsGrid() {
             rating: Number(s.avg_rating || 0),
         }]);
 
-        statsAllProducts = prepareStatsProducts(data.products || []);
-        await statsProductsTabulator.setData(statsAllProducts);
+        var daily = (data.daily || []).map(function(row) {
+            var orders = Number(row.orders_count || 0);
+            var buyouts = Number(row.buyouts_count || 0);
+            return Object.assign({}, row, {
+                buyout_pct: orders ? buyouts / orders * 100 : 0,
+            });
+        });
+        var dailyCount = document.getElementById('stats-daily-count');
+        if (dailyCount) dailyCount.textContent = daily.length.toLocaleString('ru-RU') + ' дней';
+        renderStatsFilterOptions(data.filter_options || {});
+        await statsDailyTabulator.setData(daily);
+
+        statsAllProducts = (data.products || []).map(function(row) {
+            var barcodes = statsBarcodeText(row.barcodes || row.barcode || '');
+            return Object.assign({}, row, {
+                nm_id_display: row.nm_id,
+                barcodes_display: barcodes,
+                barcodes_search: statsBarcodeSearchText({barcodes_display: barcodes}),
+            });
+        });
+        statsVisibleProducts = statsAllProducts.slice();
+        await statsProductsTabulator.setData(prepareStatsProducts(statsAllProducts));
         statsSummaryTabulator.redraw(true);
+        statsDailyTabulator.redraw(true);
         statsProductsTabulator.redraw(true);
         setStatsGridPending(false);
-        applyStatsTopSearch();
+        applyStatsFilters();
         updateStatsProductsCount();
     } catch (e) {
         console.error('loadStatsGrid error:', e);
         setStatsGridPending(false);
         if (count) count.textContent = 'Ошибка загрузки';
         if (statsSummaryTabulator) statsSummaryTabulator.setData([]);
+        if (statsDailyTabulator) statsDailyTabulator.setData([]);
         if (statsProductsTabulator) statsProductsTabulator.setData([]);
     }
 }
@@ -381,5 +662,8 @@ async function loadStatsGrid() {
 document.addEventListener('input', function(e) {
     if (e.target && e.target.id === 'filter-article' && _currentSection === 'stats') {
         applyStatsTopSearch();
+    }
+    if (e.target && e.target.id === 'stats-flt-search' && _currentSection === 'stats') {
+        applyStatsFilters();
     }
 });
