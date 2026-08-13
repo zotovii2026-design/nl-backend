@@ -20,6 +20,7 @@
         '#page-stats .tabulator .tabulator-footer{background:#f8f9fa;border-top:1px solid #e0e0e0;padding:6px 12px}',
         '#page-stats .tabulator .tabulator-placeholder{color:#999;font-size:12px}',
         '#page-stats .tabulator .tabulator-data-tree-control{border-color:#d8dbe3;background:#fff}',
+        '#stats-daily-tabulator .tabulator-tableholder{overflow-x:hidden!important}',
         '#page-stats .stats-article-row{background:#f8f9ff!important;font-weight:600}',
         '#page-stats .stats-barcode-list{display:block;white-space:normal;overflow-wrap:anywhere;line-height:1.25}',
         '#page-stats .stats-grid-pending{pointer-events:none}'
@@ -218,24 +219,25 @@ function initStatsSummaryGrid() {
 function initStatsDailyGrid() {
     if (statsDailyTabulator || !document.getElementById('stats-daily-tabulator')) return;
     var columns = [
-        {title: 'Дата', field: 'date', width: 110, headerSort: true},
-        {title: 'Заказы ₽', field: 'orders_revenue', width: 120, hozAlign: 'right', formatter: statsMoneyFormatter, bottomCalc: 'sum', bottomCalcFormatter: function(cell) { return statsMoney(cell.getValue()); }},
-        {title: 'Заказы', field: 'orders_count', width: 90, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
-        {title: 'Выкупы ₽', field: 'buyouts_revenue', width: 120, hozAlign: 'right', formatter: statsMoneyFormatter, bottomCalc: 'sum', bottomCalcFormatter: function(cell) { return statsMoney(cell.getValue()); }},
-        {title: 'Выкупы', field: 'buyouts_count', width: 90, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
-        {title: 'Возвраты', field: 'returns_count', width: 95, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
-        {title: '% выкупа', field: 'buyout_pct', width: 90, hozAlign: 'right', formatter: statsPercentFormatter},
-        {title: 'Реклама', field: 'ad_cost', width: 110, hozAlign: 'right', formatter: statsMoneyFormatter, bottomCalc: 'sum', bottomCalcFormatter: function(cell) { return statsMoney(cell.getValue()); }},
-        {title: 'Показы', field: 'impressions', width: 105, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
-        {title: 'Клики', field: 'clicks', width: 90, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
-        {title: 'CTR', field: 'ctr', width: 80, hozAlign: 'right', formatter: statsPercentFormatter},
-        {title: 'Остаток', field: 'stock_total', width: 100, hozAlign: 'right', formatter: statsNumberFormatter},
-        {title: 'Рейтинг', field: 'avg_rating', width: 85, hozAlign: 'right', formatter: statsNumberFormatter},
+        {title: 'Дата', field: 'date', minWidth: 86, responsive: 0, headerSort: true},
+        {title: 'Заказы ₽', field: 'orders_revenue', minWidth: 96, responsive: 0, hozAlign: 'right', formatter: statsMoneyFormatter, bottomCalc: 'sum', bottomCalcFormatter: function(cell) { return statsMoney(cell.getValue()); }},
+        {title: 'Заказы', field: 'orders_count', minWidth: 72, responsive: 0, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
+        {title: 'Выкупы ₽', field: 'buyouts_revenue', minWidth: 96, responsive: 0, hozAlign: 'right', formatter: statsMoneyFormatter, bottomCalc: 'sum', bottomCalcFormatter: function(cell) { return statsMoney(cell.getValue()); }},
+        {title: 'Выкупы', field: 'buyouts_count', minWidth: 72, responsive: 0, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
+        {title: 'Возвраты', field: 'returns_count', minWidth: 72, responsive: 2, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
+        {title: '% выкупа', field: 'buyout_pct', minWidth: 72, responsive: 2, hozAlign: 'right', formatter: statsPercentFormatter},
+        {title: 'Реклама', field: 'ad_cost', minWidth: 88, responsive: 3, hozAlign: 'right', formatter: statsMoneyFormatter, bottomCalc: 'sum', bottomCalcFormatter: function(cell) { return statsMoney(cell.getValue()); }},
+        {title: 'Показы', field: 'impressions', minWidth: 82, responsive: 5, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
+        {title: 'Клики', field: 'clicks', minWidth: 68, responsive: 5, hozAlign: 'right', formatter: statsNumberFormatter, bottomCalc: 'sum'},
+        {title: 'CTR', field: 'ctr', minWidth: 60, responsive: 4, hozAlign: 'right', formatter: statsPercentFormatter},
+        {title: 'Остаток', field: 'stock_total', minWidth: 72, responsive: 4, hozAlign: 'right', formatter: statsNumberFormatter},
+        {title: 'Рейтинг', field: 'avg_rating', minWidth: 68, responsive: 6, hozAlign: 'right', formatter: statsNumberFormatter},
     ];
     if (typeof NLPagePrefs !== 'undefined') columns = NLPagePrefs.applyColumnOrder(STATS_PAGE_KEY + '-daily', columns);
     statsDailyTabulator = new Tabulator('#stats-daily-tabulator', {
         data: [],
-        layout: 'fitDataFill',
+        layout: 'fitColumns',
+        responsiveLayout: 'hide',
         height: 280,
         placeholder: 'Нет данных',
         movableColumns: true,
