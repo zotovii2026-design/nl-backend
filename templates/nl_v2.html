@@ -195,7 +195,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <!-- Chart.js -->
 <script src="/static/lib/chart.min.js"></script>
 <script type="text/javascript" src="/static/js/nl-grid.js?v=20260605"></script>
-<script type="text/javascript" src="/static/js/stats-grid.js?v=20260813-daily-tree-filters1"></script>
+<script type="text/javascript" src="/static/js/stats-grid.js?v=20260813-stats-reference-style2"></script>
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260803-reference-style-tree"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260810-fbo-average"></script>
@@ -295,7 +295,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <span style="color:#888;font-size:.82em">Заказы, выкупы, возвраты и реклама — за период. Остатки, цены и рейтинг — на последнюю дату периода.</span>
 </div>
 
-<div id="stats-alerts" style="margin-bottom:12px"></div>
+<div id="stats-alerts"></div>
 
 <div id="stats-filters" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;padding:8px 12px;background:#f0f1f5;border-radius:8px;font-size:.82em">
 <label style="color:#666;font-weight:600">Фильтры:</label>
@@ -327,23 +327,23 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <button id="stats-reset-filters" type="button" onclick="resetStatsFilters()" style="border:none;background:none;color:#e17055;cursor:pointer;font-size:.9em;padding:4px 8px">✕ Сброс фильтров</button>
 </div>
 
-<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px">
-<div style="font-size:1.05em;font-weight:700;color:#333">Итоги за период</div>
-<div style="font-size:.82em;color:#888">агрегировано по выбранным датам</div>
+<div class="stats-section-head">
+<div class="stats-section-title">Итоги за период</div>
+<div class="stats-section-note">агрегировано по выбранным датам</div>
 </div>
-<div id="stats-summary-tabulator" class="stats-grid-pending" style="min-height:120px;width:100%;margin-bottom:18px"></div>
+<div id="stats-summary-tabulator" class="stats-grid-pending stats-table" style="min-height:120px;width:100%"></div>
 
-<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px">
-<div style="font-size:1.05em;font-weight:700;color:#333">По дням</div>
-<div id="stats-daily-count" style="font-size:.82em;color:#888"></div>
+<div class="stats-section-head">
+<div class="stats-section-title">По дням</div>
+<div id="stats-daily-count" class="stats-section-note"></div>
 </div>
-<div id="stats-daily-tabulator" class="stats-grid-pending" style="min-height:280px;width:100%;margin-bottom:18px"></div>
+<div id="stats-daily-tabulator" class="stats-grid-pending stats-table" style="min-height:280px;width:100%"></div>
 
-<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px">
-<div style="font-size:1.05em;font-weight:700;color:#333">Товары</div>
-<div id="stats-products-count" style="font-size:.82em;color:#888"></div>
+<div class="stats-section-head">
+<div class="stats-section-title">Товары</div>
+<div id="stats-products-count" class="stats-section-note"></div>
 </div>
-<div id="stats-products-tabulator" class="stats-grid-pending" style="min-height:560px;width:100%;"></div>
+<div id="stats-products-tabulator" class="stats-grid-pending stats-table" style="min-height:560px;width:100%"></div>
 </div>
 
 <div id="page-analytics" class="page-section"></div>

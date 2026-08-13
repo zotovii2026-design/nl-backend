@@ -1,7 +1,29 @@
 // Единый стиль табуляторов — эталон Справочника (8px заголовки, 11px ячейки)
 (function(){
     var s = document.createElement('style');
-    s.textContent = '#stats-summary-tabulator .tabulator-col-title,#stats-daily-tabulator .tabulator-col-title,#stats-products-tabulator .tabulator-col-title{font-size:8px!important;line-height:1.1!important;padding:2px 4px!important}#stats-summary-tabulator .tabulator-col .tabulator-col-content,#stats-daily-tabulator .tabulator-col .tabulator-col-content,#stats-products-tabulator .tabulator-col .tabulator-col-content{padding:2px 4px!important}#stats-summary-tabulator .tabulator-cell,#stats-daily-tabulator .tabulator-cell,#stats-products-tabulator .tabulator-cell{font-size:11px!important}.stats-barcode-list{display:block;white-space:normal;overflow-wrap:anywhere;line-height:1.25}.stats-article-row{background:#f8f9ff!important;font-weight:600}.stats-grid-pending{opacity:.45;pointer-events:none}';
+    s.id = 'stats-grid-style';
+    s.textContent = [
+        '#page-stats .stats-section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 6px}',
+        '#page-stats .stats-section-title{font-size:1.02em;font-weight:700;color:#333}',
+        '#page-stats .stats-section-note{font-size:.82em;color:#888}',
+        '#page-stats #stats-alerts:empty{display:none}',
+        '#page-stats #stats-alerts{margin:0 0 8px}',
+        '#page-stats .stats-table{margin-bottom:12px}',
+        '#page-stats .stats-table:last-child{margin-bottom:0}',
+        '#page-stats .tabulator{border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;background:#fff;font-size:.82em}',
+        '#page-stats .tabulator .tabulator-header{background:#f8f9fa;border-bottom:2px solid #e0e0e0;color:#333;font-size:.7em;text-transform:none;letter-spacing:0}',
+        '#page-stats .tabulator .tabulator-header .tabulator-col{border-right:1px solid #e0e0e0}',
+        '#page-stats .tabulator .tabulator-header .tabulator-col .tabulator-col-content{padding:2px 4px!important}',
+        '#page-stats .tabulator .tabulator-col-title{font-size:8px!important;line-height:1.1!important;padding:2px 4px!important}',
+        '#page-stats .tabulator .tabulator-cell{font-size:11px!important;padding:4px 6px;border-right:1px solid #f0f0f0;border-bottom:1px solid #f0f0f0}',
+        '#page-stats .tabulator .tabulator-row:hover{background:#f8f9ff}',
+        '#page-stats .tabulator .tabulator-footer{background:#f8f9fa;border-top:1px solid #e0e0e0;padding:6px 12px}',
+        '#page-stats .tabulator .tabulator-placeholder{color:#999;font-size:12px}',
+        '#page-stats .tabulator .tabulator-data-tree-control{border-color:#d8dbe3;background:#fff}',
+        '#page-stats .stats-article-row{background:#f8f9ff!important;font-weight:600}',
+        '#page-stats .stats-barcode-list{display:block;white-space:normal;overflow-wrap:anywhere;line-height:1.25}',
+        '#page-stats .stats-grid-pending{pointer-events:none}'
+    ].join('');
     document.head.appendChild(s);
 })();
 
