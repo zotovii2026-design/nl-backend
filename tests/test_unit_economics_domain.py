@@ -17,6 +17,14 @@ def _tariff_rows():
     ]
 
 
+def _new_rf_tariff_rows():
+    return [
+        ("Свой склад СГТ РФ", None, None, 46, 14, None, 100),
+        ("Свой склад РФ", None, None, 78.2, 23.8, None, 170),
+        ("Ташкент", 46, 14, None, None, 100, None),
+    ]
+
+
 def test_fbo_delivery_keeps_average_warehouse_method():
     context = build_box_tariff_context(_tariff_rows())
 
@@ -60,6 +68,38 @@ def test_fbs_delivery_uses_selected_warehouse_tariff():
     assert cost == 120
     assert debug["method"] == "ФБС (>1л)"
     assert debug["warehouse"] == "Коледино"
+
+
+def test_fbo_delivery_uses_virtual_rf_average_when_wb_hides_russian_warehouses():
+    context = build_box_tariff_context(_new_rf_tariff_rows())
+
+    cost, debug = calculate_delivery(0.5, "fbo", None, context)
+
+    assert cost == 78.2
+    assert context["fbo_unified_rf"] is True
+    assert debug["method"] == "ФБО/FBW РФ единый тариф"
+    assert debug["warehouses"] == ["Коледино", "Краснодар", "Казань"]
+    assert debug["avg_coef"] == 170
+
+
+def test_fbo_delivery_keeps_selected_virtual_warehouses_for_rf_unified_tariff():
+    context = build_box_tariff_context(_new_rf_tariff_rows(), ["Коледино", "Казань"])
+
+    cost, debug = calculate_delivery(2.1, "fbo", None, context)
+
+    assert cost == 125.8
+    assert context["fbo_unified_rf"] is True
+    assert debug["warehouses"] == ["Коледино", "Казань"]
+
+
+def test_fbs_delivery_uses_rf_unified_tariff_without_selected_warehouse():
+    context = build_box_tariff_context(_new_rf_tariff_rows())
+
+    cost, debug = calculate_delivery(0.5, "fbs", None, context)
+
+    assert cost == 78.2
+    assert debug["method"] == "ФБС РФ единый тариф"
+    assert debug["warehouse"] == "Свой склад РФ"
 
 
 @pytest.mark.parametrize(

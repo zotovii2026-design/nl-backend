@@ -13,6 +13,8 @@ WB_TIER_RATES = (
 )
 WB_BASE_FIRST_LITER = 46.0
 WB_BASE_NEXT_LITER = 14.0
+WB_RF_UNIFIED_WAREHOUSE = "Свой склад РФ"
+WB_RF_UNIFIED_SGT_WAREHOUSE = "Свой склад СГТ РФ"
 
 
 def normalize_fbo_average_warehouses(
@@ -64,6 +66,11 @@ def build_box_tariff_context(
             matched_fbo_warehouses.append(warehouse_name)
 
     if not fbo_count and selected_fbo_warehouses != DEFAULT_FBO_AVERAGE_WAREHOUSES:
+        default_delivery_sum = 0.0
+        default_liter_sum = 0.0
+        default_coef_sum = 0.0
+        default_count = 0
+        default_matched_warehouses = []
         default_lookup = {name.lower() for name in DEFAULT_FBO_AVERAGE_WAREHOUSES}
         for row in rows:
             warehouse_name = row[0]
@@ -72,12 +79,32 @@ def build_box_tariff_context(
                 and row[1] is not None
                 and row[2] is not None
             ):
-                fbo_delivery_sum += float(row[1])
-                fbo_liter_sum += float(row[2])
-                fbo_coef_sum += float(row[5]) if len(row) > 5 and row[5] else 0
-                fbo_count += 1
-                matched_fbo_warehouses.append(warehouse_name)
-        selected_fbo_warehouses = DEFAULT_FBO_AVERAGE_WAREHOUSES
+                default_delivery_sum += float(row[1])
+                default_liter_sum += float(row[2])
+                default_coef_sum += float(row[5]) if len(row) > 5 and row[5] else 0
+                default_count += 1
+                default_matched_warehouses.append(warehouse_name)
+        if default_count:
+            fbo_delivery_sum = default_delivery_sum
+            fbo_liter_sum = default_liter_sum
+            fbo_coef_sum = default_coef_sum
+            fbo_count = default_count
+            matched_fbo_warehouses = default_matched_warehouses
+            selected_fbo_warehouses = DEFAULT_FBO_AVERAGE_WAREHOUSES
+
+    fbo_unified_rf = False
+    rf_unified = tariffs.get(WB_RF_UNIFIED_WAREHOUSE)
+    if not fbo_count and rf_unified and rf_unified.get("fbs_base"):
+        # WB changed Russian FBW/FBO tariffs from warehouse-level rows to one
+        # country-wide 170% row. Keep user-selected warehouses as virtual
+        # averaging targets so the product model can switch back when WB returns
+        # warehouse rows.
+        fbo_delivery_sum = float(rf_unified.get("fbs_base") or 0)
+        fbo_liter_sum = float(rf_unified.get("fbs_liter") or 0)
+        fbo_coef_sum = float(rf_unified.get("fbs_coef") or 0)
+        fbo_count = 1
+        fbo_unified_rf = True
+        matched_fbo_warehouses = list(selected_fbo_warehouses)
 
     return {
         "tariffs": tariffs,
@@ -86,6 +113,7 @@ def build_box_tariff_context(
         "fbo_avg_base": round(fbo_delivery_sum / fbo_count, 2) if fbo_count else 0,
         "fbo_avg_liter": round(fbo_liter_sum / fbo_count, 2) if fbo_count else 0,
         "fbo_avg_coef": round(fbo_coef_sum / fbo_count, 2) if fbo_count else 0,
+        "fbo_unified_rf": fbo_unified_rf,
     }
 
 
@@ -94,6 +122,10 @@ def wb_rate_per_liter(volume_liters: float) -> float:
         if lower <= volume_liters <= upper:
             return rate
     return WB_BASE_FIRST_LITER
+
+
+def _box_delivery_cost(base: float, liter: float, volume_ceil: int) -> float:
+    return round(base + max(volume_ceil - 1, 0) * liter, 2)
 
 
 def calculate_delivery(
@@ -108,14 +140,18 @@ def calculate_delivery(
     tariffs = context["tariffs"]
     volume_ceil = math.ceil(volume_liters)
 
-    if fulfillment_model == "fbs" and fbs_warehouse:
+    if fulfillment_model == "fbs":
         warehouse_tariffs = None
         warehouse_found = None
-        for warehouse_name in tariffs:
-            if fbs_warehouse in warehouse_name or warehouse_name in fbs_warehouse:
-                warehouse_tariffs = tariffs[warehouse_name]
-                warehouse_found = warehouse_name
-                break
+        if fbs_warehouse:
+            for warehouse_name in tariffs:
+                if fbs_warehouse in warehouse_name or warehouse_name in fbs_warehouse:
+                    warehouse_tariffs = tariffs[warehouse_name]
+                    warehouse_found = warehouse_name
+                    break
+        if not warehouse_tariffs:
+            warehouse_tariffs = tariffs.get(WB_RF_UNIFIED_WAREHOUSE)
+            warehouse_found = WB_RF_UNIFIED_WAREHOUSE if warehouse_tariffs else None
 
         if warehouse_tariffs:
             base = (
@@ -134,7 +170,19 @@ def calculate_delivery(
                 or 100
             )
             if base:
-                if volume_liters <= 1.0:
+                if warehouse_found in (WB_RF_UNIFIED_WAREHOUSE, WB_RF_UNIFIED_SGT_WAREHOUSE):
+                    cost = _box_delivery_cost(base, liter, volume_ceil)
+                    debug = {
+                        "method": "ФБС РФ единый тариф",
+                        "warehouse": warehouse_found,
+                        "vol_ceil": volume_ceil,
+                        "base": base,
+                        "liter": liter,
+                        "coef": coef,
+                        "formula": f"{base} + {max(volume_ceil - 1, 0)}×{liter}",
+                        "result": cost,
+                    }
+                elif volume_liters <= 1.0:
                     rate = wb_rate_per_liter(volume_liters)
                     cost = round(rate * (coef / 100), 2)
                     debug = {
@@ -150,7 +198,7 @@ def calculate_delivery(
                         "result": cost,
                     }
                 else:
-                    cost = round(base + (volume_ceil - 1) * liter, 2)
+                    cost = _box_delivery_cost(base, liter, volume_ceil)
                     debug = {
                         "method": "ФБС (>1л)",
                         "warehouse": warehouse_found,
@@ -185,7 +233,7 @@ def calculate_delivery(
                     "result": cost,
                 }
             else:
-                cost = round(base + (volume_ceil - 1) * liter, 2)
+                cost = _box_delivery_cost(base, liter, volume_ceil)
                 debug = {
                     "method": "ФБС Коледино (>1л, fallback)",
                     "warehouse": "Коледино",
@@ -202,7 +250,27 @@ def calculate_delivery(
         return 0, {}
 
     if context["fbo_avg_base"]:
-        if volume_liters <= 1.0:
+        if context.get("fbo_unified_rf"):
+            cost = _box_delivery_cost(
+                context["fbo_avg_base"],
+                context["fbo_avg_liter"],
+                volume_ceil,
+            )
+            debug = {
+                "method": "ФБО/FBW РФ единый тариф",
+                "vol_ceil": volume_ceil,
+                "avg_base": context["fbo_avg_base"],
+                "avg_liter": context["fbo_avg_liter"],
+                "avg_coef": context["fbo_avg_coef"],
+                "warehouses": context.get("fbo_matched_warehouses", []),
+                "formula": (
+                    f"{context['fbo_avg_base']} + "
+                    f"{max(volume_ceil - 1, 0)}×{context['fbo_avg_liter']} "
+                    f"(единый РФ тариф {context['fbo_avg_coef']}%)"
+                ),
+                "result": cost,
+            }
+        elif volume_liters <= 1.0:
             rate = wb_rate_per_liter(volume_liters)
             cost = round(rate * (context["fbo_avg_coef"] / 100), 2)
             debug = {
@@ -218,10 +286,10 @@ def calculate_delivery(
                 "result": cost,
             }
         else:
-            cost = round(
-                context["fbo_avg_base"]
-                + (volume_ceil - 1) * context["fbo_avg_liter"],
-                2,
+            cost = _box_delivery_cost(
+                context["fbo_avg_base"],
+                context["fbo_avg_liter"],
+                volume_ceil,
             )
             debug = {
                 "method": "ФБО-среднее (>1л)",
