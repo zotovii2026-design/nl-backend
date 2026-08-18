@@ -141,11 +141,10 @@ def normalize_coefficients(coeffs: Dict[str, float]) -> Dict[str, float]:
 
 
 def weights_for_keyword_count(count: int) -> List[float]:
-    if count <= 1:
-        return [1.0]
-    if count == 2:
-        return [0.7, 0.3]
-    return [0.5, 0.3, 0.2]
+    # Простое среднее по всем запросам (решение Шефа 18.08.2026)
+    if count <= 0:
+        return []
+    return [1.0] * count
 
 
 def weighted_coefficients(coefficients_list: List[Dict[str, float]]) -> Dict[str, float]:
