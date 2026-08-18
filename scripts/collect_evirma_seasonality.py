@@ -157,8 +157,14 @@ def parse_evirma(data: Dict, org_id: str) -> List[Dict]:
     records = []
     if "data" not in data or "keywords" not in data["data"]:
         return records
-    
-    for kw, kw_data in data["data"]["keywords"].items():
+
+    keywords_data = data["data"]["keywords"]
+    # Evirma может вернуть пустой список для незнакомых запросов
+    if not isinstance(keywords_data, dict):
+        _log.info("Evirma returned keywords as %s (no data for batch keywords)", type(keywords_data).__name__)
+        return records
+
+    for kw, kw_data in keywords_data.items():
         cluster = kw_data.get("cluster", {})
         subjects = kw_data.get("subjects", [])
         wb_subject_id = subjects[0] if subjects else None
