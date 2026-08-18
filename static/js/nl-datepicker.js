@@ -399,7 +399,7 @@ function nlSetPresetSilent(preset) {
 function nlDatepickerVisibility(sectionName) {
     var container = document.getElementById('nl-datepicker-container');
     if (!container) return;
-    var noDateSections = ['costprice','salesplan','opexpenses','connectors','subscription','settings','help'];
+    var noDateSections = ['costprice','salesplan','opexpenses','connectors','subscription','settings','help','unitecon'];
     if (noDateSections.indexOf(sectionName) !== -1) {
         container.style.display = 'none';
     } else {
