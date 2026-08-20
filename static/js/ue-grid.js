@@ -23,26 +23,26 @@ const UE_HEADER_TOOLTIPS = {
     mp_base_pct: 'Базовая комиссия маркетплейса: из Справочника, иначе из данных WB.',
     mp_correction_pct: 'Ручная поправка к комиссии маркетплейса.',
     mp_total_pct: 'Формула: Базовый % МП + Коррекция % МП.',
-    mp_commission: 'Формула: Цена с СПП * Итоговый % МП / 100.',
+    mp_commission: 'Формула: Цена до СПП * Итоговый % МП / 100.',
     buyout_niche_pct: 'Ручной % выкупа по категории из Справочника.',
     buyout_fact_pct: 'Факт за 30 дней: выкупы / заказы * 100.',
     logistics_tariff: 'Расчёт доставки до клиента по габаритам товара и тарифам WB.',
     logistics_actual: 'Пока не считается: источник финотчёта не подключён.',
     reverse_logistics: 'Расчёт обратной логистики по объёму товара.',
     logistics_with_buyout: 'Формула: Лог. тариф + Обратная лог. * (1 - % выкупа). % выкупа: факт, иначе по категории.',
-    localization_idx: 'Пока не считается: источник не подключён.',
-    sales_dist_idx: 'Пока не считается: источник не подключён.',
-    logistics_accounted: 'Пока не считается. План: логистика к учёту с индексами.',
+    localization_idx: null,
+    sales_dist_idx: null,
+    logistics_accounted: null,
     logistics_finreport: 'Пока не считается. План: брать логистику из финотчёта WB.',
     storage_tariff: 'Расчётное хранение по данным WB.',
     storage_actual: 'Пока не считается: источник финотчёта не подключён.',
     acquiring_pct: 'Ставка эквайринга для расчёта: 1.5%.',
-    acquiring_rub: 'Формула: Цена с СПП * 1.5%.',
+    acquiring_rub: 'Формула: Цена до СПП * 1.5%.',
     acceptance_avg: 'Пока не считается: источник приёмки не подключён.',
-    tax_rate: 'Ставка налога из Справочника или настроек организации.',
-    vat_rate: 'Ставка НДС для расчёта налога.',
-    tax_total_pct: 'Пока не считается отдельным процентом.',
-    tax_total: 'Расчёт налога по системе налогообложения, ставкам, цене, комиссии и себестоимости.',
+    tax_label: 'Вид налога и ставка из Справочника (УСН Д / УСН Д-Р / ОСНО).',
+    tax_total: 'Сумма удержания налога. База УСН Д: цена с СПП * ставка. УСН Д-Р: (доход - комиссия - себестоимость) * ставка.',
+    other_deductions_finreport_pct: 'Прочие удержания, % из финотчёта.',
+    other_deductions_finreport: 'Прочие удержания, ₽ из финотчёта.',
     ad_fact_pct: 'Пока не считается: источник финотчёта не подключён.',
     ad_fact_rub: 'Формула: Цена с СПП * Рекл. факт % / 100.',
     ad_plan_pct: 'Плановый % рекламы из Справочника. Если пусто — 5%.',
@@ -137,18 +137,29 @@ function getUEColumns() {
                     }
                 },
                 { title: 'Арт продавца', field: 'vendor_code',
-                    headerTooltip: 'Артикул продавца', width: 80, headerSort: true, tooltip: true, cssClass: 'truncate-cell' },
+                    headerTooltip: 'Артикул продавца (клик — копировать)', width: 90, headerSort: true, tooltip: true, cssClass: 'truncate-cell',
+                    formatter: function(cell) {
+                        const v = cell.getValue();
+                        if (!v) return '';
+                        return '<span style="cursor:copy" title="Копировать" onclick="ueCopyText(this,\'' + String(v).replace(/'/g, '') + '\')">' + v + '</span>';
+                    } },
                 { title: 'Размер', field: 'size_name',
-                    headerTooltip: 'Размер', width: 50, headerSort: true },
+                    headerTooltip: 'Размер (плюсик — развернуть размеры)', width: 60, headerSort: true },
                 { title: 'Баркод', field: 'barcode',
-                    headerTooltip: 'Баркод (по API)', width: 90, headerSort: false, tooltip: true, cssClass: 'truncate-cell' },
+                    headerTooltip: 'Баркод (клик — копировать)', width: 95, headerSort: false, tooltip: true, cssClass: 'truncate-cell',
+                    formatter: function(cell) {
+                        const v = cell.getValue();
+                        if (!v) return '';
+                        return '<span style="cursor:copy" title="Копировать" onclick="ueCopyText(this,\'' + String(v).replace(/[^0-9]/g, '') + '\')">' + v + '</span>';
+                    } },
                 { title: 'Арт WB', field: 'nm_id_display',
-                    headerTooltip: 'SKU / Артикул WB (клик → страница товара)', width: 80, headerSort: true,
+                    headerTooltip: 'SKU / Артикул WB (клик — копировать, ссылка — открыть карточку)', width: 95, headerSort: true,
                     formatter: function(cell) {
                         const nmId = cell.getValue();
                         if (!nmId) return '';
                         const url = 'https://www.wildberries.ru/catalog/' + nmId + '/detail.aspx';
-                        return '<a href="' + url + '" target="_blank" style="color:#5b4a9e;text-decoration:none;font-weight:bold" title="Открыть на Wildberries">' + nmId + '</a>';
+                        return '<a href="' + url + '" target="_blank" style="color:#5b4a9e;text-decoration:none;font-weight:bold" title="Открыть на Wildberries">' + nmId + '</a>' +
+                            ' <span style="cursor:copy;color:#999" title="Копировать артикул" onclick="ueCopyText(this,\'' + nmId + '\')">⧉</span>';
                     }
                 },
                 { title: 'Товар', field: 'product_name',
@@ -235,18 +246,6 @@ function getUEColumns() {
                     headerTooltip: 'Логистика с учётом % выкупа = Лог. тариф + Обратная лог. × (1 - % выкупа)', width: 90, headerSort: true,
                     formatter: function(cell) { const v = parseFloat(cell.getValue()); return v ? v.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽' : '—'; }
                 },
-                { title: 'ИЛ', field: 'localization_idx',
-                    headerTooltip: 'Индекс локализации', width: 45, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v || '—'; }
-                },
-                { title: 'ИРП', field: 'sales_dist_idx',
-                    headerTooltip: 'Индекс распределения продаж', width: 45, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v || '—'; }
-                },
-                { title: 'Лог. к учёту', field: 'logistics_accounted',
-                    headerTooltip: 'Логистика к учёту (с ИЛ и ИРП)', width: 85, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v || '—'; }
-                },
                 { title: 'Лог. финотчет', field: 'logistics_finreport',
                     headerTooltip: 'Логистика МП финотчет', width: 90, headerSort: false,
                     formatter: function(cell) { const v = cell.getValue(); return v || '—'; }
@@ -289,27 +288,16 @@ function getUEColumns() {
         },
 
         // === 🧾 Налоги ===
+        // === 🧾 Налоги (П.9/10: шапка — вид и ставка, ячейки — сумма удержания) ===
         {
             title: '🧾 Налоги',
             columns: [
-                { title: 'Налог %', field: 'tax_rate',
-                    headerTooltip: 'Налог % (из справочника)', width: 55, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? '<b>' + v + '%</b>' : '—'; }
-                },
-                { title: 'НДС от дохода', field: 'vat_rate',
-                    headerTooltip: 'НДС от дохода (из справочника)', width: 65, headerSort: false,
-                    formatter: function(cell) {
-                        const v = cell.getValue();
-                        if (!v || v === 0) return 'нет';
-                        return v + '%';
-                    }
-                },
-                { title: 'Налог итого %', field: 'tax_total_pct',
-                    headerTooltip: 'Налог итого, %', width: 75, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? v + '%' : '—'; }
+                { title: 'Вид налога', field: 'tax_label',
+                    headerTooltip: 'Вид налога и ставка из Справочника', width: 85, headerSort: false,
+                    formatter: function(cell) { const v = cell.getValue(); return v || '—'; }
                 },
                 { title: 'Налог итого ₽', field: 'tax_total',
-                    headerTooltip: 'Налог итого, ₽', width: 85, headerSort: false,
+                    headerTooltip: 'Сумма удержания налога, ₽', width: 85, headerSort: false,
                     formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
                 },
             ]
@@ -342,8 +330,12 @@ function getUEColumns() {
         {
             title: '⚠️ Прочие',
             columns: [
-                { title: 'Прочие ₽', field: 'other_deductions_finreport',
-                    headerTooltip: 'Прочие удержания (фин. отчёт)', width: 100, headerSort: false,
+                { title: 'Прочие уд., % (фин. отчет)', field: 'other_deductions_finreport_pct',
+                    headerTooltip: 'Прочие удержания, % (фин. отчет)', width: 90, headerSort: false,
+                    formatter: function(cell) { const v = cell.getValue(); return v ? v + '%' : '—'; }
+                },
+                { title: 'Прочие уд., ₽ (фин. отчет)', field: 'other_deductions_finreport',
+                    headerTooltip: 'Прочие удержания, ₽ (фин. отчет)', width: 95, headerSort: false,
                     formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
                 },
             ]
@@ -520,7 +512,8 @@ function initUEGrid() {
         dataTree: true,
         dataTreeChildField: '_children',
         dataTreeStartExpanded: false,
-        dataTreeElementColumn: 'nm_id_display',
+        // П.1 (20.08.2026): плюсик развертывания перенесён в колонку «Размер»
+        dataTreeElementColumn: 'size_name',
         initialSort: [
             {column: 'nm_id_display', dir: 'asc'},
         ],
@@ -1099,3 +1092,21 @@ async function refreshPricesFromWB() {
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(checkPricesCooldown, 1000);
 });
+
+// П.4 (20.08.2026): быстрое копирование арт. поставщика / баркода / арт. WB
+function ueCopyText(el, text) {
+    if (!text) return;
+    const done = function() {
+        const old = el.textContent;
+        el.textContent = '✓';
+        setTimeout(function() { el.textContent = old; }, 800);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(function() {});
+    } else {
+        const ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta);
+        ta.select(); try { document.execCommand('copy'); done(); } catch (e) {}
+        document.body.removeChild(ta);
+    }
+}

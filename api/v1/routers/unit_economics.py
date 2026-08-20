@@ -282,11 +282,8 @@ async def build_unit_economics(
             "ad_fact_pct": 0,  # заглушка, позже из финотчёта
             "ad_fact_rub": 0,  # заглушка, позже из финотчёта
             "wb_club_discount_pct_api": 0,
-            "localization_idx": None,
-            "sales_dist_idx": None,
-            "logistics_accounted": None,
-            "logistics_finreport": None,
-            "tax_total_pct": None,
+            # П.5/10 (20.08.2026): ИЛ, ИРП, Лог.к учёту, Налог итого % удалены
+            "other_deductions_finreport_pct": 0,
             "other_deductions_finreport": 0,
             "wb_club_discount_rub": 0,
             "loyalty_cashback_pct": 0,
@@ -320,7 +317,6 @@ async def build_unit_economics(
         }
 
         item = apply_financial_formulas(item)
-        item["acquiring_rub"] = round(item["price_with_spp"] * item["acquiring_pct"] / 100, 2)
         items.append(item)
 
     # Сохраняем в Redis-кэш только полный набор: частичный limit не должен становиться полным кэшем.

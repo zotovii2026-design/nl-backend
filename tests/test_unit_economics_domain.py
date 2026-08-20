@@ -141,13 +141,16 @@ def test_financial_formulas_keep_legacy_contract():
 
     result = apply_financial_formulas(item)
 
+    # 20.08.2026: комиссия и эквайринг — от цены ДО СПП; налог УСН Д — от цены с СПП
     assert result["mp_total_pct"] == 12
     assert result["ad_plan_rub"] == 50
-    assert result["mp_commission"] == 108
-    assert result["tax_total"] == 54
+    assert result["mp_commission"] == 120  # 1000 * 12%
+    assert result["acquiring_rub"] == 15  # 1000 * 1.5%
+    assert result["tax_total"] == 54  # 900 * 6%
+    assert result["tax_label"] == "УСН Д, 6%"
     assert result["logistics_with_buyout"] == 54
-    assert result["expenses_fact"] == 539.5
-    assert result["profit_fact"] == 360.5
+    assert result["expenses_fact"] == 553.0
+    assert result["profit_fact"] == 347.0
     assert result["plan_price_spp"] == 1100
     assert result["profit_plan"] == 493.5
     assert result["profit_change"] == 602

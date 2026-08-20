@@ -370,7 +370,11 @@ def normalize_tax_system(raw: str | None) -> str | None:
 
 
 def calculate_tax(item: dict[str, Any], price: float, commission: float) -> float:
+    """Сумма удержания налога. Система и ставка — из Справочника (fallback — организация).
+    П.9 (20.08.2026): если налог не задан — 0."""
     tax_system = normalize_tax_system(item.get("tax_system"))
+    if not tax_system or not item.get("tax_rate"):
+        return 0
     if tax_system == "usn":
         return round(price * item["tax_rate"] / 100, 2)
     if tax_system == "usn_dr":
@@ -388,6 +392,20 @@ def calculate_tax(item: dict[str, Any], price: float, commission: float) -> floa
     return 0
 
 
+def tax_header_label(item: dict[str, Any]) -> str:
+    """Подпись вида налога/ставки для шапки колонки (п.9-а, 20.08.2026)."""
+    tax_system = normalize_tax_system(item.get("tax_system"))
+    rate = item.get("tax_rate")
+    if tax_system == "usn":
+        return f"УСН Д, {rate}%" if rate else "УСН Д"
+    if tax_system == "usn_dr":
+        return f"УСН Д-Р, {rate}%" if rate else "УСН Д-Р"
+    if tax_system == "osn":
+        vat = item.get("vat_rate")
+        return f"ОСНО, НДС {vat}%" if vat else "ОСНО"
+    return "Налог не задан"
+
+
 def apply_financial_formulas(item: dict[str, Any]) -> dict[str, Any]:
     mp_total_pct = item["mp_base_pct"] + item["mp_correction_pct"]
     item["mp_total_pct"] = mp_total_pct
@@ -400,11 +418,16 @@ def apply_financial_formulas(item: dict[str, Any]) -> dict[str, Any]:
         2,
     )
 
-    mp_commission = round(item["price_with_spp"] * mp_total_pct / 100, 2)
+    # П.3 (20.08.2026): комиссия — от цены ДО СПП (деление на 100 — перевод % в долю, обязательно)
+    mp_commission = round(item["price_before_spp"] * mp_total_pct / 100, 2)
     item["mp_commission"] = mp_commission
-    acquiring = round(item["price_with_spp"] * 0.015, 2)
+    # П.8 (20.08.2026): эквайринг — цена ДО СПП * 1.5%
+    acquiring = round(item["price_before_spp"] * (item.get("acquiring_pct") or 1.5) / 100, 2)
+    item["acquiring_rub"] = acquiring
+    # П.9: налог от цены с СПП, вид/ставка из Справочника
     tax = calculate_tax(item, item["price_with_spp"], mp_commission)
     item["tax_total"] = tax
+    item["tax_label"] = tax_header_label(item)
 
     reverse_logistics = item["reverse_logistics"] or 0
     buyout_pct = (
@@ -456,7 +479,8 @@ def apply_financial_formulas(item: dict[str, Any]) -> dict[str, Any]:
         if item["spp_pct"]
         else plan_price
     )
-    plan_commission = round(plan_price_spp * mp_total_pct / 100, 2)
+    # П.3: комиссия от цены до СПП (база plan_price — это цена до СПП)
+    plan_commission = round(plan_price * mp_total_pct / 100, 2)
     plan_tax = calculate_tax(item, plan_price_spp, plan_commission)
     expenses_plan = (
         item["cost_price"]
@@ -467,7 +491,7 @@ def apply_financial_formulas(item: dict[str, Any]) -> dict[str, Any]:
         + item["logistics_actual"]
         + item["storage_actual"]
         + item["acceptance_avg"]
-        + round(plan_price_spp * 0.015, 2)
+        + round(plan_price * 0.015, 2)
         + plan_tax
         + round(plan_price_spp * item["ad_plan_pct"] / 100, 2)
         + reverse_logistics
@@ -497,7 +521,7 @@ def apply_financial_formulas(item: dict[str, Any]) -> dict[str, Any]:
         if item["spp_pct"]
         else change_price
     )
-    change_commission = round(change_price_spp * mp_total_pct / 100, 2)
+    change_commission = round(change_price * mp_total_pct / 100, 2)
     change_tax = calculate_tax(item, change_price_spp, change_commission)
     expenses_change = (
         item["cost_price"]
@@ -508,7 +532,7 @@ def apply_financial_formulas(item: dict[str, Any]) -> dict[str, Any]:
         + item["logistics_actual"]
         + item["storage_actual"]
         + item["acceptance_avg"]
-        + round(change_price_spp * 0.015, 2)
+        + round(change_price * 0.015, 2)
         + change_tax
         + item["ad_fact_rub"]
         + reverse_logistics
