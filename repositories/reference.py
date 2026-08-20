@@ -10,7 +10,7 @@ from typing import Optional, List, Dict, Any
 GET_REFERENCE_SQL = text(
     "SELECT nm_id, vendor_code, cost_price, purchase_cost as purchase_price, packaging_cost, "
     "logistics_cost, other_costs, notes, product_class, brand, tax_system, tax_rate, vat_rate, "
-    "transport_pack_qty, valid_from FROM reference_book "
+    "transport_pack_qty, valid_from, acquiring_pct, other_deductions_pct FROM reference_book "
     "WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
 )
 
@@ -19,7 +19,7 @@ async def fetch_reference(db: AsyncSession, org_id: str, target_date: Optional[s
     sql = (
         "SELECT nm_id, vendor_code, cost_price, purchase_cost as purchase_price, packaging_cost, "
         "logistics_cost, other_costs, notes, product_class, brand, tax_system, tax_rate, vat_rate, "
-        "transport_pack_qty, valid_from FROM reference_book "
+        "transport_pack_qty, valid_from, acquiring_pct, other_deductions_pct FROM reference_book "
         "WHERE organization_id = :org AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)"
     )
     params: Dict[str, Any] = {"org": org_id}
@@ -45,6 +45,8 @@ async def fetch_reference(db: AsyncSession, org_id: str, target_date: Optional[s
         "tax_rate": float(r[11]) if r[11] else None,
         "vat_rate": float(r[12]) if r[12] else None,
         "transport_pack_qty": int(r[13]) if r[13] else 1,
+        "acquiring_pct": float(r[15]) if r[15] is not None else 2.5,
+        "other_deductions_pct": float(r[16]) if r[16] is not None else None,
     } for r in result.all()]
 
 

@@ -116,6 +116,10 @@ class ReferenceBook(Base):
     delivery_days_to_seller = Column(Integer, nullable=True)        # От закупа до склада поставщика (дни)
     delivery_days_to_mp = Column(Integer, nullable=True)            # От склада поставщика до МП (дни)
 
+    # === П.7/10 (20.08.2026): эквайринг и прочие удержания, % ===
+    acquiring_pct = Column(Numeric(5, 2), nullable=True)              # Эквайринг % (по умолчанию 2.5)
+    other_deductions_pct = Column(Numeric(5, 2), nullable=True)       # Прочие удержания, % (фин отчет)
+
     # === ТОП ЗАПРОСЫ ПЛАНИРУЕМЫЕ ===
     top_query_1 = Column(String(200), nullable=True)
     top_query_2 = Column(String(200), nullable=True)

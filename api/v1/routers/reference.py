@@ -286,6 +286,8 @@ async def save_reference(item: RefItem, org_id: str, db: AsyncSession = Depends(
         product_class=item.product_class, brand=item.brand,
         transport_pack_qty=max(item.transport_pack_qty or 1, 1),
         tax_system=item.tax_system, tax_rate=item.tax_rate, vat_rate=item.vat_rate,
+        acquiring_pct=item.acquiring_pct if item.acquiring_pct is not None else 2.5,
+        other_deductions_pct=item.other_deductions_pct,
     )
     stmt = ins.on_conflict_do_update(
         constraint="reference_book_org_nm_eid_vf_key",
@@ -297,6 +299,7 @@ async def save_reference(item: RefItem, org_id: str, db: AsyncSession = Depends(
             "product_class": ins.excluded.product_class, "brand": ins.excluded.brand,
             "transport_pack_qty": ins.excluded.transport_pack_qty,
             "tax_system": ins.excluded.tax_system, "tax_rate": ins.excluded.tax_rate, "vat_rate": ins.excluded.vat_rate,
+            "acquiring_pct": ins.excluded.acquiring_pct, "other_deductions_pct": ins.excluded.other_deductions_pct,
             "updated_at": func.now(),
         }
     )

@@ -19,7 +19,7 @@ const COST_ARTICLE_ONLY_FIELDS = [
 const COST_PARENT_PROPAGATE_FIELDS = [
     'product_status', 'tags', 'product_class', 'brand',
     'fulfillment_model', 'fbs_warehouse',
-    'cost_price', 'extra_costs', '_tax_rate_override', 'vat_rate',
+    'cost_price', 'extra_costs', '_tax_rate_override', 'vat_rate', 'acquiring_pct', 'other_deductions_pct',
     'plan_length', 'plan_width', 'plan_height', 'plan_volume', 'plan_weight',
     'season_jan', 'season_feb', 'season_mar', 'season_apr',
     'season_may', 'season_jun', 'season_jul', 'season_aug',
@@ -707,6 +707,20 @@ function getCostColumns() {
                         return v + '%';
                     },
                 },
+                { title: 'Эквайринг %', field: 'acquiring_pct',
+                    headerTooltip: 'Эквайринг, % (по умолчанию 2.5%)', width: 70, headerSort: false,
+                    editor: 'number', editorParams: { step: 0.1, min: 0, max: 100 },
+                    formatter: function(cell) {
+                        const v = cell.getValue();
+                        if (v === null || v === undefined || v === '') return '<span style="color:#6c5ce7">2.5%</span>';
+                        return parseFloat(v) + '%';
+                    }
+                },
+                { title: 'Прочие уд., %', field: 'other_deductions_pct',
+                    headerTooltip: 'Прочие удержания, % — селлер выставляет сам', width: 75, headerSort: false,
+                    editor: 'number', editorParams: { step: 0.1, min: 0, max: 100 },
+                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v) + '%' : '—'; }
+                },
             ]
         },
 
@@ -881,6 +895,8 @@ function prepareCostData(products) {
             _total_cost: ((parseFloat(c.cost_price)||0) + (parseFloat(c.extra_costs)||0)).toFixed(2),
             _tax_rate_override: c.tax_rate || '',
             vat_rate: c.vat_rate || 0,
+            acquiring_pct: c.acquiring_pct === null || c.acquiring_pct === undefined ? '' : c.acquiring_pct,
+            other_deductions_pct: c.other_deductions_pct || '',
             tax_system: c.tax_system || "",
             plan_length: c.plan_length || '',
             plan_width: c.plan_width || '',
@@ -1228,6 +1244,8 @@ function getCostDataForSave() {
         shipment_method: null, fbs_warehouse: data.fulfillment_model === 'fbs' ? textValue(data.fbs_warehouse) : '',
         transport_pack_qty: Math.max(intOrNull(data.transport_pack_qty) || 1, 1),
         vat_rate: (function(){ var v = data.vat_rate; return (!v || v === 'нет') ? 0 : numberOrNull(v); })(),
+        acquiring_pct: (function(){ var v = numberOrNull(data.acquiring_pct); return v === null ? 2.5 : v; })(),
+        other_deductions_pct: numberOrNull(data.other_deductions_pct),
         valid_from: data.valid_from || new Date().toISOString().split('T')[0],
         notes: null,
         source: 'manual'

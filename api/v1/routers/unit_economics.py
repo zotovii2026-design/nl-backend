@@ -141,6 +141,8 @@ async def build_unit_economics(
             "tax_rate": r[27], "vat_rate": r[28],
             "product_status": r[12],
             "tags": r[30],
+            "acquiring_pct": r[31],
+            "other_deductions_pct": r[32],
         }
         if eid:
             if eid not in cost_by_entity:
@@ -269,8 +271,9 @@ async def build_unit_economics(
             "storage_tariff": snap_by_nm.get(nm_id, {}).get("storage_tariff", 0),
             "storage_actual": 0,  # Будет из финотчётов
             "acceptance_avg": 0,  # Будет из API приёмки
-            "acquiring_pct": 1.5,
+            "acquiring_pct": float(cost.get("acquiring_pct") or 0) or 2.5,  # П.7: из Справочника, дефолт 2.5%
             "acquiring_rub": 0,
+            "other_deductions_pct": float(cost.get("other_deductions_pct") or 0),  # П.10: из Справочника
             "price_before_spp": float(ue.get("wb_price_fact")) if ue.get("wb_price_fact") else (snap_by_nm.get(nm_id, {}).get("price_retail") or price),
             "spp_pct": (lambda _s=snap_by_nm.get(nm_id, {}): (
                 round((1 - float(_s.get("price_with_spp", 0)) / float(_s.get("price_retail", 0))) * 100, 2)
@@ -283,8 +286,8 @@ async def build_unit_economics(
             "ad_fact_rub": 0,  # заглушка, позже из финотчёта
             "wb_club_discount_pct_api": 0,
             # П.5/10 (20.08.2026): ИЛ, ИРП, Лог.к учёту, Налог итого % удалены
-            "other_deductions_finreport_pct": 0,
-            "other_deductions_finreport": 0,
+            "other_deductions_finreport_pct": float(cost.get("other_deductions_pct") or 0),  # П.10: из Справочника
+            "other_deductions_finreport": 0,  # считается в apply_financial_formulas
             "wb_club_discount_rub": 0,
             "loyalty_cashback_pct": 0,
             "loyalty_cashback_rub": 0,

@@ -428,6 +428,10 @@ def apply_financial_formulas(item: dict[str, Any]) -> dict[str, Any]:
     tax = calculate_tax(item, item["price_with_spp"], mp_commission)
     item["tax_total"] = tax
     item["tax_label"] = tax_header_label(item)
+    # П.10/11 (20.08.2026): прочие удержания = цена до СПП * % из Справочника
+    item["other_deductions_finreport"] = round(
+        item["price_before_spp"] * float(item.get("other_deductions_pct") or 0) / 100, 2
+    )
 
     reverse_logistics = item["reverse_logistics"] or 0
     buyout_pct = (

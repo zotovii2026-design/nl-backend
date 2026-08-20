@@ -19,4 +19,6 @@ class RefItem(BaseModel):
     transport_pack_qty: Optional[int] = None
     tax_system: Optional[str] = None  # usn / osn / usn_dr
     tax_rate: Optional[float] = None
+    acquiring_pct: Optional[float] = None        # Эквайринг % (п.7, дефолт 2.5)
+    other_deductions_pct: Optional[float] = None # Прочие удержания, % (п.10)
     vat_rate: Optional[float] = None
