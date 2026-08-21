@@ -11,13 +11,6 @@ from models.organization import (
     Role,
     InvitationStatus
 )
-from models.sync import SyncLog
-from models.wb_data import (
-    WbProduct,
-    WbSale,
-    WbOrder,
-    OrderStatus
-)
 from models.raw_data import (
     RawApiData,
     RawBarcode,
@@ -53,11 +46,6 @@ __all__ = [
     SubscriptionStatus,
     Role,
     InvitationStatus,
-    SyncLog,
-    WbProduct,
-    WbSale,
-    WbOrder,
-    OrderStatus,
     RawApiData,
     RawBarcode,
     WarehouseRef,

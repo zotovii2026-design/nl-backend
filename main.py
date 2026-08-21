@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from core.database import get_db
 from core.config import settings
-from api.v1 import auth, organizations, wb_keys, sync, admin_tech, nl, external_ad
+from api.v1 import auth, organizations, wb_keys, admin_tech, nl, external_ad
 from api.v1.routers import opiu, promotions, ads, identity, sales_plans, reference, analytics, sellers, prices, marketer, unit_economics, dashboard, pages, rnp, api_status, strategies, seasonality
 
 # Импортируем Celery для регистрации задач
@@ -41,7 +41,6 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(organizations.router, prefix="/api/v1")
 app.include_router(wb_keys.router, prefix="/api/v1")
-app.include_router(sync.router, prefix="/api/v1")
 app.include_router(admin_tech.router)
 app.include_router(nl.router)
 app.include_router(external_ad.router)
