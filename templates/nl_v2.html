@@ -92,7 +92,7 @@ input:focus{outline:none;border-color:#6c5ce7;box-shadow:0 0 0 2px rgba(108,92,2
 .top-bar .page-title{font-size:1.1em;font-weight:600;color:#1a1a2e}
 .top-bar .filters{display:flex;align-items:center;gap:10px;margin-left:auto}
 .top-bar select,.top-bar input{border:1px solid #e0e0e0;border-radius:4px;padding:4px 8px;font-size:.85em}
-.page-content{padding:20px 24px;min-width:0;max-width:100%;overflow-x:hidden}
+.page-content{padding:20px 24px;min-width:0;max-width:100%;overflow-x:auto}
 .page-section{display:none;min-width:0;max-width:100%}
 .page-section.active{display:block}
 
@@ -102,6 +102,7 @@ th.sortable::after { content: ' ↕'; font-size: 0.7em; opacity: 0.5; }
 th.sortable.asc::after { content: ' ↑'; opacity: 1; }
 th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
+#page-rnp{min-width:860px}
 .rnp-wrap{font-size:.78em;background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:hidden;border:1px solid #eee;margin-bottom:10px}
 .rnp-header-scroll{overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:none}
 .rnp-header-scroll::-webkit-scrollbar{display:none}
