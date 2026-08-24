@@ -4007,7 +4007,7 @@ async function loadRnp() {
             }
             hhtml += '</tr>';
         }
-        hhtml += '</tbody></table></div></div>';
+        hhtml += '</tbody></table></div></div></div>';
         hhtml += '<div id="rnp-top-scroll" class="rnp-top-scroll"><div class="rnp-top-scroll-inner" style="width:' + rnpWidePx + 'px"></div></div>';
 
         // Рисуем карточки (таблица 2)
@@ -4107,7 +4107,7 @@ async function loadRnp() {
             html += '<tr class="card-divider"><td colspan="' + (3 + days.length) + '"></td></tr>';
         }
 
-        html += '</tbody></table></div></div></div></div>';
+        html += '</tbody></table></div></div></div>';
         header.innerHTML = '';
         cards.innerHTML = hhtml + html;
         updateRnpTreeToggleButton();
