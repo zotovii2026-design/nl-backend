@@ -457,13 +457,63 @@ async def _fetch_goods_price_map(api_key):
     return goods_by_nm
 
 
+async def _fetch_card_products_via_proxy(nm_ids):
+    """
+    Транспорт через Google Apps Script прокси (IP-пул Google, не банится).
+    Включается env-переменными WB_PROMO_PROXY_URL + WB_PROMO_PROXY_SECRET.
+    Возвращает (products_by_nm, ok: bool) — ok=False значит прокси не настроен/упал.
+    """
+    import os
+    import urllib.parse
+
+    proxy_url = os.environ.get("WB_PROMO_PROXY_URL", "").strip()
+    proxy_secret = os.environ.get("WB_PROMO_PROXY_SECRET", "").strip()
+    if not proxy_url or not proxy_secret:
+        return {}, False
+
+    products_by_nm = {}
+    batch_size = 100  # прокси сам внутри режет по 50 с паузами
+    for i in range(0, len(nm_ids), batch_size):
+        batch = nm_ids[i:i + batch_size]
+        nm_str = ";".join(str(n) for n in batch)
+        try:
+            async with httpx.AsyncClient(timeout=60, follow_redirects=True) as hc:
+                response = await hc.get(
+                    proxy_url,
+                    params={"key": proxy_secret, "nm": nm_str},
+                )
+                response.raise_for_status()
+                data = response.json()
+            for product in data.get("products", []):
+                nm_id = product.get("id")
+                if nm_id:
+                    products_by_nm[int(nm_id)] = product
+        except Exception as exc:
+            logger.warning(f"[promo_snapshot] proxy batch error: {exc}")
+            return products_by_nm, False
+        await asyncio.sleep(1.5)
+
+    logger.info(
+        f"[promo_snapshot] google proxy returned {len(products_by_nm)} products"
+    )
+    return products_by_nm, True
+
+
 async def _fetch_card_products(nm_ids):
     """
     Public card.wb.ru snapshot: nmID -> raw product card.
 
-    card.wb.ru has been more reliable from the Russian host through curl than
-    through httpx inside Docker, so keep the existing subprocess curl path.
+    Приоритет: Google Apps Script прокси (IP Google, не банится).
+    Fallback: прямой curl с нашего IP (старый путь, оставлен для страховки).
     """
+    products_by_nm, proxy_ok = await _fetch_card_products_via_proxy(nm_ids)
+    if proxy_ok and products_by_nm:
+        return products_by_nm
+    if proxy_ok and not products_by_nm and nm_ids:
+        # прокси жив, но WB ничего не отдал — не делаем ложный снимок через curl
+        logger.warning("[promo_snapshot] proxy ok but 0 products; skip direct fallback")
+        return products_by_nm
+    logger.info("[promo_snapshot] proxy unavailable, falling back to direct curl")
     import json as _json
     import subprocess
 
