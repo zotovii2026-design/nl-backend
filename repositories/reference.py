@@ -70,7 +70,7 @@ COST_PRICES_SQL = text(
     "cp.delivery_days_to_seller, cp.delivery_days_to_mp, "
     "cp.top_query_1, cp.top_query_2, cp.top_query_3, "
     "cp.shipment_method, cp.fbs_warehouse, cp.rrc_price, cp.vat_rate, cp.tags, cp.updated_at, "
-    "ts.product_name "
+    "ts.product_name, cp.loyalty_cashback_pct "
     "FROM product_entities pe "
     "LEFT JOIN LATERAL (SELECT * FROM reference_book WHERE organization_id = :org AND nm_id = pe.nm_id AND entity_id = pe.id "
     "  AND (valid_to IS NULL OR valid_to >= CURRENT_DATE) ORDER BY valid_from DESC LIMIT 1) cp ON true "
@@ -79,8 +79,7 @@ COST_PRICES_SQL = text(
 "  FROM tech_status "
 "  WHERE organization_id = :org "
 "  ORDER BY nm_id, target_date DESC, updated_at DESC NULLS LAST, created_at DESC"
-") ts ON pe.nm_id = ts.nm_id, "
-    "cp.loyalty_cashback_pct "
+") ts ON pe.nm_id = ts.nm_id "
     "WHERE pe.organization_id = :org "
     "ORDER BY pe.nm_id, pe.size_name"
 )
