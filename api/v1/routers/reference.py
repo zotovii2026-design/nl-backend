@@ -50,7 +50,7 @@ SAVEABLE_COST_PRICE_FIELDS = {
     "cost_price", "purchase_cost", "logistics_cost", "packaging_cost", "other_costs",
     "extra_costs", "vat", "min_price", "mp_base_pct", "mp_correction_pct",
     "fulfillment_model", "storage_pct", "buyout_niche_pct", "price_before_spp_plan",
-    "price_before_spp_change", "wb_club_discount_pct", "ad_plan_rub", "supply_days",
+    "price_before_spp_change", "wb_club_discount_pct", "loyalty_cashback_pct", "ad_plan_rub", "supply_days",
     "min_batch_fbo", "transport_pack_qty", "product_status", "tags", "product_class",
     "brand", "tax_system", "tax_rate", "season_jan", "season_feb", "season_mar",
     "season_apr", "season_may", "season_jun", "season_jul", "season_aug", "season_sep",
@@ -817,7 +817,6 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
         "mp_base_pct": "commission_pct",
         "logistics_cost": "logistics_tariff",
         "storage_pct": "storage_tariff",
-        "price_before_spp_plan": "price_retail",
         "buyout_niche_pct": "buyout_pct_fact",
         "ad_plan_rub": "ad_cost_fact",
         "subject_id": "subject_id",
@@ -902,9 +901,9 @@ async def auto_fill_reference(org_id: str, db: AsyncSession = Depends(get_db)):
             "mp_base_pct": float(snap["commission_pct"]) if snap and snap.get("commission_pct") else None,
             "logistics_cost": float(snap["logistics_tariff"]) if snap and snap.get("logistics_tariff") else None,
             "storage_pct": float(snap["storage_tariff"]) if snap and snap.get("storage_tariff") else None,
-            "price_before_spp_plan": float(snap["price_retail"]) if snap and snap.get("price_retail") else None,
-            "price_before_spp_change": float(snap["price_with_spp"]) if snap and snap.get("price_with_spp") else None,
             "buyout_niche_pct": float(snap["buyout_pct_fact"]) if snap and snap.get("buyout_pct_fact") else None,
+            # ТЗ 31.08.2026: цена план больше не автотянется из snapshot — источник РРЦ из Справочника
+            "price_before_spp_change": float(snap["price_with_spp"]) if snap and snap.get("price_with_spp") else None,
         }
         stmt = ins.values(**vals).on_conflict_do_nothing(constraint="reference_book_org_nm_eid_vf_key")
         try:
@@ -1124,7 +1123,7 @@ _SAVE_COST_PRICE_SQL = (
     "mp_base_pct, mp_correction_pct, fulfillment_model, storage_pct, "
     "buyout_niche_pct, "
     "price_before_spp_plan, price_before_spp_change, change_date, "
-    "wb_club_discount_pct, ad_plan_rub, supply_days, min_batch_fbo, transport_pack_qty, "
+    "wb_club_discount_pct, loyalty_cashback_pct, ad_plan_rub, supply_days, min_batch_fbo, transport_pack_qty, "
     "product_status, tags, product_class, brand, tax_system, tax_rate, "
     "season_jan, season_feb, season_mar, season_apr, season_may, season_jun, season_jul, season_aug, season_sep, season_oct, season_nov, season_dec, "
     "plan_length, plan_width, plan_height, plan_volume, plan_weight, "
@@ -1138,7 +1137,7 @@ _SAVE_COST_PRICE_SQL = (
     ":mpb, :mpc, :ffm, :stp, "
     ":bnp, "
     ":pspp, :psppc, :cdate, "
-    ":wbcd, :adpr, :sdays, :minb, :tpq, "
+    ":wbcd, :lcb, :adpr, :sdays, :minb, :tpq, "
     ":pstatus, :tags, :pcls, :brand, :tsys, :tr, "
     ":sjan, :sfeb, :smar, :sapr, :smay, :sjun, :sjul, :saug, :ssep, :soct, :snov, :sdec, "
     ":pl, :pw, :ph, :pv, :pwg, "
@@ -1166,6 +1165,7 @@ _SAVE_COST_PRICE_SQL = (
     "price_before_spp_change = COALESCE(EXCLUDED.price_before_spp_change, reference_book.price_before_spp_change), "
     "change_date = CASE WHEN :touch_change_date THEN CURRENT_DATE ELSE reference_book.change_date END, "
     "wb_club_discount_pct = COALESCE(EXCLUDED.wb_club_discount_pct, reference_book.wb_club_discount_pct), "
+    "loyalty_cashback_pct = COALESCE(EXCLUDED.loyalty_cashback_pct, reference_book.loyalty_cashback_pct), "
     "ad_plan_rub = COALESCE(EXCLUDED.ad_plan_rub, reference_book.ad_plan_rub), "
     "supply_days = COALESCE(EXCLUDED.supply_days, reference_book.supply_days), "
     "min_batch_fbo = COALESCE(EXCLUDED.min_batch_fbo, reference_book.min_batch_fbo), "
@@ -1234,6 +1234,7 @@ def _build_save_params(data: dict, org_id: str, nm_id: int, entity_id: str, vali
         "psppc": pfloat(data.get("price_before_spp_change")),
         "cdate": date.today(),
         "wbcd": pfloat(data.get("wb_club_discount_pct")),
+        "lcb": pfloat(data.get("loyalty_cashback_pct")),
         "adpr": (
             pfloat(data.get("ad_plan_rub"))
             if pfloat(data.get("ad_plan_rub")) is not None else None

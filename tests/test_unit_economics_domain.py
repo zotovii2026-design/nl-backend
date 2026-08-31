@@ -111,7 +111,7 @@ def test_reverse_delivery_keeps_wb_base_grid(volume, expected):
     assert cost == expected
 
 
-def test_financial_formulas_keep_legacy_contract():
+def _formula_item(**overrides):
     item = {
         "mp_base_pct": 10,
         "mp_correction_pct": 2,
@@ -131,13 +131,21 @@ def test_financial_formulas_keep_legacy_contract():
         "logistics_cost": 10,
         "packaging_cost": 5,
         "other_costs": 2,
-        "logistics_actual": 0,
-        "storage_actual": 0,
-        "acceptance_avg": 0,
+        "wb_club_discount_pct": 0,
+        "loyalty_cashback_pct": 0,
+        "other_deductions_pct": 0,
+        "acquiring_pct": 1.5,
+        "storage_tariff": 0,
         "price_before_spp_plan": 1100,
         "price_before_spp_change": 1200,
         "spp_pct": 0,
     }
+    item.update(overrides)
+    return item
+
+
+def test_financial_formulas_keep_legacy_contract():
+    item = _formula_item()
 
     result = apply_financial_formulas(item)
 
@@ -149,8 +157,62 @@ def test_financial_formulas_keep_legacy_contract():
     assert result["tax_total"] == 54  # 900 * 6%
     assert result["tax_label"] == "УСН Д, 6%"
     assert result["logistics_with_buyout"] == 54
-    assert result["expenses_fact"] == 553.0
-    assert result["profit_fact"] == 347.0
-    assert result["plan_price_spp"] == 1100
-    assert result["profit_plan"] == 493.5
-    assert result["profit_change"] == 602
+    # Новые формулы (ТЗ 31.08.2026)
+    # total_wb_deductions = 120 (комиссия) + 54 (лог. с выкупом) + 0 (хранение) + 15 (эквайринг)
+    #   + 50 (реклама план) + 0 (прочие) + 0 (WB клуб) + 0 (кэшбэк) = 239
+    assert result["total_wb_deductions"] == 239
+    # expenses = 239 - 300 (себестоимость) - 54 (налог) = -115 (может быть отрицательным)
+    assert result["expenses"] == -115
+    assert result["profit"] == 1115  # 1000 - (-115)
+    assert result["margin_pct"] == 111.5  # 1115 / 1000 * 100
+    assert result["roi_pct"] == 371.67  # 1115 / 300 * 100
+    assert result["to_account"] == 761  # 1000 - 239
+    # После правок: цена 1200, комиссия 144, эквайринг 18, реклама 60
+    # total = 144 + 54 + 18 + 60 = 276; expenses = 276 - 300 - 54 = -78; profit = 1200 + 78 = 1278
+    assert result["profit_change"] == 1278
+
+
+def test_new_formulas_numeric_example_with_club_and_cashback():
+    """Числовой пример ТЗ 31.08.2026: скидка WB клуба, кэшбэк, отрицательные расходы."""
+    item = _formula_item(
+        price_before_spp=2000,
+        wb_club_discount_pct=5,
+        loyalty_cashback_pct=3,
+        other_deductions_pct=1,
+        storage_tariff=7.3,
+        cost_price=600,
+    )
+
+    result = apply_financial_formulas(item)
+
+    # комиссия 12% от 2000 = 240; лог. с выкупом = 50 + 20*0.2 = 54
+    assert result["mp_commission"] == 240
+    assert result["logistics_with_buyout"] == 54
+    # эквайринг 1.5% = 30; реклама план 5% = 100; прочие 1% = 20
+    assert result["acquiring_rub"] == 30
+    assert result["ad_plan_rub"] == 100
+    assert result["other_deductions_finreport"] == 20
+    # клуб и кэшбэк от цены до СПП
+    assert result["wb_club_discount_rub"] == 100  # 2000 * 5%
+    assert result["loyalty_cashback_rub"] == 60  # 2000 * 3%
+    # налог УСН Д 6% от цены с СПП (900) = 54
+    assert result["tax_total"] == 54
+    # total_wb_deductions = 240 + 54 + 7.3 + 30 + 100 + 20 + 100 + 60 = 611.3
+    assert result["total_wb_deductions"] == 611.3
+    # expenses = 611.3 - 600 - 54 = -42.7 (отрицательные — допустимы)
+    assert result["expenses"] == -42.7
+    # profit = 2000 - (-42.7) = 2042.7
+    assert result["profit"] == 2042.7
+    assert result["margin_pct"] == 102.13  # 2042.7 / 2000 * 100 = 102.135 → 102.13
+    assert result["roi_pct"] == 340.45  # 2042.7 / 600 * 100
+    # to_account = 2000 - 611.3 = 1388.7
+    assert result["to_account"] == 1388.7
+
+
+def test_new_formulas_zero_price_and_zero_cost_guards():
+    result = apply_financial_formulas(
+        _formula_item(price_before_spp=0, cost_price=0)
+    )
+
+    assert result["margin_pct"] == 0  # нулевая цена — маржа 0
+    assert result["roi_pct"] == 0  # нулевая себестоимость — ROI 0

@@ -183,7 +183,10 @@ def test_reference_book_save_payload_does_not_zero_hidden_legacy_fields():
     assert "storage_pct: null" in payload_block
     assert "price_before_spp_plan: null" in payload_block
     assert "price_before_spp_change: null" in payload_block
-    assert "wb_club_discount_pct: null" in payload_block
+    # ТЗ 31.08.2026: wb_club_discount_pct и loyalty_cashback_pct — редактируемые колонки,
+    # в payload передаются значениями (numberOrNull), а не null-заглушками
+    assert "wb_club_discount_pct: numberOrNull(data.wb_club_discount_pct)" in payload_block
+    assert "loyalty_cashback_pct: numberOrNull(data.loyalty_cashback_pct)" in payload_block
     assert "vat: null" in payload_block
 
     forbidden = (

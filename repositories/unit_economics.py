@@ -72,7 +72,7 @@ REFERENCE_BOOK_SQL = """
            wb_prices_updated_at, cost_price, purchase_cost, logistics_cost,
            packaging_cost, other_costs, vat, product_class, brand, tax_system,
            tax_rate, vat_rate, fbs_warehouse, tags,
-           acquiring_pct, other_deductions_pct
+           acquiring_pct, other_deductions_pct, rrc_price, loyalty_cashback_pct
     FROM reference_book
     WHERE organization_id = :org
       AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)

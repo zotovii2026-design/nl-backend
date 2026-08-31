@@ -27,7 +27,6 @@ const UE_HEADER_TOOLTIPS = {
     buyout_niche_pct: 'Ручной % выкупа по категории из Справочника.',
     buyout_fact_pct: 'Факт за 30 дней: выкупы / заказы * 100.',
     logistics_tariff: 'Расчёт доставки до клиента по габаритам товара и тарифам WB.',
-    logistics_actual: 'Пока не считается: источник финотчёта не подключён.',
     reverse_logistics: 'Расчёт обратной логистики по объёму товара.',
     logistics_with_buyout: 'Формула: Лог. тариф + Обратная лог. * (1 - % выкупа). % выкупа: факт, иначе по категории.',
     localization_idx: null,
@@ -35,10 +34,8 @@ const UE_HEADER_TOOLTIPS = {
     logistics_accounted: null,
     logistics_finreport: 'Пока не считается. План: брать логистику из финотчёта WB.',
     storage_tariff: 'Расчётное хранение по данным WB.',
-    storage_actual: 'Пока не считается: источник финотчёта не подключён.',
     acquiring_pct: 'Ставка эквайринга для расчёта: 1.5%.',
     acquiring_rub: 'Формула: Цена до СПП * 1.5%.',
-    acceptance_avg: 'Пока не считается: источник приёмки не подключён.',
     tax_label: 'Вид налога и ставка из Справочника (УСН Д / УСН Д-Р / ОСНО).',
     tax_total: 'Сумма удержания налога. База УСН Д: цена с СПП * ставка. УСН Д-Р: (доход - комиссия - себестоимость) * ставка.',
     other_deductions_finreport_pct: 'Прочие удержания, % из финотчёта.',
@@ -50,17 +47,18 @@ const UE_HEADER_TOOLTIPS = {
     other_deductions_finreport: 'Пока не считается. План: прочие удержания из финотчёта.',
     spp_pct: 'Формула: 100 - Цена с СПП / Цена до СПП * 100.',
     price_with_spp: 'Цена продажи покупателю с учётом СПП по данным WB.',
-    price_before_spp: 'Фактическая цена до СПП: сначала из Справочника, иначе из WB.',
-    price_before_spp_plan: 'Ручная плановая цена до СПП.',
+    price_before_spp: 'Цена до СПП: факт из Справочника (wb_price_fact).',
+    price_before_spp_plan: 'Плановая цена до СПП — РРЦ из Справочника.',
     wb_club_discount_pct: 'Ручная скидка WB Клуб из Справочника.',
-    wb_club_discount_rub: 'Пока не считается: сумма скидки WB Клуб не подключена.',
-    loyalty_cashback_pct: 'Пока не считается: кэшбэк не подключён.',
-    loyalty_cashback_rub: 'Пока не считается: сумма кэшбэка не подключена.',
-    expenses_plan: 'Плановые расходы: себестоимость + комиссии + логистика + налоги + реклама.',
-    profit_plan: 'Формула: Плановая цена с СПП - Плановые расходы.',
-    margin_plan: 'Формула: Прибыль / цена с СПП * 100.',
-    roi_plan: 'Формула: Прибыль / себестоимость * 100.',
-    to_account_plan: 'Формула: Цена с СПП - комиссия маркетплейса - налог.',
+    wb_club_discount_rub: 'Формула: Цена до СПП * Скидка WB Клуб % / 100.',
+    loyalty_cashback_pct: 'Кэшбэк программ лояльности, % — из Справочника.',
+    loyalty_cashback_rub: 'Формула: Цена до СПП * Кэшбэк % / 100.',
+    total_wb_deductions: 'Комиссия + лог. с выкупом + хранение + эквайринг + реклама план + прочие + WB клуб + кэшбэк.',
+    expenses: 'Формула: Всего удержаний WB − себестоимость − налог (может быть отрицательным).',
+    profit: 'Формула: Цена до СПП − расходы.',
+    margin_pct: 'Формула: Прибыль / цена до СПП * 100.',
+    roi_pct: 'Формула: Прибыль / себестоимость * 100.',
+    to_account: 'Формула: Цена до СПП − всего удержаний WB.',
     in_promo: 'Пока не считается в Юнит-экономике.',
     price_before_spp_change: 'Ручная цена, которую планируем поставить.',
     wb_club_discount_change: 'Пока не считается: новая скидка WB Клуб не подключена.',
@@ -211,8 +209,8 @@ function getUEColumns() {
                     formatter: function(cell) { const v = cell.getValue(); return v ? v + '%' : '—'; }
                 },
                 { title: '% выкупа факт', field: 'buyout_fact_pct',
-                    headerTooltip: '% выкупа факт (по API)', width: 85, headerSort: true,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? v + '%' : '—'; }
+                    headerTooltip: '% выкупа факт (по API). Отображается округлённо до целого', width: 85, headerSort: true,
+                    formatter: function(cell) { const v = Math.round(parseFloat(cell.getValue()) || 0); return v ? v + '%' : '—'; }
                 },
             ]
         },
@@ -228,10 +226,6 @@ function getUEColumns() {
                         return row.logistics_tooltip || 'По данным tariffs/box';
                     },
                     formatter: function(cell) { var v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ' + String.fromCharCode(8381) : String.fromCharCode(8212); }
-                },
-                { title: 'Лог. факт', field: 'logistics_actual',
-                    headerTooltip: 'Логистика факт', width: 80, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
                 },
                 { title: 'Обратная лог.', field: 'reverse_logistics',
                     headerTooltip: 'Обратная логистика на 1 шт (тариф × %невозврата)', width: 80, headerSort: false,
@@ -261,10 +255,6 @@ function getUEColumns() {
                     headerTooltip: 'Хранение в день расчётное', width: 80, headerSort: false,
                     formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
                 },
-                { title: 'Хран. финотчет', field: 'storage_actual',
-                    headerTooltip: 'Хранение в день финотчет', width: 90, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
-                },
             ]
         },
 
@@ -278,10 +268,6 @@ function getUEColumns() {
                 },
                 { title: 'Эквайринг ₽', field: 'acquiring_rub',
                     headerTooltip: 'Эквайринг, ₽', width: 85, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
-                },
-                { title: 'Приёмка 1 шт', field: 'acceptance_avg',
-                    headerTooltip: 'Приёмка 1 шт, ср. 90 дней', width: 85, headerSort: false,
                     formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
                 },
             ]
@@ -388,29 +374,33 @@ function getUEColumns() {
             ]
         },
 
-        // === 📊 С WB клубом (ПЛАН) ===
+        // === 📊 Итоги (новые формулы, ТЗ 31.08.2026) ===
         {
-            title: '📊 С WB клубом',
+            title: '📊 Итоги',
             columns: [
-                { title: 'Расходы', field: 'expenses_plan',
-                    headerTooltip: 'Расходы план (с WB клубом)', width: 85, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
+                { title: 'Всего удержаний WB ₽', field: 'total_wb_deductions',
+                    headerTooltip: 'Комиссия + логистика с выкупом + хранение + эквайринг + реклама план + прочие + WB клуб + кэшбэк', width: 105, headerSort: true,
+                    formatter: function(cell) { const v = parseFloat(cell.getValue()); return v ? v.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽' : '—'; }
                 },
-                { title: 'Прибыль', field: 'profit_plan',
-                    headerTooltip: 'Прибыль план (с WB клубом)', width: 85, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
+                { title: 'Расходы ₽', field: 'expenses',
+                    headerTooltip: 'Всего удержаний WB − себестоимость − налог (может быть отрицательным)', width: 85, headerSort: true,
+                    formatter: function(cell) { const v = parseFloat(cell.getValue()); return v.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽'; }
                 },
-                { title: 'Маржа', field: 'margin_plan',
-                    headerTooltip: 'Маржа план %', width: 65, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? v + '%' : '—'; }
+                { title: 'Прибыль ₽', field: 'profit',
+                    headerTooltip: 'Цена до СПП − расходы', width: 85, headerSort: true,
+                    formatter: function(cell) { const v = parseFloat(cell.getValue()); return v.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽'; }
                 },
-                { title: 'ROI', field: 'roi_plan',
-                    headerTooltip: 'ROI план %', width: 65, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? v + '%' : '—'; }
+                { title: 'Маржа %', field: 'margin_pct',
+                    headerTooltip: 'Прибыль / цена до СПП × 100', width: 70, headerSort: true,
+                    formatter: function(cell) { const v = parseFloat(cell.getValue()); return v + '%'; }
                 },
-                { title: 'На Р/С', field: 'to_account_plan',
-                    headerTooltip: 'На Р/С план', width: 85, headerSort: false,
-                    formatter: function(cell) { const v = cell.getValue(); return v ? parseFloat(v).toLocaleString('ru-RU') + ' ₽' : '—'; }
+                { title: 'ROI %', field: 'roi_pct',
+                    headerTooltip: 'Прибыль / себестоимость × 100', width: 65, headerSort: true,
+                    formatter: function(cell) { const v = parseFloat(cell.getValue()); return v + '%'; }
+                },
+                { title: 'На р/с ₽', field: 'to_account',
+                    headerTooltip: 'Цена до СПП − всего удержаний WB', width: 85, headerSort: true,
+                    formatter: function(cell) { const v = parseFloat(cell.getValue()); return v.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽'; }
                 },
             ]
         },
@@ -738,9 +728,9 @@ function updateUESummary(rows, total) {
     const withCost = data.filter(function(row) { return Number(row.cost_price || 0) > 0; }).length;
     const withPlanPrice = data.filter(function(row) { return Number(row.price_before_spp_plan || 0) > 0; }).length;
     const withChangePrice = data.filter(function(row) { return Number(row.price_before_spp_change || 0) > 0; }).length;
-    const avgMarginRows = data.filter(function(row) { return Number(row.margin_plan || 0) !== 0; });
+    const avgMarginRows = data.filter(function(row) { return Number(row.margin_pct || 0) !== 0; });
     const avgMargin = avgMarginRows.length
-        ? avgMarginRows.reduce(function(sum, row) { return sum + Number(row.margin_plan || 0); }, 0) / avgMarginRows.length
+        ? avgMarginRows.reduce(function(sum, row) { return sum + Number(row.margin_pct || 0); }, 0) / avgMarginRows.length
         : 0;
 
     summaryEl.innerHTML = [

@@ -406,6 +406,35 @@ def tax_header_label(item: dict[str, Any]) -> str:
     return "Налог не задан"
 
 
+def _wb_deductions_bundle(item: dict[str, Any], price: float, commission: float,
+                            acquiring: float, ad_rub: float, other_deductions: float,
+                            club_discount_rub: float, cashback_rub: float) -> None:
+    """Новые формулы UE (ТЗ 31.08.2026). Пишет в item:
+    total_wb_deductions / expenses / profit / margin_pct / roi_pct / to_account.
+    """
+    total_wb_deductions = round(
+        commission
+        + item["logistics_with_buyout"]
+        + item["storage_tariff"]
+        + acquiring
+        + ad_rub
+        + other_deductions
+        + club_discount_rub
+        + cashback_rub,
+        2,
+    )
+    expenses = round(total_wb_deductions - item["cost_price"] - item["tax_total"], 2)
+    profit = round(price - expenses, 2)
+    item["total_wb_deductions"] = total_wb_deductions
+    item["expenses"] = expenses
+    item["profit"] = profit
+    item["margin_pct"] = round(profit / price * 100, 2) if price else 0
+    item["roi_pct"] = (
+        round(profit / item["cost_price"] * 100, 2) if item["cost_price"] else 0
+    )
+    item["to_account"] = round(price - total_wb_deductions, 2)
+
+
 def apply_financial_formulas(item: dict[str, Any]) -> dict[str, Any]:
     mp_total_pct = item["mp_base_pct"] + item["mp_correction_pct"]
     item["mp_total_pct"] = mp_total_pct
@@ -445,112 +474,57 @@ def apply_financial_formulas(item: dict[str, Any]) -> dict[str, Any]:
         2,
     )
 
-    expenses_fact = (
-        item["cost_price"]
-        + item["logistics_cost"]
-        + item["packaging_cost"]
-        + item["other_costs"]
-        + mp_commission
-        + item["logistics_actual"]
-        + item["storage_actual"]
-        + item["acceptance_avg"]
-        + acquiring
-        + tax
-        + item["ad_fact_rub"]
-        + reverse_logistics
+    # Скидка WB Клуб и кэшбэк лояльности — от цены до СПП (ТЗ 31.08.2026)
+    wb_club_discount_rub = round(
+        item["price_before_spp"] * float(item.get("wb_club_discount_pct") or 0) / 100, 2
     )
-    profit_fact = round(item["price_with_spp"] - expenses_fact, 2)
-    item["expenses_fact"] = round(expenses_fact, 2)
-    item["profit_fact"] = profit_fact
-    item["margin_fact"] = (
-        round(profit_fact / item["price_with_spp"] * 100, 2)
-        if item["price_with_spp"]
-        else 0
+    loyalty_cashback_rub = round(
+        item["price_before_spp"] * float(item.get("loyalty_cashback_pct") or 0) / 100, 2
     )
-    item["roi_fact"] = (
-        round(profit_fact / item["cost_price"] * 100, 2)
-        if item["cost_price"]
-        else 0
-    )
-    item["to_account_fact"] = round(
-        item["price_with_spp"] - mp_commission - tax,
-        2,
+    item["wb_club_discount_rub"] = wb_club_discount_rub
+    item["loyalty_cashback_rub"] = loyalty_cashback_rub
+
+    # ── Основной расчёт (факт) — новые формулы ──
+    _wb_deductions_bundle(
+        item,
+        price=item["price_before_spp"],
+        commission=mp_commission,
+        acquiring=acquiring,
+        ad_rub=item["ad_plan_rub"],
+        other_deductions=item["other_deductions_finreport"],
+        club_discount_rub=wb_club_discount_rub,
+        cashback_rub=loyalty_cashback_rub,
     )
 
-    plan_price = float(item["price_before_spp_plan"] or item["price_before_spp"])
-    plan_price_spp = (
-        round(plan_price * (1 - item["spp_pct"] / 100), 2)
-        if item["spp_pct"]
-        else plan_price
-    )
-    # П.3: комиссия от цены до СПП (база plan_price — это цена до СПП)
-    plan_commission = round(plan_price * mp_total_pct / 100, 2)
-    plan_tax = calculate_tax(item, plan_price_spp, plan_commission)
-    expenses_plan = (
-        item["cost_price"]
-        + item["logistics_cost"]
-        + item["packaging_cost"]
-        + item["other_costs"]
-        + plan_commission
-        + item["logistics_actual"]
-        + item["storage_actual"]
-        + item["acceptance_avg"]
-        + round(plan_price * 0.015, 2)
-        + plan_tax
-        + round(plan_price_spp * item["ad_plan_pct"] / 100, 2)
-        + reverse_logistics
-    )
-    profit_plan = round(plan_price_spp - expenses_plan, 2)
-    item["plan_price_spp"] = plan_price_spp
-    item["expenses_plan"] = round(expenses_plan, 2)
-    item["profit_plan"] = profit_plan
-    item["margin_plan"] = (
-        round(profit_plan / plan_price_spp * 100, 2) if plan_price_spp else 0
-    )
-    item["roi_plan"] = (
-        round(profit_plan / item["cost_price"] * 100, 2)
-        if item["cost_price"]
-        else 0
-    )
-    item["to_account_plan"] = round(
-        plan_price_spp - plan_commission - plan_tax,
-        2,
-    )
-
+    # ── Блок «После правок»: та же схема на цене к изменению ──
     change_price = float(
         item["price_before_spp_change"] or item["price_before_spp"]
     )
-    change_price_spp = (
-        round(change_price * (1 - item["spp_pct"] / 100), 2)
-        if item["spp_pct"]
-        else change_price
-    )
     change_commission = round(change_price * mp_total_pct / 100, 2)
-    change_tax = calculate_tax(item, change_price_spp, change_commission)
-    expenses_change = (
-        item["cost_price"]
-        + item["logistics_cost"]
-        + item["packaging_cost"]
-        + item["other_costs"]
-        + change_commission
-        + item["logistics_actual"]
-        + item["storage_actual"]
-        + item["acceptance_avg"]
-        + round(change_price * 0.015, 2)
-        + change_tax
-        + item["ad_fact_rub"]
-        + reverse_logistics
+    change_acquiring = round(
+        change_price * (item.get("acquiring_pct") or 1.5) / 100, 2
     )
-    profit_change = round(change_price_spp - expenses_change, 2)
-    item["profit_change"] = profit_change
-    item["margin_change"] = (
-        round(profit_change / change_price_spp * 100, 2)
-        if change_price_spp
-        else 0
+    change_ad_rub = round(change_price * item["ad_plan_pct"] / 100, 2)
+    change_other_deductions = round(
+        change_price * float(item.get("other_deductions_pct") or 0) / 100, 2
     )
-    item["roi_change"] = (
-        round(profit_change / item["cost_price"] * 100, 2)
-        if item["cost_price"]
-        else 0
+    change_club_rub = round(
+        change_price * float(item.get("wb_club_discount_pct") or 0) / 100, 2
     )
+    change_cashback_rub = round(
+        change_price * float(item.get("loyalty_cashback_pct") or 0) / 100, 2
+    )
+    change_bundle: dict[str, Any] = dict(item)
+    _wb_deductions_bundle(
+        change_bundle,
+        price=change_price,
+        commission=change_commission,
+        acquiring=change_acquiring,
+        ad_rub=change_ad_rub,
+        other_deductions=change_other_deductions,
+        club_discount_rub=change_club_rub,
+        cashback_rub=change_cashback_rub,
+    )
+    item["profit_change"] = change_bundle["profit"]
+    item["margin_change"] = change_bundle["margin_pct"]
     return item

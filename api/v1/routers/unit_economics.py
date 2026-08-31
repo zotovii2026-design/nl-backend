@@ -97,6 +97,8 @@ async def build_unit_economics(
     # 25-28: product_class, brand, tax_system, tax_rate, vat_rate
     # 29: fbs_warehouse
     # 30: tags
+    # 31-32: acquiring_pct, other_deductions_pct
+    # 33-34: rrc_price, loyalty_cashback_pct
 
     ue_by_entity = {}
     ue_by_nm_bc = {}
@@ -124,6 +126,8 @@ async def build_unit_economics(
             "wb_prices_updated_at": r[17],
             "fulfillment_model": r[9],
             "fbs_warehouse": r[29],
+            "rrc_price": r[33],
+            "loyalty_cashback_pct": r[34],
         }
         if eid:
             if eid not in ue_by_entity:
@@ -267,14 +271,11 @@ async def build_unit_economics(
             "buyout_fact_pct": snap_by_nm.get(nm_id, {}).get("buyout_pct_fact", 0),
             "logistics_tariff": _delivery_to_client,
             "reverse_logistics": _reverse_logistics,
-            "logistics_actual": 0,  # Будет из финотчётов
             "storage_tariff": snap_by_nm.get(nm_id, {}).get("storage_tariff", 0),
-            "storage_actual": 0,  # Будет из финотчётов
-            "acceptance_avg": 0,  # Будет из API приёмки
             "acquiring_pct": float(cost.get("acquiring_pct") or 0) or 2.5,  # П.7: из Справочника, дефолт 2.5%
             "acquiring_rub": 0,
             "other_deductions_pct": float(cost.get("other_deductions_pct") or 0),  # П.10: из Справочника
-            "price_before_spp": float(ue.get("wb_price_fact")) if ue.get("wb_price_fact") else (snap_by_nm.get(nm_id, {}).get("price_retail") or price),
+            "price_before_spp": float(ue.get("wb_price_fact") or 0),  # ТЗ 31.08.2026: без фолбэка на snapshot price_retail
             "spp_pct": (lambda _s=snap_by_nm.get(nm_id, {}): (
                 round((1 - float(_s.get("price_with_spp", 0)) / float(_s.get("price_retail", 0))) * 100, 2)
                 if _s.get("price_retail") and float(_s.get("price_retail", 0)) > 0
@@ -304,11 +305,12 @@ async def build_unit_economics(
             "extra_costs": 0,  # Уже включена в cost_price (Итого из справочника)
             "ad_plan_pct": min(99, max(0, float(ue.get("ad_plan_rub")) if ue.get("ad_plan_rub") not in (None, "", 0) else 5)),
             "ad_plan_rub": 0,  # рассчитывается ниже по цене
-            "price_before_spp_plan": float(ue.get("price_before_spp_plan") or 0),
+            "price_before_spp_plan": float(ue.get("rrc_price") or 0),  # ТЗ 31.08.2026: план = РРЦ из Справочника
             "price_before_spp_change": float(ue.get("price_before_spp_change") or 0),
             "change_date": str(ue.get("change_date")) if ue.get("change_date") else None,
             "tariff_type": ue.get("tariff_type") or "box",
             "wb_club_discount_pct": float(ue.get("wb_club_discount_pct") or 0),
+            "loyalty_cashback_pct": float(ue.get("loyalty_cashback_pct") or 0),
 
             # Логистика до клиента
             "volume_liters": _volume_liters,

@@ -79,7 +79,8 @@ COST_PRICES_SQL = text(
 "  FROM tech_status "
 "  WHERE organization_id = :org "
 "  ORDER BY nm_id, target_date DESC, updated_at DESC NULLS LAST, created_at DESC"
-") ts ON pe.nm_id = ts.nm_id "
+") ts ON pe.nm_id = ts.nm_id, "
+    "cp.loyalty_cashback_pct "
     "WHERE pe.organization_id = :org "
     "ORDER BY pe.nm_id, pe.size_name"
 )
@@ -144,6 +145,7 @@ async def fetch_cost_prices(db: AsyncSession, org_id: str) -> List[Dict]:
         "rrc_price": fval(r[64]), "vat_rate": fval(r[65]) or 0,
         "tags": r[66] or "",
         "updated_at": sval(r[67]),
+        "loyalty_cashback_pct": fval(r[69]),
         "product_name": r[68] or "",
         "sizes": [],
     } for r in result.all()]

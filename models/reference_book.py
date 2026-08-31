@@ -67,6 +67,7 @@ class ReferenceBook(Base):
     price_before_spp_change = Column(Numeric(10, 2), nullable=True) # Цена до СПП к изменению
     change_date = Column(Date, nullable=True)                       # Дата правок
     wb_club_discount_pct = Column(Numeric(5, 2), nullable=True)     # Скидка WB Клуб %
+    loyalty_cashback_pct = Column(Numeric(5, 2), nullable=True)     # Кэшбэк программ лояльности %
 
     # === ЦЕНЫ WB API (факт) ===
     wb_price_fact = Column(Numeric(12, 2), nullable=True)          # Цена со скидкой (discountedPrice из WB API)
