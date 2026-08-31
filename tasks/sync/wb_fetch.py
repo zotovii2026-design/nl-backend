@@ -682,6 +682,23 @@ async def _do_tariff_snapshot(sf):
                         logistics_avg = sum(delivery_vals) / len(delivery_vals) if delivery_vals else 0
                         storage_avg = sum(storage_vals) / len(storage_vals) if storage_vals else 0
                         org_results["tariffs"] = len(delivery_vals)
+                        # 2026-08-31: WB убрал РФ-склады из tariffs_box (единый «Свой склад РФ» с прочерками).
+                        # Хранение: carry-forward последнего известного тарифа, чтобы снапшот не пустел.
+                        if not storage_avg:
+                            try:
+                                async with sf() as db:
+                                    last = await db.execute(text(
+                                        "SELECT storage_tariff FROM wb_tariff_snapshot "
+                                        "WHERE organization_id = :org AND storage_tariff IS NOT NULL "
+                                        "ORDER BY target_date DESC LIMIT 1"), {"org": org_id})
+                                    lr = last.first()
+                                    if lr and lr[0]:
+                                        storage_avg = float(lr[0])
+                                        logger.warning(
+                                            f"[tariff_snapshot] RF storage tariff absent in API, "
+                                            f"carry-forward {storage_avg} (last known)")
+                            except Exception as e:
+                                logger.error(f"[tariff_snapshot] storage carry-forward error: {e}")
                     except Exception as e:
                         logger.error(f"[tariff_snapshot] tariffs parse error: {e}")
 
