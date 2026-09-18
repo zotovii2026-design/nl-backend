@@ -68,6 +68,7 @@ __all__ = [
 ]
 
 from models.promotion import WbPromotion, WbPromotionProduct
+from models.showcase_price import WbShowcasePriceSnapshot
 __all__.extend([WbPromotion, WbPromotionProduct])
 from models.wb_box_tariff import WbBoxTariff
 __all__.append(WbBoxTariff)

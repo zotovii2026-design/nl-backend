@@ -17,6 +17,7 @@ from services.wb_api.keys import get_all_wb_keys as _get_all_keys_imported
 from core.security import decrypt_data
 from models.organization import WbApiKey
 from models.promotion import WbPromotion, WbPromotionProduct, WbPromotionSnapshot
+from models.showcase_price import WbShowcasePriceSnapshot
 from services.wb_api.client import WBApiClient
 
 logger = logging.getLogger(__name__)
@@ -696,3 +697,138 @@ def _build_snapshot_payload(goods_item, card_item, regular_promotions=None):
             or _price_from_card(card_item, "product")
         ),
     }
+
+
+# ============================================================================
+# Снапшот витринных цен — 3 обхода в сутки (03:00/11:00/19:00 UTC+5)
+# Переиспользует обход гугл-прокси (_fetch_card_products) и цены кабинета
+# (_fetch_goods_price_map). Пишет в wb_showcase_price_snapshots, не трогая
+# дневной upsert wb_promotion_snapshots.
+# ============================================================================
+@shared_task(name="wb.sched.showcase_price_snapshot")
+def do_showcase_price_snapshot():
+    """Витринные цены + СПП% — 3 раза в сутки"""
+    return _run(_do_showcase_price_snapshot)
+
+
+def _card_price_rub(card_item, key):
+    """Цена из card v4 sizes[].price — приходят в копейках, переводим в рубли"""
+    sizes = card_item.get("sizes") or []
+    if not sizes:
+        return None
+    price = (sizes[0].get("price") or {}).get(key)
+    if not price:
+        return None
+    try:
+        return round(float(price) / 100, 2)  # card v4 всегда отдаёт копейки
+    except (TypeError, ValueError):
+        return None
+
+
+async def _do_showcase_price_snapshot(sf):
+    all_keys = await _get_all_keys(sf)
+    if not all_keys:
+        return {"status": "skipped", "reason": "no_keys"}
+
+    today = date_type.today()
+    # Время обхода, усечённое до минуты: единое для всего прогона,
+    # чтобы повторный запуск в ту же минуту не плодил дубли (upsert)
+    pass_time = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    results = {}
+
+    seen_orgs = set()
+    deduped_keys = []
+    for org_id, api_key in all_keys:
+        if org_id in seen_orgs or not _is_usable_wb_key(api_key):
+            continue
+        deduped_keys.append((org_id, api_key))
+        seen_orgs.add(org_id)
+
+    for org_id, api_key in deduped_keys:
+        try:
+            async with sf() as db:
+                nm_result = await db.execute(
+                    text("SELECT nm_id, id FROM product_entities WHERE organization_id = :org_id AND nm_id IS NOT NULL"),
+                    {"org_id": org_id},
+                )
+                nm_rows = nm_result.fetchall()
+                nm_to_entity = {row[0]: row[1] for row in nm_rows}
+                all_nm_ids = list(nm_to_entity.keys())
+
+            if not all_nm_ids:
+                results[org_id[:8]] = {"status": "skipped", "reason": "no_products"}
+                continue
+
+            logger.info(f"[showcase_price] org={org_id[:8]}: {len(all_nm_ids)} products")
+
+            processed = 0
+            skipped_no_seller = 0
+            try:
+                goods_by_nm = await _fetch_goods_price_map(api_key)
+                card_products = await _fetch_card_products(all_nm_ids)
+                if not card_products:
+                    raise RuntimeError("card.wb.ru returned no products; skip showcase price snapshot")
+
+                async with sf() as db:
+                    for nm_id in all_nm_ids:
+                        card_item = card_products.get(nm_id)
+                        if not card_item:
+                            skipped_no_seller += 1
+                            continue
+                        price_showcase = _card_price_rub(card_item, "product")
+                        price_seller = _price_from_goods(goods_by_nm.get(nm_id, {}), "discountedPrice")
+                        if price_seller:
+                            price_seller = round(price_seller, 2)
+                        if not price_seller or not price_showcase:
+                            skipped_no_seller += 1
+                            continue
+
+                        spp_pct = (
+                            round((1 - price_showcase / price_seller) * 100, 2)
+                            if price_seller > 0 and price_showcase > 0
+                            else None
+                        )
+
+                        stmt = pg_insert(WbShowcasePriceSnapshot).values(
+                            organization_id=org_id,
+                            nm_id=nm_id,
+                            entity_id=nm_to_entity.get(nm_id),
+                            snapshot_date=today,
+                            pass_time=pass_time,
+                            price_seller=price_seller,
+                            price_showcase=price_showcase,
+                            spp_pct=spp_pct,
+                            source="showcase",
+                        ).on_conflict_do_update(
+                            index_elements=["organization_id", "nm_id", "snapshot_date", "pass_time"],
+                            set_={
+                                "price_seller": price_seller,
+                                "price_showcase": price_showcase,
+                                "spp_pct": spp_pct,
+                                "entity_id": nm_to_entity.get(nm_id),
+                            },
+                        )
+                        await db.execute(stmt)
+                        processed += 1
+                    await db.commit()
+
+            except Exception as e:
+                logger.error(f"[showcase_price] org={org_id[:8]}: {e}", exc_info=True)
+                results[org_id[:8]] = {"status": "error", "error": str(e)}
+                continue
+
+            logger.info(
+                f"[showcase_price] org={org_id[:8]}: processed={processed}, skipped={skipped_no_seller}"
+            )
+            results[org_id[:8]] = {
+                "status": "ok",
+                "processed": processed,
+                "skipped": skipped_no_seller,
+                "pass_time": pass_time.isoformat(),
+            }
+
+        except Exception as e:
+            logger.error(f"[showcase_price] error org={org_id[:8]}: {e}", exc_info=True)
+            results[org_id[:8]] = {"status": "error", "error": str(e)}
+
+    return results

@@ -201,6 +201,39 @@ async def get_rnp(
             "price_retail": 0, "price_with_spp": 0, "spp_pct": 0,
         })
 
+    # 4b. Витринные цены (3 обхода/сутки) — данные для СПП по витрине
+    sc_result = await db.execute(text(
+        "SELECT nm_id, snapshot_date, pass_time, price_seller, price_showcase, spp_pct "
+        "FROM wb_showcase_price_snapshots "
+        "WHERE organization_id = :org AND snapshot_date BETWEEN :fd AND :ld "
+        "ORDER BY pass_time"
+    ), {"org": org_id, "fd": first_day, "ld": last_day})
+    showcase_map = defaultdict(dict)  # nm_id -> {date: [проходы]}
+    for r in sc_result.all():
+        passes = showcase_map[r[0]].setdefault(str(r[1]), [])
+        label = (r[2] + timedelta(hours=5)).strftime("%H:%M") if r[2] else ""
+        passes.append({
+            "pass_time": label,
+            "price_seller": float(r[3]) if r[3] is not None else None,
+            "price_showcase": float(r[4]) if r[4] is not None else None,
+            "spp_pct": float(r[5]) if r[5] is not None else None,
+        })
+
+    def day_spp(nm, dk, price_discount, orders_count, fallback_spp):
+        """СПП% за день: приоритет заказам, иначе среднее по обходам, иначе тариф."""
+        passes = (showcase_map.get(nm) or {}).get(dk) or []
+        valid = [p for p in passes if p["spp_pct"] is not None]
+        with_price = [p for p in valid if p["price_showcase"]]
+        avg_showcase_price = (
+            sum(p["price_showcase"] for p in with_price) / len(with_price)
+            if with_price else None
+        )
+        if orders_count and price_discount and avg_showcase_price:
+            return round((1 - avg_showcase_price / price_discount) * 100, 2), "orders", valid
+        if valid:
+            return round(sum(p["spp_pct"] for p in valid) / len(valid), 2), "showcase", valid
+        return fallback_spp, "tariff", []
+
     # 5. План продаж
     plan_result = await db.execute(text(
         "SELECT entity_id, plan_type, plan_value "
@@ -379,6 +412,10 @@ async def get_rnp(
             dd_margin_with = dd_profit
             dd_drr = round(dd["ad_cost"] / o_rev * 100, 2) if o_rev else 0
 
+            day_spp_val, day_spp_src, day_passes = day_spp(
+                nm, dk, dd["price_discount"], dd["orders_count"], snap["spp_pct"]
+            )
+
             day_columns.append({
                 "date": dk,
                 "orders_count": dd["orders_count"],
@@ -390,7 +427,29 @@ async def get_rnp(
                 "margin_before_drr": round(dd_margin_before, 2),
                 "profit_calc": round(dd_profit, 2),
                 "margin_with_drr": round(dd_margin_with, 2),
+                "spp_pct": day_spp_val,
+                "spp_source": day_spp_src,
+                "spp_passes": [
+                    {"time": p["pass_time"], "spp_pct": p["spp_pct"]} for p in day_passes
+                ],
             })
+
+        # Итоговое СПП% по дням: заказы > обходы витрины > тариф
+        order_spp_days = [dc for dc in day_columns if dc["spp_source"] == "orders" and dc["spp_pct"] is not None]
+        if order_spp_days:
+            _w = sum(dc["orders_count"] for dc in order_spp_days)
+            spp_final = round(
+                sum(dc["spp_pct"] * dc["orders_count"] for dc in order_spp_days) / _w, 2
+            ) if _w else snap["spp_pct"]
+            spp_source = "orders"
+        else:
+            _sc = [dc["spp_pct"] for dc in day_columns if dc["spp_source"] == "showcase" and dc["spp_pct"] is not None]
+            if _sc:
+                spp_final = round(sum(_sc) / len(_sc), 2)
+                spp_source = "showcase"
+            else:
+                spp_final = snap["spp_pct"]
+                spp_source = "tariff"
 
         products.append({
             "entity_id": eid,
@@ -415,7 +474,9 @@ async def get_rnp(
             # Цены
             "price_retail": snap["price_retail"],
             "price_with_spp": snap["price_with_spp"],
-            "spp_pct": snap["spp_pct"],
+            "spp_pct": spp_final,
+            "spp_source": spp_source,
+            "spp_pct_tariff": snap["spp_pct"],
             "buyout_pct": buyout_pct,
             # Себестоимость
             "cost_price": ref["cost_price"],
@@ -492,6 +553,20 @@ async def get_rnp(
             )
             day_orders = sum(int(item.get("orders_count") or 0) for item in child_days)
             day_buyouts = sum(int(item.get("buyouts_count") or 0) for item in child_days)
+            sp_items = [d for d in child_days if d.get("spp_pct") is not None]
+            if sp_items:
+                sp_w = sum(int(d.get("orders_count") or 0) for d in sp_items)
+                if sp_w:
+                    day_spp_val = round(sum((d.get("spp_pct") or 0) * (int(d.get("orders_count") or 0)) for d in sp_items) / sp_w, 2)
+                    day_spp_src = "orders"
+                else:
+                    day_spp_val = round(sum((d.get("spp_pct") or 0) for d in sp_items) / len(sp_items), 2)
+                    day_spp_src = next(
+                        (d.get("spp_source") for d in sp_items if d.get("spp_source") == "showcase"),
+                        sp_items[0].get("spp_source"),
+                    )
+            else:
+                day_spp_val, day_spp_src = None, None
             day_items.append({
                 "date": dk,
                 "orders_count": day_orders,
@@ -503,6 +578,8 @@ async def get_rnp(
                 "margin_before_drr": round(day_total["margin_before_drr"], 2),
                 "profit_calc": round(day_total["profit_calc"], 2),
                 "margin_with_drr": round(day_total["margin_with_drr"], 2),
+                "spp_pct": day_spp_val,
+                "spp_source": day_spp_src,
             })
 
         tags = sorted({tag for item in rows for tag in split_tag_labels(item.get("tags") or "")})
@@ -533,6 +610,11 @@ async def get_rnp(
             "price_retail": weighted_avg(rows, "price_retail", "total_orders"),
             "price_with_spp": weighted_avg(rows, "price_with_spp", "total_orders"),
             "spp_pct": weighted_avg(rows, "spp_pct", "total_orders"),
+            "spp_source": (
+                "orders" if any(r.get("spp_source") == "orders" for r in rows)
+                else "showcase" if any(r.get("spp_source") == "showcase" for r in rows)
+                else "tariff"
+            ),
             "buyout_pct": buyout_pct,
             "cost_price": weighted_avg(rows, "cost_price", "current_stock"),
             "cost_of_stock": round(totals["cost_of_stock"], 2),

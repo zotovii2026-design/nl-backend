@@ -3888,7 +3888,9 @@ var RNP_TOOLTIPS = {
     dailyNorm: 'Факт в день или дневная норма: план/факт, пересчитанный на один день.',
     priceRetail: 'Цена до СПП по последним доступным данным.',
     priceWithSpp: 'Цена продажи покупателю с учётом СПП.',
-    sppPct: 'СПП%: скидка WB относительно цены до СПП.',
+    sppPct: 'СПП% — скидка WB для покупателя относительно вашей цены до СПП. Если в этот день были заказы — по фактическим ценам заказов, иначе по замерам витрины.',
+    daySpp: 'СПП за день. Если были заказы — по фактическим ценам заказов, иначе среднее по трём замерам витрины (03:00, 11:00, 19:00).',
+    sppPasses: 'СПП по трём замерам витрины за день: 03:00, 11:00 и 19:00.',
     promo: 'Признак участия товара в акции.',
     roi: 'ROI: доходность товара относительно вложений в себестоимость.',
     costOfStock: 'Себестоимость остатков: себестоимость единицы из Справочника × текущий остаток.'
@@ -4067,7 +4069,8 @@ async function loadRnp() {
             pf += '<div class="rnp-tip"' + rnpTitle('dailyNorm') + '>Ф/д: ' + fmtR(p.daily_norm) + '</div>';
             pf += '<div class="rnp-tip"' + rnpTitle('priceRetail') + '>Ц.СПП: ' + fmtR(p.price_retail) + '₽</div>';
             pf += '<div class="rnp-tip"' + rnpTitle('priceWithSpp') + '>Ц+СПП: ' + fmtR(p.price_with_spp) + '₽</div>';
-            pf += '<div class="rnp-tip"' + rnpTitle('sppPct') + '>СПП%: ' + (p.spp_pct||0) + '%</div>';
+            var sppSrcLabel = p.spp_source === 'orders' ? '(по заказам)' : p.spp_source === 'showcase' ? '(по витрине)' : '(справочно)';
+            pf += '<div class="rnp-tip"' + rnpTitle('sppPct') + '>СПП%: ' + (p.spp_pct||0) + '% <span style="color:#999;font-size:.85em">' + sppSrcLabel + '</span></div>';
             pf += '<div class="rnp-tip"' + rnpTitle('promo') + '>Акция: ' + (p.in_promo ? '✅' : '-') + '</div>';
             pf += '<div class="rnp-tip"' + rnpTitle('roi') + '>ROI: ' + (p.roi||0) + '%</div>';
             pf += '<div class="rnp-tip"' + rnpTitle('costOfStock') + '>Сб.ост: ' + fmtR(p.cost_of_stock) + '₽</div>';
@@ -4089,6 +4092,16 @@ async function loadRnp() {
                 html += '<div class="rnp-tip" style="color:#aaa"' + rnpTitle('buyoutsCount') + '>' + (dd.buyouts_count||0) + ' шт</div>';
                 html += '<div class="rnp-tip"' + rnpTitle('marginWithDrr') + '>М.ДРР <span style="color:' + dmc + '">' + fmtR(dd.margin_with_drr) + '</span></div>';
                 html += '<div class="rnp-tip"' + rnpTitle('drr') + '>ДРР ' + (dd.drr||0) + '%</div>';
+                if (dd.spp_pct != null) {
+                    var sppTipParts = [];
+                    var ps = dd.spp_passes || [];
+                    for (var pi = 0; pi < ps.length; pi++) {
+                        sppTipParts.push(ps[pi].time + ' — ' + (ps[pi].spp_pct == null ? 'нет' : ps[pi].spp_pct + '%'));
+                    }
+                    var daySppTip = dd.spp_source === 'orders' ? 'По фактическим ценам заказов за день.' : dd.spp_source === 'showcase' ? 'Среднее по замерам витрины за день.' : 'Оценка по последним доступным данным.';
+                    if (sppTipParts.length) daySppTip += ' Замеры: ' + sppTipParts.join(', ');
+                    html += '<div class="rnp-tip" title="' + esc(daySppTip) + '">СПП ' + dd.spp_pct + '%' + (ps.length ? ' <span style="color:#999;font-size:.85em">(' + ps.length + ' зам.)</span>' : '') + '</div>';
+                }
                 html += '</td>';
             }
             html += '</tr>';

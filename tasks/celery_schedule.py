@@ -116,6 +116,11 @@ BEAT_SCHEDULE = {
         "task": "wb.sched.promo_snapshot",
         "schedule": crontab(hour=2, minute=0),
     },
+    # 3 обхода в сутки: 03/11/19 UTC+5 = 01/09/17 MSK (celery TZ = Europe/Moscow)
+    "showcase-price-snapshot": {
+        "task": "wb.sched.showcase_price_snapshot",
+        "schedule": crontab(hour="1,9,17", minute=10),
+    },
     "freshness-check-hourly": {
         "task": "wb.sched.freshness",
         "schedule": crontab(minute=45),
