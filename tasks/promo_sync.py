@@ -490,7 +490,15 @@ async def _fetch_card_products_via_proxy(nm_ids):
                 if nm_id:
                     products_by_nm[int(nm_id)] = product
         except Exception as exc:
-            logger.warning(f"[promo_snapshot] proxy batch error: {exc}")
+            # httpx exceptions include the full request URL, which contains the
+            # proxy credential in the query string. Log only non-secret fields.
+            response = getattr(exc, "response", None)
+            status_code = getattr(response, "status_code", None)
+            logger.warning(
+                "[promo_snapshot] proxy batch error: type=%s status=%s",
+                type(exc).__name__,
+                status_code,
+            )
             return products_by_nm, False
         await asyncio.sleep(1.5)
 
