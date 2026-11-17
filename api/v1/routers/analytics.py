@@ -18,10 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text, func
 
 from core.database import get_db
+from core.tenant_auth import require_query_organization_access
 from models.raw_data import TechStatus
 from services.reference import resolve_org_id
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(require_query_organization_access)],
+)
 
 
 async def _resolve_snapshot_date(db: AsyncSession, org_id: str, target_date: Optional[str]) -> date:

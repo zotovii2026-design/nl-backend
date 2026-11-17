@@ -15,9 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 
 from core.database import get_db
+from core.tenant_auth import require_query_organization_access
 from models.product_entity import ProductEntity
 
-router = APIRouter(tags=["nl"])
+router = APIRouter(
+    tags=["nl"],
+    dependencies=[Depends(require_query_organization_access)],
+)
 
 
 # ============================================================================
