@@ -23,6 +23,15 @@ from models.product_entity import (
     EntityBarcode,
     UnmatchedBarcode
 )
+from models.commerce import (
+    LegacyProductEntityLink,
+    ListingVariant,
+    MarketplaceAccount,
+    MarketplaceListing,
+    Product,
+    ProductVariant,
+    VariantBarcode,
+)
 from models.reference_book import ReferenceBook
 from models.wb_tariff_snapshot import WbTariffSnapshot
 from models.sales_plan import SalesPlan, PlanType, Seasonality
@@ -54,6 +63,13 @@ __all__ = [
     ProductEntity,
     EntityBarcode,
     UnmatchedBarcode,
+    MarketplaceAccount,
+    Product,
+    ProductVariant,
+    MarketplaceListing,
+    ListingVariant,
+    VariantBarcode,
+    LegacyProductEntityLink,
     ReferenceBook,
     WbTariffSnapshot,
     SalesPlan,

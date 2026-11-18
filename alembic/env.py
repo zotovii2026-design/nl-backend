@@ -35,6 +35,15 @@ from models.product_entity import (
     EntityBarcode,
     UnmatchedBarcode
 )
+from models.commerce import (
+    LegacyProductEntityLink,
+    ListingVariant,
+    MarketplaceAccount,
+    MarketplaceListing,
+    Product,
+    ProductVariant,
+    VariantBarcode,
+)
 from models.sales_plan import SalesPlan, PlanType, Seasonality
 from models.celery_task_run import CeleryTaskRun
 from models.wb_finance import WbFinanceRow, WbFinanceSync, WbOpiuSnapshot
