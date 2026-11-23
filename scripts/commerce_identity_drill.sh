@@ -3,7 +3,8 @@ set -Eeuo pipefail
 
 readonly TARGET_REF="${1:-origin/rollout/common-reference}"
 readonly SOURCE_REPO="${NL_DRILL_SOURCE_REPO:-/opt/nl-table/nl-backend}"
-readonly DUMP="${NL_DRILL_DUMP:-/opt/nl-table/backup-agent/state/latest.dump}"
+readonly DUMP_INPUT="${NL_DRILL_DUMP:-/opt/nl-table/backup-agent/state/latest.dump}"
+readonly DUMP="$(readlink -f "$DUMP_INPUT")"
 readonly APP_IMAGE="${NL_DRILL_APP_IMAGE:-nl-backend-app}"
 readonly BASE_REVISION="b4c5d6e7f8a9"
 readonly TARGET_REVISION="e5f6g7h8i9j0"
