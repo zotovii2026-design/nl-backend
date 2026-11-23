@@ -12,7 +12,8 @@ readonly STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 readonly WORKTREE="/tmp/nl-commerce-drill-${STAMP}"
 readonly PG_CONTAINER="nl-commerce-pg-${STAMP,,}"
 readonly NETWORK="nl-commerce-net-${STAMP,,}"
-readonly DB_URL="postgresql+asyncpg://postgres@postgres:5432/restore_drill"
+readonly DRILL_PASSWORD="DrillOnlyPassword_1234567890_ABC"
+readonly DB_URL="postgresql+asyncpg://postgres:${DRILL_PASSWORD}@postgres:5432/restore_drill"
 
 cleanup() {
     docker rm -f "$PG_CONTAINER" >/dev/null 2>&1 || true
@@ -47,6 +48,8 @@ sql() {
 run_alembic() {
     docker run --rm --network "$NETWORK" \
         -e DATABASE_URL="$DB_URL" -e REDIS_URL=redis://127.0.0.1:6379/0 \
+        -e SECRET_KEY=DrillOnlySecretKey_1234567890_ABC \
+        -e ENCRYPTION_KEY=DrillOnlyEncryptionKey_1234567890_ABC \
         -v "$WORKTREE:/app" -w /app "$APP_IMAGE" alembic "$@"
 }
 
