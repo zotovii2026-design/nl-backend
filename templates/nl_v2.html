@@ -200,6 +200,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260803-reference-style-tree"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260820-acquiring"></script>
+<script type="text/javascript" src="/static/js/common-reference.js?v=20261123-1"></script>
 <script type="text/javascript" src="/static/js/nl-filters.js?v=20260809-filter-id1"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260820-fixes"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
@@ -248,6 +249,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <a class="nav-item" onclick="navTo('opiu',this)"><span class="icon">📑</span>ОПиУ</a>
 <a class="nav-item" onclick="navTo('analytics',this)"><span class="icon">📈</span>Аналитика по товарам</a>
 <a class="nav-item" onclick="navTo('costprice',this)"><span class="icon">📖</span>Справочник</a>
+<a class="nav-item" onclick="navTo('commonref',this)"><span class="icon">🗂️</span>Справочник общий</a>
 <a class="nav-item" onclick="navTo('salesplan',this)"><span class="icon">🎯</span>План продаж</a>
 <a class="nav-item" onclick="navTo('warehouses',this)"><span class="icon">📦</span>Склады</a>
 <a class="nav-item" onclick="navTo('opexpenses',this)"><span class="icon">📝</span>Опер. расходы</a>
@@ -354,6 +356,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 
 <div id="page-opiu" class="page-section"></div>
 <div id="page-costprice" class="page-section"></div>
+<div id="page-commonref" class="page-section"></div>
 <div id="page-salesplan" class="page-section"></div>
 <div id="page-warehouses" class="page-section"></div>
 <div id="page-opexpenses" class="page-section"></div>
@@ -672,6 +675,7 @@ var _sectionRegistry = {
     opiu:       { title:'ОПиУ', topFilters:true },
     analytics:  { title:'Аналитика по товарам', topFilters:true },
     costprice:  { title:'Справочник' },
+    commonref:  { title:'Справочник общий' },
     salesplan:  { title:'План продаж' },
     warehouses: { title:'Склады' },
     opexpenses: { title:'Опер. расходы' },
@@ -1560,6 +1564,28 @@ var _sectionHTML = {
 </div>`,
 };
 
+// Новый раздел переиспользует доказанный интерфейс Справочника без дублирования
+// бизнес-логики. Neutral overview развивается отдельно над совместимым WB-слоем.
+_sectionHTML.commonref = `
+<div style="margin-bottom:14px;padding:14px 16px;background:#fff;border:1px solid #ddd;border-radius:8px">
+  <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:1.05em;font-weight:700;color:#333">Единые товары WB + Ozon</div>
+      <div id="common-reference-status" style="margin-top:4px;color:#777;font-size:.82em">Загрузка общих товаров…</div>
+    </div>
+    <div id="common-reference-summary" style="margin-left:auto;display:flex;align-items:center;gap:5px;flex-wrap:wrap"></div>
+  </div>
+  <div style="margin-top:10px;padding:9px 11px;background:#f7f5ff;border:1px solid #e2dcff;border-radius:6px;color:#55458f;font-size:.82em">
+    Первый безопасный slice: neutral identity доступна только для просмотра. Сопоставление, смена и разрыв связи будут включены после PostgreSQL 16 migration drill.
+  </div>
+  <div id="common-reference-tabulator" style="margin-top:12px;min-height:180px;width:100%"></div>
+</div>
+<div style="display:flex;align-items:center;gap:8px;margin:18px 0 10px">
+  <div style="font-size:1.05em;font-weight:700;color:#333">Настройки товаров</div>
+  <span style="font-size:.78em;color:#777">переиспользован действующий Справочник WB</span>
+</div>
+` + _sectionHTML.costprice;
+
 function _lazyInit(name) {
     var html = _sectionHTML[name];
     if (html) document.getElementById('page-' + name).innerHTML = html;
@@ -1602,6 +1628,11 @@ async function _sectionEnter(name) {
         case 'costprice':
             if (!_costpriceInited) { _lazyInit('costprice'); await loadOrgs(); _costpriceInited = true; }
             else { await loadOrgs(); }
+            loadTaxSettings(); loadFboAverageWarehouses(); loadCostPrices(); break;
+        case 'commonref':
+            if (!_commonrefInited) { _lazyInit('commonref'); await loadOrgs(); _commonrefInited = true; }
+            else { await loadOrgs(); }
+            await loadCommonReference();
             loadTaxSettings(); loadFboAverageWarehouses(); loadCostPrices(); break;
         case 'salesplan':
             if (!_salesplanInited) { _lazyInit('salesplan'); loadOrgs(); _salesplanInited = true; }
@@ -1675,6 +1706,10 @@ async function _sectionLeave(name) {
         case 'costprice':
             if (typeof costTabulator !== 'undefined' && costTabulator) { costTabulator.destroy(); costTabulator = null; }
             _clearSection('page-costprice'); _costpriceInited = false; break;
+        case 'commonref':
+            destroyCommonReference();
+            if (typeof costTabulator !== 'undefined' && costTabulator) { costTabulator.destroy(); costTabulator = null; }
+            _clearSection('page-commonref'); _commonrefInited = false; break;
         case 'salesplan': _clearSection('page-salesplan'); _salesplanInited = false; break;
         case 'warehouses': _clearSection('page-warehouses'); _warehousesInited = false; break;
         case 'opexpenses': _clearSection('page-opexpenses'); _opexpensesInited = false; break;
@@ -1702,7 +1737,7 @@ async function _sectionLeave(name) {
 }
 
 var _rnpState = null, _rnpInited = false, _rnpGroupsOpen = false, _rnpOpenGroups = new Set(), _adsInited = false, _analyticsInited = false;
-var _opiuInited = false, _costpriceInited = false, _salesplanInited = false, _warehousesInited = false;
+var _opiuInited = false, _costpriceInited = false, _commonrefInited = false, _salesplanInited = false, _warehousesInited = false;
 var _opexpensesInited = false, _marketerInited = false, _strategiesInited = false, _extadsInited = false, _fboneedsInited = false;
 var _uniteconInited = false, _promoInited = false, _connectorsInited = false, _subscriptionInited = false;
 var _settingsInited = false, _helpInited = false;
@@ -4665,6 +4700,7 @@ async function switchOrg() {
     if (activeTab) {
         var tabName = activeTab.id.replace('page-', '');
         if (tabName === 'costprice') { loadTaxSettings(); loadFboAverageWarehouses(); loadCostPrices(); }
+        else if (tabName === 'commonref') { loadCommonReference(); loadTaxSettings(); loadFboAverageWarehouses(); loadCostPrices(); }
         else if (tabName === 'unitecon') { if (!ueTabulator) initUEGrid(); loadUEData(); }
         else if (tabName === 'promo') { if (typeof promoTabulator === 'undefined' || !promoTabulator) initPromoGrid(); loadPromoData(); }
         else if (tabName === 'salesplan') loadSalesPlans();
@@ -4723,6 +4759,7 @@ async function switchTopStore() {
         else if (tabName === 'rnp') loadRnp();
         else if (tabName === 'opiu') loadOpiu();
         else if (tabName === 'costprice') { loadTaxSettings(); loadFboAverageWarehouses(); loadCostPrices(); }
+        else if (tabName === 'commonref') { loadCommonReference(); loadTaxSettings(); loadFboAverageWarehouses(); loadCostPrices(); }
         else if (tabName === 'ads') { loadAds(); if (typeof loadAdsArts === 'function') loadAdsArts(); }
         else if (tabName === 'marketer') loadMarketer();
         else if (tabName === 'strategies') initStrategyMilestonesPage();
