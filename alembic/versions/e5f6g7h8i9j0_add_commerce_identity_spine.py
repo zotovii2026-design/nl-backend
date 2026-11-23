@@ -1,7 +1,7 @@
 """add marketplace-neutral commerce identity spine
 
 Revision ID: e5f6g7h8i9j0
-Revises: d4e5f6g7h8i9
+Revises: b4c5d6e7f8a9
 Create Date: 2026-11-18
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision: str = "e5f6g7h8i9j0"
-down_revision: Union[str, None] = "d4e5f6g7h8i9"
+down_revision: Union[str, None] = "b4c5d6e7f8a9"
 branch_labels = None
 depends_on = None
 

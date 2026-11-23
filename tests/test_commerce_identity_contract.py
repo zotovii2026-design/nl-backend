@@ -32,7 +32,7 @@ def test_neutral_identity_models_exist():
 
 def test_migration_is_additive_and_backfills_all_bridge_layers():
     source = MIGRATION_PATH.read_text(encoding="utf-8")
-    assert 'down_revision: Union[str, None] = "d4e5f6g7h8i9"' in source
+    assert 'down_revision: Union[str, None] = "b4c5d6e7f8a9"' in source
     for table in (
         "marketplace_accounts",
         "products",
