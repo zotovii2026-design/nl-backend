@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly TARGET_REF="${1:-origin/rollout/common-reference}"
+readonly TARGET_REF="${1:-origin/main}"
 readonly SOURCE_REPO="${NL_DRILL_SOURCE_REPO:-/opt/nl-table/nl-backend}"
 readonly DUMP_INPUT="${NL_DRILL_DUMP:-/opt/nl-table/backup-agent/state/latest.dump}"
 readonly DUMP="$(readlink -f "$DUMP_INPUT")"
 readonly APP_IMAGE="${NL_DRILL_APP_IMAGE:-nl-backend-app}"
 readonly BASE_REVISION="b4c5d6e7f8a9"
-readonly TARGET_REVISION="e5f6g7h8i9j0"
+readonly TARGET_REVISION="f6g7h8i9j0k1"
 readonly STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 readonly WORKTREE="/tmp/nl-commerce-drill-${STAMP}"
 readonly PG_CONTAINER="nl-commerce-pg-${STAMP,,}"
@@ -71,6 +71,7 @@ listings_after="$(sql 'select count(*) from marketplace_listings')"
 listing_variants_after="$(sql 'select count(*) from listing_variants')"
 barcodes_after="$(sql 'select count(*) from variant_barcodes')"
 links_after="$(sql 'select count(*) from legacy_product_entity_links')"
+matching_events_after="$(sql 'select count(*) from marketplace_matching_events')"
 duplicate_active_barcodes="$(sql "select count(*) from (select organization_id,barcode from variant_barcodes where is_active group by organization_id,barcode having count(*)>1) q")"
 tenant_mismatches="$(sql 'select count(*) from listing_variants lv join marketplace_listings ml on ml.id=lv.marketplace_listing_id where lv.organization_id<>ml.organization_id')"
 
@@ -80,6 +81,7 @@ tenant_mismatches="$(sql 'select count(*) from listing_variants lv join marketpl
 [[ "$listing_variants_after" == "$legacy_entities_before" ]]
 [[ "$barcodes_after" == "$legacy_barcodes_before" ]]
 [[ "$links_after" == "$legacy_entities_before" ]]
+[[ "$matching_events_after" == "0" ]]
 [[ "$duplicate_active_barcodes" == "0" ]]
 [[ "$tenant_mismatches" == "0" ]]
 [[ "$(sql 'select count(*) from reference_book')" == "$reference_before" ]]
@@ -89,7 +91,7 @@ echo "upgrade_ok products=$products_after variants=$variants_after listings=$lis
 
 run_alembic downgrade "$BASE_REVISION"
 [[ "$(run_alembic current 2>/dev/null | tail -1 | awk '{print $1}')" == "$BASE_REVISION" ]]
-[[ "$(sql "select count(*) from pg_tables where schemaname='public' and tablename in ('marketplace_accounts','products','product_variants','marketplace_listings','listing_variants','variant_barcodes','legacy_product_entity_links')")" == "0" ]]
+[[ "$(sql "select count(*) from pg_tables where schemaname='public' and tablename in ('marketplace_accounts','products','product_variants','marketplace_listings','listing_variants','variant_barcodes','legacy_product_entity_links','marketplace_matching_events')")" == "0" ]]
 [[ "$(sql 'select count(*) from product_entities')" == "$legacy_entities_before" ]]
 [[ "$(sql 'select count(*) from entity_barcodes')" == "$legacy_barcodes_before" ]]
 [[ "$(sql 'select count(*) from reference_book')" == "$reference_before" ]]
