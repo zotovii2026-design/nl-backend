@@ -7,11 +7,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
+from core.dependencies import get_current_user
 from core.tenant_auth import require_query_organization_access
+from core.role_deps import require_organization_role
+from models.organization import Role
+from models.user import User
 from models.commerce import (
     ListingVariant,
     MarketplaceAccount,
     MarketplaceListing,
+    MarketplaceMatchingEvent,
     Product,
     ProductVariant,
 )
@@ -20,6 +25,8 @@ from schemas.commerce import (
     LegacyEntityResolutionRead,
     LegacyWbResolutionRead,
     MarketplaceAccountRead,
+    ListingAttachRequest,
+    ListingAttachResult,
     ProductPageRead,
 )
 from services.reference import resolve_org_id
@@ -166,6 +173,66 @@ async def get_products(
         for product in products
     ]
     return {"items": items, "limit": limit, "offset": offset, "returned": len(items)}
+
+
+def _variant_key(value: str | None) -> str:
+    return " ".join(str(value or "").strip().casefold().split())
+
+
+@router.post("/products/{product_id}/attach-listing", response_model=ListingAttachResult)
+async def attach_listing_to_product(
+    product_id: UUID,
+    payload: ListingAttachRequest,
+    org_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    organization_id = await _organization_uuid(org_id, db)
+    await require_organization_role(organization_id, Role.ADMIN, current_user, db)
+    product = await db.scalar(select(Product).where(Product.id == product_id, Product.organization_id == organization_id))
+    listing = await db.scalar(select(MarketplaceListing).where(MarketplaceListing.id == payload.listing_id, MarketplaceListing.organization_id == organization_id))
+    if product is None or listing is None:
+        raise HTTPException(status_code=404, detail="Товар или артикул не найден")
+    if listing.product_id == product.id:
+        raise HTTPException(status_code=409, detail="Артикул уже входит в это сопоставление")
+
+    target_variants = (await db.execute(select(ProductVariant).where(ProductVariant.organization_id == organization_id, ProductVariant.product_id == product.id))).scalars().all()
+    listing_variants = (await db.execute(select(ListingVariant).where(ListingVariant.organization_id == organization_id, ListingVariant.marketplace_listing_id == listing.id))).scalars().all()
+    variants_by_name = {}
+    for variant in target_variants:
+        variants_by_name.setdefault(_variant_key(variant.variant_name), []).append(variant)
+
+    matched = 0
+    for listing_variant in listing_variants:
+        candidates = variants_by_name.get(_variant_key(listing_variant.variant_name), [])
+        if len(candidates) == 1:
+            listing_variant.product_variant_id = candidates[0].id
+            matched += 1
+        elif len(target_variants) == 1 and len(listing_variants) == 1:
+            listing_variant.product_variant_id = target_variants[0].id
+            matched += 1
+        else:
+            listing_variant.product_variant_id = None
+
+    previous_product_id = listing.product_id
+    listing.product_id = product.id
+    db.add(MarketplaceMatchingEvent(
+        organization_id=organization_id,
+        marketplace_listing_id=listing.id,
+        previous_product_id=previous_product_id,
+        product_id=product.id,
+        action="attach",
+        reason=(payload.reason or "Ручное сопоставление в Справочнике общем").strip()[:500],
+        created_by_user_id=current_user.id,
+    ))
+    await db.commit()
+    return ListingAttachResult(
+        listing_id=listing.id,
+        previous_product_id=previous_product_id,
+        product_id=product.id,
+        matched_variants=matched,
+        unmatched_variants=len(listing_variants) - matched,
+    )
 
 
 @router.get("/resolve/wb/{nm_id}", response_model=LegacyWbResolutionRead)

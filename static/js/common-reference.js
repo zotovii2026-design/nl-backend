@@ -1,114 +1,19 @@
-/*
- * Common Reference — first read-only neutral identity slice.
- * Reuses the existing Reference UI below this neutral overview.
- */
-
-var commonReferenceTabulator = null;
-
-function commonReferenceState(product) {
-    var marketplaces = new Set((product.listings || []).map(function(listing) {
-        return String(listing.marketplace || '').toLowerCase();
-    }));
-    if (marketplaces.has('wildberries') && marketplaces.has('ozon')) return 'WB + Ozon';
-    if (marketplaces.has('wildberries')) return 'WB only';
-    if (marketplaces.has('ozon')) return 'Ozon only';
-    return 'unmatched';
-}
-
-function commonReferenceFlatten(products) {
-    return (products || []).map(function(product) {
-        var listings = product.listings || [];
-        var wb = listings.filter(function(item) { return String(item.marketplace).toLowerCase() === 'wildberries'; });
-        var ozon = listings.filter(function(item) { return String(item.marketplace).toLowerCase() === 'ozon'; });
-        return {
-            id: product.id,
-            name: product.name || 'Без названия',
-            internal_sku: product.internal_sku || '',
-            brand: product.brand || '',
-            variants: (product.variants || []).length,
-            wb_listings: wb.length,
-            ozon_listings: ozon.length,
-            match_state: commonReferenceState(product),
-            status: product.status || '',
-        };
-    });
-}
-
-function commonReferenceBadge(value) {
-    var colors = {
-        'WB + Ozon': ['#dff5ec', '#167253'],
-        'WB only': ['#f0e8ff', '#6941a5'],
-        'Ozon only': ['#e1efff', '#185bbb'],
-        'unmatched': ['#fff0cf', '#805c08'],
-    };
-    var palette = colors[value] || ['#f1f2f6', '#555'];
-    return '<span style="display:inline-block;padding:3px 8px;border-radius:12px;font-size:10px;font-weight:700;background:' +
-        palette[0] + ';color:' + palette[1] + '">' + value + '</span>';
-}
-
-function renderCommonReferenceSummary(rows) {
-    var counts = {'WB + Ozon': 0, 'WB only': 0, 'Ozon only': 0, 'unmatched': 0};
-    rows.forEach(function(row) { counts[row.match_state] = (counts[row.match_state] || 0) + 1; });
-    var summary = document.getElementById('common-reference-summary');
-    if (!summary) return;
-    summary.innerHTML = Object.keys(counts).map(function(state) {
-        return commonReferenceBadge(state) + '<b style="margin-right:12px">' + counts[state] + '</b>';
-    }).join('');
-}
-
-function renderCommonReferenceTable(rows) {
-    var target = document.getElementById('common-reference-tabulator');
-    if (!target) return;
-    if (typeof Tabulator === 'undefined') {
-        target.innerHTML = '<div style="padding:12px;color:#a33">Tabulator не загружен</div>';
-        return;
-    }
-    if (commonReferenceTabulator) commonReferenceTabulator.destroy();
-    commonReferenceTabulator = new Tabulator(target, {
-        data: rows,
-        layout: 'fitColumns',
-        height: 360,
-        placeholder: 'Общие товары ещё не созданы',
-        index: 'id',
-        columns: [
-            {title: 'Общий товар NL', field: 'name', minWidth: 220, headerFilter: 'input'},
-            {title: 'Внутренний SKU', field: 'internal_sku', width: 130},
-            {title: 'Бренд', field: 'brand', width: 120, headerFilter: 'input'},
-            {title: 'Варианты', field: 'variants', width: 85, hozAlign: 'right'},
-            {title: 'WB', field: 'wb_listings', width: 65, hozAlign: 'right'},
-            {title: 'Ozon', field: 'ozon_listings', width: 70, hozAlign: 'right'},
-            {title: 'Связь', field: 'match_state', width: 120, formatter: function(cell) {
-                return commonReferenceBadge(cell.getValue());
-            }},
-            {title: 'Статус', field: 'status', width: 95},
-        ],
-    });
-}
-
-async function loadCommonReference() {
-    var orgId = getCurrentOrgId();
-    var status = document.getElementById('common-reference-status');
-    if (!orgId) return;
-    if (status) status.textContent = 'Загрузка общих товаров…';
-    try {
-        var response = await fetch('/api/v1/commerce/products?org_id=' + encodeURIComponent(orgId) + '&limit=200');
-        var data = await response.json();
-        if (!response.ok) throw new Error(data.detail || ('HTTP ' + response.status));
-        var rows = commonReferenceFlatten(data.items || []);
-        renderCommonReferenceSummary(rows);
-        renderCommonReferenceTable(rows);
-        if (status) status.textContent = 'Общих товаров: ' + rows.length + '. Ниже — проверенные настройки действующего Справочника.';
-    } catch (error) {
-        if (status) status.innerHTML = '<span style="color:#a56b00">Neutral-слой пока недоступен: ' +
-            String(error.message || error) + '. Старый Справочник не затронут.</span>';
-        renderCommonReferenceSummary([]);
-        renderCommonReferenceTable([]);
-    }
-}
-
-function destroyCommonReference() {
-    if (commonReferenceTabulator) {
-        commonReferenceTabulator.destroy();
-        commonReferenceTabulator = null;
-    }
-}
+/* Common Reference: WB / Ozon / combined matching workspace. */
+var commonReferenceTabulator=null,commonReferenceOzonTabulator=null,commonReferenceProducts=[],commonReferenceMode='wb',commonMatchTargetId=null;
+function commonEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function commonMarketplace(v){v=String(v||'').toLowerCase();return v==='wildberries'?'WB':(v==='ozon'?'Ozon':v);}
+function commonReferenceState(p){var n=new Set((p.listings||[]).map(function(x){return commonMarketplace(x.marketplace);}));return n.has('WB')&&n.has('Ozon')?'WB + Ozon':(n.has('WB')?'WB only':(n.has('Ozon')?'Ozon only':'unmatched'));}
+function commonListingLabel(x){return x.seller_sku||x.external_listing_id||x.title||'—';}
+function commonReferenceFlatten(products){return (products||[]).map(function(p){var l=p.listings||[],w=l.filter(function(x){return commonMarketplace(x.marketplace)==='WB';}),o=l.filter(function(x){return commonMarketplace(x.marketplace)==='Ozon';});return{id:p.id,name:p.name||'Без названия',internal_sku:p.internal_sku||'',brand:p.brand||'',variants:(p.variants||[]).length,wb_articles:w.map(commonListingLabel).join(', '),ozon_articles:o.map(commonListingLabel).join(', '),match_state:commonReferenceState(p)};});}
+function commonReferenceBadge(v){var c={'WB + Ozon':['#dff5ec','#167253'],'WB only':['#f0e8ff','#6941a5'],'Ozon only':['#e1efff','#185bbb'],'unmatched':['#fff0cf','#805c08']},p=c[v]||['#f1f2f6','#555'];return '<span style="display:inline-block;padding:3px 8px;border-radius:12px;font-size:10px;font-weight:700;background:'+p[0]+';color:'+p[1]+'">'+commonEsc(v)+'</span>';}
+function renderCommonReferenceSummary(rows){var e=document.getElementById('common-reference-summary');if(!e)return;if(commonReferenceMode!=='common'){e.innerHTML='';return;}var c={'WB + Ozon':0,'WB only':0,'Ozon only':0,'unmatched':0};rows.forEach(function(r){c[r.match_state]++;});e.innerHTML=Object.keys(c).map(function(s){return commonReferenceBadge(s)+' <b>'+c[s]+'</b>';}).join(' ');}
+function renderCommonReferenceTable(rows){var e=document.getElementById('common-reference-tabulator');if(!e||typeof Tabulator==='undefined')return;if(commonReferenceTabulator)commonReferenceTabulator.destroy();commonReferenceTabulator=new Tabulator(e,{data:rows,layout:'fitColumns',height:'calc(100vh - 240px)',placeholder:'Общие товары ещё не созданы',index:'id',columns:[{title:'Объединённый артикул',field:'internal_sku',minWidth:150,headerFilter:'input'},{title:'Товар',field:'name',minWidth:210,headerFilter:'input'},{title:'Бренд',field:'brand',width:120,headerFilter:'input'},{title:'WB артикулы',field:'wb_articles',minWidth:150,headerFilter:'input'},{title:'Ozon артикулы',field:'ozon_articles',minWidth:150,headerFilter:'input'},{title:'Связь',field:'match_state',width:120,formatter:function(c){return commonReferenceBadge(c.getValue());}},{title:'',field:'id',width:175,headerSort:false,formatter:function(){return '<button type="button" class="btn btn-outline" style="padding:4px 8px;font-size:.78em">+ Добавить к сопоставлению</button>';},cellClick:function(ev,c){openCommonMatchModal(c.getValue());}}]});}
+function renderCommonOzonTable(){var e=document.getElementById('common-reference-ozon-tabulator');if(!e||typeof Tabulator==='undefined')return;var rows=[];commonReferenceProducts.forEach(function(p){(p.listings||[]).filter(function(x){return commonMarketplace(x.marketplace)==='Ozon';}).forEach(function(x){rows.push({id:x.id,article:commonListingLabel(x),title:x.title||p.name,brand:p.brand||'',common_sku:p.internal_sku||'',variants:(x.variants||[]).map(function(v){return v.variant_name||v.external_variant_id;}).filter(Boolean).join(', ')});});});if(commonReferenceOzonTabulator)commonReferenceOzonTabulator.destroy();commonReferenceOzonTabulator=new Tabulator(e,{data:rows,layout:'fitColumns',height:'calc(100vh - 240px)',placeholder:'Ozon-артикулы пока не загружены',columns:[{title:'Артикул Ozon',field:'article',minWidth:150,headerFilter:'input'},{title:'Товар',field:'title',minWidth:230,headerFilter:'input'},{title:'Бренд',field:'brand',width:130,headerFilter:'input'},{title:'Размер / вариант',field:'variants',minWidth:140},{title:'Объединённый артикул',field:'common_sku',minWidth:150}]});}
+function switchCommonReferenceMode(mode){commonReferenceMode=mode;['wb','ozon','common'].forEach(function(n){var p=document.getElementById('common-reference-'+n+'-panel'),b=document.getElementById('common-mode-'+n);if(p)p.style.display=n===mode?'':'none';if(b){b.style.background=n===mode?'#4f46e5':'#fff';b.style.color=n===mode?'#fff':'#555';}});var s=document.getElementById('common-reference-status');if(s)s.textContent=mode==='wb'?'Справочник Wildberries':(mode==='ozon'?'Справочник Ozon':'Сопоставление WB ↔ Ozon');renderCommonReferenceSummary(commonReferenceFlatten(commonReferenceProducts));if(mode==='ozon')renderCommonOzonTable();if(mode==='common')renderCommonReferenceTable(commonReferenceFlatten(commonReferenceProducts));}
+async function loadAllCommonProducts(org){var items=[],offset=0;while(true){var r=await fetch('/api/v1/commerce/products?org_id='+encodeURIComponent(org)+'&limit=200&offset='+offset,{headers:{'Authorization':'Bearer '+TOKEN}}),d=await r.json();if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));items=items.concat(d.items||[]);if((d.returned||0)<200)break;offset+=d.returned;}return items;}
+async function loadCommonReference(){var org=getCurrentOrgId();if(!org)return;try{commonReferenceProducts=await loadAllCommonProducts(org);switchCommonReferenceMode(commonReferenceMode);}catch(err){var s=document.getElementById('common-reference-status');if(s)s.textContent='Ошибка загрузки: '+String(err.message||err);}}
+function openCommonMatchModal(id){commonMatchTargetId=id;var p=commonReferenceProducts.find(function(x){return x.id===id;}),m=document.getElementById('common-reference-match-modal'),t=document.getElementById('common-match-title'),q=document.getElementById('common-match-search');if(t)t.textContent='Добавить к «'+(p?(p.internal_sku||p.name):'сопоставлению')+'»';if(q)q.value='';if(m)m.style.display='flex';renderCommonMatchCandidates();}
+function closeCommonMatchModal(){var m=document.getElementById('common-reference-match-modal');if(m)m.style.display='none';commonMatchTargetId=null;}
+function renderCommonMatchCandidates(){var e=document.getElementById('common-match-candidates');if(!e)return;var q=String((document.getElementById('common-match-search')||{}).value||'').trim().toLowerCase(),a=[];commonReferenceProducts.forEach(function(p){if(p.id===commonMatchTargetId)return;(p.listings||[]).forEach(function(x){var s=[commonMarketplace(x.marketplace),commonListingLabel(x),x.title,p.name].join(' ').toLowerCase();if(!q||s.indexOf(q)>=0)a.push({listing:x,product:p});});});if(!a.length){e.innerHTML='<div style="padding:18px;color:#777;text-align:center">Подходящие артикулы не найдены</div>';return;}e.innerHTML=a.slice(0,100).map(function(i){return '<div style="display:flex;align-items:center;gap:10px;padding:9px;border-bottom:1px solid #eee"><b style="width:48px">'+commonEsc(commonMarketplace(i.listing.marketplace))+'</b><div style="flex:1"><div>'+commonEsc(commonListingLabel(i.listing))+'</div><small style="color:#777">'+commonEsc(i.listing.title||i.product.name)+'</small></div><button type="button" class="btn btn-outline" onclick="attachCommonListing(\''+i.listing.id+'\')">Добавить</button></div>';}).join('');}
+async function attachCommonListing(id){if(!commonMatchTargetId||!confirm('Добавить выбранный артикул к этому объединённому товару?'))return;var r=await fetch('/api/v1/commerce/products/'+encodeURIComponent(commonMatchTargetId)+'/attach-listing?org_id='+encodeURIComponent(getCurrentOrgId()),{method:'POST',headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({listing_id:id,reason:'Ручное сопоставление в Справочнике общем'})}),d=await r.json();if(!r.ok){alert(d.detail||('Ошибка '+r.status));return;}closeCommonMatchModal();await loadCommonReference();}
+function destroyCommonReference(){if(commonReferenceTabulator)commonReferenceTabulator.destroy();if(commonReferenceOzonTabulator)commonReferenceOzonTabulator.destroy();commonReferenceTabulator=commonReferenceOzonTabulator=null;}

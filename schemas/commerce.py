@@ -58,6 +58,19 @@ class ProductPageRead(BaseModel):
     returned: int
 
 
+class ListingAttachRequest(BaseModel):
+    listing_id: UUID
+    reason: Optional[str] = None
+
+
+class ListingAttachResult(BaseModel):
+    listing_id: UUID
+    previous_product_id: Optional[UUID] = None
+    product_id: UUID
+    matched_variants: int
+    unmatched_variants: int
+
+
 class LegacyWbResolutionRead(BaseModel):
     organization_id: UUID
     marketplace_account_id: UUID

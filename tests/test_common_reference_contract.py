@@ -22,14 +22,20 @@ def test_common_reference_reuses_existing_reference_workflow():
     assert "loadCostPrices()" in enter_block
 
 
-def test_common_reference_neutral_layer_is_read_only():
+def test_common_reference_has_three_modes_and_matching():
     assert "/api/v1/commerce/products?" in SCRIPT
-    assert "method:" not in SCRIPT
+    assert "switchCommonReferenceMode('wb')" in TEMPLATE
+    assert "switchCommonReferenceMode('ozon')" in TEMPLATE
+    assert "switchCommonReferenceMode('common')" in TEMPLATE
+    assert "attach-listing" in SCRIPT
+    assert "Добавить к сопоставлению" in SCRIPT
     assert "WB + Ozon" in SCRIPT
     assert "WB only" in SCRIPT
     assert "Ozon only" in SCRIPT
     assert "unmatched" in SCRIPT
-    assert "PostgreSQL 16 migration drill" in TEMPLATE
+    assert "common-reference-wb-panel" in TEMPLATE
+    assert "common-reference-ozon-panel" in TEMPLATE
+    assert "common-reference-common-panel" in TEMPLATE
 
 
 def test_common_reference_is_reloaded_for_org_switches():
@@ -38,4 +44,4 @@ def test_common_reference_is_reloaded_for_org_switches():
 
 
 def test_common_reference_asset_is_loaded():
-    assert "/static/js/common-reference.js?v=20261123-1" in TEMPLATE
+    assert "/static/js/common-reference.js?v=20261126-1" in TEMPLATE

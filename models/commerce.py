@@ -152,6 +152,36 @@ class MarketplaceListing(Base):
     )
 
 
+class MarketplaceMatchingEvent(Base):
+    __tablename__ = "marketplace_matching_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    marketplace_listing_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("marketplace_listings.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    previous_product_id = Column(
+        UUID(as_uuid=True), ForeignKey("products.id", ondelete="SET NULL"), nullable=True
+    )
+    product_id = Column(
+        UUID(as_uuid=True), ForeignKey("products.id", ondelete="SET NULL"), nullable=True
+    )
+    action = Column(String(30), nullable=False)
+    reason = Column(String(500), nullable=True)
+    created_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class ListingVariant(Base):
     __tablename__ = "listing_variants"
 

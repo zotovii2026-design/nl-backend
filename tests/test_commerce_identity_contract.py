@@ -73,11 +73,11 @@ def test_existing_wb_models_remain_unchanged_by_new_model_module():
     assert "nm_id = Column" not in source
 
 
-def test_neutral_api_is_read_only_and_tenant_protected():
+def test_neutral_api_is_tenant_protected_and_matching_is_explicit():
     source = ROUTER_PATH.read_text(encoding="utf-8")
     assert "dependencies=[Depends(require_query_organization_access)]" in source
     assert source.count("@router.get(") == 4
-    assert "@router.post(" not in source
+    assert '@router.post("/products/{product_id}/attach-listing"' in source
     assert "@router.put(" not in source
     assert "@router.patch(" not in source
     assert "@router.delete(" not in source

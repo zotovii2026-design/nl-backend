@@ -200,7 +200,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/opiu-grid.js?v=20260803-reference-style-tree"></script>
 <!-- Cost Grid Module -->
 <script type="text/javascript" src="/static/js/cost-grid.js?v=20260820-acquiring"></script>
-<script type="text/javascript" src="/static/js/common-reference.js?v=20261123-1"></script>
+<script type="text/javascript" src="/static/js/common-reference.js?v=20261126-1"></script>
 <script type="text/javascript" src="/static/js/nl-filters.js?v=20260809-filter-id1"></script>
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260820-fixes"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
@@ -1564,27 +1564,32 @@ var _sectionHTML = {
 </div>`,
 };
 
-// Новый раздел переиспользует доказанный интерфейс Справочника без дублирования
-// бизнес-логики. Neutral overview развивается отдельно над совместимым WB-слоем.
+// Новый раздел развиваем параллельно; старый Справочник остаётся без изменений.
 _sectionHTML.commonref = `
-<div style="margin-bottom:14px;padding:14px 16px;background:#fff;border:1px solid #ddd;border-radius:8px">
-  <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
-    <div>
-      <div style="font-size:1.05em;font-weight:700;color:#333">Единые товары WB + Ozon</div>
-      <div id="common-reference-status" style="margin-top:4px;color:#777;font-size:.82em">Загрузка общих товаров…</div>
-    </div>
-    <div id="common-reference-summary" style="margin-left:auto;display:flex;align-items:center;gap:5px;flex-wrap:wrap"></div>
+<div style="margin-bottom:14px;padding:10px 12px;background:#fff;border:1px solid #ddd;border-radius:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+  <div style="display:flex;gap:4px;padding:3px;background:#f1f2f6;border-radius:7px">
+    <button id="common-mode-wb" type="button" onclick="switchCommonReferenceMode('wb')" class="btn btn-outline">WB</button>
+    <button id="common-mode-ozon" type="button" onclick="switchCommonReferenceMode('ozon')" class="btn btn-outline">Ozon</button>
+    <button id="common-mode-common" type="button" onclick="switchCommonReferenceMode('common')" class="btn btn-outline">Общий</button>
   </div>
-  <div style="margin-top:10px;padding:9px 11px;background:#f7f5ff;border:1px solid #e2dcff;border-radius:6px;color:#55458f;font-size:.82em">
-    Первый безопасный slice: neutral identity доступна только для просмотра. Сопоставление, смена и разрыв связи будут включены после PostgreSQL 16 migration drill.
+  <div id="common-reference-status" style="color:#777;font-size:.82em">Загрузка…</div>
+  <div id="common-reference-summary" style="margin-left:auto;display:flex;align-items:center;gap:5px;flex-wrap:wrap"></div>
+</div>
+<div id="common-reference-common-panel" style="display:none">
+  <div id="common-reference-tabulator" style="min-height:260px;width:100%"></div>
+</div>
+<div id="common-reference-ozon-panel" style="display:none">
+  <div id="common-reference-ozon-tabulator" style="min-height:260px;width:100%"></div>
+</div>
+<div id="common-reference-wb-panel">` + _sectionHTML.costprice + `</div>
+<div id="common-reference-match-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:120;align-items:center;justify-content:center" onclick="if(event.target===this)closeCommonMatchModal()">
+  <div style="background:#fff;border-radius:10px;padding:18px;width:760px;max-width:94vw;max-height:82vh;overflow:auto">
+    <button type="button" onclick="closeCommonMatchModal()" style="float:right;border:none;background:none;font-size:1.2em;cursor:pointer">✕</button>
+    <div id="common-match-title" style="font-size:1.05em;font-weight:700;margin-bottom:10px">Добавить к сопоставлению</div>
+    <input id="common-match-search" type="search" placeholder="Артикул, SKU или название" oninput="renderCommonMatchCandidates()" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;margin-bottom:10px">
+    <div id="common-match-candidates"></div>
   </div>
-  <div id="common-reference-tabulator" style="margin-top:12px;min-height:180px;width:100%"></div>
-</div>
-<div style="display:flex;align-items:center;gap:8px;margin:18px 0 10px">
-  <div style="font-size:1.05em;font-weight:700;color:#333">Настройки товаров</div>
-  <span style="font-size:.78em;color:#777">переиспользован действующий Справочник WB</span>
-</div>
-` + _sectionHTML.costprice;
+</div>`;
 
 function _lazyInit(name) {
     var html = _sectionHTML[name];

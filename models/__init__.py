@@ -28,6 +28,7 @@ from models.commerce import (
     ListingVariant,
     MarketplaceAccount,
     MarketplaceListing,
+    MarketplaceMatchingEvent,
     Product,
     ProductVariant,
     VariantBarcode,
