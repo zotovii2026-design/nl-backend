@@ -21,6 +21,7 @@ cleanup() {
     git -C "$SOURCE_REPO" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+trap 'echo "drill_failed line=$LINENO command=$BASH_COMMAND" >&2' ERR
 
 [[ -s "$DUMP" ]] || { echo "missing dump: $DUMP" >&2; exit 1; }
 git -C "$SOURCE_REPO" fetch origin rollout/common-reference
