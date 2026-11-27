@@ -205,6 +205,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <script type="text/javascript" src="/static/js/ue-grid.js?v=20260820-fixes"></script>
 <script type="text/javascript" src="/static/js/promo-grid.js?v=20260708e"></script>
 <script type="text/javascript" src="/static/js/nl-page-prefs.js?v=2"></script>
+<script type="text/javascript" src="/static/js/marketplace-connections.js?v=20261127-1"></script>
 <script type="text/javascript" src="/static/js/ads-grid.js?v=20260812-ads-art-clean1"></script>
 <script type="text/javascript" src="/static/js/ads-arts-grid.js?v=20260812-ads-art-clean1"></script>
 <script type="text/javascript" src="/static/js/strategy-milestones.js?v=20260715a"></script>
@@ -264,6 +265,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div class="nav-group">
 <div class="nav-label">Остальное</div>
 <a class="nav-item" onclick="navTo('connectors',this)"><span class="icon">🔌</span>Подключения</a>
+<a class="nav-item" onclick="navTo('marketconnections',this)"><span class="icon">🔐</span>Подключения WB/Ozon</a>
 <a class="nav-item" onclick="navTo('subscription',this)"><span class="icon">💳</span>Подписка</a>
 <a class="nav-item" onclick="navTo('settings',this)"><span class="icon">⚙️</span>Настройки</a>
 <a class="nav-item" onclick="navTo('help',this)"><span class="icon">❓</span>Помощь</a>
@@ -368,6 +370,7 @@ th.sortable.desc::after { content: ' ↓'; opacity: 1; }
 <div id="page-unitecon" class="page-section"></div>
 <div id="page-promo" class="page-section"></div>
 <div id="page-connectors" class="page-section"></div>
+<div id="page-marketconnections" class="page-section"></div>
 <div id="page-subscription" class="page-section"></div>
 <div id="page-help" class="page-section"></div>
 <div id="page-settings" class="page-section"></div>
@@ -687,6 +690,7 @@ var _sectionRegistry = {
     unitecon:   { title:'Юнит Экономика' },
     promo:      { title:'Акции' },
     connectors: { title:'Подключения' },
+    marketconnections: { title:'Подключения WB/Ozon' },
     subscription:{ title:'Подписка' },
     settings:   { title:'Настройки' },
     help:       { title:'Помощь' }
@@ -1301,6 +1305,7 @@ var _sectionHTML = {
 
 </div>
 `,
+    'marketconnections': `<div id="marketplace-connections-root"></div>`,
     'subscription': `
 <div style="max-width:900px;margin:0 auto;padding:20px;text-align:center">
 <h3 style="color:#6c5ce7;margin-bottom:24px">Тарифные планы</h3>
@@ -1602,7 +1607,7 @@ function _clearSection(id) {
 }
 
 async function _sectionEnter(name) {
-    if (!ORG_ID && !['connectors', 'subscription', 'settings', 'help'].includes(name)) {
+    if (!ORG_ID && !['connectors', 'marketconnections', 'subscription', 'settings', 'help'].includes(name)) {
         await navTo('connectors', document.querySelector('.nav-item[onclick*="connectors"]'));
         return;
     }
@@ -1674,6 +1679,9 @@ async function _sectionEnter(name) {
         case 'connectors':
             if (!_connectorsInited) { _lazyInit('connectors'); _connectorsInited = true; }
             loadProfile(); loadWbKeys(); break;
+        case 'marketconnections':
+            if (!_marketconnectionsInited) { _lazyInit('marketconnections'); _marketconnectionsInited = true; }
+            initMarketplaceConnections(); break;
         case 'subscription':
             if (!_subscriptionInited) { _lazyInit('subscription'); _subscriptionInited = true; }
             break;
@@ -1735,6 +1743,7 @@ async function _sectionLeave(name) {
             if (typeof promoTabulator !== 'undefined' && promoTabulator) { promoTabulator.destroy(); promoTabulator = null; }
             _clearSection('page-promo'); _promoInited = false; break;
         case 'connectors': _clearSection('page-connectors'); _connectorsInited = false; break;
+        case 'marketconnections': _clearSection('page-marketconnections'); _marketconnectionsInited = false; break;
         case 'subscription': _clearSection('page-subscription'); _subscriptionInited = false; break;
         case 'settings': _clearSection('page-settings'); _settingsInited = false; break;
         case 'help': _clearSection('page-help'); _helpInited = false; break;
@@ -1744,7 +1753,7 @@ async function _sectionLeave(name) {
 var _rnpState = null, _rnpInited = false, _rnpGroupsOpen = false, _rnpOpenGroups = new Set(), _adsInited = false, _analyticsInited = false;
 var _opiuInited = false, _costpriceInited = false, _commonrefInited = false, _salesplanInited = false, _warehousesInited = false;
 var _opexpensesInited = false, _marketerInited = false, _strategiesInited = false, _extadsInited = false, _fboneedsInited = false;
-var _uniteconInited = false, _promoInited = false, _connectorsInited = false, _subscriptionInited = false;
+var _uniteconInited = false, _promoInited = false, _connectorsInited = false, _marketconnectionsInited = false, _subscriptionInited = false;
 var _settingsInited = false, _helpInited = false;
 var _currentSection = 'stats';
 

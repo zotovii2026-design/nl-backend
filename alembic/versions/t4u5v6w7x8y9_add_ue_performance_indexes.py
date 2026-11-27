@@ -13,12 +13,15 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        'CREATE INDEX CONCURRENTLY IF NOT EXISTS '
-        'idx_wb_tariff_snap_org_nm_date_desc '
-        'ON wb_tariff_snapshot (organization_id, nm_id, target_date DESC)'
-    )
+    # PostgreSQL forbids CONCURRENTLY inside Alembic's transaction.
+    with op.get_context().autocommit_block():
+        op.execute(
+            'CREATE INDEX CONCURRENTLY IF NOT EXISTS '
+            'idx_wb_tariff_snap_org_nm_date_desc '
+            'ON wb_tariff_snapshot (organization_id, nm_id, target_date DESC)'
+        )
 
 
 def downgrade() -> None:
-    op.execute('DROP INDEX CONCURRENTLY IF EXISTS idx_wb_tariff_snap_org_nm_date_desc')
+    with op.get_context().autocommit_block():
+        op.execute('DROP INDEX CONCURRENTLY IF EXISTS idx_wb_tariff_snap_org_nm_date_desc')
