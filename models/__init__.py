@@ -33,6 +33,7 @@ from models.commerce import (
     ProductVariant,
     VariantBarcode,
 )
+from models.marketplace_credential import MarketplaceCredential, MarketplaceCredentialUseEvent
 from models.reference_book import ReferenceBook
 from models.wb_tariff_snapshot import WbTariffSnapshot
 from models.sales_plan import SalesPlan, PlanType, Seasonality
@@ -71,6 +72,8 @@ __all__ = [
     ListingVariant,
     VariantBarcode,
     LegacyProductEntityLink,
+    MarketplaceCredential,
+    MarketplaceCredentialUseEvent,
     ReferenceBook,
     WbTariffSnapshot,
     SalesPlan,
