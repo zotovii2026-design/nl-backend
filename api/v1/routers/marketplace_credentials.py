@@ -16,7 +16,9 @@ from schemas.marketplace_credentials import (
     MarketplaceCredentialRead,
     MarketplaceCredentialUpdate,
 )
-from services.marketplace_credentials import validate_capabilities
+from services.marketplace_credentials import validate_capabilities, verify_credential_auth
+from core.security import decrypt_data
+from datetime import datetime, timezone
 
 
 router = APIRouter(prefix="/api/v1/nl/marketplace-credentials", tags=["marketplace credentials"])
@@ -129,6 +131,44 @@ async def update_credential(
     return _read(item)
 
 
+@router.post("/{credential_id}/verify", response_model=MarketplaceCredentialRead)
+async def verify_credential(
+    credential_id: UUID,
+    org_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await require_organization_role(str(org_id), Role.ADMIN, current_user, db)
+    result = await db.execute(select(MarketplaceCredential).where(
+        MarketplaceCredential.id == credential_id,
+        MarketplaceCredential.organization_id == org_id,
+    ))
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "Подключение не найдено")
+    try:
+        check = await verify_credential_auth(
+            item.marketplace,
+            decrypt_data(item.encrypted_secret),
+            decrypt_data(item.encrypted_client_id) if item.encrypted_client_id else None,
+            list(item.capabilities or []),
+        )
+    except Exception as exc:
+        item.status = "error"
+        item.is_enabled = False
+        await db.commit()
+        raise HTTPException(502, "Не удалось выполнить безопасную проверку API") from exc
+    item.last_validated_at = datetime.now(timezone.utc)
+    item.status = "valid" if check["valid"] else "invalid"
+    if not check["valid"]:
+        item.is_enabled = False
+    await db.commit()
+    await db.refresh(item)
+    if not check["valid"]:
+        raise HTTPException(400, check.get("message", "Ключ не прошёл проверку"))
+    return _read(item)
+
+
 @router.delete("/{credential_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_credential(
     credential_id: UUID,
@@ -146,4 +186,3 @@ async def delete_credential(
         raise HTTPException(404, "Подключение не найдено")
     await db.delete(item)
     await db.commit()
-

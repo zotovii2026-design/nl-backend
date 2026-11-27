@@ -72,7 +72,8 @@
             '<span style="margin-left:auto;color:#999;font-size:.8em">Секрет скрыт' + (item.has_client_id ? ' · Client-Id сохранён' : '') + '</span>' +
           '</div><div style="margin-top:9px;display:flex;gap:6px;flex-wrap:wrap">' + caps + '</div>' +
           '<div style="margin-top:11px;display:flex;gap:8px">' +
-            '<button class="btn btn-outline" disabled title="Сначала будет добавлена проверка прав конкретного API">Проверить права</button>' +
+            '<button class="btn btn-outline" onclick="verifyMarketplaceCredential(\'' + esc(item.id) + '\')">Проверить авторизацию</button>' +
+            (item.status === 'valid' ? '<button class="btn btn-outline" onclick="toggleMarketplaceCredential(\'' + esc(item.id) + '\',' + (!item.is_enabled) + ')">' + (item.is_enabled ? 'Выключить' : 'Включить') + '</button>' : '') +
             '<button class="btn btn-outline" onclick="deleteMarketplaceCredential(\'' + esc(item.id) + '\')" style="color:#c9372c">Удалить</button>' +
           '</div></div>';
     }
@@ -142,5 +143,21 @@
         if (!response.ok) { const data = await response.json(); alert(data.detail || 'Не удалось удалить'); return; }
         await window.loadMarketplaceCredentials();
     };
-})();
 
+    window.verifyMarketplaceCredential = async function (id) {
+        const response = await fetch('/api/v1/nl/marketplace-credentials/' + encodeURIComponent(id) + '/verify?org_id=' + encodeURIComponent(orgId()), {method: 'POST'});
+        const data = await response.json();
+        if (!response.ok) { alert(data.detail || 'Ключ не прошёл проверку'); await window.loadMarketplaceCredentials(); return; }
+        alert('Авторизация подтверждена безопасным запросом только на чтение. Заявленные права записи проверятся при первой разрешённой операции.');
+        await window.loadMarketplaceCredentials();
+    };
+
+    window.toggleMarketplaceCredential = async function (id, enabled) {
+        const response = await fetch('/api/v1/nl/marketplace-credentials/' + encodeURIComponent(id) + '?org_id=' + encodeURIComponent(orgId()), {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({is_enabled: enabled})
+        });
+        const data = await response.json();
+        if (!response.ok) { alert(data.detail || 'Не удалось изменить состояние'); return; }
+        await window.loadMarketplaceCredentials();
+    };
+})();

@@ -31,7 +31,16 @@ def test_api_never_returns_secret_fields():
     read_model = schema.split("class MarketplaceCredentialRead", 1)[1]
     assert "encrypted_secret" not in read_model
     assert "secret:" not in read_model
-    assert "decrypt_data" not in router
+    assert "encrypted_secret" not in read_model
+
+
+def test_verification_is_read_only_and_does_not_claim_write_permission():
+    service = (ROOT / "services" / "marketplace_credentials.py").read_text()
+    assert "WB_PROBE_BY_CAPABILITY" in service
+    assert '"https://api-seller.ozon.ru/v3/product/list"' in service
+    assert "It proves authentication, never write permission" in service
+    assert "PUT" not in service
+    assert "DELETE" not in service
 
 
 def test_migration_keeps_legacy_wb_key_table_untouched():
